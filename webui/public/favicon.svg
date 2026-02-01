@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1e78d2"/>
+      <stop offset="100%" stop-color="#50be96"/>
+    </linearGradient>
+  </defs>
+  <circle cx="512" cy="512" r="470" fill="none" stroke="url(#grad)" stroke-width="36"/>
+  <path d="
+    M 72 512
+    A 220 220 0 1 1 512 512
+    A 220 220 0 1 1 952 512"
+    fill="none"
+    stroke="url(#grad)"
+    stroke-width="90"
+    stroke-linecap="round"/>
+  <text x="580" y="560"
+    font-size="120"
+    font-family="Inter, Arial, sans-serif"
+    font-weight="700"
+    fill="#1e78d2">use</text>
+</svg>

@@ -1,13 +1,13 @@
 import { APP_NAME } from "../constants";
 
 // Config file path using shell variable for runtime expansion
-const SHELL_CONFIG_FILE = "$HOME/.config/cc-switch/config.json";
+const SHELL_CONFIG_FILE = "$HOME/.config/cc-use/config.json";
 
-const BASH_COMPLETION = `# cc-switch bash completion
+const BASH_COMPLETION = `# cc-use bash completion
 # Add to ~/.bashrc or ~/.bash_profile:
-#   eval "$(cc-switch completion bash)"
+#   eval "$(cc-use completion bash)"
 
-_cc_switch_completions() {
+_cc_use_completions() {
     local cur prev words cword
     _init_completion 2>/dev/null || {
         cur="\${COMP_WORDS[COMP_CWORD]}"
@@ -20,7 +20,7 @@ _cc_switch_completions() {
     local defaults_subcmds="set edit rm remove"
 
     # Get profile names from config file
-    _cc_switch_profiles() {
+    _cc_use_profiles() {
         local config_file="${SHELL_CONFIG_FILE}"
         if [[ -f "$config_file" ]]; then
             grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$config_file" 2>/dev/null | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/'
@@ -37,7 +37,7 @@ _cc_switch_completions() {
             case "$prev" in
                 edit|rm|remove|use|export)
                     # Complete profile names
-                    local profiles=$(_cc_switch_profiles)
+                    local profiles=$(_cc_use_profiles)
                     COMPREPLY=($(compgen -W "$profiles" -- "$cur"))
                     ;;
                 import)
@@ -67,15 +67,15 @@ _cc_switch_completions() {
     esac
 }
 
-complete -F _cc_switch_completions ${APP_NAME}
+complete -F _cc_use_completions ${APP_NAME}
 `;
 
-const ZSH_COMPLETION = `#compdef cc-switch
-# cc-switch zsh completion
+const ZSH_COMPLETION = `#compdef cc-use
+# cc-use zsh completion
 # Add to ~/.zshrc:
-#   eval "$(cc-switch completion zsh)"
+#   eval "$(cc-use completion zsh)"
 
-_cc-switch() {
+_cc-use() {
     local -a commands profiles defaults_subcmds
 
     commands=(
@@ -91,7 +91,7 @@ _cc-switch() {
         'export:Export profiles to JSON'
         'import:Import profiles from JSON'
         'update:Check for updates'
-        'uninstall:Uninstall cc-switch'
+        'uninstall:Uninstall cc-use'
         'completion:Generate shell completion script'
     )
 
@@ -103,7 +103,7 @@ _cc-switch() {
     )
 
     # Get profile names from config file
-    _cc_switch_profiles() {
+    _cc_use_profiles() {
         local config_file="${SHELL_CONFIG_FILE}"
         if [[ -f "$config_file" ]]; then
             grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$config_file" 2>/dev/null | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/'
@@ -116,13 +116,13 @@ _cc-switch() {
 
     case $state in
         command)
-            _describe -t commands 'cc-switch commands' commands
+            _describe -t commands 'cc-use commands' commands
             ;;
         args)
             case $words[2] in
                 edit|rm|remove|use|export)
                     local -a profile_list
-                    profile_list=(\${(f)"$(_cc_switch_profiles)"})
+                    profile_list=(\${(f)"$(_cc_use_profiles)"})
                     _describe -t profiles 'profiles' profile_list
                     ;;
                 import)
@@ -144,17 +144,17 @@ _cc-switch() {
     esac
 }
 
-compdef _cc-switch cc-switch
+compdef _cc-use cc-use
 `;
 
-const FISH_COMPLETION = `# cc-switch fish completion
-# Add to ~/.config/fish/completions/cc-switch.fish:
-#   cc-switch completion fish > ~/.config/fish/completions/cc-switch.fish
+const FISH_COMPLETION = `# cc-use fish completion
+# Add to ~/.config/fish/completions/cc-use.fish:
+#   cc-use completion fish > ~/.config/fish/completions/cc-use.fish
 
 set -l commands add edit rm remove list ls use defaults config export import update uninstall completion
 
 # Get profile names
-function __cc_switch_profiles
+function __cc_use_profiles
     set -l config_file "${SHELL_CONFIG_FILE}"
     if test -f "$config_file"
         string match -r '"name"\\s*:\\s*"[^"]*"' < "$config_file" | string replace -r '.*"name"\\s*:\\s*"([^"]*)".*' '$1'
@@ -162,39 +162,39 @@ function __cc_switch_profiles
 end
 
 # Disable file completion by default
-complete -c cc-switch -f
+complete -c cc-use -f
 
 # Commands
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a add -d 'Add a new profile'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a edit -d 'Edit an existing profile'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a rm -d 'Remove a profile'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a list -d 'List all profiles'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a ls -d 'List all profiles'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a use -d 'Use a specific profile'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a defaults -d 'Manage default env vars'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a config -d 'Open config file in editor'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a export -d 'Export profiles to JSON'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a import -d 'Import profiles from JSON'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a update -d 'Check for updates'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a uninstall -d 'Uninstall cc-switch'
-complete -c cc-switch -n "not __fish_seen_subcommand_from $commands" -a completion -d 'Generate shell completion'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a add -d 'Add a new profile'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a edit -d 'Edit an existing profile'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a rm -d 'Remove a profile'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a list -d 'List all profiles'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a ls -d 'List all profiles'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a use -d 'Use a specific profile'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a defaults -d 'Manage default env vars'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a config -d 'Open config file in editor'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a export -d 'Export profiles to JSON'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a import -d 'Import profiles from JSON'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a update -d 'Check for updates'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a uninstall -d 'Uninstall cc-use'
+complete -c cc-use -n "not __fish_seen_subcommand_from $commands" -a completion -d 'Generate shell completion'
 
 # Profile name completion for edit/rm/use/export
-complete -c cc-switch -n "__fish_seen_subcommand_from edit rm remove use export" -a "(__cc_switch_profiles)"
+complete -c cc-use -n "__fish_seen_subcommand_from edit rm remove use export" -a "(__cc_use_profiles)"
 
 # File completion for import
-complete -c cc-switch -n "__fish_seen_subcommand_from import" -F -d 'JSON file'
+complete -c cc-use -n "__fish_seen_subcommand_from import" -F -d 'JSON file'
 
 # Defaults subcommands
-complete -c cc-switch -n "__fish_seen_subcommand_from defaults; and not __fish_seen_subcommand_from set edit rm remove" -a set -d 'Set default env vars'
-complete -c cc-switch -n "__fish_seen_subcommand_from defaults; and not __fish_seen_subcommand_from set edit rm remove" -a edit -d 'Edit defaults interactively'
-complete -c cc-switch -n "__fish_seen_subcommand_from defaults; and not __fish_seen_subcommand_from set edit rm remove" -a rm -d 'Remove default env vars'
+complete -c cc-use -n "__fish_seen_subcommand_from defaults; and not __fish_seen_subcommand_from set edit rm remove" -a set -d 'Set default env vars'
+complete -c cc-use -n "__fish_seen_subcommand_from defaults; and not __fish_seen_subcommand_from set edit rm remove" -a edit -d 'Edit defaults interactively'
+complete -c cc-use -n "__fish_seen_subcommand_from defaults; and not __fish_seen_subcommand_from set edit rm remove" -a rm -d 'Remove default env vars'
 
 # Config options
-complete -c cc-switch -n "__fish_seen_subcommand_from config" -l path -d 'Print config file path'
+complete -c cc-use -n "__fish_seen_subcommand_from config" -l path -d 'Print config file path'
 
 # Completion shell types
-complete -c cc-switch -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"
+complete -c cc-use -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"
 `;
 
 export function completionCommand(shell?: string): void {

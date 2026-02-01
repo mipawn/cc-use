@@ -1,181 +1,176 @@
-# cc-switch
+# cc-use
 
-一个用于管理多个 Claude Code 配置的 CLI 工具，支持快速切换不同 API 来源和密钥。
+一个用于管理多个 Claude Code / Codex CLI 配置的 CLI 工具，支持快速切换不同 API 来源和密钥。
 
 [English](./README.md)
 
+> **v1.0.0 重大变更**: 项目已从 `cc-switch` 更名为 `cc-use`。此版本与旧版 cc-switch 不兼容。请参阅 [从 v0.x 升级](#从-v0x-升级cc-switch) 了解迁移方法。
+
 ## 功能特性
 
-- 管理多个 Claude Code 配置文件，支持不同的 API 配置
-- **公共环境变量** - 所有配置共享的默认变量
-- **导入/导出** - 备份、分享和迁移配置
-- 交互式配置选择
-- `--set` 快速编辑单个变量
-- 直接编辑配置文件
+- **多 CLI 支持** - 同时管理 Claude Code 和 Codex CLI 供应商
+- **WebUI 管理** - 可视化界面管理供应商和配置
+- **公共环境变量** - 所有供应商共享（全局或按 CLI 类型）
+- **用量追踪** - 可选的供应商用量配额显示
+- 交互式供应商选择
 - 支持自更新
-- 跨平台支持（macOS、Linux、windows）
+- 跨平台支持（macOS、Linux、Windows）
 
 ## 安装
 
 ### 快速安装（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mipawn/cc-switch/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mipawn/cc-use/main/scripts/install.sh | bash
 ```
 
 ### 手动安装
 
-从 [Releases](https://github.com/mipawn/cc-switch/releases) 下载适合你平台的二进制文件，放到系统 PATH 目录中即可。
+从 [Releases](https://github.com/mipawn/cc-use/releases) 下载适合你平台的二进制文件，放到系统 PATH 目录中即可。
 
 ## 命令补全（Tab）
 
 安装时会自动配置命令补全。如果补全没生效，可手动添加：
 
 **Zsh:** 在 `~/.zshrc` 中添加：
+
 ```bash
 fpath=(~/.zsh/completions $fpath)
 autoload -Uz compinit && compinit
 ```
+
 然后生成补全文件：
+
 ```bash
 mkdir -p ~/.zsh/completions
-cc-switch completion zsh > ~/.zsh/completions/_cc-switch
+cc-use completion zsh > ~/.zsh/completions/_cc-use
 ```
 
 **Bash:**
+
 ```bash
 mkdir -p ~/.local/share/bash-completion/completions
-cc-switch completion bash > ~/.local/share/bash-completion/completions/cc-switch
+cc-use completion bash > ~/.local/share/bash-completion/completions/cc-use
 ```
 
 **Fish:**
+
 ```bash
 mkdir -p ~/.config/fish/completions
-cc-switch completion fish > ~/.config/fish/completions/cc-switch.fish
+cc-use completion fish > ~/.config/fish/completions/cc-use.fish
 ```
 
 ## 卸载
 
 ```bash
-cc-switch uninstall
+cc-use uninstall
 ```
 
 ## 使用方法
 
 ### 交互模式
 
-直接运行 `cc-switch` 进入交互式配置选择：
+直接运行 `cc-use` 进入交互式供应商选择：
 
 ```bash
-cc-switch
+cc-use
 ```
 
 ### 命令列表
 
-| 命令                              | 说明                        |
-| --------------------------------- | --------------------------- |
-| `cc-switch`                       | 交互式选择配置并启动 claude |
-| `cc-switch add [name] [K=V ...]`  | 添加新配置                  |
-| `cc-switch edit <name>`           | 交互式编辑配置              |
-| `cc-switch edit <name> --set K=V` | 快速更新环境变量            |
-| `cc-switch edit <name> --rm KEY`  | 快速删除环境变量            |
-| `cc-switch rm <name>`             | 删除配置                    |
-| `cc-switch list`                  | 显示所有配置                |
-| `cc-switch use <name> [args]`     | 使用指定配置启动 claude     |
-| `cc-switch defaults`              | 显示公共环境变量            |
-| `cc-switch defaults set K=V`      | 设置公共环境变量            |
-| `cc-switch defaults edit`         | 交互式编辑公共变量          |
-| `cc-switch defaults rm KEY`       | 删除公共环境变量            |
-| `cc-switch config`                | 用编辑器打开配置文件        |
-| `cc-switch config --path`         | 显示配置文件路径            |
-| `cc-switch export [name]`         | 导出配置到 JSON             |
-| `cc-switch import <file>`         | 从 JSON 导入配置            |
-| `cc-switch update`                | 检查并安装更新              |
-| `cc-switch uninstall`             | 卸载 cc-switch              |
-| `cc-switch --help`                | 显示帮助信息                |
-| `cc-switch --version`             | 显示版本号                  |
+| 命令                        | 说明                       |
+| --------------------------- | -------------------------- |
+| `cc-use`                    | 交互式选择供应商并启动 CLI |
+| `cc-use list`               | 显示所有供应商             |
+| `cc-use list --type claude` | 仅显示 Claude Code 供应商  |
+| `cc-use list --type codex`  | 仅显示 Codex CLI 供应商    |
+| `cc-use config`             | 打开 WebUI 管理供应商      |
+| `cc-use update`             | 检查并安装更新             |
+| `cc-use uninstall`          | 卸载 cc-use                |
+| `cc-use completion <shell>` | 生成 shell 补全脚本        |
+| `cc-use --help`             | 显示帮助信息               |
+| `cc-use --version`          | 显示版本号                 |
+
+### 支持的 CLI 类型
+
+| 图标 | 类型     | 说明        |
+| ---- | -------- | ----------- |
+| 🟠   | `claude` | Claude Code |
+| 🟢   | `codex`  | Codex CLI   |
 
 ### 使用示例
 
 ```bash
-# 添加新配置（交互式）
-cc-switch add
+# 交互式选择
+cc-use
 
-# 添加配置并直接指定环境变量
-cc-switch add myprofile ANTHROPIC_BASE_URL=https://api.example.com ANTHROPIC_AUTH_TOKEN=sk-xxx
+# 显示所有供应商
+cc-use list
 
-# 快速修改单个变量
-cc-switch edit myprofile --set ANTHROPIC_BASE_URL=https://newurl.com
+# 仅显示 Claude Code 供应商
+cc-use list --type claude
 
-# 删除配置中的某个变量
-cc-switch edit myprofile --rm API_TIMEOUT_MS
-
-# 设置公共环境变量（所有配置共享）
-cc-switch defaults set API_TIMEOUT_MS=300000 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-
-# 直接编辑配置文件
-cc-switch config
-
-# 使用配置并传递 claude 参数
-cc-switch use myprofile --dangerously-skip-permissions
-
-# 导出所有配置到文件
-cc-switch export > backup.json
-
-# 导出单个配置
-cc-switch export myprofile > single.json
-
-# 从文件导入配置
-cc-switch import backup.json
-
-# 强制覆盖导入
-cc-switch import backup.json --force
+# 打开 WebUI 管理供应商
+cc-use config
 
 # 检查并安装更新
-cc-switch update
-
-# 如果更新因权限问题失败，会提示是否使用 sudo 重试
-# 也可以直接使用 sudo 运行：
-sudo cc-switch update
+cc-use update
 ```
 
 ## 配置说明
 
-配置文件存储在 `~/.config/cc-switch/config.json`。
+### WebUI 管理
 
-### 配置格式
+运行 `cc-use config` 打开 WebUI（`http://localhost:9527`）。WebUI 支持：
+
+- 添加、编辑、删除供应商
+- 配置公共环境变量（全局或按 CLI 类型）
+- 设置供应商用量追踪
+- 拖拽排序供应商
+
+### 配置文件
+
+配置文件存储在 `~/.config/cc-use/config.json`。
+
+### 配置格式（v3）
 
 ```json
 {
-  "version": "1",
-  "defaults": {
-    "API_TIMEOUT_MS": "300000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  "version": "3",
+  "common": {
+    "_global": {
+      "API_TIMEOUT_MS": "300000"
+    },
+    "claude": {
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    },
+    "codex": {}
   },
-  "profiles": [
+  "providers": [
     {
+      "id": "1234567890-abc123",
       "name": "my-api",
+      "type": "claude",
       "description": "我的 API 代理",
       "env": {
         "ANTHROPIC_BASE_URL": "https://api.example.com",
         "ANTHROPIC_AUTH_TOKEN": "sk-xxx"
-      }
+      },
+      "order": 0
     }
   ]
 }
 ```
 
-### 公共变量（defaults）
+### 公共环境变量
 
-公共环境变量会被所有配置共享。如果配置中定义了同名变量，配置中的值会覆盖公共变量。
+公共环境变量会被所有供应商共享，可在三个层级配置：
 
-```bash
-# 设置公共变量
-cc-switch defaults set API_TIMEOUT_MS=300000
+- **全局（`_global`）** - 应用于所有供应商，不区分 CLI 类型
+- **Claude（`claude`）** - 仅应用于 Claude Code 供应商
+- **Codex（`codex`）** - 仅应用于 Codex CLI 供应商
 
-# 现在所有配置都会有 API_TIMEOUT_MS=300000
-# 除非配置中自己定义了不同的值
-```
+供应商自身的变量优先级高于公共变量。
 
 ### 常用环境变量
 
@@ -187,48 +182,14 @@ cc-switch defaults set API_TIMEOUT_MS=300000
 | `API_TIMEOUT_MS`                           | API 请求超时时间（毫秒）   |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | 禁用遥测                   |
 
-### 导入/导出
-
-在不同机器间备份、分享或迁移配置。
-
-```bash
-# 导出所有配置（包含公共变量）
-cc-switch export > backup.json
-
-# 导出指定配置
-cc-switch export myprofile > single.json
-
-# 导出时不包含公共变量
-cc-switch export --no-defaults > profiles-only.json
-
-# 从文件导入
-cc-switch import backup.json
-
-# 强制覆盖导入（跳过确认）
-cc-switch import backup.json --force
-
-# 导入时不包含公共变量
-cc-switch import backup.json --no-defaults
-```
-
-**导出选项：**
-- `--no-defaults` - 不包含公共变量
-
-**导入选项：**
-- `--force` / `-f` - 覆盖已存在的配置，跳过确认
-- `--merge-defaults` - 自动合并公共变量
-- `--no-defaults` - 不导入公共变量
-
-> ⚠️ **安全提示：** 导出文件可能包含敏感数据（API 密钥、令牌），请妥善保管。
-
 ## 工作原理
 
-cc-switch 通过子进程方式启动 Claude Code，并将配置中的环境变量传入子进程。环境变量在运行时合并：`defaults` + `profile.env`（配置优先）。
+cc-use 通过子进程方式启动 CLI（Claude Code 或 Codex），并将配置中的环境变量传入子进程。环境变量在运行时合并：`common._global` + `common.<type>` + `provider.env`（供应商优先）。
 
 ```typescript
-// 合并顺序：defaults -> profile.env -> process.env
-const mergedEnv = { ...defaults, ...profile.env };
-spawn("claude", args, {
+// 合并顺序：common._global -> common.<type> -> provider.env -> process.env
+const mergedEnv = { ...common._global, ...common[type], ...provider.env };
+spawn(cliCommand, args, {
   env: { ...process.env, ...mergedEnv },
   stdio: "inherit",
 });
@@ -251,19 +212,71 @@ $env:ANTHROPIC_BASE_URL="https://api.example.com"; $env:ANTHROPIC_AUTH_TOKEN="sk
 ```bash
 # 安装依赖
 bun install
+cd webui && bun install && cd ..
 
-# 开发模式运行
-bun run src/index.ts
+# 开发模式运行 CLI
+bun run dev
 
-# 构建二进制文件
+# 开发模式运行 WebUI（另开终端）
+bun run dev:webui
+
+# 构建二进制文件（包含 WebUI）
 bun run build
+
+# 构建所有平台
+bun run build:all
 ```
+
+### 构建脚本
+
+| 脚本                  | 说明                              |
+| --------------------- | --------------------------------- |
+| `bun run dev`         | 开发模式运行 CLI                  |
+| `bun run dev:webui`   | 开发模式运行 WebUI（Vite）        |
+| `bun run build:webui` | 构建 WebUI                        |
+| `bun run embed:webui` | 将 WebUI 嵌入 CLI                 |
+| `bun run build`       | 构建 CLI 二进制文件（包含 WebUI） |
+| `bun run build:cli`   | 仅构建 CLI 二进制文件             |
+| `bun run build:all`   | 构建所有平台                      |
 
 ## 支持平台
 
 - macOS（Apple Silicon / Intel）
 - Linux（x64）
 - Windows（x64）
+
+## 从 v0.1.3 升级（cc-switch）
+
+**v1.0.0 与旧版 cc-switch 不兼容。** 项目已从 `cc-switch` 更名为 `cc-use`，配置格式也已变更。
+
+### 卸载旧版本
+
+```bash
+# 卸载 cc-switch（旧名称）
+cc-switch uninstall
+
+# 然后安装 cc-use v1.0.0
+curl -fsSL https://raw.githubusercontent.com/mipawn/cc-use/main/scripts/install.sh | bash
+```
+
+### 手动删除（如果 cc-switch uninstall 无法使用 或者 版本比较旧）
+
+```bash
+# 删除二进制文件
+sudo rm /usr/local/bin/cc-switch
+
+# 删除旧配置（可选，路径不同）
+rm -rf ~/.config/cc-switch
+
+# 删除 shell 补全
+rm -f ~/.zsh/completions/_cc-switch
+rm -f ~/.local/share/bash-completion/completions/cc-switch
+rm -f ~/.config/fish/completions/cc-switch.fish
+
+# 删除 shell 配置中添加的内容（如有）
+# 编辑 ~/.zshrc 删除 cc-switch 补全相关的行
+# 编辑 ~/.bashrc 删除 cc-switch 补全相关的行
+```
 
 ## 开源协议
 

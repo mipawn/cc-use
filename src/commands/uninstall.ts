@@ -5,7 +5,7 @@ import { join } from "path";
 import { existsSync, unlinkSync, rmSync } from "fs";
 import { APP_NAME, CONFIG_DIR } from "../constants";
 
-const INSTALL_PATH = "/usr/local/bin/cc-switch";
+const INSTALL_PATH = "/usr/local/bin/cc-use";
 
 const COMPLETION_FILES = [
   join(homedir(), ".zsh/completions", `_${APP_NAME}`),
@@ -14,13 +14,13 @@ const COMPLETION_FILES = [
 ];
 
 export async function uninstallCommand(): Promise<void> {
-  console.log("\nThis will uninstall cc-switch and remove:\n");
+  console.log("\nThis will uninstall cc-use and remove:\n");
   console.log(`  • Binary: ${INSTALL_PATH}`);
   console.log(`  • Config: ${CONFIG_DIR}`);
   console.log(`  • Completion files\n`);
 
   const confirmed = await confirm({
-    message: "Are you sure you want to uninstall cc-switch?",
+    message: "Are you sure you want to uninstall cc-use?",
     default: false,
   });
 
@@ -63,8 +63,8 @@ export async function uninstallCommand(): Promise<void> {
     }
   }
 
-  console.log("\n✓ cc-switch uninstalled.");
+  console.log("\n✓ cc-use uninstalled.");
   console.log("\nNote: If completions were added to ~/.zshrc, remove these lines manually:");
-  console.log('  - Lines containing "cc-switch completions"');
+  console.log('  - Lines containing "cc-use completions"');
   console.log('  - Lines containing "fpath=(~/.zsh/completions"');
 }

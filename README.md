@@ -1,31 +1,32 @@
-# cc-switch
+# cc-use
 
-A CLI tool for managing multiple Claude Code configurations. Quickly switch between different API endpoints and keys.
+A CLI tool for managing multiple Claude Code / Codex CLI configurations. Quickly switch between different API endpoints and keys.
 
 [中文文档](./README_CN.md)
 
+> **Breaking Change in v1.0.0**: The project has been renamed from `cc-switch` to `cc-use`. This version is NOT compatible with the old cc-switch. See [Upgrading from v0.x](#upgrading-from-v0x-cc-switch) for migration instructions.
+
 ## Features
 
-- Manage multiple Claude Code profiles with different API configurations
-- **Default environment variables** - shared across all profiles
-- **Import/Export** - backup, share, and migrate configurations
-- Interactive profile selection
-- Quick edit with `--set` flag
-- Direct config file editing
+- **Multi-CLI Support** - Manage both Claude Code and Codex CLI providers
+- **WebUI Management** - Visual interface for managing providers and configurations
+- **Common Environment Variables** - Shared across all providers (global or per CLI type)
+- **Usage Tracking** - Optional usage quota display for providers
+- Interactive provider selection
 - Self-update support
-- Cross-platform (macOS, Linux)
+- Cross-platform (macOS, Linux, Windows)
 
 ## Installation
 
 ### Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mipawn/cc-switch/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mipawn/cc-use/main/scripts/install.sh | bash
 ```
 
 ### Manual Install
 
-Download the binary for your platform from [Releases](https://github.com/mipawn/cc-switch/releases) and place it in your PATH.
+Download the binary for your platform from [Releases](https://github.com/mipawn/cc-use/releases) and place it in your PATH.
 
 ## Shell Completion (Tab)
 
@@ -39,145 +40,134 @@ autoload -Uz compinit && compinit
 Then generate completion file:
 ```bash
 mkdir -p ~/.zsh/completions
-cc-switch completion zsh > ~/.zsh/completions/_cc-switch
+cc-use completion zsh > ~/.zsh/completions/_cc-use
 ```
 
 **Bash:**
 ```bash
 mkdir -p ~/.local/share/bash-completion/completions
-cc-switch completion bash > ~/.local/share/bash-completion/completions/cc-switch
+cc-use completion bash > ~/.local/share/bash-completion/completions/cc-use
 ```
 
 **Fish:**
 ```bash
 mkdir -p ~/.config/fish/completions
-cc-switch completion fish > ~/.config/fish/completions/cc-switch.fish
+cc-use completion fish > ~/.config/fish/completions/cc-use.fish
 ```
 
 ## Uninstall
 
 ```bash
-cc-switch uninstall
+cc-use uninstall
 ```
 
 ## Usage
 
 ### Interactive Mode
 
-Simply run `cc-switch` to interactively select a profile:
+Simply run `cc-use` to interactively select a provider:
 
 ```bash
-cc-switch
+cc-use
 ```
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `cc-switch` | Interactive profile selection and launch claude |
-| `cc-switch add [name] [K=V ...]` | Add a new profile |
-| `cc-switch edit <name>` | Edit profile interactively |
-| `cc-switch edit <name> --set K=V` | Quick update env vars |
-| `cc-switch edit <name> --rm KEY` | Quick remove env vars |
-| `cc-switch rm <name>` | Remove a profile |
-| `cc-switch list` | List all profiles |
-| `cc-switch use <name> [args]` | Launch claude with specific profile |
-| `cc-switch defaults` | List default env vars |
-| `cc-switch defaults set K=V` | Set default env vars |
-| `cc-switch defaults edit` | Edit defaults interactively |
-| `cc-switch defaults rm KEY` | Remove default env vars |
-| `cc-switch config` | Open config file in editor |
-| `cc-switch config --path` | Print config file path |
-| `cc-switch export [name]` | Export profiles to JSON |
-| `cc-switch import <file>` | Import profiles from JSON |
-| `cc-switch update` | Check and install updates |
-| `cc-switch uninstall` | Uninstall cc-switch |
-| `cc-switch --help` | Show help message |
-| `cc-switch --version` | Show version |
+| `cc-use` | Interactive provider selection and launch CLI |
+| `cc-use list` | List all providers |
+| `cc-use list --type claude` | List only Claude Code providers |
+| `cc-use list --type codex` | List only Codex CLI providers |
+| `cc-use config` | Open WebUI to manage providers |
+| `cc-use update` | Check and install updates |
+| `cc-use uninstall` | Uninstall cc-use |
+| `cc-use completion <shell>` | Generate shell completion script |
+| `cc-use --help` | Show help message |
+| `cc-use --version` | Show version |
+
+### Supported CLI Types
+
+| Icon | Type | Description |
+|------|------|-------------|
+| 🟠 | `claude` | Claude Code |
+| 🟢 | `codex` | Codex CLI |
 
 ### Examples
 
 ```bash
-# Add a new profile (interactive)
-cc-switch add
+# Interactive selection
+cc-use
 
-# Add with inline env vars
-cc-switch add myprofile ANTHROPIC_BASE_URL=https://api.example.com ANTHROPIC_AUTH_TOKEN=sk-xxx
+# List all providers
+cc-use list
 
-# Quick edit a single variable
-cc-switch edit myprofile --set ANTHROPIC_BASE_URL=https://newurl.com
+# List only Claude Code providers
+cc-use list --type claude
 
-# Remove a variable from profile
-cc-switch edit myprofile --rm API_TIMEOUT_MS
-
-# Set default env vars (shared by all profiles)
-cc-switch defaults set API_TIMEOUT_MS=300000 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-
-# Edit config file directly
-cc-switch config
-
-# Use a profile with additional claude arguments
-cc-switch use myprofile --dangerously-skip-permissions
-
-# Export all profiles to a file
-cc-switch export > backup.json
-
-# Export a single profile
-cc-switch export myprofile > single.json
-
-# Import profiles from a file
-cc-switch import backup.json
-
-# Import with force overwrite
-cc-switch import backup.json --force
+# Open WebUI to manage providers
+cc-use config
 
 # Check for updates and install
-cc-switch update
-
-# If update fails due to permissions, you'll be prompted to retry with sudo
-# Or run directly with sudo:
-sudo cc-switch update
+cc-use update
 ```
 
 ## Configuration
 
-Profiles are stored in `~/.config/cc-switch/config.json`.
+### WebUI Management
 
-### Profile Format
+Run `cc-use config` to open the WebUI at `http://localhost:9527`. The WebUI allows you to:
+
+- Add, edit, and delete providers
+- Configure common environment variables (global or per CLI type)
+- Set up usage tracking for providers
+- Reorder providers via drag-and-drop
+
+### Config File
+
+Providers are stored in `~/.config/cc-use/config.json`.
+
+### Config Format (v3)
 
 ```json
 {
-  "version": "1",
-  "defaults": {
-    "API_TIMEOUT_MS": "300000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  "version": "3",
+  "common": {
+    "_global": {
+      "API_TIMEOUT_MS": "300000"
+    },
+    "claude": {
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    },
+    "codex": {}
   },
-  "profiles": [
+  "providers": [
     {
+      "id": "1234567890-abc123",
       "name": "my-api",
+      "type": "claude",
       "description": "My API Proxy",
       "env": {
         "ANTHROPIC_BASE_URL": "https://api.example.com",
         "ANTHROPIC_AUTH_TOKEN": "sk-xxx"
-      }
+      },
+      "order": 0
     }
   ]
 }
 ```
 
-### Defaults
-
-Default environment variables are shared across all profiles. Profile-specific variables take precedence over defaults.
-
-```bash
-# Set defaults
-cc-switch defaults set API_TIMEOUT_MS=300000
-
-# Now all profiles will have API_TIMEOUT_MS=300000
-# unless they override it with their own value
-```
-
 ### Common Environment Variables
+
+Common environment variables are shared across providers. They can be configured at three levels:
+
+- **Global (`_global`)** - Applied to all providers regardless of CLI type
+- **Claude (`claude`)** - Applied only to Claude Code providers
+- **Codex (`codex`)** - Applied only to Codex CLI providers
+
+Provider-specific variables take precedence over common variables.
+
+### Frequently Used Environment Variables
 
 | Variable | Description |
 |----------|-------------|
@@ -187,48 +177,14 @@ cc-switch defaults set API_TIMEOUT_MS=300000
 | `API_TIMEOUT_MS` | API request timeout in milliseconds |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable telemetry |
 
-### Import/Export
-
-Backup, share, or migrate your configurations between machines.
-
-```bash
-# Export all profiles (includes defaults)
-cc-switch export > backup.json
-
-# Export specific profile
-cc-switch export myprofile > single.json
-
-# Export without default variables
-cc-switch export --no-defaults > profiles-only.json
-
-# Import from file
-cc-switch import backup.json
-
-# Import with force overwrite (skip confirmation)
-cc-switch import backup.json --force
-
-# Import without defaults
-cc-switch import backup.json --no-defaults
-```
-
-**Export options:**
-- `--no-defaults` - Don't include default variables
-
-**Import options:**
-- `--force` / `-f` - Overwrite existing profiles without confirmation
-- `--merge-defaults` - Auto-merge default variables
-- `--no-defaults` - Skip importing default variables
-
-> ⚠️ **Security Note:** Exported files may contain sensitive data (API keys, tokens). Handle them securely.
-
 ## How It Works
 
-cc-switch launches Claude Code as a subprocess with profile-specific environment variables. Environment variables are merged at runtime: `defaults` + `profile.env` (profile takes precedence).
+cc-use launches the CLI (Claude Code or Codex) as a subprocess with provider-specific environment variables. Environment variables are merged at runtime: `common._global` + `common.<type>` + `provider.env` (provider takes precedence).
 
 ```typescript
-// Merge order: defaults -> profile.env -> process.env
-const mergedEnv = { ...defaults, ...profile.env };
-spawn("claude", args, {
+// Merge order: common._global -> common.<type> -> provider.env -> process.env
+const mergedEnv = { ...common._global, ...common[type], ...provider.env };
+spawn(cliCommand, args, {
   env: { ...process.env, ...mergedEnv },
   stdio: "inherit"
 });
@@ -251,19 +207,71 @@ Requires [Bun](https://bun.sh) runtime.
 ```bash
 # Install dependencies
 bun install
+cd webui && bun install && cd ..
 
-# Run in development
-bun run src/index.ts
+# Run CLI in development
+bun run dev
 
-# Build binary
+# Run WebUI in development (separate terminal)
+bun run dev:webui
+
+# Build binary (includes WebUI)
 bun run build
+
+# Build for all platforms
+bun run build:all
 ```
+
+### Build Scripts
+
+| Script | Description |
+|--------|-------------|
+| `bun run dev` | Run CLI in development mode |
+| `bun run dev:webui` | Run WebUI dev server (Vite) |
+| `bun run build:webui` | Build WebUI |
+| `bun run embed:webui` | Embed WebUI into CLI |
+| `bun run build` | Build CLI binary (includes WebUI) |
+| `bun run build:cli` | Build CLI binary only |
+| `bun run build:all` | Build for all platforms |
 
 ## Supported Platforms
 
 - macOS (Apple Silicon / Intel)
 - Linux (x64)
 - Windows (x64)
+
+## Upgrading from v0.x (cc-switch)
+
+**v1.0.0 is NOT compatible with the old cc-switch.** The project has been renamed from `cc-switch` to `cc-use`, and the config format has changed.
+
+### Uninstall old version
+
+```bash
+# Uninstall cc-switch (old name)
+cc-switch uninstall
+
+# Then install cc-use v1.0.0
+curl -fsSL https://raw.githubusercontent.com/mipawn/cc-use/main/scripts/install.sh | bash
+```
+
+### Manual removal (if cc-switch uninstall doesn't work)
+
+```bash
+# Remove the binary
+sudo rm /usr/local/bin/cc-switch
+
+# Remove old config (optional, different path)
+rm -rf ~/.config/cc-switch
+
+# Remove shell completions
+rm -f ~/.zsh/completions/_cc-switch
+rm -f ~/.local/share/bash-completion/completions/cc-switch
+rm -f ~/.config/fish/completions/cc-switch.fish
+
+# Remove lines added to shell config (if any)
+# Edit ~/.zshrc and remove lines related to cc-switch completions
+# Edit ~/.bashrc and remove lines related to cc-switch completions
+```
 
 ## License
 
