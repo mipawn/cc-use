@@ -24,6 +24,7 @@ export default {
   },
   settings: {
     title: '设置',
+    subtitle: '自定义您的偏好设置',
     language: '语言',
     languageDesc: '选择显示语言',
     theme: '主题',
@@ -48,6 +49,7 @@ export default {
   },
   providers: {
     title: '服务商',
+    subtitle: '配置您的 API 服务商',
     addProvider: '添加服务商',
     editProvider: '编辑服务商',
     newProvider: '新建服务商',
@@ -56,6 +58,7 @@ export default {
     apiKeys: 'API 密钥',
     addApiKey: '添加 API 密钥',
     noProviders: '暂无服务商',
+    noProvidersHint: '添加您的第一个服务商以开始使用',
     addFirstProvider: '添加第一个服务商',
     providerDeleted: '服务商已删除',
     deleteProviderFailed: '删除服务商失败',
@@ -87,6 +90,7 @@ export default {
   },
   projects: {
     title: '项目',
+    subtitle: '管理您的项目',
     projectName: '项目名称',
     projectPath: '项目路径',
     lastOpened: '最后打开',

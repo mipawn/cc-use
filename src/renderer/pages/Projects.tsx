@@ -62,7 +62,7 @@ export default function Projects() {
             {t('projects.title')}
           </Title>
           <Text type="secondary">
-            {t('projects.subtitle') || 'Manage your projects'}
+            {t('projects.subtitle')}
           </Text>
         </div>
       </div>

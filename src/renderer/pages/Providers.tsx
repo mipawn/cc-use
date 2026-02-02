@@ -77,7 +77,7 @@ export default function Providers() {
             {t('providers.title')}
           </Title>
           <Text type="secondary">
-            {t('providers.subtitle') || 'Configure your API providers'}
+            {t('providers.subtitle')}
           </Text>
         </div>
         <Button
@@ -105,7 +105,7 @@ export default function Providers() {
           <CloudServerOutlined style={{ fontSize: 48, color: token.colorTextSecondary, marginBottom: 16 }} />
           <Title level={4} style={{ marginBottom: 8 }}>{t('providers.noProviders')}</Title>
           <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-            {t('providers.noProvidersHint') || 'Add your first provider to get started'}
+            {t('providers.noProvidersHint')}
           </Text>
           <Button type="primary" size="large" onClick={handleCreate}>
             {t('providers.addFirstProvider')}

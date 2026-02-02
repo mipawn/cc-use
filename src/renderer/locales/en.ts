@@ -24,6 +24,7 @@ export default {
   },
   settings: {
     title: 'Settings',
+    subtitle: 'Customize your preferences',
     language: 'Language',
     languageDesc: 'Select display language',
     theme: 'Theme',
@@ -48,6 +49,7 @@ export default {
   },
   providers: {
     title: 'Providers',
+    subtitle: 'Configure your API providers',
     addProvider: 'Add Provider',
     editProvider: 'Edit Provider',
     newProvider: 'New Provider',
@@ -56,6 +58,7 @@ export default {
     apiKeys: 'API Keys',
     addApiKey: 'Add API Key',
     noProviders: 'No providers yet',
+    noProvidersHint: 'Add your first provider to get started',
     addFirstProvider: 'Add Your First Provider',
     providerDeleted: 'Provider deleted',
     deleteProviderFailed: 'Failed to delete provider',
@@ -87,6 +90,7 @@ export default {
   },
   projects: {
     title: 'Projects',
+    subtitle: 'Manage your projects',
     projectName: 'Project Name',
     projectPath: 'Project Path',
     lastOpened: 'Last opened',

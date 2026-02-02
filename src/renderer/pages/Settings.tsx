@@ -28,7 +28,7 @@ export default function Settings() {
           {t('settings.title')}
         </Title>
         <Text type="secondary">
-          {t('settings.subtitle') || 'Customize your preferences'}
+          {t('settings.subtitle')}
         </Text>
       </div>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>

@@ -1,63 +1,68 @@
-import { useState, useCallback } from 'react'
-import { Typography, message, theme } from 'antd'
-import { FolderOpenOutlined } from '@ant-design/icons'
-import { useTranslation } from 'react-i18next'
+import { useState, useCallback } from "react";
+import { Typography, message, theme } from "antd";
+import { FolderOpenOutlined } from "@ant-design/icons";
+import { useTranslation } from "react-i18next";
 
-const { Text } = Typography
+const { Text } = Typography;
 
 interface DropZoneProps {
-  onDrop: (path: string) => void
+  onDrop: (path: string) => void;
 }
 
 export default function DropZone({ onDrop }: DropZoneProps) {
-  const { t } = useTranslation()
-  const { token } = theme.useToken()
-  const [isDragging, setIsDragging] = useState(false)
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
+  const [isDragging, setIsDragging] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(true)
-  }, [])
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(false)
-  }, [])
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      setIsDragging(false)
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
 
-      const files = e.dataTransfer.files
+      const files = e.dataTransfer.files;
       if (files.length === 0) {
-        message.error(t('dropZone.noFilesDropped'))
-        return
+        message.error(t("dropZone.noFilesDropped"));
+        return;
       }
 
-      const file = files[0]
+      const file = files[0];
       // In Electron, we can get the path from the file object
-      const path = (file as File & { path?: string }).path
+      const path = (file as File & { path?: string }).path;
 
       if (!path) {
-        message.error(t('dropZone.couldNotGetPath'))
-        return
+        message.error(t("dropZone.couldNotGetPath"));
+        return;
       }
 
-      onDrop(path)
+      onDrop(path);
     },
-    [onDrop, t]
-  )
+    [onDrop, t],
+  );
 
   const handleClick = async () => {
-    const path = await window.api.system.selectFolder()
-    if (path) {
-      onDrop(path)
+    try {
+      const path = await window.api.system.selectFolder();
+      if (path) {
+        onDrop(path);
+      }
+    } catch (error) {
+      console.error("Failed to select folder:", error);
+      message.error(t("dropZone.couldNotGetPath"));
     }
-  }
+  };
 
   return (
     <div
@@ -66,19 +71,19 @@ export default function DropZone({ onDrop }: DropZoneProps) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       style={{
-        border: `2px dashed ${isDragging ? token.colorPrimary : token.colorBorder}`,
+        border: `2px dashed ${token.colorBorder}`,
         borderRadius: 12,
         padding: 48,
-        textAlign: 'center',
-        cursor: 'pointer',
-        transition: 'all 0.3s',
-        backgroundColor: isDragging ? token.colorPrimaryBg : 'transparent',
+        textAlign: "center",
+        cursor: "pointer",
+        transition: "all 0.3s",
+        backgroundColor: isDragging ? token.colorFillSecondary : "transparent",
       }}
     >
       <FolderOpenOutlined
         style={{
           fontSize: 64,
-          color: isDragging ? token.colorPrimary : token.colorTextQuaternary,
+          color: token.colorTextQuaternary,
           marginBottom: 16,
         }}
       />
@@ -86,17 +91,15 @@ export default function DropZone({ onDrop }: DropZoneProps) {
         <Text
           style={{
             fontSize: 18,
-            color: isDragging ? token.colorPrimary : token.colorText,
+            color: token.colorText,
           }}
         >
-          {t('dashboard.dropZone')}
+          {t("dashboard.dropZone")}
         </Text>
       </div>
       <div style={{ marginTop: 8 }}>
-        <Text type="secondary">
-          {t('dashboard.dropZoneHint')}
-        </Text>
+        <Text type="secondary">{t("dashboard.dropZoneHint")}</Text>
       </div>
     </div>
-  )
+  );
 }
