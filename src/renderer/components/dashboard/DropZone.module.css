@@ -1,0 +1,34 @@
+.dropZone {
+  border: 2px dashed var(--ant-color-border);
+  border-radius: 12px;
+  padding: 48px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background-color: transparent;
+}
+
+.dropZone:hover {
+  border-color: var(--ant-color-primary);
+  background-color: var(--ant-color-fill-secondary);
+}
+
+.dropZoneDragging {
+  background-color: var(--ant-color-fill-secondary);
+  border-color: var(--ant-color-primary);
+}
+
+.dropZoneIcon {
+  font-size: 64px;
+  color: var(--ant-color-text-quaternary);
+  margin-bottom: 16px;
+}
+
+.dropZoneTitle {
+  font-size: 18px;
+  color: var(--ant-color-text);
+}
+
+.dropZoneHint {
+  margin-top: 8px;
+}

@@ -42,26 +42,13 @@ export default function Sidebar() {
   return (
     <Sider
       width={220}
+      className="pt-12"
       style={{
         background: token.colorBgContainer,
         borderRight: `1px solid ${token.colorBorderSecondary}`,
-        paddingTop: 48,
       }}
     >
-      <div
-        className="drag-region"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 48,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-        }}
-      >
-      </div>
+      <div className="drag-region absolute top-0 left-0 right-0 h-12 flex items-center justify-start" />
       <Menu
         mode="inline"
         selectedKeys={[location.pathname]}

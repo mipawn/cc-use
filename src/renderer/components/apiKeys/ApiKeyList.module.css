@@ -1,0 +1,21 @@
+.sortableRow {
+  cursor: move;
+}
+
+.sortableRowDragging {
+  opacity: 0.5;
+}
+
+.dragHandle {
+  cursor: grab;
+  color: #999;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.addKeyForm {
+  margin-bottom: 16px;
+  width: 100%;
+}

@@ -15,18 +15,20 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@ant-design/cssinjs": "^2.0.3",
+    "@ant-design/icons": "^6.1.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "antd": "^5.22.0",
+    "antd": "^6.2.3",
     "better-sqlite3": "^11.6.0",
+    "clsx": "^2.1.1",
     "drizzle-orm": "^0.38.0",
     "express": "^4.21.0",
     "http-proxy-middleware": "^3.0.3",
     "i18next": "^25.8.0",
     "lodash-es": "^4.17.21",
     "nanoid": "^5.0.9",
-    "node-pty": "^1.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^16.5.4",
@@ -34,6 +36,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/lodash-es": "^4.17.12",
@@ -41,11 +44,14 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.24",
     "drizzle-kit": "^0.30.0",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "png-to-ico": "^2.1.8",
+    "postcss": "^8.5.6",
     "sharp": "^0.33.5",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
     "vite-plugin-electron": "^0.28.8",
@@ -96,5 +102,14 @@
     "api-management"
   ],
   "author": "mipawn",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=25"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "better-sqlite3"
+    ]
+  }
 }

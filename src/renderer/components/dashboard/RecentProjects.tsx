@@ -71,15 +71,15 @@ export default function RecentProjects({
           ]}
         >
           <List.Item.Meta
-            avatar={<FolderOutlined style={{ fontSize: 24, color: token.colorTextSecondary }} />}
+            avatar={<FolderOutlined className="text-2xl" style={{ color: token.colorTextSecondary }} />}
             title={project.name}
             description={
               <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" className="text-xs">
                   {project.path}
                 </Text>
                 <br />
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" className="text-xs">
                   {t('projects.lastOpened')}: {formatDate(project.lastOpenedAt)}
                 </Text>
               </div>

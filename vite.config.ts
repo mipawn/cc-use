@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
+import electron from 'vite-plugin-electron/simple'
 import { resolve } from 'path'
 
 const alias = {
@@ -14,8 +13,8 @@ const alias = {
 export default defineConfig({
   plugins: [
     react(),
-    electron([
-      {
+    electron({
+      main: {
         entry: 'src/main/index.ts',
         onstart(args) {
           args.startup()
@@ -25,13 +24,13 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron/main',
             rollupOptions: {
-              external: ['better-sqlite3', 'node-pty'],
+              external: ['better-sqlite3'],
             },
           },
         },
       },
-      {
-        entry: 'src/preload/index.ts',
+      preload: {
+        input: 'src/preload/index.ts',
         onstart(args) {
           args.reload()
         },
@@ -42,8 +41,7 @@ export default defineConfig({
           },
         },
       },
-    ]),
-    renderer(),
+    }),
   ],
   resolve: {
     alias,

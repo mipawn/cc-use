@@ -33,6 +33,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import styles from './ApiKeyList.module.css'
 
 interface ApiKeyListProps {
   providerId: string
@@ -61,7 +62,7 @@ function SortableRow({ children, ...props }: SortableRowProps) {
   }
 
   return (
-    <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners} className={styles.sortableRow}>
       {children}
     </tr>
   )
@@ -157,7 +158,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
       title: '',
       dataIndex: 'sort',
       width: 40,
-      render: () => <HolderOutlined style={{ cursor: 'grab', color: '#999' }} />,
+      render: () => <HolderOutlined className={styles.dragHandle} />,
     },
     {
       title: t('apiKeys.keyName'),
@@ -180,7 +181,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
           size="small"
           value={value}
           readOnly
-          style={{ width: '100%' }}
+          className="w-full"
         />
       ),
     },
@@ -215,7 +216,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%' }}>
+      <Space className={styles.addKeyForm}>
         <Input
           placeholder={t('apiKeys.keyNamePlaceholder')}
           value={newKeyAlias}

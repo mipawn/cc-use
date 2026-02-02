@@ -1,7 +1,9 @@
 import { useState, useCallback } from "react";
-import { Typography, message, theme } from "antd";
+import { Typography, message } from "antd";
 import { FolderOpenOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
+import clsx from "clsx";
+import styles from "./DropZone.module.css";
 
 const { Text } = Typography;
 
@@ -11,7 +13,6 @@ interface DropZoneProps {
 
 export default function DropZone({ onDrop }: DropZoneProps) {
   const { t } = useTranslation();
-  const { token } = theme.useToken();
   const [isDragging, setIsDragging] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -70,34 +71,15 @@ export default function DropZone({ onDrop }: DropZoneProps) {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      style={{
-        border: `2px dashed ${token.colorBorder}`,
-        borderRadius: 12,
-        padding: 48,
-        textAlign: "center",
-        cursor: "pointer",
-        transition: "all 0.3s",
-        backgroundColor: isDragging ? token.colorFillSecondary : "transparent",
-      }}
+      className={clsx(styles.dropZone, isDragging && styles.dropZoneDragging)}
     >
-      <FolderOpenOutlined
-        style={{
-          fontSize: 64,
-          color: token.colorTextQuaternary,
-          marginBottom: 16,
-        }}
-      />
+      <FolderOpenOutlined className={styles.dropZoneIcon} />
       <div>
-        <Text
-          style={{
-            fontSize: 18,
-            color: token.colorText,
-          }}
-        >
+        <Text className={styles.dropZoneTitle}>
           {t("dashboard.dropZone")}
         </Text>
       </div>
-      <div style={{ marginTop: 8 }}>
+      <div className={styles.dropZoneHint}>
         <Text type="secondary">{t("dashboard.dropZoneHint")}</Text>
       </div>
     </div>

@@ -8,7 +8,9 @@ import {
   CloudServerOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
+import clsx from 'clsx'
 import type { Provider } from '@shared/types'
+import styles from './ProviderCard.module.css'
 
 const { Text, Title } = Typography
 
@@ -43,10 +45,9 @@ export default function ProviderCard({
 
   return (
     <Card
+      className={styles.card}
       style={{
-        borderRadius: 12,
         border: `1px solid ${provider.isActive ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
-        transition: 'all 0.3s',
       }}
       hoverable
       actions={[
@@ -80,32 +81,27 @@ export default function ProviderCard({
         </Popconfirm>,
       ]}
     >
-      <Space direction="vertical" style={{ width: '100%' }} size="middle">
-        <Space align="start" style={{ width: '100%', justifyContent: 'space-between' }}>
+      <Space direction="vertical" className="w-full" size="middle">
+        <Space align="start" className="w-full justify-between">
           <Space>
             <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 8,
-                background: provider.isActive ? token.colorPrimaryBg : token.colorBgTextHover,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              className={clsx(
+                styles.iconBox,
+                provider.isActive ? styles.iconBoxActive : styles.iconBoxInactive
+              )}
             >
               <CloudServerOutlined
+                className="text-xl"
                 style={{
-                  fontSize: 20,
                   color: provider.isActive ? token.colorPrimary : token.colorTextSecondary,
                 }}
               />
             </div>
             <div>
-              <Title level={5} style={{ margin: 0 }}>
+              <Title level={5} className="!m-0">
                 {provider.name}
               </Title>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text type="secondary" className="text-xs">
                 {provider.baseUrl}
               </Text>
             </div>
@@ -125,21 +121,15 @@ export default function ProviderCard({
         </Space>
 
         {provider.walletBalanceType !== 'none' && (
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              background: token.colorBgTextHover,
-            }}
-          >
-            <Space direction="vertical" size={0} style={{ width: '100%' }}>
-              <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+          <div className={styles.balanceBox}>
+            <Space direction="vertical" size={0} className="w-full">
+              <Space className="justify-between w-full">
                 <Text type="secondary">{t('providers.balance')}</Text>
-                <Text strong style={{ fontSize: 16, color: token.colorPrimary }}>
+                <Text strong className={styles.balanceAmount} style={{ color: token.colorPrimary }}>
                   {formatBalance(provider.cachedWalletBalance)}
                 </Text>
               </Space>
-              <Text type="secondary" style={{ fontSize: 11 }}>
+              <Text type="secondary" className={styles.lastChecked}>
                 {t('providers.lastChecked')}: {formatLastChecked(provider.lastBalanceCheckedAt)}
               </Text>
             </Space>

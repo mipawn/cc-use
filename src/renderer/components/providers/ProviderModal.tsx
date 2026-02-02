@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from "react";
 import {
   Modal,
   Form,
@@ -8,19 +8,21 @@ import {
   Divider,
   Typography,
   message,
-} from 'antd'
-import { useTranslation } from 'react-i18next'
-import type { Provider, CreateProviderInput } from '@shared/types'
-import ApiKeyList from '../apiKeys/ApiKeyList'
+} from "antd";
+import { useTranslation } from "react-i18next";
+import type { Provider, CreateProviderInput } from "@shared/types";
+import ApiKeyList from "../apiKeys/ApiKeyList";
 
-const { Title } = Typography
-const { TextArea } = Input
+const { Title } = Typography;
+const { TextArea } = Input;
 
 interface ProviderModalProps {
-  open: boolean
-  provider: Provider | null
-  onClose: () => void
-  onSave: (input: CreateProviderInput & { id?: string; isActive?: boolean }) => Promise<void>
+  open: boolean;
+  provider: Provider | null;
+  onClose: () => void;
+  onSave: (
+    input: CreateProviderInput & { id?: string; isActive?: boolean },
+  ) => Promise<void>;
 }
 
 export default function ProviderModal({
@@ -29,10 +31,12 @@ export default function ProviderModal({
   onClose,
   onSave,
 }: ProviderModalProps) {
-  const { t } = useTranslation()
-  const [form] = Form.useForm()
-  const [loading, setLoading] = useState(false)
-  const [balanceType, setBalanceType] = useState<'none' | 'newapi' | 'custom'>('none')
+  const { t } = useTranslation();
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+  const [balanceType, setBalanceType] = useState<"none" | "newapi" | "custom">(
+    "none",
+  );
 
   useEffect(() => {
     if (open) {
@@ -45,19 +49,19 @@ export default function ProviderModal({
           walletBalancePath: provider.walletBalancePath,
           walletBalanceHeaders: provider.walletBalanceHeaders,
           isActive: provider.isActive,
-        })
-        setBalanceType(provider.walletBalanceType)
+        });
+        setBalanceType(provider.walletBalanceType);
       } else {
-        form.resetFields()
-        setBalanceType('none')
+        form.resetFields();
+        setBalanceType("none");
       }
     }
-  }, [open, provider, form])
+  }, [open, provider, form]);
 
   const handleSubmit = async () => {
     try {
-      const values = await form.validateFields()
-      setLoading(true)
+      const values = await form.validateFields();
+      setLoading(true);
 
       await onSave({
         id: provider?.id,
@@ -68,86 +72,96 @@ export default function ProviderModal({
         walletBalancePath: values.walletBalancePath,
         walletBalanceHeaders: values.walletBalanceHeaders,
         isActive: values.isActive,
-      })
+      });
 
-      message.success(provider ? t('providers.providerUpdated') : t('providers.providerCreated'))
-      onClose()
+      message.success(
+        provider
+          ? t("providers.providerUpdated")
+          : t("providers.providerCreated"),
+      );
+      onClose();
     } catch (error) {
       if (error instanceof Error) {
-        message.error(error.message)
+        message.error(error.message);
       }
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <Modal
-      title={provider ? t('providers.editProvider') : t('providers.newProvider')}
+      title={
+        provider ? t("providers.editProvider") : t("providers.newProvider")
+      }
       open={open}
       onCancel={onClose}
       onOk={handleSubmit}
-      okText={t('common.confirm')}
-      cancelText={t('common.cancel')}
+      okText={t("common.confirm")}
+      cancelText={t("common.cancel")}
       confirmLoading={loading}
       width={700}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}
         layout="vertical"
         initialValues={{
-          walletBalanceType: 'none',
+          walletBalanceType: "none",
           isActive: true,
         }}
       >
         <Form.Item
           name="name"
-          label={t('common.name')}
-          rules={[{ required: true, message: t('providers.enterName') }]}
+          label={t("common.name")}
+          rules={[{ required: true, message: t("providers.enterName") }]}
         >
-          <Input placeholder={t('providers.namePlaceholder')} />
+          <Input placeholder={t("providers.namePlaceholder")} />
         </Form.Item>
 
         <Form.Item
           name="baseUrl"
-          label={t('providers.baseUrl')}
+          label={t("providers.baseUrl")}
           rules={[
-            { required: true, message: t('providers.enterBaseUrl') },
-            { type: 'url', message: t('providers.invalidUrl') },
+            { required: true, message: t("providers.enterBaseUrl") },
+            { type: "url", message: t("providers.invalidUrl") },
           ]}
         >
-          <Input placeholder={t('providers.baseUrlPlaceholder')} />
+          <Input placeholder={t("providers.baseUrlPlaceholder")} />
         </Form.Item>
 
-        <Form.Item name="isActive" label={t('common.active')} valuePropName="checked">
+        <Form.Item
+          name="isActive"
+          label={t("common.active")}
+          valuePropName="checked"
+        >
           <Switch />
         </Form.Item>
 
         <Divider />
 
-        <Title level={5}>{t('providers.balanceConfig')}</Title>
+        <Title level={5}>{t("providers.balanceConfig")}</Title>
 
-        <Form.Item name="walletBalanceType" label={t('providers.balanceType')}>
+        <Form.Item name="walletBalanceType" label={t("providers.balanceType")}>
           <Select
             onChange={(value) => setBalanceType(value)}
             options={[
-              { value: 'none', label: t('providers.balanceTypeNone') },
-              { value: 'newapi', label: t('providers.balanceTypeNewapi') },
-              { value: 'custom', label: t('providers.balanceTypeCustom') },
+              { value: "none", label: t("providers.balanceTypeNone") },
+              { value: "newapi", label: t("providers.balanceTypeNewapi") },
+              { value: "custom", label: t("providers.balanceTypeCustom") },
             ]}
           />
         </Form.Item>
 
-        {balanceType === 'custom' && (
+        {balanceType === "custom" && (
           <>
             <Form.Item
               name="walletBalanceUrl"
-              label={t('providers.balanceUrl')}
+              label={t("providers.balanceUrl")}
               rules={[
                 {
-                  required: balanceType === 'custom',
-                  message: t('providers.enterBalanceUrl'),
+                  required: balanceType === "custom",
+                  message: t("providers.enterBalanceUrl"),
                 },
               ]}
             >
@@ -156,22 +170,22 @@ export default function ProviderModal({
 
             <Form.Item
               name="walletBalancePath"
-              label={t('providers.balancePath')}
+              label={t("providers.balancePath")}
               rules={[
                 {
-                  required: balanceType === 'custom',
-                  message: t('providers.enterBalancePath'),
+                  required: balanceType === "custom",
+                  message: t("providers.enterBalancePath"),
                 },
               ]}
-              extra={t('providers.balancePathHint')}
+              extra={t("providers.balancePathHint")}
             >
               <Input placeholder="data.balance" />
             </Form.Item>
 
             <Form.Item
               name="walletBalanceHeaders"
-              label={t('providers.customHeaders')}
-              extra={t('providers.customHeadersHint')}
+              label={t("providers.customHeaders")}
+              extra={t("providers.customHeadersHint")}
             >
               <TextArea
                 rows={3}
@@ -185,10 +199,10 @@ export default function ProviderModal({
       {provider && (
         <>
           <Divider />
-          <Title level={5}>{t('providers.apiKeys')}</Title>
+          <Title level={5}>{t("providers.apiKeys")}</Title>
           <ApiKeyList providerId={provider.id} />
         </>
       )}
     </Modal>
-  )
+  );
 }

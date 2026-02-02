@@ -22,41 +22,32 @@ export default function Settings() {
   ]
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      <div style={{ marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0, marginBottom: 4 }}>
+    <div className="page-container-sm">
+      <div className="mb-6">
+        <Title level={3} className="!m-0 !mb-1">
           {t('settings.title')}
         </Title>
         <Text type="secondary">
           {t('settings.subtitle')}
         </Text>
       </div>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space direction="vertical" size="middle" className="w-full">
         <Card
-          style={{
-            borderRadius: 12,
-            border: `1px solid ${token.colorBorderSecondary}`,
-          }}
+          className="rounded-ant-lg"
+          style={{ border: `1px solid ${token.colorBorderSecondary}` }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="flex justify-between items-center">
             <Space>
               <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 8,
-                  background: token.colorFillTertiary,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
+                className="icon-box"
+                style={{ background: token.colorFillTertiary }}
               >
-                <GlobalOutlined style={{ fontSize: 20, color: token.colorText }} />
+                <GlobalOutlined className="text-xl" style={{ color: token.colorText }} />
               </div>
               <div>
                 <Text strong>{t('settings.language')}</Text>
                 <br />
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('settings.languageDesc')}</Text>
+                <Text type="secondary" className="text-xs">{t('settings.languageDesc')}</Text>
               </div>
             </Space>
             <Select
@@ -68,30 +59,21 @@ export default function Settings() {
           </div>
         </Card>
         <Card
-          style={{
-            borderRadius: 12,
-            border: `1px solid ${token.colorBorderSecondary}`,
-          }}
+          className="rounded-ant-lg"
+          style={{ border: `1px solid ${token.colorBorderSecondary}` }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="flex justify-between items-center">
             <Space>
               <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 8,
-                  background: token.colorFillTertiary,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
+                className="icon-box"
+                style={{ background: token.colorFillTertiary }}
               >
-                <BgColorsOutlined style={{ fontSize: 20, color: token.colorText }} />
+                <BgColorsOutlined className="text-xl" style={{ color: token.colorText }} />
               </div>
               <div>
                 <Text strong>{t('settings.theme')}</Text>
                 <br />
-                <Text type="secondary" style={{ fontSize: 12 }}>{t('settings.themeDesc')}</Text>
+                <Text type="secondary" className="text-xs">{t('settings.themeDesc')}</Text>
               </div>
             </Space>
             <Select

@@ -1,0 +1,39 @@
+.card {
+  border-radius: 12px;
+  transition: all 0.3s;
+}
+
+.cardActive {
+  border-color: var(--ant-color-primary-border);
+}
+
+.iconBox {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconBoxActive {
+  background: var(--ant-color-primary-bg);
+}
+
+.iconBoxInactive {
+  background: var(--ant-color-bg-text-hover);
+}
+
+.balanceBox {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--ant-color-bg-text-hover);
+}
+
+.balanceAmount {
+  font-size: 16px;
+}
+
+.lastChecked {
+  font-size: 11px;
+}

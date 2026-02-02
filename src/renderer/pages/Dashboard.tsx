@@ -100,17 +100,10 @@ export default function Dashboard() {
   };
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 24,
-        }}
-      >
+    <div className="page-container">
+      <div className="page-header">
         <div>
-          <Title level={3} style={{ margin: 0, marginBottom: 4 }}>
+          <Title level={3} className="!m-0 !mb-1">
             {t("dashboard.title")}
           </Title>
           <Text type="secondary">{t("dashboard.subtitle")}</Text>
@@ -142,12 +135,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <Card
-        style={{
-          marginBottom: 24,
-        }}
-        bordered={false}
-      >
+      <Card className="mb-6" variant="outlined">
         <DropZone onDrop={handleDrop} />
       </Card>
 

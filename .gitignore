@@ -7,9 +7,6 @@ dist-electron/
 release/
 *.exe
 
-# Bun
-bun.lockb
-
 # IDE
 .idea/
 .vscode/
@@ -33,7 +30,7 @@ docs/
 
 .playwright-mcp/
 
-.claude/*
+.claude/
 
 # Database
 *.db
