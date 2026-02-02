@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="ccuse-green" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="512" cy="512" r="460" fill="none" stroke="url(#ccuse-green)" stroke-width="60"/>
+
+  <path d="M 240 512
+           A 272 272 0 1 1 512 784
+           "
+        fill="none"
+        stroke="url(#ccuse-green)"
+        stroke-width="120"
+        stroke-linecap="round"/>
+
+  <path d="M 784 512
+           A 272 272 0 1 0 512 784
+           "
+        fill="none"
+        stroke="url(#ccuse-green)"
+        stroke-width="120"
+        stroke-linecap="round"
+        opacity="0.65"/>
+</svg>

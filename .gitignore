@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+dist-electron/
+release/
 *.exe
 
 # Bun
@@ -32,3 +34,9 @@ docs/
 .playwright-mcp/
 
 .claude/*
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+drizzle/
