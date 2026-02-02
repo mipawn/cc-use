@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import i18n from '../locales'
+import type { GlobalSettings } from '@shared/types'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -7,9 +8,12 @@ interface SettingsState {
   language: string
   themeMode: ThemeMode
   resolvedTheme: 'light' | 'dark'
+  globalSettings: GlobalSettings
   setLanguage: (lang: string) => void
   setThemeMode: (mode: ThemeMode) => void
   initSettings: () => void
+  fetchGlobalSettings: () => Promise<void>
+  updateGlobalSettings: (updates: Partial<GlobalSettings>) => Promise<void>
 }
 
 const getSystemTheme = (): 'light' | 'dark' => {
@@ -23,10 +27,17 @@ const resolveTheme = (mode: ThemeMode): 'light' | 'dark' => {
   return mode
 }
 
+const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
+  defaultProviderType: 'claude',
+  proxyPort: 12345,
+  autoStartProxy: true,
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  language: localStorage.getItem('language') || 'zh', // 默认中文
+  language: localStorage.getItem('language') || 'zh',
   themeMode: (localStorage.getItem('themeMode') as ThemeMode) || 'system',
   resolvedTheme: resolveTheme((localStorage.getItem('themeMode') as ThemeMode) || 'system'),
+  globalSettings: DEFAULT_GLOBAL_SETTINGS,
 
   setLanguage: (lang: string) => {
     localStorage.setItem('language', lang)
@@ -49,8 +60,27 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
     mediaQuery.addEventListener('change', handleChange)
 
-    // Initialize language
     const lang = get().language
     i18n.changeLanguage(lang)
+
+    get().fetchGlobalSettings()
+  },
+
+  fetchGlobalSettings: async () => {
+    try {
+      const settings = await window.api.settings.get()
+      set({ globalSettings: settings })
+    } catch (error) {
+      console.error('Failed to fetch global settings:', error)
+    }
+  },
+
+  updateGlobalSettings: async (updates: Partial<GlobalSettings>) => {
+    try {
+      const settings = await window.api.settings.update(updates)
+      set({ globalSettings: settings })
+    } catch (error) {
+      console.error('Failed to update global settings:', error)
+    }
   },
 }))

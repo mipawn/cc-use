@@ -40,6 +40,11 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       base_url TEXT NOT NULL,
+      type TEXT DEFAULT 'claude',
+      website TEXT,
+      remark TEXT,
+      token TEXT,
+      icon TEXT,
       wallet_balance_type TEXT DEFAULT 'none',
       wallet_balance_url TEXT,
       wallet_balance_path TEXT,
@@ -65,7 +70,29 @@ export function initDatabase() {
       provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
       last_opened_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `)
+
+  // Migration: Add new columns to existing providers table
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN type TEXT DEFAULT 'claude'`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN website TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN remark TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN token TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN icon TEXT`)
+  } catch {}
 
   return db
 }

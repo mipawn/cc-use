@@ -10,6 +10,8 @@ import type {
   Project,
   CreateProjectInput,
   UpdateProjectInput,
+  GlobalSettings,
+  PresetIcon,
 } from '../shared/types'
 
 const api = {
@@ -81,6 +83,22 @@ const api = {
   balance: {
     refresh: (providerId: string): Promise<{ balance: number | null; error: string | null }> =>
       ipcRenderer.invoke(IPC_CHANNELS.BALANCE_REFRESH, providerId),
+  },
+
+  // Settings API
+  settings: {
+    get: (): Promise<GlobalSettings> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
+    update: (updates: Partial<GlobalSettings>): Promise<GlobalSettings> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_UPDATE, updates),
+  },
+
+  // Icon API
+  icon: {
+    upload: (buffer: ArrayBuffer, filename: string): Promise<string> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ICON_UPLOAD, Buffer.from(buffer), filename),
+    list: (): Promise<{ preset: PresetIcon[]; uploaded: string[] }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.ICON_LIST),
   },
 
   // System API

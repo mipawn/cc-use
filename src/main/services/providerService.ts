@@ -30,6 +30,11 @@ export async function createProvider(
     id,
     name: input.name,
     baseUrl: input.baseUrl,
+    type: input.type ?? 'claude',
+    website: input.website ?? null,
+    remark: input.remark ?? null,
+    token: input.token ?? null,
+    icon: input.icon ?? null,
     walletBalanceType: input.walletBalanceType ?? 'none',
     walletBalanceUrl: input.walletBalanceUrl ?? null,
     walletBalancePath: input.walletBalancePath ?? null,
@@ -54,6 +59,11 @@ export async function updateProvider(
   const updateData: Record<string, unknown> = {}
   if (input.name !== undefined) updateData.name = input.name
   if (input.baseUrl !== undefined) updateData.baseUrl = input.baseUrl
+  if (input.type !== undefined) updateData.type = input.type
+  if (input.website !== undefined) updateData.website = input.website
+  if (input.remark !== undefined) updateData.remark = input.remark
+  if (input.token !== undefined) updateData.token = input.token
+  if (input.icon !== undefined) updateData.icon = input.icon
   if (input.walletBalanceType !== undefined)
     updateData.walletBalanceType = input.walletBalanceType
   if (input.walletBalanceUrl !== undefined)
@@ -83,6 +93,11 @@ function mapRowToProvider(row: typeof providers.$inferSelect): Provider {
     id: row.id,
     name: row.name,
     baseUrl: row.baseUrl,
+    type: (row.type as Provider['type']) ?? 'claude',
+    website: row.website,
+    remark: row.remark,
+    token: row.token,
+    icon: row.icon,
     walletBalanceType: (row.walletBalanceType as Provider['walletBalanceType']) ?? 'none',
     walletBalanceUrl: row.walletBalanceUrl,
     walletBalancePath: row.walletBalancePath,

@@ -35,6 +35,14 @@ export const IPC_CHANNELS = {
   // Balance channels
   BALANCE_REFRESH: 'balance:refresh',
 
+  // Settings channels
+  SETTINGS_GET: 'settings:get',
+  SETTINGS_UPDATE: 'settings:update',
+
+  // Icon channels
+  ICON_UPLOAD: 'icon:upload',
+  ICON_LIST: 'icon:list',
+
   // System channels
   SYSTEM_GET_PLATFORM: 'system:getPlatform',
   SYSTEM_SELECT_FOLDER: 'system:selectFolder',

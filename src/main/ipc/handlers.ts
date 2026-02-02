@@ -3,6 +3,8 @@ import { IPC_CHANNELS } from '@shared/types/ipc'
 import * as providerService from '../services/providerService'
 import * as apiKeyService from '../services/apiKeyService'
 import * as projectService from '../services/projectService'
+import * as settingsService from '../services/settingsService'
+import * as iconService from '../services/iconService'
 import { refreshBalance } from '../services/balanceService'
 import { launchTerminal, launchTerminalWithPath } from '../services/terminal'
 import { startProxy, stopProxy, getProxyStatus } from '../services/proxy'
@@ -13,6 +15,7 @@ import type {
   UpdateApiKeyInput,
   CreateProjectInput,
   UpdateProjectInput,
+  GlobalSettings,
 } from '@shared/types'
 
 export function registerIpcHandlers() {
@@ -147,5 +150,32 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.PROXY_STATUS, async () => {
     return getProxyStatus()
+  })
+
+  // Settings handlers
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async () => {
+    return settingsService.getGlobalSettings()
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.SETTINGS_UPDATE,
+    async (_, updates: Partial<GlobalSettings>) => {
+      return settingsService.updateGlobalSettings(updates)
+    }
+  )
+
+  // Icon handlers
+  ipcMain.handle(
+    IPC_CHANNELS.ICON_UPLOAD,
+    async (_, buffer: Buffer, filename: string) => {
+      return iconService.uploadIcon(buffer, filename)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.ICON_LIST, async () => {
+    return {
+      preset: iconService.getPresetIcons(),
+      uploaded: iconService.getUploadedIcons(),
+    }
   })
 }

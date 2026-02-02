@@ -1,8 +1,16 @@
 // Provider types
+export type ProviderType = 'claude' | 'codex'
+export type PresetIcon = 'claude' | 'codex' | 'zhipu' | 'minimax' | 'xiaomi' | 'deepseek' | 'custom'
+
 export interface Provider {
   id: string
   name: string
   baseUrl: string
+  type: ProviderType
+  website: string | null
+  remark: string | null
+  token: string | null
+  icon: string | null
   walletBalanceType: 'none' | 'newapi' | 'custom'
   walletBalanceUrl: string | null
   walletBalancePath: string | null
@@ -15,6 +23,11 @@ export interface Provider {
 export interface CreateProviderInput {
   name: string
   baseUrl: string
+  type?: ProviderType
+  website?: string
+  remark?: string
+  token?: string
+  icon?: string
   walletBalanceType?: 'none' | 'newapi' | 'custom'
   walletBalanceUrl?: string
   walletBalancePath?: string
@@ -78,4 +91,11 @@ export interface ProxyStatus {
   port: number
   requestCount: number
   lastError: string | null
+}
+
+// Global settings types
+export interface GlobalSettings {
+  defaultProviderType: ProviderType
+  proxyPort: number
+  autoStartProxy: boolean
 }

@@ -5,14 +5,33 @@ import {
   ReloadOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  CloudServerOutlined,
+  LinkOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import type { Provider } from '@shared/types'
 import styles from './ProviderCard.module.css'
 
+import claudeIcon from '../../assets/provider-icons/claude.svg'
+import openaiIcon from '../../assets/provider-icons/openai.svg'
+import zhipuIcon from '../../assets/provider-icons/zhipu.svg'
+import minimaxIcon from '../../assets/provider-icons/minimax.svg'
+import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
+import siliconflowIcon from '../../assets/provider-icons/siliconflow.svg'
+import newapiIcon from '../../assets/provider-icons/newapi.svg'
+
 const { Text, Title } = Typography
+
+const PRESET_ICON_MAP: Record<string, string> = {
+  claude: claudeIcon,
+  codex: openaiIcon,
+  openai: openaiIcon,
+  zhipu: zhipuIcon,
+  minimax: minimaxIcon,
+  deepseek: deepseekIcon,
+  siliconflow: siliconflowIcon,
+  newapi: newapiIcon,
+}
 
 interface ProviderCardProps {
   provider: Provider
@@ -41,6 +60,27 @@ export default function ProviderCard({
     if (!timestamp) return t('common.never')
     const date = new Date(timestamp)
     return date.toLocaleString()
+  }
+
+  const getIconSrc = () => {
+    if (!provider.icon) {
+      return PRESET_ICON_MAP[provider.type] || PRESET_ICON_MAP.claude
+    }
+    if (PRESET_ICON_MAP[provider.icon]) {
+      return PRESET_ICON_MAP[provider.icon]
+    }
+    return `file://${provider.icon}`
+  }
+
+  const renderIcon = () => {
+    const iconSrc = getIconSrc()
+    return (
+      <img
+        src={iconSrc}
+        alt={provider.name}
+        className="w-6 h-6 object-contain"
+      />
+    )
   }
 
   return (
@@ -90,12 +130,7 @@ export default function ProviderCard({
                 provider.isActive ? styles.iconBoxActive : styles.iconBoxInactive
               )}
             >
-              <CloudServerOutlined
-                className="text-xl"
-                style={{
-                  color: provider.isActive ? token.colorPrimary : token.colorTextSecondary,
-                }}
-              />
+              {renderIcon()}
             </div>
             <div>
               <Title level={5} className="!m-0">
@@ -106,19 +141,45 @@ export default function ProviderCard({
               </Text>
             </div>
           </Space>
-          <Tag
-            icon={
-              provider.isActive ? (
-                <CheckCircleOutlined />
-              ) : (
-                <CloseCircleOutlined />
-              )
-            }
-            color={provider.isActive ? 'processing' : 'default'}
-          >
-            {provider.isActive ? t('common.active') : t('common.inactive')}
-          </Tag>
+          <Space direction="vertical" size={4} align="end">
+            <Tag
+              icon={
+                provider.isActive ? (
+                  <CheckCircleOutlined />
+                ) : (
+                  <CloseCircleOutlined />
+                )
+              }
+              color={provider.isActive ? 'processing' : 'default'}
+            >
+              {provider.isActive ? t('common.active') : t('common.inactive')}
+            </Tag>
+            <Tag color={provider.type === 'codex' ? 'green' : 'blue'}>
+              {provider.type === 'codex' ? t('providers.typeCodex') : t('providers.typeClaude')}
+            </Tag>
+          </Space>
         </Space>
+
+        {provider.website && (
+          <div className="flex items-center gap-1">
+            <LinkOutlined className="text-gray-400" />
+            <a
+              href={provider.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-500 hover:text-blue-600 truncate"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {provider.website}
+            </a>
+          </div>
+        )}
+
+        {provider.remark && (
+          <Text type="secondary" className="text-xs line-clamp-2">
+            {provider.remark}
+          </Text>
+        )}
 
         {provider.walletBalanceType !== 'none' && (
           <div className={styles.balanceBox}>

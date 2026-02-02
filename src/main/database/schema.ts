@@ -4,6 +4,11 @@ export const providers = sqliteTable('providers', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   baseUrl: text('base_url').notNull(),
+  type: text('type').default('claude'), // 'claude' | 'codex'
+  website: text('website'),
+  remark: text('remark'),
+  token: text('token'), // API token for claude code/codex authentication
+  icon: text('icon'), // preset name or local file path
   walletBalanceType: text('wallet_balance_type').default('none'),
   walletBalanceUrl: text('wallet_balance_url'),
   walletBalancePath: text('wallet_balance_path'),
@@ -37,3 +42,10 @@ export const projects = sqliteTable('projects', {
 export type ProviderRow = typeof providers.$inferSelect
 export type ApiKeyRow = typeof apiKeys.$inferSelect
 export type ProjectRow = typeof projects.$inferSelect
+
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value'),
+})
+
+export type SettingsRow = typeof settings.$inferSelect

@@ -61,13 +61,25 @@ async function buildEnvForProject(providerId: string | null): Promise<EnvObject>
   if (providerId) {
     const provider = await getProvider(providerId)
     if (provider) {
-      // Set proxy URL for Claude Code / Codex CLI
-      env.ANTHROPIC_BASE_URL = `http://localhost:12345`
-      env.OPENAI_BASE_URL = `http://localhost:12345`
+      // Set proxy URL based on provider type
+      if (provider.type === 'codex') {
+        // Codex uses OpenAI-compatible API
+        env.OPENAI_BASE_URL = `http://localhost:12345`
+        if (provider.token) {
+          env.OPENAI_API_KEY = provider.token
+        }
+      } else {
+        // Claude Code uses Anthropic API (default)
+        env.ANTHROPIC_BASE_URL = `http://localhost:12345`
+        if (provider.token) {
+          env.ANTHROPIC_API_KEY = provider.token
+        }
+      }
 
       // Store the actual provider info for the proxy to use
       env.CC_USE_PROVIDER_ID = providerId
       env.CC_USE_PROVIDER_BASE_URL = provider.baseUrl
+      env.CC_USE_PROVIDER_TYPE = provider.type
     }
   }
 

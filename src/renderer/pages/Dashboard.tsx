@@ -139,7 +139,7 @@ export default function Dashboard() {
         <DropZone onDrop={handleDrop} />
       </Card>
 
-      <Divider orientation="left" style={{ borderColor: token.colorPrimary }}>
+      <Divider orientationMargin={0} style={{ borderColor: token.colorPrimary }}>
         <Space>
           <ThunderboltOutlined style={{ color: token.colorPrimary }} />
           {t("dashboard.recentProjects")}
