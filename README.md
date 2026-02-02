@@ -1,5 +1,12 @@
 # cc-use
 
+> [!CAUTION]
+> ## ⛔ THIS PROJECT HAS BEEN DEPRECATED ⛔
+> This project is no longer maintained and will not receive any updates or bug fixes.
+> Please do not use this project for new installations.
+
+---
+
 A CLI tool for managing multiple Claude Code / Codex CLI configurations. Quickly switch between different API endpoints and keys.
 
 [中文文档](./README_CN.md)

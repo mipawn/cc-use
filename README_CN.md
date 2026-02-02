@@ -1,5 +1,12 @@
 # cc-use
 
+> [!CAUTION]
+> ## ⛔ 此项目已废弃 ⛔
+> 本项目已停止维护，不再提供任何更新或错误修复。
+> 请勿将此项目用于新安装。
+
+---
+
 一个用于管理多个 Claude Code / Codex CLI 配置的 CLI 工具，支持快速切换不同 API 来源和密钥。
 
 [English](./README.md)
