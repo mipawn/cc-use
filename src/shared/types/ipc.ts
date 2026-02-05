@@ -35,6 +35,21 @@ export const IPC_CHANNELS = {
   // Balance channels
   BALANCE_REFRESH: 'balance:refresh',
 
+  // Usage channels
+  USAGE_REFRESH: 'usage:refresh',
+
+  // Import/Export channels
+  EXPORT_PROVIDERS: 'export:providers',
+  IMPORT_PROVIDERS: 'import:providers',
+  VALIDATE_IMPORT_DATA: 'import:validate',
+
+  // Session channels (for proxy hot-switching)
+  SESSION_CREATE: 'session:create',
+  SESSION_GET: 'session:get',
+  SESSION_UPDATE_KEY: 'session:updateKey',
+  SESSION_DELETE: 'session:delete',
+  SESSION_LIST: 'session:list',
+
   // Settings channels
   SETTINGS_GET: 'settings:get',
   SETTINGS_UPDATE: 'settings:update',
@@ -43,9 +58,15 @@ export const IPC_CHANNELS = {
   ICON_UPLOAD: 'icon:upload',
   ICON_LIST: 'icon:list',
 
+  // Usage log channels (statistics)
+  USAGE_LOG_GET_STATS: 'usageLog:getStats',
+  USAGE_LOG_GET_RECENT: 'usageLog:getRecent',
+  USAGE_LOG_TODAY_QUICK_STATS: 'usageLog:todayQuickStats',
+
   // System channels
   SYSTEM_GET_PLATFORM: 'system:getPlatform',
   SYSTEM_SELECT_FOLDER: 'system:selectFolder',
+  SYSTEM_OPEN_EXTERNAL: 'system:openExternal',
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

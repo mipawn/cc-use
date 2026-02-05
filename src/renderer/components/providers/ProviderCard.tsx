@@ -1,4 +1,4 @@
-import { Card, Typography, Tag, Button, Space, Tooltip, Popconfirm, theme } from 'antd'
+import { Card, Typography, Tag, Button, Space, Tooltip, Popconfirm, theme, message } from 'antd'
 import {
   EditOutlined,
   DeleteOutlined,
@@ -6,10 +6,12 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   LinkOutlined,
+  CopyOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import type { Provider } from '@shared/types'
+import { getProviderTypeConfig, generateTerminalCommand } from '@shared/types'
 import styles from './ProviderCard.module.css'
 
 import claudeIcon from '../../assets/provider-icons/claude.svg'
@@ -39,6 +41,7 @@ interface ProviderCardProps {
   onDelete: (id: string) => void
   onRefreshBalance: (id: string) => void
   refreshing?: boolean
+  firstApiKey?: string // First available API key value for copy command
 }
 
 export default function ProviderCard({
@@ -47,9 +50,33 @@ export default function ProviderCard({
   onDelete,
   onRefreshBalance,
   refreshing,
+  firstApiKey,
 }: ProviderCardProps) {
   const { t } = useTranslation()
   const { token } = theme.useToken()
+
+  const handleCopyCommand = async () => {
+    const apiKey = firstApiKey || provider.token || 'YOUR_API_KEY'
+    const command = generateTerminalCommand({ type: provider.type ?? 'claude', baseUrl: provider.baseUrl }, apiKey)
+    try {
+      await navigator.clipboard.writeText(command)
+      message.success(t('providers.commandCopied'))
+    } catch {
+      message.error(t('providers.copyFailed'))
+    }
+  }
+
+  const getTypeLabel = () => {
+    const config = getProviderTypeConfig(provider.type ?? 'claude')
+    return config.label
+  }
+
+  const getTypeColor = () => {
+    switch (provider.type) {
+      case 'codex': return 'green'
+      default: return 'blue'
+    }
+  }
 
   const formatBalance = (balance: number | null) => {
     if (balance === null) return '-'
@@ -64,7 +91,7 @@ export default function ProviderCard({
 
   const getIconSrc = () => {
     if (!provider.icon) {
-      return PRESET_ICON_MAP[provider.type] || PRESET_ICON_MAP.claude
+      return PRESET_ICON_MAP[provider.type ?? 'claude'] || PRESET_ICON_MAP.claude
     }
     if (PRESET_ICON_MAP[provider.icon]) {
       return PRESET_ICON_MAP[provider.icon]
@@ -91,6 +118,13 @@ export default function ProviderCard({
       }}
       hoverable
       actions={[
+        <Tooltip title={t('providers.copyCommand')} key="copy">
+          <Button
+            type="text"
+            icon={<CopyOutlined />}
+            onClick={handleCopyCommand}
+          />
+        </Tooltip>,
         <Tooltip title={t('common.edit')} key="edit">
           <Button
             type="text"
@@ -154,8 +188,8 @@ export default function ProviderCard({
             >
               {provider.isActive ? t('common.active') : t('common.inactive')}
             </Tag>
-            <Tag color={provider.type === 'codex' ? 'green' : 'blue'}>
-              {provider.type === 'codex' ? t('providers.typeCodex') : t('providers.typeClaude')}
+            <Tag color={getTypeColor()}>
+              {getTypeLabel()}
             </Tag>
           </Space>
         </Space>

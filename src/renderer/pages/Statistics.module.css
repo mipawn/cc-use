@@ -1,0 +1,87 @@
+/* Statistics Page */
+
+.container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  flex-shrink: 0;
+}
+
+/* Filter Section */
+.filterSection {
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.filterSegmented {
+  background: var(--surface-sunken) !important;
+  padding: 4px !important;
+  border-radius: var(--radius-ant) !important;
+}
+
+.filterSegmented :global(.ant-segmented-item) {
+  border-radius: var(--radius-sm) !important;
+}
+
+/* Content - Scrollable */
+.content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.scrollContent {
+  padding-right: 12px;
+  padding-bottom: 24px;
+}
+
+.loadingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.statsContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Summary Cards */
+.summaryRow {
+  margin-bottom: 8px;
+}
+
+.summaryCard {
+  border-radius: var(--radius-ant-lg) !important;
+}
+
+/* Tables Grid */
+.tablesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .tablesGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tableCard {
+  border-radius: var(--radius-ant-lg) !important;
+}
+
+.recentCard {
+  border-radius: var(--radius-ant-lg) !important;
+}

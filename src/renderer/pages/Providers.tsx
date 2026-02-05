@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Typography, Button, Row, Col, Spin, message, theme, Card } from "antd";
 import { PlusOutlined, CloudServerOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
+import SimpleBar from "simplebar-react";
 import { useProviderStore } from "../stores/providerStore";
 import ProviderCard from "../components/providers/ProviderCard";
 import ProviderModal from "../components/providers/ProviderModal";
@@ -99,41 +100,43 @@ export default function Providers() {
         </Button>
       </div>
 
-      {loading ? (
-        <div className="empty-state">
-          <Spin size="large" />
-        </div>
-      ) : providers.length === 0 ? (
-        <Card className="empty-state" variant="outlined">
-          <CloudServerOutlined
-            className="text-5xl mb-4"
-            style={{ color: token.colorTextSecondary }}
-          />
-          <Title level={4} className="!mb-2">
-            {t("providers.noProviders")}
-          </Title>
-          <Text type="secondary" className="block mb-6">
-            {t("providers.noProvidersHint")}
-          </Text>
-          <Button type="primary" size="large" onClick={handleCreate}>
-            {t("providers.addFirstProvider")}
-          </Button>
-        </Card>
-      ) : (
-        <Row gutter={[16, 16]}>
-          {providers.map((provider) => (
-            <Col key={provider.id} xs={24} sm={24} md={12} lg={8} xl={8}>
-              <ProviderCard
-                provider={provider}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onRefreshBalance={handleRefreshBalance}
-                refreshing={refreshingIds.has(provider.id)}
-              />
-            </Col>
-          ))}
-        </Row>
-      )}
+      <SimpleBar style={{ maxHeight: 'calc(100vh - 140px)', paddingRight: 12 }}>
+        {loading ? (
+          <div className="empty-state">
+            <Spin size="large" />
+          </div>
+        ) : providers.length === 0 ? (
+          <Card className="empty-state" variant="outlined">
+            <CloudServerOutlined
+              className="text-5xl mb-4"
+              style={{ color: token.colorTextSecondary }}
+            />
+            <Title level={4} className="!mb-2">
+              {t("providers.noProviders")}
+            </Title>
+            <Text type="secondary" className="block mb-6">
+              {t("providers.noProvidersHint")}
+            </Text>
+            <Button type="primary" size="large" onClick={handleCreate}>
+              {t("providers.addFirstProvider")}
+            </Button>
+          </Card>
+        ) : (
+          <Row gutter={[16, 16]}>
+            {providers.map((provider) => (
+              <Col key={provider.id} xs={24} sm={24} md={12} lg={8} xl={8}>
+                <ProviderCard
+                  provider={provider}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  onRefreshBalance={handleRefreshBalance}
+                  refreshing={refreshingIds.has(provider.id)}
+                />
+              </Col>
+            ))}
+          </Row>
+        )}
+      </SimpleBar>
 
       <ProviderModal
         open={modalOpen}

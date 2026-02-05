@@ -1,12 +1,13 @@
 import { eq } from 'drizzle-orm'
 import { getDatabase } from '../database'
 import { settings } from '../database/schema'
-import type { GlobalSettings } from '@shared/types'
+import type { GlobalSettings, CliConfig } from '@shared/types'
 
 const DEFAULT_SETTINGS: GlobalSettings = {
   defaultProviderType: 'claude',
   proxyPort: 12345,
   autoStartProxy: true,
+  defaultTerminalType: 'iterm2',
 }
 
 export async function getGlobalSettings(): Promise<GlobalSettings> {
@@ -22,6 +23,20 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
       result.proxyPort = parseInt(row.value, 10)
     } else if (row.key === 'autoStartProxy' && row.value) {
       result.autoStartProxy = row.value === 'true'
+    } else if (row.key === 'defaultTerminalType' && row.value) {
+      result.defaultTerminalType = row.value as GlobalSettings['defaultTerminalType']
+    } else if (row.key === 'claudeConfig' && row.value) {
+      try {
+        result.claudeConfig = JSON.parse(row.value) as CliConfig
+      } catch {
+        result.claudeConfig = {}
+      }
+    } else if (row.key === 'codexConfig' && row.value) {
+      try {
+        result.codexConfig = JSON.parse(row.value) as CliConfig
+      } catch {
+        result.codexConfig = {}
+      }
     }
   }
 
@@ -36,7 +51,14 @@ export async function updateGlobalSettings(
   for (const [key, value] of Object.entries(updates)) {
     if (value === undefined) continue
 
-    const stringValue = String(value)
+    // JSON stringify for object values (claudeConfig, codexConfig)
+    let stringValue: string
+    if (typeof value === 'object' && value !== null) {
+      stringValue = JSON.stringify(value)
+    } else {
+      stringValue = String(value)
+    }
+
     const existing = await db.select().from(settings).where(eq(settings.key, key))
 
     if (existing.length > 0) {

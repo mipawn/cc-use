@@ -1,34 +1,261 @@
 .dropZone {
-  border: 2px dashed var(--ant-color-border);
-  border-radius: 12px;
-  padding: 48px;
+  position: relative;
+  border: 2px dashed var(--border-default, rgba(0, 0, 0, 0.1));
+  border-radius: 20px;
+  padding: 56px 32px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.3s;
-  background-color: transparent;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--surface-elevated, #ffffff);
+  overflow: hidden;
 }
 
 .dropZone:hover {
-  border-color: var(--ant-color-primary);
-  background-color: var(--ant-color-fill-secondary);
+  border-color: var(--color-accent-primary, #3b82f6);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.08));
 }
 
-.dropZoneDragging {
-  background-color: var(--ant-color-fill-secondary);
-  border-color: var(--ant-color-primary);
+.dropZone.dragging {
+  border-color: var(--color-accent-primary, #3b82f6);
+  border-style: solid;
+  background: linear-gradient(
+    135deg,
+    var(--surface-elevated, #ffffff) 0%,
+    var(--color-accent-glow, rgba(59, 130, 246, 0.1)) 100%
+  );
+  transform: translateY(-4px);
+  box-shadow:
+    var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.12)),
+    0 0 40px var(--color-accent-glow, rgba(59, 130, 246, 0.2));
 }
 
-.dropZoneIcon {
-  font-size: 64px;
+/* Grid Pattern Background */
+.gridPattern {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border-subtle, rgba(0, 0, 0, 0.04)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-subtle, rgba(0, 0, 0, 0.04)) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+
+.dropZone:hover .gridPattern,
+.dropZone.dragging .gridPattern {
+  opacity: 0.8;
+}
+
+/* Gradient Overlay */
+.gradientOverlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    var(--surface-elevated, #ffffff) 70%
+  );
+  pointer-events: none;
+}
+
+/* Content */
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+/* Icon Container */
+.iconContainer {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconRing {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    var(--surface-sunken, #f1f5f9) 0%,
+    var(--surface-elevated, #ffffff) 100%
+  );
+  border: 2px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.dropZone:hover .iconRing,
+.dropZone.dragging .iconRing {
+  border-color: var(--color-accent-primary, #3b82f6);
+  background: linear-gradient(
+    135deg,
+    var(--color-accent-glow, rgba(59, 130, 246, 0.1)) 0%,
+    var(--surface-elevated, #ffffff) 100%
+  );
+}
+
+.icon {
+  font-size: 32px;
   color: var(--ant-color-text-quaternary);
-  margin-bottom: 16px;
+  transition: all 0.3s ease;
 }
 
-.dropZoneTitle {
+.dropZone:hover .icon,
+.dropZone.dragging .icon {
+  color: var(--color-accent-primary, #3b82f6);
+  transform: scale(1.1);
+}
+
+.iconPulse {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 2px solid var(--color-accent-primary, #3b82f6);
+  animation: pulse-ring 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* Text Content */
+.textContent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  font-family: var(--font-display, 'Plus Jakarta Sans', sans-serif);
   font-size: 18px;
+  font-weight: 600;
   color: var(--ant-color-text);
 }
 
-.dropZoneHint {
+.hint {
+  font-size: 14px;
+  max-width: 320px;
+}
+
+/* Keyboard Hint */
+.keyboardHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 8px;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.dropZone:hover .keyboardHint {
+  opacity: 0.8;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--surface-sunken, #f1f5f9);
+  border: 1px solid var(--border-default, rgba(0, 0, 0, 0.1));
+  border-radius: 6px;
+  box-shadow: 0 1px 0 var(--border-default, rgba(0, 0, 0, 0.1));
+}
+
+/* Corner Accents */
+.corner {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.dropZone:hover .corner,
+.dropZone.dragging .corner {
+  opacity: 1;
+}
+
+.cornerTopLeft {
+  top: 16px;
+  left: 16px;
+  border-top: 2px solid var(--color-accent-primary, #3b82f6);
+  border-left: 2px solid var(--color-accent-primary, #3b82f6);
+  border-radius: 4px 0 0 0;
+}
+
+.cornerTopRight {
+  top: 16px;
+  right: 16px;
+  border-top: 2px solid var(--color-accent-primary, #3b82f6);
+  border-right: 2px solid var(--color-accent-primary, #3b82f6);
+  border-radius: 0 4px 0 0;
+}
+
+.cornerBottomLeft {
+  bottom: 16px;
+  left: 16px;
+  border-bottom: 2px solid var(--color-accent-primary, #3b82f6);
+  border-left: 2px solid var(--color-accent-primary, #3b82f6);
+  border-radius: 0 0 0 4px;
+}
+
+.cornerBottomRight {
+  bottom: 16px;
+  right: 16px;
+  border-bottom: 2px solid var(--color-accent-primary, #3b82f6);
+  border-right: 2px solid var(--color-accent-primary, #3b82f6);
+  border-radius: 0 0 4px 0;
+}
+
+/* Dark Mode */
+[data-theme='dark'] .dropZone {
+  background: var(--surface-elevated, #1e293b);
+}
+
+[data-theme='dark'] .dropZone.dragging {
+  background: linear-gradient(
+    135deg,
+    var(--surface-elevated, #1e293b) 0%,
+    rgba(59, 130, 246, 0.15) 100%
+  );
+}
+
+[data-theme='dark'] .gradientOverlay {
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    var(--surface-elevated, #1e293b) 70%
+  );
+}
+
+/* Disabled State */
+.dropZone.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }

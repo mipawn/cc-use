@@ -2,7 +2,7 @@ import { eq, desc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '../database'
 import { projects } from '../database/schema'
-import type { Project, CreateProjectInput, UpdateProjectInput } from '@shared/types'
+import type { Project, CreateProjectInput, UpdateProjectInput, TerminalType, ProviderType } from '@shared/types'
 
 export async function listProjects(): Promise<Project[]> {
   const db = getDatabase()
@@ -36,7 +36,11 @@ export async function createProject(
     id,
     name: input.name,
     path: input.path,
+    remark: input.remark ?? null,
     providerId: input.providerId ?? null,
+    apiKeyId: input.apiKeyId ?? null,
+    cliType: input.cliType ?? 'claude',
+    terminalType: input.terminalType ?? 'iterm2',
     lastOpenedAt: now,
   })
 
@@ -54,7 +58,11 @@ export async function updateProject(
 
   const updateData: Record<string, unknown> = {}
   if (input.name !== undefined) updateData.name = input.name
+  if (input.remark !== undefined) updateData.remark = input.remark
   if (input.providerId !== undefined) updateData.providerId = input.providerId
+  if (input.apiKeyId !== undefined) updateData.apiKeyId = input.apiKeyId
+  if (input.cliType !== undefined) updateData.cliType = input.cliType
+  if (input.terminalType !== undefined) updateData.terminalType = input.terminalType
 
   await db.update(projects).set(updateData).where(eq(projects.id, input.id))
 
@@ -81,7 +89,11 @@ function mapRowToProject(row: typeof projects.$inferSelect): Project {
     id: row.id,
     name: row.name,
     path: row.path,
+    remark: row.remark,
     providerId: row.providerId,
+    apiKeyId: row.apiKeyId,
+    cliType: (row.cliType as ProviderType) ?? 'claude',
+    terminalType: (row.terminalType as TerminalType) ?? 'iterm2',
     lastOpenedAt: row.lastOpenedAt,
   }
 }

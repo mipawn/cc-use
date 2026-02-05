@@ -1,30 +1,39 @@
 import { useState, useCallback } from "react";
 import { Typography, message } from "antd";
-import { FolderOpenOutlined } from "@ant-design/icons";
+import { FolderOpenOutlined, CloudUploadOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import clsx from "clsx";
 import styles from "./DropZone.module.css";
 
 const { Text } = Typography;
 
 interface DropZoneProps {
   onDrop: (path: string) => void;
+  disabled?: boolean;
+  hint?: string;
 }
 
-export default function DropZone({ onDrop }: DropZoneProps) {
+export default function DropZone({ onDrop, disabled = false, hint }: DropZoneProps) {
   const { t } = useTranslation();
   const [isDragging, setIsDragging] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true);
-  }, []);
+    if (!disabled) {
+      setIsDragging(true);
+    }
+  }, [disabled]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(false);
+    // Only set dragging to false if we're leaving the drop zone entirely
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+      setIsDragging(false);
+    }
   }, []);
 
   const handleDrop = useCallback(
@@ -54,6 +63,7 @@ export default function DropZone({ onDrop }: DropZoneProps) {
   );
 
   const handleClick = async () => {
+    if (disabled) return;
     try {
       const path = await window.api.system.selectFolder();
       if (path) {
@@ -71,17 +81,49 @@ export default function DropZone({ onDrop }: DropZoneProps) {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={clsx(styles.dropZone, isDragging && styles.dropZoneDragging)}
+      className={`${styles.dropZone} ${isDragging ? styles.dragging : ''} ${disabled ? styles.disabled : ''}`}
     >
-      <FolderOpenOutlined className={styles.dropZoneIcon} />
-      <div>
-        <Text className={styles.dropZoneTitle}>
-          {t("dashboard.dropZone")}
-        </Text>
+      {/* Background Grid Pattern */}
+      <div className={styles.gridPattern} />
+
+      {/* Gradient Overlay */}
+      <div className={styles.gradientOverlay} />
+
+      {/* Content */}
+      <div className={styles.content}>
+        <div className={styles.iconContainer}>
+          <div className={styles.iconRing}>
+            {isDragging ? (
+              <CloudUploadOutlined className={styles.icon} />
+            ) : (
+              <FolderOpenOutlined className={styles.icon} />
+            )}
+          </div>
+          {isDragging && <div className={styles.iconPulse} />}
+        </div>
+
+        <div className={styles.textContent}>
+          <Text className={styles.title}>
+            {t("dashboard.dropZone")}
+          </Text>
+          <Text type="secondary" className={styles.hint}>
+            {hint || t("dashboard.dropZoneHint")}
+          </Text>
+        </div>
+
+        {/* Keyboard hint */}
+        <div className={styles.keyboardHint}>
+          <kbd className={styles.kbd}>⌘</kbd>
+          <span>+</span>
+          <kbd className={styles.kbd}>O</kbd>
+        </div>
       </div>
-      <div className={styles.dropZoneHint}>
-        <Text type="secondary">{t("dashboard.dropZoneHint")}</Text>
-      </div>
+
+      {/* Corner Accents */}
+      <div className={`${styles.corner} ${styles.cornerTopLeft}`} />
+      <div className={`${styles.corner} ${styles.cornerTopRight}`} />
+      <div className={`${styles.corner} ${styles.cornerBottomLeft}`} />
+      <div className={`${styles.corner} ${styles.cornerBottomRight}`} />
     </div>
   );
 }

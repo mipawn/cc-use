@@ -1,0 +1,125 @@
+/* Industrial Precision Design System */
+
+/* Custom fonts - using JetBrains Mono for code, Plus Jakarta for UI */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Typography */
+  --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+
+  /* Accent Colors - Refined Blue for active states */
+  --color-accent-primary: #3b82f6;
+  --color-accent-secondary: #6366f1;
+  --color-accent-glow: rgba(59, 130, 246, 0.12);
+  --color-accent-pulse: rgba(59, 130, 246, 0.3);
+
+  /* Status Colors */
+  --color-status-active: #3b82f6;
+  --color-status-inactive: #64748b;
+  --color-status-warning: #f59e0b;
+  --color-status-danger: #ef4444;
+  --color-status-success: #22c55e;
+
+  /* Industrial Surface Colors - Light Mode */
+  --surface-elevated: #ffffff;
+  --surface-default: #f8fafc;
+  --surface-sunken: #f1f5f9;
+  --surface-overlay: rgba(255, 255, 255, 0.95);
+
+  /* Border */
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.15);
+
+  /* Layout */
+  --max-width-page: 1200px;
+  --max-width-page-sm: 720px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-ant: 8px;
+  --radius-ant-lg: 12px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-accent: 0 0 20px var(--color-accent-glow);
+}
+
+/* Dark Mode Tokens */
+[data-theme='dark'] {
+  --surface-elevated: #1e293b;
+  --surface-default: #0f172a;
+  --surface-sunken: #020617;
+  --surface-overlay: rgba(30, 41, 59, 0.98);
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Animations */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes subtle-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--color-accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 16px var(--color-accent-pulse);
+  }
+}
+
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Utility Classes */
+.animate-slide-up {
+  animation: slide-up-fade 0.3s ease-out;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}

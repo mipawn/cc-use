@@ -1,0 +1,236 @@
+/* Keys Page - Key-centric Management */
+
+/* Container with fixed header */
+.container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  flex-shrink: 0;
+}
+
+/* Content - Scrollable */
+.content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.scrollContent {
+  padding-right: 12px;
+  padding-bottom: 24px;
+}
+
+/* Filter Section */
+.filterSection {
+  margin-bottom: 24px;
+  flex-shrink: 0;
+}
+
+.filterSegmented {
+  background: var(--surface-sunken) !important;
+  padding: 4px !important;
+  border-radius: var(--radius-ant) !important;
+}
+
+.filterSegmented :global(.ant-segmented-item) {
+  border-radius: var(--radius-sm) !important;
+}
+
+.filterBadge :global(.ant-badge-count) {
+  font-size: 10px !important;
+  min-width: 16px !important;
+  height: 16px !important;
+  line-height: 16px !important;
+  background: var(--color-accent-primary) !important;
+}
+
+/* Key Groups */
+.keyGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-bottom: 24px;
+}
+
+.keyGroup {
+  animation: slide-up-fade 0.3s ease-out;
+  animation-fill-mode: backwards;
+}
+
+.keyGroup:nth-child(1) { animation-delay: 0s; }
+.keyGroup:nth-child(2) { animation-delay: 0.05s; }
+.keyGroup:nth-child(3) { animation-delay: 0.1s; }
+.keyGroup:nth-child(4) { animation-delay: 0.15s; }
+
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.groupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-ant);
+  margin-bottom: 12px;
+}
+
+.groupInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.groupName {
+  font-family: var(--font-display);
+  font-size: 14px;
+}
+
+/* Key Card */
+.keyCard {
+  transition: all 0.2s ease;
+  border-radius: var(--radius-ant) !important;
+  height: 100%;
+}
+
+.keyCard:hover {
+  border-color: var(--color-accent-primary) !important;
+  box-shadow: var(--shadow-md);
+}
+
+.keyCard.exhausted {
+  opacity: 0.6;
+  background: var(--surface-sunken) !important;
+}
+
+.keyCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.keyCardTitle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.keyStatus {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.keyTitleInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.keyAlias {
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.keyMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.providerInfo {
+  display: inline-flex;
+  align-items: center;
+}
+
+.statsRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+
+.statItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statItemClickable {
+  cursor: pointer;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s ease;
+}
+
+.statItemClickable:hover {
+  background: var(--surface-elevated);
+}
+
+.statValue {
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+.keyCardActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+/* Add Key Card */
+.addKeyCard {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 200px;
+  border-style: dashed !important;
+  transition: all 0.2s ease;
+}
+
+.addKeyCard:hover {
+  border-color: var(--color-accent-primary) !important;
+  background: var(--color-accent-glow) !important;
+}
+
+.addKeyCard :global(.ant-card-body) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.addIcon {
+  font-size: 24px;
+  color: var(--color-accent-primary);
+}

@@ -17,12 +17,17 @@ export class WindowsTerminalStrategy implements TerminalStrategy {
     }
   }
 
-  async launch(path: string, env: EnvObject): Promise<void> {
+  async launch(path: string, env: EnvObject, cliCommand?: string): Promise<void> {
     const envSetCommands = Object.entries(env)
       .map(([key, value]) => `set ${key}=${value}`)
       .join(' && ')
 
-    const command = `wt.exe -w 0 new-tab -d "${path}" cmd /k "${envSetCommands}"`
+    let finalCommand = envSetCommands
+    if (cliCommand) {
+      finalCommand += ` && ${cliCommand}`
+    }
+
+    const command = `wt.exe -w 0 new-tab -d "${path}" cmd /k "${finalCommand}"`
     await execAsync(command)
   }
 }

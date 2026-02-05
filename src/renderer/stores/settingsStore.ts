@@ -31,6 +31,7 @@ const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   defaultProviderType: 'claude',
   proxyPort: 12345,
   autoStartProxy: true,
+  defaultTerminalType: 'iterm2',
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

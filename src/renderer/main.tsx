@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import { ConfigProvider, theme } from "antd";
+import { ConfigProvider, theme, message } from "antd";
 import { StyleProvider } from "@ant-design/cssinjs";
 import zhCN from "antd/locale/zh_CN";
 import enUS from "antd/locale/en_US";
@@ -8,6 +8,12 @@ import App from "./App";
 import { useSettingsStore } from "./stores/settingsStore";
 import "./locales";
 import "./styles/global.css";
+
+// Configure message globally - show below the title bar
+message.config({
+  top: 60,
+  maxCount: 3,
+});
 
 function Root() {
   const { language, resolvedTheme, initSettings } = useSettingsStore();

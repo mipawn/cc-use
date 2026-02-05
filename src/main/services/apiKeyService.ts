@@ -2,7 +2,7 @@ import { eq, asc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '../database'
 import { apiKeys } from '../database/schema'
-import type { ApiKey, CreateApiKeyInput, UpdateApiKeyInput } from '@shared/types'
+import type { ApiKey, CreateApiKeyInput, UpdateApiKeyInput, ProviderType, CliConfig } from '@shared/types'
 
 export async function listApiKeys(providerId: string): Promise<ApiKey[]> {
   const db = getDatabase()
@@ -31,13 +31,18 @@ export async function createApiKey(input: CreateApiKeyInput): Promise<ApiKey> {
     -1
   )
 
+  const types = input.types ?? ['claude']
+
   await db.insert(apiKeys).values({
     id,
     providerId: input.providerId,
     alias: input.alias ?? null,
     value: input.value,
+    types: JSON.stringify(types),
     priority: input.priority ?? maxPriority + 1,
     isExhausted: false,
+    isActive: input.isActive ?? true,
+    config: input.config ? JSON.stringify(input.config) : null,
   })
 
   const apiKey = await getApiKey(id)
@@ -53,8 +58,11 @@ export async function updateApiKey(input: UpdateApiKeyInput): Promise<ApiKey> {
   const updateData: Record<string, unknown> = {}
   if (input.alias !== undefined) updateData.alias = input.alias
   if (input.value !== undefined) updateData.value = input.value
+  if (input.types !== undefined) updateData.types = JSON.stringify(input.types)
   if (input.priority !== undefined) updateData.priority = input.priority
   if (input.isExhausted !== undefined) updateData.isExhausted = input.isExhausted
+  if (input.isActive !== undefined) updateData.isActive = input.isActive
+  if (input.config !== undefined) updateData.config = input.config ? JSON.stringify(input.config) : null
 
   await db.update(apiKeys).set(updateData).where(eq(apiKeys.id, input.id))
 
@@ -113,12 +121,33 @@ export async function resetAllKeysForProvider(providerId: string): Promise<void>
 }
 
 function mapRowToApiKey(row: typeof apiKeys.$inferSelect): ApiKey {
+  let config: CliConfig | undefined
+  if (row.config) {
+    try {
+      config = JSON.parse(row.config) as CliConfig
+    } catch {
+      config = undefined
+    }
+  }
+
+  let types: ProviderType[] = ['claude']
+  if (row.types) {
+    try {
+      types = JSON.parse(row.types) as ProviderType[]
+    } catch {
+      types = ['claude']
+    }
+  }
+
   return {
     id: row.id,
     providerId: row.providerId ?? '',
     alias: row.alias,
     value: row.value,
+    types,
     priority: row.priority ?? 0,
     isExhausted: row.isExhausted ?? false,
+    isActive: row.isActive ?? true,
+    config,
   }
 }

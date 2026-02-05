@@ -1,0 +1,121 @@
+/* KeyCascader - Industrial Precision Style */
+
+.cascader {
+  width: 100%;
+}
+
+.cascader :global(.ant-select-selector) {
+  border-radius: var(--radius-ant) !important;
+  border-color: var(--border-default) !important;
+  transition: all 0.2s ease;
+}
+
+.cascader:hover :global(.ant-select-selector) {
+  border-color: var(--color-accent-primary) !important;
+}
+
+.cascader :global(.ant-select-focused .ant-select-selector) {
+  border-color: var(--color-accent-primary) !important;
+  box-shadow: 0 0 0 2px var(--color-accent-glow) !important;
+}
+
+/* Provider Label */
+.providerLabel {
+  display: flex;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.providerName {
+  font-weight: 500;
+  font-family: var(--font-display);
+}
+
+.keyCountTag {
+  font-size: 10px !important;
+  padding: 0 4px !important;
+  line-height: 16px !important;
+  border-radius: 4px !important;
+  font-family: var(--font-mono);
+}
+
+/* Key Label */
+.keyLabel {
+  display: flex;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.keyAlias {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* Selected Display */
+.selectedDisplay {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.selectedProvider {
+  font-size: 12px;
+  font-family: var(--font-display);
+}
+
+.separator {
+  color: var(--border-strong);
+  font-weight: 300;
+}
+
+.selectedKey {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* Popup Styles */
+.cascaderPopup {
+  border-radius: var(--radius-ant-lg) !important;
+  box-shadow: var(--shadow-lg) !important;
+  overflow: hidden;
+}
+
+.cascaderPopup :global(.ant-cascader-menu) {
+  min-width: 180px;
+  max-height: 280px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.cascaderPopup :global(.ant-cascader-menu:last-child) {
+  border-right: none;
+}
+
+.cascaderPopup :global(.ant-cascader-menu-item) {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  margin: 2px 4px;
+  transition: all 0.15s ease;
+}
+
+.cascaderPopup :global(.ant-cascader-menu-item:hover) {
+  background: var(--color-accent-glow);
+}
+
+.cascaderPopup :global(.ant-cascader-menu-item-active) {
+  background: var(--color-accent-glow) !important;
+  font-weight: 500;
+}
+
+/* Empty State */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  gap: 8px;
+}
+
+.emptyText {
+  font-size: 12px;
+}

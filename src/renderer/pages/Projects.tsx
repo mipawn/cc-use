@@ -1,50 +1,240 @@
-import { useEffect } from "react";
+/**
+ * Projects - 项目管理页面（卡片布局）
+ * 完整的增删改查 + 代理服务控制
+ */
+import { useEffect, useState, useCallback } from "react";
 import {
   Typography,
-  List,
   Button,
-  Popconfirm,
-  Tag,
   message,
   theme,
   Card,
+  Space,
+  Modal,
+  Form,
+  Input,
+  Switch,
+  Tooltip,
+  Popconfirm,
+  Dropdown,
+  Segmented,
+  Badge,
 } from "antd";
 import {
   FolderOutlined,
   PlayCircleOutlined,
   DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+  KeyOutlined,
+  WarningOutlined,
+  FolderAddOutlined,
+  ClockCircleOutlined,
+  SwapOutlined,
 } from "@ant-design/icons";
+
+// Import provider icons
+import claudeIcon from "../assets/provider-icons/claude.svg";
+import openaiIcon from "../assets/provider-icons/openai.svg";
+import zhipuIcon from "../assets/provider-icons/zhipu.svg";
+import minimaxIcon from "../assets/provider-icons/minimax.svg";
+import deepseekIcon from "../assets/provider-icons/deepseek.svg";
+import siliconflowIcon from "../assets/provider-icons/siliconflow.svg";
+import newapiIcon from "../assets/provider-icons/newapi.svg";
+
 import { useTranslation } from "react-i18next";
 import { useProjectStore } from "../stores/projectStore";
 import { useProviderStore } from "../stores/providerStore";
-import type { Project } from "@shared/types";
+import { useApiKeyStore } from "../stores/apiKeyStore";
+import KeyCascader from "../components/common/KeyCascader";
+import SimpleBar from "simplebar-react";
+import type { Project, ApiKey, ProviderType, Provider } from "@shared/types";
+import styles from "./Projects.module.css";
 
 const { Title, Text } = Typography;
+const { TextArea } = Input;
+
+// Preset provider icon mapping
+const PRESET_ICON_MAP: Record<string, string> = {
+  claude: claudeIcon,
+  codex: openaiIcon,
+  openai: openaiIcon,
+  zhipu: zhipuIcon,
+  minimax: minimaxIcon,
+  deepseek: deepseekIcon,
+  siliconflow: siliconflowIcon,
+  newapi: newapiIcon,
+};
+
+// Get provider icon src
+function getProviderIconSrc(provider: Provider | null): string {
+  if (!provider) {
+    return PRESET_ICON_MAP.claude;
+  }
+  if (!provider.icon) {
+    return PRESET_ICON_MAP[provider.type ?? "claude"] || PRESET_ICON_MAP.claude;
+  }
+  if (PRESET_ICON_MAP[provider.icon]) {
+    return PRESET_ICON_MAP[provider.icon];
+  }
+  return `file://${provider.icon}`;
+}
+
+// CLI type icon component
+const CliTypeIcon = ({
+  type,
+  size = 14,
+}: {
+  type: "claude" | "codex";
+  size?: number;
+}) => {
+  const icon = type === "claude" ? claudeIcon : openaiIcon;
+  return <img src={icon} alt={type} style={{ width: size, height: size }} />;
+};
 
 export default function Projects() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const { projects, fetchProjects, deleteProject } = useProjectStore();
+  const {
+    projects,
+    fetchProjects,
+    createProject,
+    updateProject,
+    deleteProject,
+  } = useProjectStore();
   const { providers, fetchProviders } = useProviderStore();
+  const {
+    fetchAllApiKeys,
+    getAllApiKeys,
+    apiKeys: apiKeysByProvider,
+  } = useApiKeyStore();
+
+  const allApiKeys = getAllApiKeys();
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [form] = Form.useForm();
+
+  // Proxy state
+  const [proxyRunning, setProxyRunning] = useState(false);
+  const [proxyLoading, setProxyLoading] = useState(false);
 
   useEffect(() => {
     fetchProjects();
     fetchProviders();
+    checkProxyStatus();
   }, [fetchProjects, fetchProviders]);
 
-  const getProviderName = (providerId: string | null) => {
-    if (!providerId) return t("projects.noProvider");
-    const provider = providers.find((p) => p.id === providerId);
-    return provider?.name || t("common.unknown");
+  useEffect(() => {
+    if (providers.length > 0) {
+      fetchAllApiKeys(providers.map((p) => p.id));
+    }
+  }, [providers, fetchAllApiKeys]);
+
+  // Check proxy status
+  const checkProxyStatus = async () => {
+    try {
+      const status = await window.api.proxy.status();
+      setProxyRunning(status.isRunning);
+    } catch (error) {
+      console.error("Failed to check proxy status:", error);
+    }
+  };
+
+  // Toggle proxy
+  const handleProxyToggle = async (checked: boolean) => {
+    setProxyLoading(true);
+    try {
+      if (checked) {
+        await window.api.proxy.start();
+        message.success(t("projects.proxyStarted"));
+      } else {
+        await window.api.proxy.stop();
+        message.success(t("projects.proxyStopped"));
+      }
+      setProxyRunning(checked);
+    } catch (error) {
+      message.error(t("projects.proxyError"));
+    } finally {
+      setProxyLoading(false);
+    }
+  };
+
+  // Ensure proxy is running
+  const ensureProxyRunning = useCallback(async (): Promise<boolean> => {
+    try {
+      const status = await window.api.proxy.status();
+      if (status.isRunning) return true;
+
+      await window.api.proxy.start();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      setProxyRunning(true);
+      return true;
+    } catch (error) {
+      console.error("Failed to start proxy:", error);
+      return false;
+    }
+  }, []);
+
+  const getProvider = (providerId: string | null) => {
+    if (!providerId) return null;
+    return providers.find((p) => p.id === providerId) || null;
+  };
+
+  const getApiKey = (apiKeyId: string | null): ApiKey | null => {
+    if (!apiKeyId) return null;
+    return allApiKeys.find((k) => k.id === apiKeyId) || null;
+  };
+
+  const getKeyAlias = (key: ApiKey | null) => {
+    if (!key) return null;
+    return key.alias || `Key ${key.priority + 1}`;
+  };
+
+  // Check if the key supports the project's CLI type
+  const isKeyCompatible = (
+    project: Project,
+    apiKey: ApiKey | null,
+  ): boolean => {
+    if (!apiKey) return false;
+    return apiKey.types.includes(project.cliType || "claude");
   };
 
   const formatDate = (timestamp: string | null) => {
     if (!timestamp) return t("common.never");
     const date = new Date(timestamp);
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+
+    if (hours < 1) return t("common.justNow");
+    if (hours < 24) return `${hours} ${t("common.hoursAgo")}`;
+    if (days < 7) return `${days} ${t("common.daysAgo")}`;
+    return date.toLocaleDateString();
   };
 
+  // Open project
   const handleOpen = async (project: Project) => {
+    if (!project.providerId || !project.apiKeyId) {
+      message.warning(t("projects.configureFirst"));
+      handleEdit(project);
+      return;
+    }
+
+    const apiKey = getApiKey(project.apiKeyId);
+    if (!isKeyCompatible(project, apiKey)) {
+      message.warning(t("projects.keyNotCompatible"));
+      return;
+    }
+
+    const proxyReady = await ensureProxyRunning();
+    if (!proxyReady) {
+      message.error(t("projects.proxyStartFailed"));
+      return;
+    }
+
     try {
       await window.api.terminal.launch(project.id);
       message.success(`${t("projects.opened")} ${project.name}`);
@@ -54,6 +244,149 @@ export default function Projects() {
     }
   };
 
+  // Add new project
+  const handleAdd = () => {
+    setEditingProject(null);
+    form.resetFields();
+    setModalOpen(true);
+  };
+
+  // Edit project
+  const handleEdit = (project: Project) => {
+    setEditingProject(project);
+    form.setFieldsValue({
+      name: project.name,
+      path: project.path,
+      remark: project.remark,
+      key:
+        project.providerId && project.apiKeyId
+          ? [project.providerId, project.apiKeyId]
+          : null,
+      cliType: project.cliType || "claude",
+    });
+    setModalOpen(true);
+  };
+
+  // Quick switch CLI type for a project
+  const handleSwitchCliType = async (
+    project: Project,
+    cliType: ProviderType,
+  ) => {
+    try {
+      await updateProject({
+        id: project.id,
+        cliType,
+      });
+    } catch (error) {
+      message.error(t("messages.error"));
+    }
+  };
+
+  // Quick switch key for a project
+  const handleSwitchKey = async (
+    project: Project,
+    providerId: string,
+    keyId: string,
+  ) => {
+    try {
+      await updateProject({
+        id: project.id,
+        providerId,
+        apiKeyId: keyId,
+      });
+      message.success(t("projects.keySwitched"));
+    } catch (error) {
+      message.error(t("messages.error"));
+    }
+  };
+
+  // Build key switch menu items for a project
+  const getKeySwitchMenuItems = (project: Project) => {
+    const items: any[] = [];
+
+    providers.forEach((provider) => {
+      const providerKeys = apiKeysByProvider[provider.id] || [];
+      if (providerKeys.length === 0) return;
+
+      items.push({
+        type: "group",
+        label: (
+          <Space size={6}>
+            <img
+              src={getProviderIconSrc(provider)}
+              alt={provider.name}
+              style={{ width: 14, height: 14, borderRadius: 2 }}
+            />
+            <span>{provider.name}</span>
+          </Space>
+        ),
+        children: providerKeys.map((key) => ({
+          key: `${provider.id}:${key.id}`,
+          label: (
+            <Space size={6}>
+              <span>{key.alias || `Key ${key.priority + 1}`}</span>
+              <Space size={2}>
+                {key.types.map((type) => (
+                  <CliTypeIcon key={type} type={type} size={12} />
+                ))}
+              </Space>
+              {project.apiKeyId === key.id && (
+                <Badge
+                  status="success"
+                  text={t("common.current")}
+                  style={{ fontSize: 11 }}
+                />
+              )}
+            </Space>
+          ),
+          disabled: project.apiKeyId === key.id,
+          onClick: () => handleSwitchKey(project, provider.id, key.id),
+        })),
+      });
+    });
+
+    return items;
+  };
+
+  // Save project
+  const handleSave = async () => {
+    try {
+      const values = await form.validateFields();
+
+      if (editingProject) {
+        // Update existing project
+        await updateProject({
+          id: editingProject.id,
+          name: values.name,
+          remark: values.remark,
+          providerId: values.key?.[0] || null,
+          apiKeyId: values.key?.[1] || null,
+          cliType: values.cliType as ProviderType,
+        });
+        message.success(t("projects.projectUpdated"));
+      } else {
+        // Create new project
+        await createProject({
+          name: values.name,
+          path: values.path,
+          remark: values.remark,
+          providerId: values.key?.[0],
+          apiKeyId: values.key?.[1],
+          cliType: values.cliType as ProviderType,
+        });
+        message.success(t("projects.projectCreated"));
+      }
+
+      setModalOpen(false);
+      setEditingProject(null);
+    } catch (error) {
+      if (error instanceof Error) {
+        message.error(error.message);
+      }
+    }
+  };
+
+  // Delete project
   const handleDelete = async (id: string) => {
     try {
       await deleteProject(id);
@@ -63,105 +396,416 @@ export default function Projects() {
     }
   };
 
+  // Select folder
+  const handleSelectFolder = async () => {
+    try {
+      const path = await window.api.system.selectFolder();
+      if (path) {
+        form.setFieldValue("path", path);
+        // Auto-fill name from folder name
+        const folderName = path.split("/").pop() || path.split("\\").pop();
+        if (folderName && !form.getFieldValue("name")) {
+          form.setFieldValue("name", folderName);
+        }
+      }
+    } catch (error) {
+      message.error(t("projects.selectFolderFailed"));
+    }
+  };
+
   return (
-    <div className="page-container">
-      <div className="page-header">
+    <div className={styles.container}>
+      {/* Header - Fixed */}
+      <div className={styles.header}>
         <div>
           <Title level={3} className="!m-0 !mb-1">
             {t("projects.title")}
           </Title>
           <Text type="secondary">{t("projects.subtitle")}</Text>
         </div>
+        <Space size="middle" align="center">
+          {/* Proxy Status */}
+          <Tooltip
+            title={
+              proxyRunning
+                ? t("projects.proxyRunning")
+                : t("projects.proxyStopped")
+            }
+          >
+            <div
+              className={styles.proxyStatus}
+              style={{
+                background: proxyRunning
+                  ? token.colorSuccessBg
+                  : token.colorBgContainerDisabled,
+                borderColor: proxyRunning
+                  ? token.colorSuccessBorder
+                  : token.colorBorder,
+              }}
+            >
+              <span
+                className={styles.proxyDot}
+                style={{
+                  background: proxyRunning
+                    ? token.colorSuccess
+                    : token.colorTextQuaternary,
+                }}
+              />
+              <Text style={{ fontSize: 12 }}>{t("projects.proxy")}</Text>
+              <Switch
+                checked={proxyRunning}
+                onChange={handleProxyToggle}
+                loading={proxyLoading}
+                size="small"
+              />
+            </div>
+          </Tooltip>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+            {t("projects.addProject")}
+          </Button>
+        </Space>
       </div>
 
-      {projects.length === 0 ? (
-        <Card className="empty-state" variant="outlined">
-          <FolderOutlined
-            className="text-5xl mb-4"
-            style={{ color: token.colorTextSecondary }}
-          />
-          <Title level={4} className="!mb-2">
-            {t("projects.noProjects")}
-          </Title>
-          <Text type="secondary">{t("projects.dropFolderHint")}</Text>
-        </Card>
-      ) : (
-        <Card variant="outlined">
-          <List
-            dataSource={projects}
-            renderItem={(project) => (
-              <List.Item
-                className="py-4"
-                style={{
-                  borderBottom: `1px solid ${token.colorBorderSecondary}`,
-                }}
-                actions={[
-                  <Button
-                    key="open"
-                    type="primary"
-                    size="small"
-                    icon={<PlayCircleOutlined />}
-                    onClick={() => handleOpen(project)}
-                    className="rounded-md"
-                  >
-                    {t("common.open")}
-                  </Button>,
-                  <Popconfirm
-                    key="delete"
-                    title={t("projects.deleteProject")}
-                    description={t("projects.deleteProjectHint")}
-                    onConfirm={() => handleDelete(project.id)}
-                    okText={t("common.delete")}
-                    cancelText={t("common.cancel")}
-                    okButtonProps={{ danger: true }}
-                  >
-                    <Button
-                      type="text"
-                      danger
-                      size="small"
-                      icon={<DeleteOutlined />}
-                    />
-                  </Popconfirm>,
-                ]}
+      {/* Content - Scrollable */}
+      <div className={styles.content}>
+        <SimpleBar
+          className={styles.scrollContent}
+          style={{ maxHeight: "100%" }}
+        >
+          {projects.length === 0 ? (
+            <Card className="empty-state" variant="outlined">
+              <FolderOutlined
+                className="text-5xl mb-4"
+                style={{ color: token.colorTextSecondary }}
+              />
+              <Title level={4} className="!mb-2">
+                {t("projects.noProjects")}
+              </Title>
+              <Text type="secondary" className="block mb-4">
+                {t("projects.dropFolderHint")}
+              </Text>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={handleAdd}
               >
-                <List.Item.Meta
-                  avatar={
-                    <div
-                      className="icon-box"
-                      style={{ background: token.colorPrimaryBg }}
-                    >
-                      <FolderOutlined
-                        className="text-xl"
-                        style={{ color: token.colorPrimary }}
-                      />
-                    </div>
-                  }
-                  title={
-                    <span>
-                      {project.name}{" "}
-                      <Tag color="green" className="ml-2">
-                        {getProviderName(project.providerId)}
-                      </Tag>
-                    </span>
-                  }
-                  description={
-                    <div>
-                      <Text type="secondary" className="text-xs">
-                        {project.path}
+                {t("projects.addProject")}
+              </Button>
+            </Card>
+          ) : (
+            <div className={styles.projectsGrid}>
+              {projects.map((project) => {
+                const provider = getProvider(project.providerId);
+                const apiKey = getApiKey(project.apiKeyId);
+                const hasKey = !!project.providerId && !!project.apiKeyId;
+                const cliType = project.cliType || "claude";
+                const keyCompatible = isKeyCompatible(project, apiKey);
+                const canOpen = hasKey && keyCompatible;
+
+                return (
+                  <Card
+                    key={project.id}
+                    className={styles.projectCard}
+                    variant="outlined"
+                  >
+                    {/* Card Header */}
+                    <div className={styles.projectCardHeader}>
+                      <Text strong className={styles.projectName}>
+                        {project.name}
                       </Text>
-                      <br />
-                      <Text type="secondary" className="text-xs">
-                        {t("projects.lastOpened")}:{" "}
+                      {/* CLI Type Dropdown */}
+                      <Dropdown
+                        menu={{
+                          items: [
+                            {
+                              key: "claude",
+                              label: (
+                                <Space size={6}>
+                                  <CliTypeIcon type="claude" size={14} />
+                                  <span>Claude Code</span>
+                                </Space>
+                              ),
+                              onClick: () =>
+                                handleSwitchCliType(project, "claude"),
+                            },
+                            {
+                              key: "codex",
+                              label: (
+                                <Space size={6}>
+                                  <CliTypeIcon type="codex" size={14} />
+                                  <span>Codex CLI</span>
+                                </Space>
+                              ),
+                              onClick: () =>
+                                handleSwitchCliType(project, "codex"),
+                            },
+                          ],
+                          selectedKeys: [cliType],
+                        }}
+                        trigger={["click"]}
+                        placement="bottomRight"
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          className={styles.cliTypeButton}
+                        >
+                          <CliTypeIcon type={cliType} size={14} />
+                        </Button>
+                      </Dropdown>
+                    </div>
+
+                    {/* Remark */}
+                    {project.remark && (
+                      <Text type="secondary" className={styles.projectRemark}>
+                        {t("projects.remark")}：{project.remark}
+                      </Text>
+                    )}
+
+                    {/* Key Binding Section */}
+                    <div className={styles.keyBinding}>
+                      {hasKey ? (
+                        <div className={styles.keyBindingContent}>
+                          <div className={styles.keyBindingInfo}>
+                            <img
+                              src={getProviderIconSrc(provider)}
+                              alt={provider?.name}
+                              className={styles.providerIcon}
+                            />
+                            <Text className={styles.providerName}>
+                              {provider?.name}
+                            </Text>
+                            <Text type="secondary" className={styles.keyName}>
+                              / {getKeyAlias(apiKey)}
+                            </Text>
+                            <Space size={2} style={{ marginLeft: 4 }}>
+                              {apiKey?.types.map((type) => (
+                                <CliTypeIcon key={type} type={type} size={12} />
+                              ))}
+                            </Space>
+                          </div>
+                          <Dropdown
+                            menu={{
+                              items: getKeySwitchMenuItems(project),
+                              style: { maxHeight: 300, overflow: "auto" },
+                            }}
+                            trigger={["click"]}
+                            placement="bottomRight"
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<SwapOutlined />}
+                            />
+                          </Dropdown>
+                        </div>
+                      ) : (
+                        <div className={styles.noKeyBinding}>
+                          <WarningOutlined
+                            style={{ color: token.colorWarning, fontSize: 14 }}
+                          />
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {t("projects.noKeyBound")}
+                          </Text>
+                          <Button
+                            type="link"
+                            size="small"
+                            onClick={() => handleEdit(project)}
+                          >
+                            {t("projects.configureNow")}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Incompatible Warning */}
+                    {hasKey && !keyCompatible && (
+                      <div className={styles.incompatibleWarning}>
+                        <WarningOutlined />
+                        <Text type="warning" style={{ fontSize: 11 }}>
+                          {t("projects.keyNotCompatibleHint")}
+                        </Text>
+                      </div>
+                    )}
+
+                    {/* Card Footer */}
+                    <div className={styles.projectFooter}>
+                      <Text type="secondary" className={styles.projectTime}>
+                        <ClockCircleOutlined style={{ marginRight: 4 }} />
                         {formatDate(project.lastOpenedAt)}
                       </Text>
+                      <Space size={4}>
+                        <Tooltip title={t("common.edit")}>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<EditOutlined />}
+                            onClick={() => handleEdit(project)}
+                          />
+                        </Tooltip>
+                        <Popconfirm
+                          title={t("projects.deleteProject")}
+                          description={t("projects.deleteProjectHint")}
+                          onConfirm={() => handleDelete(project.id)}
+                          okText={t("common.delete")}
+                          cancelText={t("common.cancel")}
+                          okButtonProps={{ danger: true }}
+                        >
+                          <Tooltip title={t("common.delete")}>
+                            <Button
+                              type="text"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                            />
+                          </Tooltip>
+                        </Popconfirm>
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<PlayCircleOutlined />}
+                          onClick={() => handleOpen(project)}
+                          disabled={!canOpen}
+                        >
+                          {t("common.open")}
+                        </Button>
+                      </Space>
                     </div>
-                  }
-                />
-              </List.Item>
-            )}
-          />
-        </Card>
-      )}
+                  </Card>
+                );
+              })}
+
+              {/* Add Project Card */}
+              <Card
+                className={styles.addProjectCard}
+                variant="outlined"
+                onClick={handleAdd}
+              >
+                <Space align="center">
+                  <PlusOutlined className={styles.addIcon} />
+                  <Text type="secondary">{t("projects.addProject")}</Text>
+                </Space>
+              </Card>
+            </div>
+          )}
+        </SimpleBar>
+      </div>
+
+      {/* Add/Edit Project Modal */}
+      <Modal
+        title={
+          editingProject ? t("projects.editProject") : t("projects.addProject")
+        }
+        open={modalOpen}
+        onCancel={() => {
+          setModalOpen(false);
+          setEditingProject(null);
+        }}
+        onOk={handleSave}
+        okText={t("common.save")}
+        cancelText={t("common.cancel")}
+        width={520}
+        styles={{
+          body: { maxHeight: "70vh", overflowY: "auto" },
+        }}
+      >
+        <Form form={form} layout="vertical" className={styles.form}>
+          <Form.Item
+            name="name"
+            label={t("projects.projectName")}
+            rules={[{ required: true, message: t("projects.enterName") }]}
+          >
+            <Input
+              size="large"
+              placeholder={t("projects.projectNamePlaceholder")}
+            />
+          </Form.Item>
+
+          {!editingProject && (
+            <Form.Item
+              name="path"
+              label={t("projects.projectPath")}
+              rules={[{ required: true, message: t("projects.selectPath") }]}
+            >
+              <Input
+                size="large"
+                placeholder={t("projects.pathPlaceholder")}
+                readOnly
+                addonAfter={
+                  <Button
+                    type="text"
+                    icon={<FolderAddOutlined />}
+                    onClick={handleSelectFolder}
+                    size="small"
+                  >
+                    {t("projects.browse")}
+                  </Button>
+                }
+              />
+            </Form.Item>
+          )}
+
+          <Form.Item name="remark" label={t("projects.remark")}>
+            <TextArea rows={2} placeholder={t("projects.remarkPlaceholder")} />
+          </Form.Item>
+
+          <Form.Item
+            name="key"
+            label={
+              <Space>
+                <KeyOutlined />
+                <span>{t("projects.boundKey")}</span>
+              </Space>
+            }
+          >
+            <KeyCascader
+              providers={providers}
+              apiKeys={allApiKeys}
+              size="large"
+              placeholder={t("projects.selectKeyOptional")}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="cliType"
+            label={t("projects.cliType")}
+            initialValue="claude"
+          >
+            <Segmented
+              options={[
+                {
+                  label: (
+                    <Space size={6}>
+                      <CliTypeIcon type="claude" size={16} />
+                      <span>Claude Code</span>
+                    </Space>
+                  ),
+                  value: "claude",
+                },
+                {
+                  label: (
+                    <Space size={6}>
+                      <CliTypeIcon type="codex" size={16} />
+                      <span>Codex CLI</span>
+                    </Space>
+                  ),
+                  value: "codex",
+                },
+              ]}
+              block
+            />
+          </Form.Item>
+
+          {editingProject && (
+            <div className={styles.pathInfo}>
+              <Text type="secondary" className={styles.pathLabel}>
+                {t("projects.projectPath")}
+              </Text>
+              <Text className={styles.pathValue}>{editingProject.path}</Text>
+            </div>
+          )}
+        </Form>
+      </Modal>
     </div>
   );
 }

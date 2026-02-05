@@ -12,6 +12,14 @@ import type {
   UpdateProjectInput,
   GlobalSettings,
   PresetIcon,
+  UsageData,
+  ExportData,
+  ImportOptions,
+  ImportResult,
+  ProxySession,
+  UsageStats,
+  UsageLog,
+  StatsTimeRange,
 } from '../shared/types'
 
 const api = {
@@ -63,8 +71,8 @@ const api = {
 
   // Terminal API
   terminal: {
-    launch: (projectId: string): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_LAUNCH, projectId),
+    launch: (projectId: string, options?: { providerId?: string; apiKeyId?: string }): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_LAUNCH, projectId, options),
     launchWithPath: (path: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_LAUNCH_WITH_PATH, path),
   },
@@ -85,6 +93,36 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.BALANCE_REFRESH, providerId),
   },
 
+  // Usage API
+  usage: {
+    refresh: (providerId: string): Promise<{ usage: UsageData | null; error: string | null }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.USAGE_REFRESH, providerId),
+  },
+
+  // Import/Export API
+  importExport: {
+    export: (): Promise<ExportData> =>
+      ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROVIDERS),
+    import: (data: ExportData, options?: ImportOptions): Promise<ImportResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.IMPORT_PROVIDERS, data, options),
+    validate: (data: unknown): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_IMPORT_DATA, data),
+  },
+
+  // Session API (for proxy hot-switching)
+  session: {
+    create: (providerId: string, apiKeyId: string): Promise<ProxySession> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_CREATE, providerId, apiKeyId),
+    get: (sessionToken: string): Promise<ProxySession | null> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET, sessionToken),
+    updateKey: (sessionToken: string, apiKeyId: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_UPDATE_KEY, sessionToken, apiKeyId),
+    delete: (sessionToken: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_DELETE, sessionToken),
+    list: (): Promise<ProxySession[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
+  },
+
   // Settings API
   settings: {
     get: (): Promise<GlobalSettings> =>
@@ -101,12 +139,24 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.ICON_LIST),
   },
 
+  // Usage Log API (statistics)
+  usageLog: {
+    getStats: (timeRange: StatsTimeRange): Promise<UsageStats> =>
+      ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_GET_STATS, timeRange),
+    getRecent: (limit?: number): Promise<UsageLog[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_GET_RECENT, limit),
+    getTodayQuickStats: (): Promise<{ launches: number; uniqueProjects: number; uniqueKeys: number }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_TODAY_QUICK_STATS),
+  },
+
   // System API
   system: {
     getPlatform: (): Promise<NodeJS.Platform> =>
       ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_GET_PLATFORM),
     selectFolder: (): Promise<string | null> =>
       ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SELECT_FOLDER),
+    openExternal: (url: string): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_OPEN_EXTERNAL, url),
   },
 }
 

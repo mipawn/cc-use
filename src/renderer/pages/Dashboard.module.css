@@ -1,0 +1,108 @@
+.container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Header - Fixed */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  padding-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.headerContent {
+  flex: 1;
+}
+
+.title {
+  font-weight: 700 !important;
+  margin: 0 !important;
+  margin-bottom: 4px !important;
+}
+
+.subtitle {
+  font-size: 14px;
+}
+
+/* Content - Scrollable with SimpleBar */
+.content {
+  flex: 1;
+  overflow: hidden;
+  animation: slide-up-fade 0.4s ease-out;
+}
+
+.scrollContent {
+  padding-right: 12px;
+  padding-bottom: 24px;
+}
+
+/* Stats Row */
+.statsRow {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 640px) {
+  .statsRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.statCard {
+  border-radius: var(--radius-ant-lg) !important;
+}
+
+.statContent {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.statIcon {
+  font-size: 28px;
+}
+
+.statInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statLabel {
+  font-size: 12px;
+}
+
+.statValue {
+  font-size: 20px;
+}
+
+/* Drop Zone Card */
+.dropZoneCard {
+  margin-bottom: 24px;
+  border-radius: var(--radius-ant-lg) !important;
+}
+
+/* Recent Projects Card */
+.recentCard {
+  border-radius: var(--radius-ant-lg) !important;
+  margin-bottom: 24px;
+}

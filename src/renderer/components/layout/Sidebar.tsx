@@ -3,8 +3,9 @@ import { Layout, Menu, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import {
   HomeOutlined,
-  CloudServerOutlined,
+  KeyOutlined,
   FolderOutlined,
+  BarChartOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
 
@@ -23,9 +24,9 @@ export default function Sidebar() {
       label: t('common.dashboard'),
     },
     {
-      key: '/providers',
-      icon: <CloudServerOutlined />,
-      label: t('common.providers'),
+      key: '/keys',
+      icon: <KeyOutlined />,
+      label: t('keys.title') || 'API 密钥',
     },
     {
       key: '/projects',
@@ -33,11 +34,19 @@ export default function Sidebar() {
       label: t('common.projects'),
     },
     {
+      key: '/statistics',
+      icon: <BarChartOutlined />,
+      label: t('statistics.title') || '使用统计',
+    },
+    {
       key: '/settings',
       icon: <SettingOutlined />,
       label: t('common.settings'),
     },
   ]
+
+  // Map /providers to /keys for backward compatibility
+  const selectedKey = location.pathname === '/providers' ? '/keys' : location.pathname
 
   return (
     <Sider
@@ -51,7 +60,7 @@ export default function Sidebar() {
       <div className="drag-region absolute top-0 left-0 right-0 h-12 flex items-center justify-start" />
       <Menu
         mode="inline"
-        selectedKeys={[location.pathname]}
+        selectedKeys={[selectedKey]}
         items={menuItems}
         onClick={({ key }) => navigate(key)}
         style={{

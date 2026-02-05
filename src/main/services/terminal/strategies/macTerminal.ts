@@ -11,15 +11,31 @@ export class MacTerminalStrategy implements TerminalStrategy {
     return process.platform === 'darwin'
   }
 
-  async launch(path: string, env: EnvObject): Promise<void> {
-    const envExports = Object.entries(env)
-      .map(([key, value]) => `export ${key}="${value.replace(/"/g, '\\"')}"`)
-      .join('; ')
+  async launch(path: string, env: EnvObject, cliCommand?: string): Promise<void> {
+    // Escape path for shell
+    const escapedPath = path.replace(/'/g, "'\\''")
+
+    // Build inline environment variables (KEY="value" KEY2="value2" command)
+    const envInline = Object.entries(env)
+      .map(([key, value]) => {
+        const escapedValue = value.replace(/"/g, '\\"')
+        return `${key}="${escapedValue}"`
+      })
+      .join(' ')
+
+    // Build the full command: cd to path, then run CLI with inline env vars
+    let fullCommand = `cd '${escapedPath}' && clear`
+    if (cliCommand) {
+      fullCommand += ` && ${envInline} ${cliCommand}`
+    }
+
+    // Escape for AppleScript string
+    const escapedCommand = fullCommand.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
     const script = `
       tell application "Terminal"
         activate
-        do script "cd \\"${path.replace(/"/g, '\\"')}\\"; ${envExports}; clear"
+        do script "${escapedCommand}"
       end tell
     `
 

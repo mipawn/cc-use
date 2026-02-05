@@ -5,5 +5,5 @@ export interface EnvObject {
 export interface TerminalStrategy {
   name: string
   isAvailable(): Promise<boolean>
-  launch(path: string, env: EnvObject): Promise<void>
+  launch(path: string, env: EnvObject, cliCommand?: string): Promise<void>
 }

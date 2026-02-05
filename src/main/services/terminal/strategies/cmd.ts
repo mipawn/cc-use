@@ -8,12 +8,17 @@ export class CmdStrategy implements TerminalStrategy {
     return process.platform === 'win32'
   }
 
-  async launch(path: string, env: EnvObject): Promise<void> {
+  async launch(path: string, env: EnvObject, cliCommand?: string): Promise<void> {
     const envSetCommands = Object.entries(env)
       .map(([key, value]) => `set ${key}=${value}`)
       .join(' && ')
 
-    spawn('cmd.exe', ['/k', `cd /d "${path}" && ${envSetCommands}`], {
+    let finalCommand = `cd /d "${path}" && ${envSetCommands}`
+    if (cliCommand) {
+      finalCommand += ` && ${cliCommand}`
+    }
+
+    spawn('cmd.exe', ['/k', finalCommand], {
       detached: true,
       stdio: 'ignore',
       shell: true,

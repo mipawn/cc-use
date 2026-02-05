@@ -6,6 +6,7 @@ import type {
   Provider,
   CreateProviderInput,
   UpdateProviderInput,
+  UsageData,
 } from '@shared/types'
 
 export async function listProviders(): Promise<Provider[]> {
@@ -41,6 +42,12 @@ export async function createProvider(
     walletBalanceHeaders: input.walletBalanceHeaders ?? null,
     cachedWalletBalance: null,
     lastBalanceCheckedAt: null,
+    usageType: input.usageType ?? 'none',
+    usageUrl: input.usageUrl ?? null,
+    usagePath: input.usagePath ?? null,
+    usageHeaders: input.usageHeaders ?? null,
+    cachedUsage: null,
+    lastUsageCheckedAt: null,
     isActive: true,
   })
 
@@ -72,6 +79,10 @@ export async function updateProvider(
     updateData.walletBalancePath = input.walletBalancePath
   if (input.walletBalanceHeaders !== undefined)
     updateData.walletBalanceHeaders = input.walletBalanceHeaders
+  if (input.usageType !== undefined) updateData.usageType = input.usageType
+  if (input.usageUrl !== undefined) updateData.usageUrl = input.usageUrl
+  if (input.usagePath !== undefined) updateData.usagePath = input.usagePath
+  if (input.usageHeaders !== undefined) updateData.usageHeaders = input.usageHeaders
   if (input.isActive !== undefined) updateData.isActive = input.isActive
 
   await db.update(providers).set(updateData).where(eq(providers.id, input.id))
@@ -89,6 +100,15 @@ export async function deleteProvider(id: string): Promise<void> {
 }
 
 function mapRowToProvider(row: typeof providers.$inferSelect): Provider {
+  let cachedUsage: UsageData | null = null
+  if (row.cachedUsage) {
+    try {
+      cachedUsage = JSON.parse(row.cachedUsage)
+    } catch {
+      cachedUsage = null
+    }
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -104,6 +124,12 @@ function mapRowToProvider(row: typeof providers.$inferSelect): Provider {
     walletBalanceHeaders: row.walletBalanceHeaders,
     cachedWalletBalance: row.cachedWalletBalance,
     lastBalanceCheckedAt: row.lastBalanceCheckedAt,
+    usageType: (row.usageType as Provider['usageType']) ?? 'none',
+    usageUrl: row.usageUrl,
+    usagePath: row.usagePath,
+    usageHeaders: row.usageHeaders,
+    cachedUsage,
+    lastUsageCheckedAt: row.lastUsageCheckedAt,
     isActive: row.isActive ?? true,
   }
 }

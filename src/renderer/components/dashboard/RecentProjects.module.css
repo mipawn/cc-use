@@ -1,0 +1,122 @@
+/* RecentProjects - Enhanced List Style */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty {
+  padding: 32px;
+}
+
+.projectItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-ant);
+  transition: all 0.2s ease;
+  animation: slide-up-fade 0.3s ease-out;
+  animation-fill-mode: backwards;
+}
+
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.projectItem:hover {
+  border-color: var(--color-accent-primary);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(4px);
+}
+
+.projectIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.projectInfo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.projectHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.projectName {
+  font-family: var(--font-display);
+  font-size: 14px;
+}
+
+.projectTags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.smallTag {
+  font-size: 10px !important;
+  padding: 0 5px !important;
+  line-height: 16px !important;
+  border-radius: 4px !important;
+}
+
+.projectMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.projectPath {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+.projectTime {
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.projectTime::before {
+  content: '·';
+  margin-right: 8px;
+  opacity: 0.4;
+}
+
+.projectActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.openBtn {
+  border-radius: var(--radius-sm) !important;
+}

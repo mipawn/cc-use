@@ -1,11 +1,15 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, shell } from 'electron'
 import { IPC_CHANNELS } from '@shared/types/ipc'
 import * as providerService from '../services/providerService'
 import * as apiKeyService from '../services/apiKeyService'
 import * as projectService from '../services/projectService'
 import * as settingsService from '../services/settingsService'
 import * as iconService from '../services/iconService'
+import * as importExportService from '../services/importExportService'
+import * as usageLogService from '../services/usageLogService'
 import { refreshBalance } from '../services/balanceService'
+import { refreshUsage } from '../services/usageService'
+import * as sessionManager from '../services/proxy/sessionManager'
 import { launchTerminal, launchTerminalWithPath } from '../services/terminal'
 import { startProxy, stopProxy, getProxyStatus } from '../services/proxy'
 import type {
@@ -16,6 +20,9 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
   GlobalSettings,
+  ExportData,
+  ImportOptions,
+  StatsTimeRange,
 } from '@shared/types'
 
 export function registerIpcHandlers() {
@@ -111,9 +118,12 @@ export function registerIpcHandlers() {
   })
 
   // Terminal handlers
-  ipcMain.handle(IPC_CHANNELS.TERMINAL_LAUNCH, async (_, projectId: string) => {
-    return launchTerminal(projectId)
-  })
+  ipcMain.handle(
+    IPC_CHANNELS.TERMINAL_LAUNCH,
+    async (_, projectId: string, options?: { providerId?: string; apiKeyId?: string }) => {
+      return launchTerminal(projectId, options)
+    }
+  )
 
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_LAUNCH_WITH_PATH,
@@ -127,6 +137,54 @@ export function registerIpcHandlers() {
     return refreshBalance(providerId)
   })
 
+  // Usage handler
+  ipcMain.handle(IPC_CHANNELS.USAGE_REFRESH, async (_, providerId: string) => {
+    return refreshUsage(providerId)
+  })
+
+  // Import/Export handlers
+  ipcMain.handle(IPC_CHANNELS.EXPORT_PROVIDERS, async () => {
+    return importExportService.exportProviders()
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.IMPORT_PROVIDERS,
+    async (_, data: ExportData, options?: ImportOptions) => {
+      return importExportService.importProviders(data, options)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.VALIDATE_IMPORT_DATA, async (_, data: unknown) => {
+    return importExportService.validateExportData(data)
+  })
+
+  // Session handlers
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_CREATE,
+    async (_, providerId: string, apiKeyId: string) => {
+      return sessionManager.createSession(providerId, apiKeyId)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_GET, async (_, sessionToken: string) => {
+    return sessionManager.getSession(sessionToken)
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_UPDATE_KEY,
+    async (_, sessionToken: string, apiKeyId: string) => {
+      return sessionManager.updateSessionKey(sessionToken, apiKeyId)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_DELETE, async (_, sessionToken: string) => {
+    return sessionManager.deleteSession(sessionToken)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SESSION_LIST, async () => {
+    return sessionManager.listSessions()
+  })
+
   // System handlers
   ipcMain.handle(IPC_CHANNELS.SYSTEM_GET_PLATFORM, async () => {
     return process.platform
@@ -137,6 +195,10 @@ export function registerIpcHandlers() {
       properties: ['openDirectory'],
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_EXTERNAL, async (_, url: string) => {
+    return shell.openExternal(url)
   })
 
   // Proxy handlers
@@ -177,5 +239,24 @@ export function registerIpcHandlers() {
       preset: iconService.getPresetIcons(),
       uploaded: iconService.getUploadedIcons(),
     }
+  })
+
+  // Usage log handlers
+  ipcMain.handle(
+    IPC_CHANNELS.USAGE_LOG_GET_STATS,
+    async (_, timeRange: StatsTimeRange) => {
+      return usageLogService.getUsageStats(timeRange)
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.USAGE_LOG_GET_RECENT,
+    async (_, limit?: number) => {
+      return usageLogService.getRecentUsageLogs(limit)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.USAGE_LOG_TODAY_QUICK_STATS, async () => {
+    return usageLogService.getTodayQuickStats()
   })
 }

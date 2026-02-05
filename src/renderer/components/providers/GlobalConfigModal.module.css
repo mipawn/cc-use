@@ -1,0 +1,77 @@
+/* GlobalConfigModal Styles */
+
+.modal :global(.ant-modal-content) {
+  border-radius: 16px;
+}
+
+.content {
+  padding: 8px 12px 8px 0;
+}
+
+.subtitle {
+  display: block;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.typeSegmented {
+  margin-bottom: 16px;
+  background: var(--surface-sunken, #f1f5f9) !important;
+  padding: 4px !important;
+  border-radius: var(--radius-ant, 8px) !important;
+}
+
+.typeIndicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.editorSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jsonEditor {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+  background: var(--surface-sunken, #f8fafc) !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--ant-color-border) !important;
+  transition: border-color 0.2s ease !important;
+}
+
+.jsonEditor:focus {
+  border-color: var(--ant-color-primary) !important;
+}
+
+.jsonEditorError {
+  border-color: var(--ant-color-error) !important;
+}
+
+.errorText {
+  font-size: 12px;
+}
+
+.editorFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+}
+
+.editorHint {
+  font-size: 12px;
+}
+
+/* Dark mode */
+[data-theme='dark'] .typeSegmented {
+  background: var(--surface-sunken, #0f172a) !important;
+}
+
+[data-theme='dark'] .jsonEditor {
+  background: var(--surface-sunken, #0f172a) !important;
+}
