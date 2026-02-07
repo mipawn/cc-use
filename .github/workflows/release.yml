@@ -76,3 +76,18 @@ jobs:
           draft: false
           generate_release_notes: true
           files: artifacts/*
+          append_body: |
+
+            ---
+
+            ## macOS 用户注意
+
+            由于本应用未进行 Apple 签名，macOS 可能会提示"文件已损坏"或"无法验证开发者"。
+
+            请在终端中执行以下命令后重新打开应用：
+
+            ```bash
+            sudo xattr -rd com.apple.quarantine /Applications/CC\ Use.app
+            ```
+
+            如果你的应用不在 `/Applications` 目录，请将路径替换为实际安装路径。
