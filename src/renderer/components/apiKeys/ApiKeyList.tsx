@@ -6,8 +6,8 @@ import {
   Switch,
   Space,
   Popconfirm,
-  message,
 } from 'antd'
+import { useAppMessage } from '../../hooks/useAppMessage'
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -70,6 +70,7 @@ function SortableRow({ children, ...props }: SortableRowProps) {
 
 export default function ApiKeyList({ providerId }: ApiKeyListProps) {
   const { t } = useTranslation()
+  const message = useAppMessage()
   const { apiKeys, loading, fetchApiKeys, createApiKey, updateApiKey, deleteApiKey, reorderApiKeys } =
     useApiKeyStore()
   const [newKeyValue, setNewKeyValue] = useState('')

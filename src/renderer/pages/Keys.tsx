@@ -9,7 +9,6 @@ import {
   Row,
   Col,
   Spin,
-  message,
   theme,
   Card,
   Segmented,
@@ -21,7 +20,9 @@ import {
   Badge,
   Avatar,
   Modal,
+  Divider,
 } from 'antd'
+import { useAppMessage } from '../hooks/useAppMessage'
 import {
   PlusOutlined,
   KeyOutlined,
@@ -29,14 +30,14 @@ import {
   SettingOutlined,
   DeleteOutlined,
   WalletOutlined,
-  CheckCircleFilled,
-  CloseCircleFilled,
   ReloadOutlined,
   GlobalOutlined,
   LinkOutlined,
   PlayCircleOutlined,
   EditOutlined,
   FireOutlined,
+  CopyOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -91,6 +92,7 @@ function getProviderIconSrc(provider: Provider): string {
 
 export default function Keys() {
   const { t } = useTranslation()
+  const message = useAppMessage()
   const { token } = theme.useToken()
   const {
     providers,
@@ -120,11 +122,10 @@ export default function Keys() {
 
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
+  const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
 
-  // Today's usage stats per key
-  const [keyUsageStats, setKeyUsageStats] = useState<Record<string, number>>({})
-  // Total usage stats per key (all time)
-  const [keyTotalUsageStats, setKeyTotalUsageStats] = useState<Record<string, number>>({})
+  // Cost stats per key (today and total)
+  const [keyCostStats, setKeyCostStats] = useState<Record<string, { todayCost: number; totalCost: number }>>({})
 
   // Get all API keys
   const allApiKeys = getAllApiKeys()
@@ -140,32 +141,23 @@ export default function Keys() {
     }
   }, [providers, fetchAllApiKeys])
 
-  // Fetch usage stats (today and all time)
+  // Fetch cost stats for all keys
   useEffect(() => {
     if (allApiKeys.length === 0) return
 
-    const fetchStats = async () => {
+    const fetchCostStats = async () => {
       try {
-        // Today's stats
-        const todayStats = await window.api.usageLog.getStats('today')
-        const todayByKey: Record<string, number> = {}
-        todayStats.byKey.forEach((item) => {
-          todayByKey[item.keyId] = item.count
+        const stats = await window.api.requestLog.getKeyCosts()
+        const costMap: Record<string, { todayCost: number; totalCost: number }> = {}
+        stats.forEach((item) => {
+          costMap[item.keyId] = { todayCost: item.todayCost, totalCost: item.totalCost }
         })
-        setKeyUsageStats(todayByKey)
-
-        // All time stats
-        const allStats = await window.api.usageLog.getStats('all')
-        const totalByKey: Record<string, number> = {}
-        allStats.byKey.forEach((item) => {
-          totalByKey[item.keyId] = item.count
-        })
-        setKeyTotalUsageStats(totalByKey)
+        setKeyCostStats(costMap)
       } catch (error) {
-        console.error('Failed to fetch stats:', error)
+        console.error('Failed to fetch cost stats:', error)
       }
     }
-    fetchStats()
+    fetchCostStats()
   }, [allApiKeys.length])
 
   // Build filter options
@@ -270,6 +262,29 @@ export default function Keys() {
     }
   }
 
+  // Handle key usage refresh
+  const handleRefreshKeyUsage = async (keyId: string) => {
+    setRefreshingKeyUsageIds((prev) => new Set(prev).add(keyId))
+    try {
+      const result = await window.api.keyUsage.refresh(keyId)
+      if (result.error) {
+        message.error(result.error)
+      } else {
+        message.success(t('keys.quota') + ' ' + t('messages.success'))
+      }
+      // Refresh keys to get updated cached usage
+      fetchAllApiKeys(providers.map((p) => p.id))
+    } catch (error) {
+      message.error(t('keys.refreshQuotaFailed'))
+    } finally {
+      setRefreshingKeyUsageIds((prev) => {
+        const next = new Set(prev)
+        next.delete(keyId)
+        return next
+      })
+    }
+  }
+
   // Handle key actions
   const handleToggleKey = async (key: ApiKey, active: boolean) => {
     try {
@@ -288,34 +303,54 @@ export default function Keys() {
     }
   }
 
-  // State for copy command type selection modal
+  // State for copy command modal
   const [copyCommandModalOpen, setCopyCommandModalOpen] = useState(false)
   const [copyCommandKey, setCopyCommandKey] = useState<{ provider: Provider; key: ApiKey } | null>(null)
+  const [proxyStatus, setProxyStatus] = useState<{ isRunning: boolean; port: number }>({ isRunning: false, port: 12345 })
+  const [proxySessionToken, setProxySessionToken] = useState<string | null>(null)
 
-  const handleCopyCommand = async (provider: Provider, key: ApiKey, type?: ProviderType) => {
-    // If key has multiple types and no type specified, show selection modal
-    if (!type && key.types.length > 1) {
-      setCopyCommandKey({ provider, key })
-      setCopyCommandModalOpen(true)
-      return
-    }
-
-    // Use specified type or first type
-    const selectedType = type || key.types[0]
-    const config = getProviderTypeConfig(selectedType)
-
-    let command: string
-    if (selectedType === 'codex') {
-      command = `${config.envBaseUrlName}="${provider.baseUrl}" ${config.envKeyName}="${key.value}" ${config.cliCommand}`
-    } else {
-      command = `${config.envBaseUrlName}="${provider.baseUrl}" API_TIMEOUT_MS=3000000 CLAUDE_CODE_ATTRIBUTION_HEADER=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 ANTHROPIC_AUTH_TOKEN="${key.value}" ${config.cliCommand}`
-    }
-
+  const handleCopyCommand = async (provider: Provider, key: ApiKey) => {
+    // Fetch current proxy status
     try {
-      await navigator.clipboard.writeText(command)
-      message.success(t('providers.commandCopied'))
+      const status = await window.api.proxy.status()
+      setProxyStatus(status)
+
+      // If proxy is running, create a session for this key
+      if (status.isRunning) {
+        const session = await window.api.session.create(provider.id, key.id)
+        setProxySessionToken(session.sessionToken)
+      } else {
+        setProxySessionToken(null)
+      }
     } catch (error) {
-      message.error(t('providers.copyFailed'))
+      console.error('Failed to get proxy status:', error)
+      setProxyStatus({ isRunning: false, port: 12345 })
+      setProxySessionToken(null)
+    }
+
+    setCopyCommandKey({ provider, key })
+    setCopyCommandModalOpen(true)
+  }
+
+  // Generate command based on proxy status
+  const generateCommand = (type: ProviderType, provider: Provider, key: ApiKey, useProxy: boolean): string => {
+    const config = getProviderTypeConfig(type)
+
+    if (useProxy && proxyStatus.isRunning && proxySessionToken) {
+      // Use proxy: localhost + session token
+      const baseUrl = `http://localhost:${proxyStatus.port}`
+      if (type === 'codex') {
+        return `${config.envBaseUrlName}="${baseUrl}" ${config.envKeyName}="${proxySessionToken}" ${config.cliCommand}`
+      } else {
+        return `${config.envBaseUrlName}="${baseUrl}" API_TIMEOUT_MS=3000000 CLAUDE_CODE_ATTRIBUTION_HEADER=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 ANTHROPIC_AUTH_TOKEN="${proxySessionToken}" ${config.cliCommand}`
+      }
+    } else {
+      // Direct: real baseUrl + real key
+      if (type === 'codex') {
+        return `${config.envBaseUrlName}="${provider.baseUrl}" ${config.envKeyName}="${key.value}" ${config.cliCommand}`
+      } else {
+        return `${config.envBaseUrlName}="${provider.baseUrl}" API_TIMEOUT_MS=3000000 CLAUDE_CODE_ATTRIBUTION_HEADER=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 ANTHROPIC_AUTH_TOKEN="${key.value}" ${config.cliCommand}`
+      }
     }
   }
 
@@ -341,6 +376,10 @@ export default function Keys() {
     value: string
     types: ProviderType[]
     config?: Record<string, unknown>
+    usageType?: 'none' | 'newapi' | 'custom'
+    usageUrl?: string
+    usagePath?: string
+    usageHeaders?: string
   }) => {
     if (input.id) {
       await window.api.apiKey.update({
@@ -349,6 +388,10 @@ export default function Keys() {
         value: input.value,
         types: input.types,
         config: input.config,
+        usageType: input.usageType,
+        usageUrl: input.usageUrl,
+        usagePath: input.usagePath,
+        usageHeaders: input.usageHeaders,
       })
     } else {
       await window.api.apiKey.create({
@@ -357,6 +400,10 @@ export default function Keys() {
         value: input.value,
         types: input.types,
         config: input.config,
+        usageType: input.usageType,
+        usageUrl: input.usageUrl,
+        usagePath: input.usagePath,
+        usageHeaders: input.usageHeaders,
       })
     }
     fetchAllApiKeys(providers.map((p) => p.id))
@@ -492,13 +539,6 @@ export default function Keys() {
                       {/* Card Header */}
                       <div className={styles.keyCardHeader}>
                         <div className={styles.keyCardTitle}>
-                          <div className={styles.keyStatus}>
-                            {key.isExhausted ? (
-                              <CloseCircleFilled style={{ color: token.colorError }} />
-                            ) : (
-                              <CheckCircleFilled style={{ color: token.colorSuccess }} />
-                            )}
-                          </div>
                           <div className={styles.keyTitleInfo}>
                             <Text strong className={styles.keyAlias}>
                               {key.alias || t('keys.unnamedKey')}
@@ -526,33 +566,39 @@ export default function Keys() {
 
                       {/* Stats Row */}
                       <div className={styles.statsRow}>
-                        {/* Balance - 余额 */}
-                        {balance !== undefined && (
-                          <Tooltip title={t('providers.refreshBalance')}>
+                        {/* Key Quota - 额度 */}
+                        {key.usageType && key.usageType !== 'none' && (
+                          <Tooltip title={t('keys.refreshQuota')}>
                             <div
                               className={`${styles.statItem} ${styles.statItemClickable}`}
-                              onClick={() => handleRefreshBalance(provider.id)}
+                              onClick={() => handleRefreshKeyUsage(key.id)}
                             >
-                              <WalletOutlined style={{ color: token.colorPrimary }} />
-                              <span className={styles.statValue}>${balance.toFixed(2)}</span>
-                              {refreshingIds.has(provider.id) && (
+                              <DollarOutlined style={{ color: token.colorSuccess }} />
+                              <span className={styles.statValue}>
+                                {key.cachedUsage?.isUnlimited
+                                  ? '∞'
+                                  : key.cachedUsage?.remaining !== undefined
+                                    ? `$${key.cachedUsage.remaining.toFixed(2)}`
+                                    : '--'}
+                              </span>
+                              {refreshingKeyUsageIds.has(key.id) && (
                                 <ReloadOutlined spin style={{ fontSize: 12, marginLeft: 4 }} />
                               )}
                             </div>
                           </Tooltip>
                         )}
-                        {/* Today's usage - 今日使用量 */}
+                        {/* Today's cost - 今日费用 */}
                         <div className={styles.statItem}>
                           <FireOutlined style={{ color: token.colorWarning }} />
                           <span className={styles.statValue}>
-                            {t('keys.todayUsage')}: {keyUsageStats[key.id] || 0}
+                            {t('keys.todayCost') || '今日'}: ${(keyCostStats[key.id]?.todayCost || 0).toFixed(4)}
                           </span>
                         </div>
-                        {/* Total usage - 历史使用量 */}
+                        {/* Total cost - 累计费用 */}
                         <div className={styles.statItem}>
                           <PlayCircleOutlined style={{ color: token.colorTextSecondary }} />
                           <span className={styles.statValue}>
-                            {t('keys.totalUsage')}: {keyTotalUsageStats[key.id] || 0}
+                            {t('keys.totalCost') || '累计'}: ${(keyCostStats[key.id]?.totalCost || 0).toFixed(4)}
                           </span>
                         </div>
                       </div>
@@ -690,41 +736,118 @@ export default function Keys() {
         onClose={() => setGlobalConfigOpen(false)}
       />
 
-      {/* Copy Command Type Selection Modal */}
+      {/* Copy Command List Modal */}
       <Modal
-        title={t('keys.selectCommandType') || '选择命令类型'}
+        title={t('keys.commandList') || '终端命令'}
         open={copyCommandModalOpen}
         onCancel={() => {
           setCopyCommandModalOpen(false)
           setCopyCommandKey(null)
+          setProxySessionToken(null)
         }}
         footer={null}
-        width={400}
+        width={700}
       >
         {copyCommandKey && (
-          <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            {copyCommandKey.key.types.map((type) => (
-              <Button
-                key={type}
-                block
-                size="large"
-                icon={
-                  <Avatar
-                    src={TYPE_ICONS[type]}
-                    size={20}
-                    style={{ background: 'transparent', marginRight: 8 }}
-                  />
-                }
-                onClick={() => {
-                  handleCopyCommand(copyCommandKey.provider, copyCommandKey.key, type)
-                  setCopyCommandModalOpen(false)
-                  setCopyCommandKey(null)
-                }}
-              >
-                {type === 'claude' ? 'Claude Code' : 'Codex CLI'}
-              </Button>
-            ))}
-          </Space>
+          <div className={styles.commandList}>
+            <Text type="secondary" className={styles.commandListHint}>
+              {t('keys.commandListHint') || '点击复制按钮复制对应命令'}
+            </Text>
+
+            {/* Proxy Mode Commands - only show if proxy is running */}
+            {proxyStatus.isRunning && proxySessionToken && (
+              <>
+                <Text strong className={styles.commandSectionTitle}>
+                  {t('keys.proxyMode') || '代理模式'}
+                  <Tag color="success" style={{ marginLeft: 8 }}>{t('keys.recommended') || '推荐'}</Tag>
+                </Text>
+                <Text type="secondary" className={styles.commandSectionHint}>
+                  {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
+                </Text>
+                {copyCommandKey.key.types.map((type) => {
+                  const command = generateCommand(type, copyCommandKey.provider, copyCommandKey.key, true)
+                  return (
+                    <div key={`proxy-${type}`} className={styles.commandItem}>
+                      <div className={styles.commandHeader}>
+                        <Space>
+                          <Avatar
+                            src={TYPE_ICONS[type]}
+                            size={20}
+                            style={{ background: 'transparent' }}
+                          />
+                          <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                        </Space>
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(command)
+                              message.success(t('providers.commandCopied'))
+                            } catch (error) {
+                              message.error(t('providers.copyFailed'))
+                            }
+                          }}
+                        >
+                          {t('common.copy') || '复制'}
+                        </Button>
+                      </div>
+                      <div className={styles.commandCode}>
+                        <code>{command}</code>
+                      </div>
+                    </div>
+                  )
+                })}
+                <Divider style={{ margin: '16px 0' }} />
+              </>
+            )}
+
+            {/* Direct Mode Commands */}
+            <Text strong className={styles.commandSectionTitle}>
+              {proxyStatus.isRunning ? (t('keys.directMode') || '直连模式') : (t('keys.commandList') || '终端命令')}
+            </Text>
+            {proxyStatus.isRunning && (
+              <Text type="secondary" className={styles.commandSectionHint}>
+                {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
+              </Text>
+            )}
+            {copyCommandKey.key.types.map((type) => {
+              const command = generateCommand(type, copyCommandKey.provider, copyCommandKey.key, false)
+              return (
+                <div key={`direct-${type}`} className={styles.commandItem}>
+                  <div className={styles.commandHeader}>
+                    <Space>
+                      <Avatar
+                        src={TYPE_ICONS[type]}
+                        size={20}
+                        style={{ background: 'transparent' }}
+                      />
+                      <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                    </Space>
+                    <Button
+                      type={proxyStatus.isRunning ? 'default' : 'primary'}
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(command)
+                          message.success(t('providers.commandCopied'))
+                        } catch (error) {
+                          message.error(t('providers.copyFailed'))
+                        }
+                      }}
+                    >
+                      {t('common.copy') || '复制'}
+                    </Button>
+                  </div>
+                  <div className={styles.commandCode}>
+                    <code>{command}</code>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </Modal>
     </div>

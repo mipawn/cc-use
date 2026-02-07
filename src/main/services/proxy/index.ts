@@ -4,6 +4,8 @@ import type { Server } from 'http'
 import { getProvider } from '../providerService'
 import { getApiKey } from '../apiKeyService'
 import { getSession } from './sessionManager'
+import { createRequestLog } from '../requestLogService'
+import { parseUsageFromResponse, parseModelFromResponse, StreamUsageAccumulator } from './usageParser'
 import { execSync } from 'child_process'
 
 const DEFAULT_PORT = 12345
@@ -56,6 +58,7 @@ export async function startProxy(): Promise<void> {
   // Main proxy handler
   app.use('/', async (req: Request, res: Response, next: NextFunction) => {
     requestCount++
+    const startTime = Date.now()
 
     // Get authorization header - try both Authorization and x-api-key
     const authHeader = req.headers['authorization'] as string
@@ -106,6 +109,13 @@ export async function startProxy(): Promise<void> {
 
     const targetUrl = provider.baseUrl.replace(/\/$/, '')
 
+    // Check if this is a streaming request
+    const isStreaming = req.headers['accept']?.includes('text/event-stream') ||
+                       req.body?.stream === true
+
+    // For streaming requests, we need to accumulate usage across chunks
+    const streamAccumulator = isStreaming ? new StreamUsageAccumulator() : null
+
     // Create proxy middleware for this request
     const proxy = createProxyMiddleware({
       target: targetUrl,
@@ -119,12 +129,62 @@ export async function startProxy(): Promise<void> {
         },
         proxyRes: responseInterceptor(async (responseBuffer, proxyRes) => {
           const statusCode = proxyRes.statusCode || 500
+          const latencyMs = Date.now() - startTime
 
           if (statusCode === 401 || statusCode === 429) {
             console.log(`Request failed with ${statusCode} for key ${apiKey.alias || apiKey.id}`)
             lastError = `Key error: ${statusCode}`
-            // Note: We can't retry here as response is already being sent
-            // In production, you'd want more sophisticated retry logic
+          }
+
+          // Try to parse usage from response
+          try {
+            const responseText = responseBuffer.toString('utf-8')
+
+            if (isStreaming && streamAccumulator) {
+              // For streaming, process the accumulated chunks
+              streamAccumulator.processChunk(responseText)
+              const usage = streamAccumulator.getUsage()
+              const model = streamAccumulator.getModel()
+
+              if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
+                await createRequestLog({
+                  providerId: session.providerId,
+                  apiKeyId: session.apiKeyId,
+                  sessionId: sessionToken,
+                  model: model,
+                  usage,
+                  costMultiplier: provider.costMultiplier || 1,
+                  latencyMs,
+                  statusCode,
+                  isStreaming: true,
+                })
+              }
+            } else {
+              // For non-streaming, parse the JSON response
+              try {
+                const responseJson = JSON.parse(responseText)
+                const usage = parseUsageFromResponse(responseJson)
+                const model = parseModelFromResponse(responseJson)
+
+                if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
+                  await createRequestLog({
+                    providerId: session.providerId,
+                    apiKeyId: session.apiKeyId,
+                    sessionId: sessionToken,
+                    model: model,
+                    usage,
+                    costMultiplier: provider.costMultiplier || 1,
+                    latencyMs,
+                    statusCode,
+                    isStreaming: false,
+                  })
+                }
+              } catch {
+                // Not JSON or no usage info - skip logging
+              }
+            }
+          } catch (err) {
+            console.error('Failed to log request usage:', err)
           }
 
           return responseBuffer

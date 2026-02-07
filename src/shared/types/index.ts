@@ -82,6 +82,7 @@ export interface Provider {
   walletBalanceUrl: string | null
   walletBalancePath: string | null
   walletBalanceHeaders: string | null
+  walletBalanceUserId: string | null
   cachedWalletBalance: number | null
   lastBalanceCheckedAt: string | null
   // Usage configuration
@@ -91,6 +92,8 @@ export interface Provider {
   usageHeaders: string | null
   cachedUsage: UsageData | null
   lastUsageCheckedAt: string | null
+  // Cost multiplier for this provider (e.g., 1.5 means 150% of base price)
+  costMultiplier?: number
   isActive: boolean
 }
 
@@ -106,6 +109,7 @@ export interface CreateProviderInput {
   walletBalanceUrl?: string
   walletBalancePath?: string
   walletBalanceHeaders?: string
+  walletBalanceUserId?: string
   usageType?: 'none' | 'newapi' | 'custom'
   usageUrl?: string
   usagePath?: string
@@ -128,6 +132,13 @@ export interface ApiKey {
   isExhausted: boolean
   isActive: boolean
   config?: CliConfig // Per-key configuration override
+  // Key-level usage/quota
+  usageType: 'none' | 'newapi' | 'custom'
+  usageUrl: string | null
+  usagePath: string | null
+  usageHeaders: string | null
+  cachedUsage: UsageData | null
+  lastUsageCheckedAt: string | null
 }
 
 export interface CreateApiKeyInput {
@@ -138,6 +149,10 @@ export interface CreateApiKeyInput {
   priority?: number
   isActive?: boolean
   config?: CliConfig
+  usageType?: 'none' | 'newapi' | 'custom'
+  usageUrl?: string
+  usagePath?: string
+  usageHeaders?: string
 }
 
 export interface UpdateApiKeyInput {
@@ -149,6 +164,10 @@ export interface UpdateApiKeyInput {
   isExhausted?: boolean
   isActive?: boolean
   config?: CliConfig
+  usageType?: 'none' | 'newapi' | 'custom'
+  usageUrl?: string
+  usagePath?: string
+  usageHeaders?: string
 }
 
 // Project types

@@ -40,6 +40,7 @@ export async function createProvider(
     walletBalanceUrl: input.walletBalanceUrl ?? null,
     walletBalancePath: input.walletBalancePath ?? null,
     walletBalanceHeaders: input.walletBalanceHeaders ?? null,
+    walletBalanceUserId: input.walletBalanceUserId ?? null,
     cachedWalletBalance: null,
     lastBalanceCheckedAt: null,
     usageType: input.usageType ?? 'none',
@@ -79,6 +80,8 @@ export async function updateProvider(
     updateData.walletBalancePath = input.walletBalancePath
   if (input.walletBalanceHeaders !== undefined)
     updateData.walletBalanceHeaders = input.walletBalanceHeaders
+  if (input.walletBalanceUserId !== undefined)
+    updateData.walletBalanceUserId = input.walletBalanceUserId
   if (input.usageType !== undefined) updateData.usageType = input.usageType
   if (input.usageUrl !== undefined) updateData.usageUrl = input.usageUrl
   if (input.usagePath !== undefined) updateData.usagePath = input.usagePath
@@ -122,6 +125,7 @@ function mapRowToProvider(row: typeof providers.$inferSelect): Provider {
     walletBalanceUrl: row.walletBalanceUrl,
     walletBalancePath: row.walletBalancePath,
     walletBalanceHeaders: row.walletBalanceHeaders,
+    walletBalanceUserId: row.walletBalanceUserId,
     cachedWalletBalance: row.cachedWalletBalance,
     lastBalanceCheckedAt: row.lastBalanceCheckedAt,
     usageType: (row.usageType as Provider['usageType']) ?? 'none',

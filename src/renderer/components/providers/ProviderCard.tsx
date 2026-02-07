@@ -1,4 +1,5 @@
-import { Card, Typography, Tag, Button, Space, Tooltip, Popconfirm, theme, message } from 'antd'
+import { Card, Typography, Tag, Button, Space, Tooltip, Popconfirm, theme } from 'antd'
+import { useAppMessage } from '../../hooks/useAppMessage'
 import {
   EditOutlined,
   DeleteOutlined,
@@ -54,6 +55,7 @@ export default function ProviderCard({
 }: ProviderCardProps) {
   const { t } = useTranslation()
   const { token } = theme.useToken()
+  const message = useAppMessage()
 
   const handleCopyCommand = async () => {
     const apiKey = firstApiKey || provider.token || 'YOUR_API_KEY'

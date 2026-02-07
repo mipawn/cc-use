@@ -10,10 +10,10 @@ import {
   Tag,
   Button,
   Input,
-  message,
   Divider,
   theme,
 } from 'antd'
+import { useAppMessage } from '../../hooks/useAppMessage'
 import {
   KeyOutlined,
   CopyOutlined,
@@ -46,6 +46,7 @@ export default function KeyDetailModal({
   onClose,
 }: KeyDetailModalProps) {
   const { t } = useTranslation()
+  const message = useAppMessage()
   const { token } = theme.useToken()
   const { updateApiKey } = useApiKeyStore()
 

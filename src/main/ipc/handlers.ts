@@ -7,8 +7,10 @@ import * as settingsService from '../services/settingsService'
 import * as iconService from '../services/iconService'
 import * as importExportService from '../services/importExportService'
 import * as usageLogService from '../services/usageLogService'
+import * as requestLogService from '../services/requestLogService'
 import { refreshBalance } from '../services/balanceService'
 import { refreshUsage } from '../services/usageService'
+import { refreshKeyUsage } from '../services/keyUsageService'
 import * as sessionManager from '../services/proxy/sessionManager'
 import { launchTerminal, launchTerminalWithPath } from '../services/terminal'
 import { startProxy, stopProxy, getProxyStatus } from '../services/proxy'
@@ -109,7 +111,14 @@ export function registerIpcHandlers() {
   ipcMain.handle(
     IPC_CHANNELS.PROJECT_UPDATE,
     async (_, input: UpdateProjectInput) => {
-      return projectService.updateProject(input)
+      const result = await projectService.updateProject(input)
+
+      // Hot-switch: if provider or apiKey changed, update active sessions
+      if ((input.providerId !== undefined || input.apiKeyId !== undefined) && result.providerId && result.apiKeyId) {
+        sessionManager.updateSessionsByProject(input.id, result.providerId, result.apiKeyId)
+      }
+
+      return result
     }
   )
 
@@ -140,6 +149,11 @@ export function registerIpcHandlers() {
   // Usage handler
   ipcMain.handle(IPC_CHANNELS.USAGE_REFRESH, async (_, providerId: string) => {
     return refreshUsage(providerId)
+  })
+
+  // Key usage handler
+  ipcMain.handle(IPC_CHANNELS.KEY_USAGE_REFRESH, async (_, keyId: string) => {
+    return refreshKeyUsage(keyId)
   })
 
   // Import/Export handlers
@@ -258,5 +272,20 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.USAGE_LOG_TODAY_QUICK_STATS, async () => {
     return usageLogService.getTodayQuickStats()
+  })
+
+  // Request log handlers (cost tracking)
+  ipcMain.handle(IPC_CHANNELS.REQUEST_LOG_GET_COST_STATS, async () => {
+    const todayCost = await requestLogService.getTodayCost()
+    // Total balance is calculated from providers in the frontend
+    return { todayCost, totalBalance: 0 }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.REQUEST_LOG_GET_KEY_COSTS, async () => {
+    return requestLogService.getAllKeysCostStats()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.REQUEST_LOG_GET_DAILY_TREND, async (_, days?: number) => {
+    return requestLogService.getDailyCostTrend(days || 7)
   })
 }

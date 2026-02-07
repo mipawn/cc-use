@@ -1,16 +1,18 @@
 /**
  * Dashboard - 简化的仪表盘
- * 快捷入口 + 最近项目 + 今日 Key 使用统计
+ * 统计卡片 + 最近项目
  */
 import { useEffect, useState, useCallback } from 'react'
-import { Typography, message, Card, theme, Empty } from 'antd'
+import { Typography, Card, theme, Empty } from 'antd'
+import { useAppMessage } from '../hooks/useAppMessage'
 import {
   ThunderboltOutlined,
-  RocketOutlined,
+  DollarOutlined,
+  WalletOutlined,
+  ProjectOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import DropZone from '../components/dashboard/DropZone'
 import RecentProjects from '../components/dashboard/RecentProjects'
 import NewProjectModal from '../components/dashboard/NewProjectModal'
 import { useProjectStore } from '../stores/projectStore'
@@ -22,6 +24,7 @@ import styles from './Dashboard.module.css'
 const { Title, Text } = Typography
 
 export default function Dashboard() {
+  const message = useAppMessage()
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const {
@@ -38,8 +41,8 @@ export default function Dashboard() {
   const [modalOpen, setModalOpen] = useState(false)
   const [droppedPath, setDroppedPath] = useState('')
 
-  // Today's stats from usage logs
-  const [todayStats, setTodayStats] = useState({ launches: 0, uniqueProjects: 0, uniqueKeys: 0 })
+  // Cost stats
+  const [costStats, setCostStats] = useState({ todayCost: 0, totalBalance: 0 })
 
   // Get all API keys across all providers
   const allApiKeys = getAllApiKeys()
@@ -47,16 +50,16 @@ export default function Dashboard() {
   useEffect(() => {
     fetchProjects()
     fetchProviders()
-    fetchTodayStats()
+    fetchCostStats()
   }, [fetchProjects, fetchProviders])
 
-  // Fetch today's quick stats
-  const fetchTodayStats = async () => {
+  // Fetch cost statistics
+  const fetchCostStats = async () => {
     try {
-      const stats = await window.api.usageLog.getTodayQuickStats()
-      setTodayStats(stats)
+      const stats = await window.api.requestLog.getCostStats()
+      setCostStats(stats)
     } catch (error) {
-      console.error('Failed to fetch today stats:', error)
+      console.error('Failed to fetch cost stats:', error)
     }
   }
 
@@ -66,6 +69,12 @@ export default function Dashboard() {
       fetchAllApiKeys(providers.map((p) => p.id))
     }
   }, [providers, fetchAllApiKeys])
+
+  // Calculate total balance from providers
+  useEffect(() => {
+    const totalBalance = providers.reduce((sum, p) => sum + (p.cachedWalletBalance || 0), 0)
+    setCostStats(prev => ({ ...prev, totalBalance }))
+  }, [providers])
 
   // Ensure proxy is running before launching terminal
   const ensureProxyRunning = useCallback(async (): Promise<boolean> => {
@@ -89,7 +98,9 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Handle drop event
+  // Handle drop event (kept for potential future use)
+  // @ts-expect-error - kept for future use when DropZone is added back
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleDrop = async (path: string) => {
     try {
       const existingProject = await getProjectByPath(path)
@@ -179,14 +190,10 @@ export default function Dashboard() {
     }
   }
 
-  // Calculate today's key usage stats
-  const getTodayStats = () => {
-    const activeKeys = allApiKeys.filter(k => !k.isExhausted).length
-    const totalKeys = allApiKeys.length
-    return { activeKeys, totalKeys, todayLaunches: todayStats.launches }
-  }
-
-  const stats = getTodayStats()
+  // Calculate stats
+  const activeKeys = allApiKeys.filter(k => !k.isExhausted).length
+  const totalKeys = allApiKeys.length
+  const activeProjects = projects.filter(p => p.providerId && p.apiKeyId).length
 
   return (
     <div className={styles.container}>
@@ -205,17 +212,30 @@ export default function Dashboard() {
       {/* Content - Scrollable */}
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-        {/* Stats Cards */}
+        {/* Stats Cards - 4 columns */}
         <div className={styles.statsRow}>
           <Card className={styles.statCard} variant="outlined">
             <div className={styles.statContent}>
-              <RocketOutlined className={styles.statIcon} style={{ color: token.colorWarning }} />
+              <DollarOutlined className={styles.statIcon} style={{ color: token.colorWarning }} />
               <div className={styles.statInfo}>
                 <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.todayLaunches') || '今日启动'}
+                  {t('dashboard.todayCost') || '今日费用'}
                 </Text>
                 <Text strong className={styles.statValue}>
-                  {stats.todayLaunches}
+                  ${costStats.todayCost.toFixed(4)}
+                </Text>
+              </div>
+            </div>
+          </Card>
+          <Card className={styles.statCard} variant="outlined">
+            <div className={styles.statContent}>
+              <WalletOutlined className={styles.statIcon} style={{ color: token.colorSuccess }} />
+              <div className={styles.statInfo}>
+                <Text type="secondary" className={styles.statLabel}>
+                  {t('dashboard.totalBalance') || '总余额'}
+                </Text>
+                <Text strong className={styles.statValue}>
+                  ${costStats.totalBalance.toFixed(2)}
                 </Text>
               </div>
             </div>
@@ -228,26 +248,25 @@ export default function Dashboard() {
                   {t('dashboard.activeKeys') || '可用密钥'}
                 </Text>
                 <Text strong className={styles.statValue}>
-                  {stats.activeKeys} / {stats.totalKeys}
+                  {activeKeys} / {totalKeys}
+                </Text>
+              </div>
+            </div>
+          </Card>
+          <Card className={styles.statCard} variant="outlined">
+            <div className={styles.statContent}>
+              <ProjectOutlined className={styles.statIcon} style={{ color: token.colorInfo }} />
+              <div className={styles.statInfo}>
+                <Text type="secondary" className={styles.statLabel}>
+                  {t('dashboard.activeProjects') || '活跃项目'}
+                </Text>
+                <Text strong className={styles.statValue}>
+                  {activeProjects} / {projects.length}
                 </Text>
               </div>
             </div>
           </Card>
         </div>
-
-        {/* Drop Zone - Quick Launch */}
-        <Card
-          className={styles.dropZoneCard}
-          variant="outlined"
-          title={
-            <Text strong>{t('dashboard.quickLaunch') || '快速启动'}</Text>
-          }
-        >
-          <DropZone
-            onDrop={handleDrop}
-            hint={t('dashboard.dropZone')}
-          />
-        </Card>
 
         {/* Recent Projects Section */}
         <Card

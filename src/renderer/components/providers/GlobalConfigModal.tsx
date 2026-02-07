@@ -12,8 +12,8 @@ import {
   Space,
   Button,
   theme,
-  message,
 } from 'antd'
+import { useAppMessage } from '../../hooks/useAppMessage'
 import { SaveOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -34,6 +34,7 @@ export default function GlobalConfigModal({
   onClose,
 }: GlobalConfigModalProps) {
   const { t } = useTranslation()
+  const message = useAppMessage()
   const { token } = theme.useToken()
   const { globalSettings, updateGlobalSettings } = useSettingsStore()
 

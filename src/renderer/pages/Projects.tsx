@@ -6,7 +6,6 @@ import { useEffect, useState, useCallback } from "react";
 import {
   Typography,
   Button,
-  message,
   theme,
   Card,
   Space,
@@ -20,6 +19,7 @@ import {
   Segmented,
   Badge,
 } from "antd";
+import { useAppMessage } from '../hooks/useAppMessage'
 import {
   FolderOutlined,
   PlayCircleOutlined,
@@ -95,6 +95,7 @@ const CliTypeIcon = ({
 export default function Projects() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
+  const message = useAppMessage();
   const {
     projects,
     fetchProjects,

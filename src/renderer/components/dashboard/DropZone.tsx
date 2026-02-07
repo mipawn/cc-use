@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { Typography, message } from "antd";
+import { Typography } from "antd";
+import { useAppMessage } from '../../hooks/useAppMessage'
 import { FolderOpenOutlined, CloudUploadOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import styles from "./DropZone.module.css";
@@ -14,6 +15,7 @@ interface DropZoneProps {
 
 export default function DropZone({ onDrop, disabled = false, hint }: DropZoneProps) {
   const { t } = useTranslation();
+  const message = useAppMessage();
   const [isDragging, setIsDragging] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

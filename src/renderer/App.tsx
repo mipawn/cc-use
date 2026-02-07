@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Layout, theme } from "antd";
+import { Layout, theme, App as AntdApp } from "antd";
 import Sidebar from "./components/layout/Sidebar";
 import Dashboard from "./pages/Dashboard";
 import Keys from "./pages/Keys";
@@ -7,12 +7,17 @@ import Projects from "./pages/Projects";
 import Statistics from "./pages/Statistics";
 import Settings from "./pages/Settings";
 import { useAntdTokenSync } from "./hooks/useAntdTokenSync";
+import { setGlobalMessage } from "./hooks/useAppMessage";
 
 const { Content } = Layout;
 
 function AppContent() {
   const { token } = theme.useToken();
+  const { message } = AntdApp.useApp();
   useAntdTokenSync();
+
+  // Initialize global message reference for non-component code
+  setGlobalMessage(message);
 
   return (
     <Layout className="min-h-screen">

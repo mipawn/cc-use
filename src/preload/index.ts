@@ -89,7 +89,7 @@ const api = {
 
   // Balance API
   balance: {
-    refresh: (providerId: string): Promise<{ balance: number | null; error: string | null }> =>
+    refresh: (providerId: string): Promise<{ balance: number | null; total: number | null; used: number | null; unlimited: boolean; error: string | null }> =>
       ipcRenderer.invoke(IPC_CHANNELS.BALANCE_REFRESH, providerId),
   },
 
@@ -97,6 +97,12 @@ const api = {
   usage: {
     refresh: (providerId: string): Promise<{ usage: UsageData | null; error: string | null }> =>
       ipcRenderer.invoke(IPC_CHANNELS.USAGE_REFRESH, providerId),
+  },
+
+  // Key Usage API
+  keyUsage: {
+    refresh: (keyId: string): Promise<{ usage: UsageData | null; error: string | null }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.KEY_USAGE_REFRESH, keyId),
   },
 
   // Import/Export API
@@ -147,6 +153,16 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_GET_RECENT, limit),
     getTodayQuickStats: (): Promise<{ launches: number; uniqueProjects: number; uniqueKeys: number }> =>
       ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_TODAY_QUICK_STATS),
+  },
+
+  // Request Log API (cost tracking)
+  requestLog: {
+    getCostStats: (): Promise<{ todayCost: number; totalBalance: number }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_COST_STATS),
+    getKeyCosts: (): Promise<{ keyId: string; todayCost: number; totalCost: number }[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_KEY_COSTS),
+    getDailyTrend: (days?: number): Promise<{ date: string; cost: number; requests: number }[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_DAILY_TREND, days),
   },
 
   // System API

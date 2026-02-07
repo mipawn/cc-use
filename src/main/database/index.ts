@@ -168,6 +168,65 @@ export function initDatabase() {
     )
   `)
 
+  // Create request_logs table for cost tracking
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS request_logs (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
+      api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      session_id TEXT,
+      model TEXT,
+      request_model TEXT,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cache_read_tokens INTEGER DEFAULT 0,
+      cache_creation_tokens INTEGER DEFAULT 0,
+      input_cost_usd REAL DEFAULT 0,
+      output_cost_usd REAL DEFAULT 0,
+      cache_read_cost_usd REAL DEFAULT 0,
+      cache_creation_cost_usd REAL DEFAULT 0,
+      total_cost_usd REAL DEFAULT 0,
+      cost_multiplier REAL DEFAULT 1,
+      latency_ms INTEGER,
+      first_token_ms INTEGER,
+      status_code INTEGER,
+      error_message TEXT,
+      is_streaming INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    )
+  `)
+
+  // Migration: Add cost_multiplier to providers table
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN cost_multiplier REAL DEFAULT 1`)
+  } catch {}
+
+  // Migration: Add wallet_balance_user_id to providers table
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN wallet_balance_user_id TEXT`)
+  } catch {}
+
+  // Migration: Add key-level usage/quota columns to api_keys table
+  try {
+    sqlite.exec(`ALTER TABLE api_keys ADD COLUMN usage_type TEXT DEFAULT 'none'`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE api_keys ADD COLUMN usage_url TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE api_keys ADD COLUMN usage_path TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE api_keys ADD COLUMN usage_headers TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE api_keys ADD COLUMN cached_usage TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT`)
+  } catch {}
+
   return db
 }
 

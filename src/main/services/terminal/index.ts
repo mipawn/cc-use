@@ -8,7 +8,7 @@ import { getApiKey } from '../apiKeyService'
 import { getProject, updateProjectLastOpened } from '../projectService'
 import { getGlobalSettings } from '../settingsService'
 import { createUsageLog } from '../usageLogService'
-import { createSession } from '../proxy/sessionManager'
+import { createSession, getSessionByProject } from '../proxy/sessionManager'
 import type { ProviderType, TerminalType } from '@shared/types'
 
 // All available strategies
@@ -67,7 +67,7 @@ export async function launchTerminal(
   const apiKeyId = options?.apiKeyId || project.apiKeyId
   const cliType = project.cliType || 'claude'
 
-  const env = await buildEnvForProject(providerId ?? null, apiKeyId ?? null, cliType)
+  const env = await buildEnvForProject(projectId, providerId ?? null, apiKeyId ?? null, cliType)
   await launchWithEnv(project.path, env, cliType)
   await updateProjectLastOpened(projectId)
 
@@ -87,7 +87,7 @@ export async function launchTerminalWithPath(
   providerId?: string,
   cliType: ProviderType = 'claude'
 ): Promise<void> {
-  const env = await buildEnvForProject(providerId ?? null, null, cliType)
+  const env = await buildEnvForProject(null, providerId ?? null, null, cliType)
   await launchWithEnv(path, env, cliType)
 }
 
@@ -104,6 +104,7 @@ async function launchWithEnv(path: string, env: EnvObject, cliType: ProviderType
 }
 
 async function buildEnvForProject(
+  projectId: string | null,
   providerId: string | null,
   apiKeyId: string | null,
   cliType: ProviderType
@@ -117,8 +118,15 @@ async function buildEnvForProject(
     const apiKey = await getApiKey(apiKeyId)
 
     if (provider && apiKey) {
-      // Create a session for this launch
-      const session = createSession(providerId, apiKeyId)
+      // Try to reuse existing session for this project+provider+apiKey combination
+      let session = projectId
+        ? getSessionByProject(projectId, providerId, apiKeyId)
+        : null
+
+      // If no existing session, create a new one
+      if (!session) {
+        session = createSession(providerId, apiKeyId, projectId || undefined)
+      }
 
       // Use the session token as the API key - proxy will resolve it
       if (cliType === 'codex') {

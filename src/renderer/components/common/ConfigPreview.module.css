@@ -98,10 +98,7 @@
   color: #98c379; /* Green for strings */
 }
 
-/* Dark mode adjustments */
-[data-theme='dark'] .codeBlock {
-  background: rgba(0, 0, 0, 0.2);
-}
+/* Dark mode adjustments - these colors work well in both modes */
 
 /* Footer */
 .footer {

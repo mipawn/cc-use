@@ -5,11 +5,11 @@ import {
   Input,
   Select,
   Typography,
-  message,
   Tooltip,
   Space,
   Collapse,
 } from "antd";
+import { useAppMessage } from '../../hooks/useAppMessage'
 import {
   UploadOutlined,
   LinkOutlined,
@@ -71,6 +71,7 @@ export default function ProviderModal({
   const [customIconPath, setCustomIconPath] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const message = useAppMessage();
 
   useEffect(() => {
     if (open) {
@@ -86,6 +87,7 @@ export default function ProviderModal({
           walletBalanceUrl: provider.walletBalanceUrl,
           walletBalancePath: provider.walletBalancePath,
           walletBalanceHeaders: provider.walletBalanceHeaders,
+          walletBalanceUserId: provider.walletBalanceUserId,
         });
         setBalanceType(provider.walletBalanceType);
         if (provider.icon) {
@@ -134,6 +136,7 @@ export default function ProviderModal({
         walletBalanceUrl: values.walletBalanceUrl,
         walletBalancePath: values.walletBalancePath,
         walletBalanceHeaders: values.walletBalanceHeaders,
+        walletBalanceUserId: values.walletBalanceUserId,
         isActive: provider?.isActive ?? true,
       });
 
@@ -353,11 +356,19 @@ export default function ProviderModal({
                     </Form.Item>
 
                     {balanceType === "newapi" && (
-                      <div className={styles.hint}>
-                        <Text type="secondary">
-                          {t("providers.newapiHint")}
-                        </Text>
-                      </div>
+                      <>
+                        <div className={styles.hint}>
+                          <Text type="secondary">
+                            {t("providers.newapiHint")}
+                          </Text>
+                        </div>
+                        <Form.Item
+                          name="walletBalanceUserId"
+                          label={t("providers.newapiUserId")}
+                        >
+                          <Input placeholder={t("providers.newapiUserIdPlaceholder")} />
+                        </Form.Item>
+                      </>
                     )}
 
                     {balanceType === "custom" && (

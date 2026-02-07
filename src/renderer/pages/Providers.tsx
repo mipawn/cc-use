@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Typography, Button, Row, Col, Spin, message, theme, Card } from "antd";
+import { Typography, Button, Row, Col, Spin, theme, Card } from "antd";
+import { useAppMessage } from '../hooks/useAppMessage'
 import { PlusOutlined, CloudServerOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import SimpleBar from "simplebar-react";
@@ -13,6 +14,7 @@ const { Title, Text } = Typography;
 export default function Providers() {
   const { t } = useTranslation();
   const { token } = theme.useToken();
+  const message = useAppMessage();
   const {
     providers,
     loading,
@@ -65,9 +67,13 @@ export default function Providers() {
       const result = await refreshBalance(id);
       if (result.error) {
         message.error(result.error);
+      } else if (result.unlimited) {
+        message.success(
+          `${t("providers.usageUsed")}: $${result.used?.toFixed(2)}`,
+        );
       } else {
         message.success(
-          `${t("providers.balance")}: $${result.balance?.toFixed(2)}`,
+          `${t("providers.usageRemaining")}: $${result.balance?.toFixed(2)}`,
         );
       }
     } catch (error) {

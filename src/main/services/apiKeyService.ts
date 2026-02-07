@@ -2,7 +2,7 @@ import { eq, asc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '../database'
 import { apiKeys } from '../database/schema'
-import type { ApiKey, CreateApiKeyInput, UpdateApiKeyInput, ProviderType, CliConfig } from '@shared/types'
+import type { ApiKey, CreateApiKeyInput, UpdateApiKeyInput, ProviderType, CliConfig, UsageData } from '@shared/types'
 
 export async function listApiKeys(providerId: string): Promise<ApiKey[]> {
   const db = getDatabase()
@@ -43,6 +43,10 @@ export async function createApiKey(input: CreateApiKeyInput): Promise<ApiKey> {
     isExhausted: false,
     isActive: input.isActive ?? true,
     config: input.config ? JSON.stringify(input.config) : null,
+    usageType: input.usageType ?? 'none',
+    usageUrl: input.usageUrl ?? null,
+    usagePath: input.usagePath ?? null,
+    usageHeaders: input.usageHeaders ?? null,
   })
 
   const apiKey = await getApiKey(id)
@@ -63,6 +67,10 @@ export async function updateApiKey(input: UpdateApiKeyInput): Promise<ApiKey> {
   if (input.isExhausted !== undefined) updateData.isExhausted = input.isExhausted
   if (input.isActive !== undefined) updateData.isActive = input.isActive
   if (input.config !== undefined) updateData.config = input.config ? JSON.stringify(input.config) : null
+  if (input.usageType !== undefined) updateData.usageType = input.usageType
+  if (input.usageUrl !== undefined) updateData.usageUrl = input.usageUrl || null
+  if (input.usagePath !== undefined) updateData.usagePath = input.usagePath || null
+  if (input.usageHeaders !== undefined) updateData.usageHeaders = input.usageHeaders || null
 
   await db.update(apiKeys).set(updateData).where(eq(apiKeys.id, input.id))
 
@@ -139,6 +147,15 @@ function mapRowToApiKey(row: typeof apiKeys.$inferSelect): ApiKey {
     }
   }
 
+  let cachedUsage: UsageData | null = null
+  if (row.cachedUsage) {
+    try {
+      cachedUsage = JSON.parse(row.cachedUsage) as UsageData
+    } catch {
+      cachedUsage = null
+    }
+  }
+
   return {
     id: row.id,
     providerId: row.providerId ?? '',
@@ -149,5 +166,11 @@ function mapRowToApiKey(row: typeof apiKeys.$inferSelect): ApiKey {
     isExhausted: row.isExhausted ?? false,
     isActive: row.isActive ?? true,
     config,
+    usageType: (row.usageType as 'none' | 'newapi' | 'custom') ?? 'none',
+    usageUrl: row.usageUrl ?? null,
+    usagePath: row.usagePath ?? null,
+    usageHeaders: row.usageHeaders ?? null,
+    cachedUsage,
+    lastUsageCheckedAt: row.lastUsageCheckedAt ?? null,
   }
 }

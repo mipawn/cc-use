@@ -132,12 +132,6 @@
   gap: 10px;
 }
 
-.keyStatus {
-  flex-shrink: 0;
-  font-size: 16px;
-  line-height: 1;
-}
-
 .keyTitleInfo {
   display: flex;
   flex-direction: column;
@@ -233,4 +227,58 @@
 .addIcon {
   font-size: 24px;
   color: var(--color-accent-primary);
+}
+
+/* Command List Modal */
+.commandList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.commandListHint {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.commandItem {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-ant);
+  overflow: hidden;
+}
+
+.commandHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.commandCode {
+  padding: 12px 16px;
+  background: var(--surface-default);
+  overflow-x: auto;
+}
+
+.commandCode code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+  white-space: pre-wrap;
+  color: var(--color-text-primary, inherit);
+}
+
+.commandSectionTitle {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.commandSectionHint {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 12px;
 }

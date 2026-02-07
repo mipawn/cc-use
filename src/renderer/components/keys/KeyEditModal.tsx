@@ -8,7 +8,6 @@ import {
   Modal,
   Form,
   Input,
-  message,
   Checkbox,
   Typography,
   Switch,
@@ -16,7 +15,9 @@ import {
   Segmented,
   theme,
   Tooltip,
+  Select,
 } from 'antd'
+import { useAppMessage } from '../../hooks/useAppMessage'
 import { SettingOutlined, CopyOutlined, CheckOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -40,6 +41,10 @@ interface KeyEditModalProps {
     value: string
     types: ProviderType[]
     config?: CliConfig
+    usageType?: 'none' | 'newapi' | 'custom'
+    usageUrl?: string
+    usagePath?: string
+    usageHeaders?: string
   }) => Promise<void>
 }
 
@@ -52,6 +57,7 @@ export default function KeyEditModal({
   onSave,
 }: KeyEditModalProps) {
   const { t } = useTranslation()
+  const message = useAppMessage()
   const { token } = theme.useToken()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
@@ -72,6 +78,12 @@ export default function KeyEditModal({
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [configCopied, setConfigCopied] = useState(false)
   const { globalSettings } = useSettingsStore()
+
+  // Usage/quota config state
+  const [usageType, setUsageType] = useState<'none' | 'newapi' | 'custom'>('none')
+  const [usageUrl, setUsageUrl] = useState('')
+  const [usagePath, setUsagePath] = useState('')
+  const [usageHeaders, setUsageHeaders] = useState('')
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -163,6 +175,27 @@ export default function KeyEditModal({
         }
         setClaudeIncludeGlobal(true)
         setCodexIncludeGlobal(true)
+      }
+      // Initialize usage config
+      if (apiKey) {
+        setUsageType(apiKey.usageType || 'none')
+        setUsageUrl(apiKey.usageUrl || '')
+        setUsagePath(apiKey.usagePath || '')
+        // Format headers JSON for display
+        if (apiKey.usageHeaders) {
+          try {
+            setUsageHeaders(JSON.stringify(JSON.parse(apiKey.usageHeaders), null, 2))
+          } catch {
+            setUsageHeaders(apiKey.usageHeaders)
+          }
+        } else {
+          setUsageHeaders('')
+        }
+      } else {
+        setUsageType('none')
+        setUsageUrl('')
+        setUsagePath('')
+        setUsageHeaders('')
       }
       setJsonError(null)
     }
@@ -265,6 +298,10 @@ export default function KeyEditModal({
         value: values.value,
         types: selectedTypes,
         config: Object.keys(localConfig).length > 0 ? localConfig : undefined,
+        usageType,
+        usageUrl: usageType === 'custom' ? usageUrl : undefined,
+        usagePath: usageType === 'custom' ? usagePath : undefined,
+        usageHeaders: usageType === 'custom' ? usageHeaders : undefined,
       })
 
       message.success(
@@ -409,6 +446,67 @@ export default function KeyEditModal({
               size="large"
             />
           </Form.Item>
+
+          {/* Usage/Quota Config Section */}
+          <Form.Item
+            label={t('keys.usageConfig') || '额度查询配置'}
+          >
+            <Select
+              value={usageType}
+              onChange={(value) => {
+                setUsageType(value)
+                // Auto-fill defaults when switching to custom
+                if (value === 'custom') {
+                  if (!usageUrl) setUsageUrl('{baseUrl}/api/usage/token/')
+                  if (!usagePath) setUsagePath('data.total_available')
+                  if (!usageHeaders) setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
+                }
+              }}
+              options={[
+                { value: 'none', label: t('keys.usageTypeNone') || '不查询' },
+                { value: 'newapi', label: t('keys.usageTypeNewapi') || 'NewAPI' },
+                { value: 'custom', label: t('keys.usageTypeCustom') || '自定义' },
+              ]}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          {usageType === 'custom' && (
+            <>
+              <Form.Item
+                label={t('keys.usageUrl') || '查询 URL'}
+                extra={t('keys.usageUrlVarHint') || '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'}
+              >
+                <Input
+                  value={usageUrl}
+                  onChange={(e) => setUsageUrl(e.target.value)}
+                  placeholder="{baseUrl}/api/usage/token/"
+                />
+              </Form.Item>
+              <Form.Item
+                label={t('keys.usagePath') || 'JSON 路径'}
+                extra={t('keys.usagePathHint') || '提取额度值的 JSON 路径'}
+              >
+                <Input
+                  value={usagePath}
+                  onChange={(e) => setUsagePath(e.target.value)}
+                  placeholder="data.total_available"
+                />
+              </Form.Item>
+              <Form.Item
+                label={t('keys.usageHeaders') || '自定义 Headers'}
+                extra={t('keys.usageHeadersVarHint') || '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'}
+              >
+                <Input.TextArea
+                  value={usageHeaders}
+                  onChange={(e) => setUsageHeaders(e.target.value)}
+                  placeholder={'{\n  "Authorization": "Bearer {key}"\n}'}
+                  autoSize={{ minRows: 3, maxRows: 6 }}
+                  style={{ fontFamily: 'monospace', fontSize: 12 }}
+                />
+              </Form.Item>
+            </>
+          )}
 
           {/* Config Section */}
           <div className={styles.configSection}>

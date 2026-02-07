@@ -38,6 +38,9 @@ export const IPC_CHANNELS = {
   // Usage channels
   USAGE_REFRESH: 'usage:refresh',
 
+  // Key usage channels
+  KEY_USAGE_REFRESH: 'keyUsage:refresh',
+
   // Import/Export channels
   EXPORT_PROVIDERS: 'export:providers',
   IMPORT_PROVIDERS: 'import:providers',
@@ -62,6 +65,11 @@ export const IPC_CHANNELS = {
   USAGE_LOG_GET_STATS: 'usageLog:getStats',
   USAGE_LOG_GET_RECENT: 'usageLog:getRecent',
   USAGE_LOG_TODAY_QUICK_STATS: 'usageLog:todayQuickStats',
+
+  // Request log channels (cost tracking)
+  REQUEST_LOG_GET_COST_STATS: 'requestLog:getCostStats',
+  REQUEST_LOG_GET_KEY_COSTS: 'requestLog:getKeyCosts',
+  REQUEST_LOG_GET_DAILY_TREND: 'requestLog:getDailyTrend',
 
   // System channels
   SYSTEM_GET_PLATFORM: 'system:getPlatform',
