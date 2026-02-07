@@ -14,6 +14,8 @@ import {
   Switch,
   Tag,
   Modal,
+  Button,
+  message,
 } from 'antd'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -24,8 +26,11 @@ import {
   ApiOutlined,
   CodeOutlined,
   CloudServerOutlined,
+  InfoCircleOutlined,
+  SyncOutlined,
 } from '@ant-design/icons'
 import styles from './Settings.module.css'
+import type { UpdateCheckResult } from '@shared/types'
 
 const { Title, Text } = Typography
 
@@ -49,9 +54,14 @@ export default function Settings() {
   })
   const [proxyLoading, setProxyLoading] = useState(false)
 
+  // Version & update
+  const [appVersion, setAppVersion] = useState('')
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+
   useEffect(() => {
     fetchGlobalSettings()
     fetchProxyStatus()
+    window.api.app.getVersion().then(setAppVersion)
   }, [fetchGlobalSettings])
 
   // Fetch proxy status
@@ -106,6 +116,52 @@ export default function Settings() {
     { value: 'en', label: 'English' },
     { value: 'zh', label: '中文' },
   ]
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true)
+    try {
+      const result: UpdateCheckResult = await window.api.app.checkUpdate()
+      if (result.hasUpdate) {
+        Modal.confirm({
+          title: t('settings.newVersionAvailable'),
+          content: (
+            <div>
+              <p>{t('settings.newVersionDesc', { version: result.latestVersion })}</p>
+              {result.releaseNotes && (
+                <div>
+                  <p style={{ fontWeight: 500, marginBottom: 4 }}>{t('settings.releaseNotes')}:</p>
+                  <div
+                    style={{
+                      maxHeight: 200,
+                      overflow: 'auto',
+                      padding: '8px 12px',
+                      background: token.colorFillTertiary,
+                      borderRadius: 6,
+                      fontSize: 13,
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {result.releaseNotes}
+                  </div>
+                </div>
+              )}
+            </div>
+          ),
+          okText: t('settings.goToDownload'),
+          cancelText: t('common.cancel'),
+          onOk: () => {
+            window.api.system.openExternal(result.releaseUrl)
+          },
+        })
+      } else {
+        message.success(t('settings.latestVersion'))
+      }
+    } catch {
+      message.error(t('settings.checkFailed'))
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
 
   const themeOptions = [
     { value: 'system', label: t('settings.themeSystem') },
@@ -303,6 +359,43 @@ export default function Settings() {
                   max={65535}
                   style={{ width: 160 }}
                 />
+              </div>
+            </Card>
+
+            <Divider className={styles.divider} />
+
+            <Title level={4} className={styles.sectionTitle}>
+              {t('settings.about')}
+            </Title>
+
+            {/* About / Version */}
+            <Card className={styles.settingCard} variant="outlined">
+              <div className={styles.settingRow}>
+                <Space>
+                  <div
+                    className={styles.iconBox}
+                    style={{ background: token.colorFillTertiary }}
+                  >
+                    <InfoCircleOutlined
+                      className={styles.settingIcon}
+                      style={{ color: token.colorText }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong>CC Use {appVersion ? `v${appVersion}` : ''}</Text>
+                    <br />
+                    <Text type="secondary" className={styles.settingDesc}>
+                      {t('settings.version')}: {appVersion || '-'}
+                    </Text>
+                  </div>
+                </Space>
+                <Button
+                  icon={<SyncOutlined spin={checkingUpdate} />}
+                  loading={checkingUpdate}
+                  onClick={handleCheckUpdate}
+                >
+                  {checkingUpdate ? t('settings.checking') : t('settings.checkUpdate')}
+                </Button>
               </div>
             </Card>
           </div>

@@ -145,16 +145,37 @@ export default function Projects() {
 
   // Toggle proxy
   const handleProxyToggle = async (checked: boolean) => {
+    if (proxyLoading) return;
+
+    // If turning off, show confirmation
+    if (!checked) {
+      Modal.confirm({
+        title: t("settings.proxyStopConfirm") || "确认关闭代理？",
+        content: t("settings.proxyStopWarning") || "关闭后，无法记录使用量",
+        okText: t("common.confirm") || "确认",
+        cancelText: t("common.cancel") || "取消",
+        onOk: async () => {
+          setProxyLoading(true);
+          try {
+            await window.api.proxy.stop();
+            setProxyRunning(false);
+            message.success(t("projects.proxyStopped"));
+          } catch (error) {
+            message.error(t("projects.proxyError"));
+          } finally {
+            setProxyLoading(false);
+          }
+        },
+      });
+      return;
+    }
+
+    // Turn on proxy
     setProxyLoading(true);
     try {
-      if (checked) {
-        await window.api.proxy.start();
-        message.success(t("projects.proxyStarted"));
-      } else {
-        await window.api.proxy.stop();
-        message.success(t("projects.proxyStopped"));
-      }
-      setProxyRunning(checked);
+      await window.api.proxy.start();
+      setProxyRunning(true);
+      message.success(t("projects.proxyStarted"));
     } catch (error) {
       message.error(t("projects.proxyError"));
     } finally {

@@ -392,3 +392,11 @@ export interface DashboardCostStats {
   topKeys: TopKeyCostItem[]
   topProjects: TopProjectCostItem[]
 }
+
+export interface UpdateCheckResult {
+  hasUpdate: boolean
+  currentVersion: string
+  latestVersion: string
+  releaseUrl: string
+  releaseNotes: string
+}

@@ -1,284 +1,167 @@
-# cc-use
+# CC Use
 
-> [!CAUTION]
-> ## ⛔ THIS PROJECT HAS BEEN DEPRECATED ⛔
-> This project is no longer maintained and will not receive any updates or bug fixes.
-> Please do not use this project for new installations.
+专为 **Claude Code / Codex CLI** 打造的桌面配置管理工具。不同于通用的 API 管理平台，CC Use 只做一件事：让你更高效地管理和使用 CLI。
 
----
+[English](./README_EN.md)
 
-A CLI tool for managing multiple Claude Code / Codex CLI configurations. Quickly switch between different API endpoints and keys.
+> **从 cc-switch 迁移？** 请参阅 [从 cc-switch 迁移](#从-cc-switch-迁移)。
 
-[中文文档](./README_CN.md)
+## 截图
 
-> **Breaking Change in v1.0.0**: The project has been renamed from `cc-switch` to `cc-use`. This version is NOT compatible with the old cc-switch. See [Upgrading from v0.x](#upgrading-from-v0x-cc-switch) for migration instructions.
+| 仪表盘 | 密钥管理 |
+|:---:|:---:|
+| ![仪表盘](./screenshots/dashboard.png) | ![密钥管理](./screenshots/token.png) |
 
-## Features
+| 项目管理 | 统计 |
+|:---:|:---:|
+| ![项目管理](./screenshots/project.png) | ![统计](./screenshots/statis.png) |
 
-- **Multi-CLI Support** - Manage both Claude Code and Codex CLI providers
-- **WebUI Management** - Visual interface for managing providers and configurations
-- **Common Environment Variables** - Shared across all providers (global or per CLI type)
-- **Usage Tracking** - Optional usage quota display for providers
-- Interactive provider selection
-- Self-update support
-- Cross-platform (macOS, Linux, Windows)
+| 设置 |
+|:---:|
+| ![设置](./screenshots/settings.png) |
 
-## Installation
+## 功能
 
-### Quick Install (Recommended)
+- **服务商与密钥管理** - 在「密钥」页面统一管理服务商和 API 密钥，每个密钥可同时支持 Claude Code 和 Codex CLI，支持额度查询（NewAPI / 自定义接口）
+- **项目管理** - 创建项目并绑定服务商、密钥和 CLI 类型，支持在项目卡片上快速切换绑定
+- **一键启动** - 点击项目即启动终端，自动注入环境变量，直接进入 CLI
+- **本地代理** - 内置代理服务器，通过 session token 中转请求，开启后可实现费用追踪和热切换
+- **费用追踪** - 代理模式下自动记录每次请求的 Token 用量和费用
+- **统计分析** - 仪表盘展示今日费用、请求量、每日趋势、Top 密钥/项目；统计页提供按密钥/服务商/项目/模型的详细分析和请求明细
+- **CLI 配置管理** - 支持全局配置和密钥级别的 CLI 配置（JSON），启动时自动合并注入
+- **国际化** - 中文 / 英文界面
+- **深色模式** - 亮色 / 深色主题切换
+
+## 安装
+
+从 [Releases](https://github.com/mipawn/cc-use/releases) 下载对应平台的安装包：
+
+| 平台 | 格式 |
+|------|------|
+| macOS | `.dmg` / `.zip` |
+| Windows | `.exe` (NSIS) / `.zip` |
+
+## 使用方式
+
+### 1. 添加服务商和密钥
+
+进入「密钥」页面：
+
+1. 点击「添加服务商」，填写名称、Base URL，选择图标，可选配置 Token 和余额查询
+2. 在服务商分组下点击「添加密钥」，填写密钥值，选择支持的类型（Claude Code / Codex CLI），可选配置额度查询和 CLI 配置
+
+### 2. 创建项目
+
+进入「项目」页面，点击「添加项目」：
+
+1. 填写项目名称，通过浏览按钮选择项目文件夹路径
+2. 选择绑定的服务商和密钥（级联选择器）
+3. 选择 CLI 类型（Claude Code / Codex CLI）
+
+创建后可在项目卡片上快速切换绑定的密钥或 CLI 类型。
+
+### 3. 启动终端
+
+在「项目」页面或「仪表盘」的最近项目中，点击打开按钮即可启动终端。应用会自动启动代理并注入环境变量：
+
+- **Claude Code**: 设置 `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`
+- **Codex CLI**: 设置 `OPENAI_BASE_URL` + `OPENAI_API_KEY`
+
+### 4. 代理控制
+
+在「项目」页面或「设置」页面可以开关本地代理。代理开启后：
+
+- 请求经过本地代理中转，使用 session token 替代真实密钥
+- 自动记录每次请求的 Token 用量和费用
+- 支持不重启终端热切换密钥
+
+关闭代理后将无法记录使用量。
+
+## 工作原理
+
+CC Use 支持两种工作模式：
+
+**直连模式** - 终端直接使用真实密钥连接 API 服务商。
+
+**代理模式** - 开启本地代理后，请求经过代理中转：
+
+```
+CLI → localhost:12345 (代理) → 实际 API 服务商
+```
+
+代理使用 session token 替代真实密钥，实现：
+- 不暴露真实 API 密钥给终端环境
+- 自动记录每次请求的 Token 用量和费用
+- 支持不重启终端热切换密钥
+
+## 从源码构建
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mipawn/cc-use/main/scripts/install.sh | bash
+# 安装依赖
+pnpm install
+
+# 开发模式
+pnpm dev
+
+# 构建生产版本
+pnpm build
+
+# 构建但不打包（用于测试）
+pnpm build:unpack
+
+# 类型检查
+pnpm typecheck
+
+# 代码检查
+pnpm lint
 ```
 
-### Manual Install
+## 技术栈
 
-Download the binary for your platform from [Releases](https://github.com/mipawn/cc-use/releases) and place it in your PATH.
+- **框架**: Electron + Vite
+- **前端**: React 18 + TypeScript
+- **UI**: Ant Design 6 + Tailwind CSS 4
+- **状态管理**: Zustand
+- **数据库**: SQLite (better-sqlite3) + Drizzle ORM
+- **代理**: Express
+- **国际化**: i18next
 
-## Shell Completion (Tab)
-
-Completions are installed automatically during installation. If not working, add manually:
-
-**Zsh:** Add to `~/.zshrc`:
-```bash
-fpath=(~/.zsh/completions $fpath)
-autoload -Uz compinit && compinit
-```
-Then generate completion file:
-```bash
-mkdir -p ~/.zsh/completions
-cc-use completion zsh > ~/.zsh/completions/_cc-use
-```
-
-**Bash:**
-```bash
-mkdir -p ~/.local/share/bash-completion/completions
-cc-use completion bash > ~/.local/share/bash-completion/completions/cc-use
-```
-
-**Fish:**
-```bash
-mkdir -p ~/.config/fish/completions
-cc-use completion fish > ~/.config/fish/completions/cc-use.fish
-```
-
-## Uninstall
-
-```bash
-cc-use uninstall
-```
-
-## Usage
-
-### Interactive Mode
-
-Simply run `cc-use` to interactively select a provider:
-
-```bash
-cc-use
-```
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `cc-use` | Interactive provider selection and launch CLI |
-| `cc-use list` | List all providers |
-| `cc-use list --type claude` | List only Claude Code providers |
-| `cc-use list --type codex` | List only Codex CLI providers |
-| `cc-use config` | Open WebUI to manage providers |
-| `cc-use update` | Check and install updates |
-| `cc-use uninstall` | Uninstall cc-use |
-| `cc-use completion <shell>` | Generate shell completion script |
-| `cc-use --help` | Show help message |
-| `cc-use --version` | Show version |
-
-### Supported CLI Types
-
-| Icon | Type | Description |
-|------|------|-------------|
-| 🟠 | `claude` | Claude Code |
-| 🟢 | `codex` | Codex CLI |
-
-### Examples
-
-```bash
-# Interactive selection
-cc-use
-
-# List all providers
-cc-use list
-
-# List only Claude Code providers
-cc-use list --type claude
-
-# Open WebUI to manage providers
-cc-use config
-
-# Check for updates and install
-cc-use update
-```
-
-## Configuration
-
-### WebUI Management
-
-Run `cc-use config` to open the WebUI at `http://localhost:9527`. The WebUI allows you to:
-
-- Add, edit, and delete providers
-- Configure common environment variables (global or per CLI type)
-- Set up usage tracking for providers
-- Reorder providers via drag-and-drop
-
-### Config File
-
-Providers are stored in `~/.config/cc-use/config.json`.
-
-### Config Format (v3)
-
-```json
-{
-  "version": "3",
-  "common": {
-    "_global": {
-      "API_TIMEOUT_MS": "300000"
-    },
-    "claude": {
-      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-    },
-    "codex": {}
-  },
-  "providers": [
-    {
-      "id": "1234567890-abc123",
-      "name": "my-api",
-      "type": "claude",
-      "description": "My API Proxy",
-      "env": {
-        "ANTHROPIC_BASE_URL": "https://api.example.com",
-        "ANTHROPIC_AUTH_TOKEN": "sk-xxx"
-      },
-      "order": 0
-    }
-  ]
-}
-```
-
-### Common Environment Variables
-
-Common environment variables are shared across providers. They can be configured at three levels:
-
-- **Global (`_global`)** - Applied to all providers regardless of CLI type
-- **Claude (`claude`)** - Applied only to Claude Code providers
-- **Codex (`codex`)** - Applied only to Codex CLI providers
-
-Provider-specific variables take precedence over common variables.
-
-### Frequently Used Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_BASE_URL` | Custom API endpoint URL |
-| `ANTHROPIC_AUTH_TOKEN` | API authentication token |
-| `ANTHROPIC_API_KEY` | API key (alternative to token) |
-| `API_TIMEOUT_MS` | API request timeout in milliseconds |
-| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable telemetry |
-
-## How It Works
-
-cc-use launches the CLI (Claude Code or Codex) as a subprocess with provider-specific environment variables. Environment variables are merged at runtime: `common._global` + `common.<type>` + `provider.env` (provider takes precedence).
-
-```typescript
-// Merge order: common._global -> common.<type> -> provider.env -> process.env
-const mergedEnv = { ...common._global, ...common[type], ...provider.env };
-spawn(cliCommand, args, {
-  env: { ...process.env, ...mergedEnv },
-  stdio: "inherit"
-});
-```
-
-**Equivalent shell command:**
-
-```bash
-# Linux/macOS
-ANTHROPIC_BASE_URL=https://api.example.com ANTHROPIC_AUTH_TOKEN=sk-xxx claude
-
-# Windows (PowerShell)
-$env:ANTHROPIC_BASE_URL="https://api.example.com"; $env:ANTHROPIC_AUTH_TOKEN="sk-xxx"; claude
-```
-
-## Building from Source
-
-Requires [Bun](https://bun.sh) runtime.
-
-```bash
-# Install dependencies
-bun install
-cd webui && bun install && cd ..
-
-# Run CLI in development
-bun run dev
-
-# Run WebUI in development (separate terminal)
-bun run dev:webui
-
-# Build binary (includes WebUI)
-bun run build
-
-# Build for all platforms
-bun run build:all
-```
-
-### Build Scripts
-
-| Script | Description |
-|--------|-------------|
-| `bun run dev` | Run CLI in development mode |
-| `bun run dev:webui` | Run WebUI dev server (Vite) |
-| `bun run build:webui` | Build WebUI |
-| `bun run embed:webui` | Embed WebUI into CLI |
-| `bun run build` | Build CLI binary (includes WebUI) |
-| `bun run build:cli` | Build CLI binary only |
-| `bun run build:all` | Build for all platforms |
-
-## Supported Platforms
+## 支持平台
 
 - macOS (Apple Silicon / Intel)
-- Linux (x64)
 - Windows (x64)
 
-## Upgrading from v0.x (cc-switch)
+> ⚠️ **注意**：Windows 版本目前尚未经过充分测试，可能存在兼容性问题。如遇到问题，欢迎提交 [Issue](https://github.com/mipawn/cc-use/issues)。
 
-**v1.0.0 is NOT compatible with the old cc-switch.** The project has been renamed from `cc-switch` to `cc-use`, and the config format has changed.
+## 从 cc-switch 迁移
 
-### Uninstall old version
+CC Use v1.0.0 是全新的 Electron 桌面应用，与旧版 cc-switch CLI 工具不兼容。请先卸载旧版本：
 
 ```bash
-# Uninstall cc-switch (old name)
 cc-switch uninstall
-
-# Then install cc-use v1.0.0
-curl -fsSL https://raw.githubusercontent.com/mipawn/cc-use/main/scripts/install.sh | bash
 ```
 
-### Manual removal (if cc-switch uninstall doesn't work)
+如果 `cc-switch uninstall` 无法正常工作，手动清理：
 
 ```bash
-# Remove the binary
 sudo rm /usr/local/bin/cc-switch
-
-# Remove old config (optional, different path)
 rm -rf ~/.config/cc-switch
-
-# Remove shell completions
 rm -f ~/.zsh/completions/_cc-switch
 rm -f ~/.local/share/bash-completion/completions/cc-switch
 rm -f ~/.config/fish/completions/cc-switch.fish
-
-# Remove lines added to shell config (if any)
-# Edit ~/.zshrc and remove lines related to cc-switch completions
-# Edit ~/.bashrc and remove lines related to cc-switch completions
 ```
+
+同时也清理旧版 cc-use CLI（如果安装过）：
+
+```bash
+sudo rm /usr/local/bin/cc-use
+rm -rf ~/.config/cc-use
+rm -f ~/.zsh/completions/_cc-use
+rm -f ~/.local/share/bash-completion/completions/cc-use
+rm -f ~/.config/fish/completions/cc-use.fish
+```
+
+清理完成后，从 [Releases](https://github.com/mipawn/cc-use/releases) 下载新版桌面应用即可。
 
 ## License
 

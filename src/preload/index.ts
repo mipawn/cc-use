@@ -22,6 +22,7 @@ import type {
   StatsTimeRange,
   CostStatistics,
   DashboardCostStats,
+  UpdateCheckResult,
 } from '../shared/types'
 
 const api = {
@@ -169,6 +170,14 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_COST_STATISTICS, timeRange),
     getDashboardStats: (): Promise<DashboardCostStats> =>
       ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_DASHBOARD_STATS),
+  },
+
+  // App API
+  app: {
+    getVersion: (): Promise<string> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+    checkUpdate: (): Promise<UpdateCheckResult> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_CHECK_UPDATE),
   },
 
   // System API

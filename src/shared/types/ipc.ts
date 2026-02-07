@@ -77,6 +77,10 @@ export const IPC_CHANNELS = {
   SYSTEM_GET_PLATFORM: 'system:getPlatform',
   SYSTEM_SELECT_FOLDER: 'system:selectFolder',
   SYSTEM_OPEN_EXTERNAL: 'system:openExternal',
+
+  // App channels
+  APP_GET_VERSION: 'app:getVersion',
+  APP_CHECK_UPDATE: 'app:checkUpdate',
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

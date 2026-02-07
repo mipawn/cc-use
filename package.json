@@ -1,7 +1,7 @@
 {
   "name": "cc-use",
-  "version": "2.0.0",
-  "description": "Desktop app for managing multiple Claude Code / Codex CLI configurations",
+  "version": "1.0.0",
+  "description": "Desktop configuration manager built exclusively for Claude Code / Codex CLI",
   "type": "module",
   "main": "dist-electron/main/index.js",
   "scripts": {
@@ -66,6 +66,8 @@
   "build": {
     "appId": "com.mipawn.cc-use",
     "productName": "CC Use",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "publish": null,
     "directories": {
       "output": "release"
     },
@@ -109,8 +111,9 @@
   ],
   "author": "mipawn",
   "license": "MIT",
+  "packageManager": "pnpm@10.20.0",
   "engines": {
-    "node": ">=25"
+    "node": ">=20"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
