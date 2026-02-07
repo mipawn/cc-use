@@ -1,8 +1,14 @@
 import { useEffect } from 'react'
 import { theme } from 'antd'
+import { useSettingsStore } from '../stores/settingsStore'
 
 export function useAntdTokenSync() {
   const { token } = theme.useToken()
+  const resolvedTheme = useSettingsStore((s) => s.resolvedTheme)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', resolvedTheme)
+  }, [resolvedTheme])
 
   useEffect(() => {
     const root = document.documentElement

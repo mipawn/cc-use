@@ -198,12 +198,13 @@ export default function ProviderCard({
 
         {provider.website && (
           <div className="flex items-center gap-1">
-            <LinkOutlined className="text-gray-400" />
+            <LinkOutlined style={{ color: token.colorTextQuaternary }} />
             <a
               href={provider.website}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-blue-500 hover:text-blue-600 truncate"
+              className="text-xs truncate"
+              style={{ color: token.colorPrimary }}
               onClick={(e) => e.stopPropagation()}
             >
               {provider.website}

@@ -46,6 +46,12 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
   --shadow-accent: 0 0 20px var(--color-accent-glow);
+
+  /* Syntax Highlighting */
+  --syntax-keyword: #8839ef;
+  --syntax-variable: #d20f39;
+  --syntax-operator: #179299;
+  --syntax-string: #40a02b;
 }
 
 /* Dark Mode Tokens */
@@ -62,6 +68,12 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+  /* Syntax Highlighting */
+  --syntax-keyword: #c678dd;
+  --syntax-variable: #e06c75;
+  --syntax-operator: #56b6c2;
+  --syntax-string: #98c379;
 }
 
 /* Animations */

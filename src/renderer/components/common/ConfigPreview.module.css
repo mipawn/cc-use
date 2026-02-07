@@ -83,22 +83,22 @@
 }
 
 .keyword {
-  color: #c678dd; /* Purple for keywords */
+  color: var(--syntax-keyword);
 }
 
 .variable {
-  color: #e06c75; /* Red for env vars */
+  color: var(--syntax-variable);
 }
 
 .operator {
-  color: #56b6c2; /* Cyan for operators */
+  color: var(--syntax-operator);
 }
 
 .string {
-  color: #98c379; /* Green for strings */
+  color: var(--syntax-string);
 }
 
-/* Dark mode adjustments - these colors work well in both modes */
+/* Dark mode adjustments - handled by CSS variables in design-tokens.css */
 
 /* Footer */
 .footer {

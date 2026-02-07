@@ -8,7 +8,7 @@
 
 .dragHandle {
   cursor: grab;
-  color: #999;
+  color: var(--ant-color-text-quaternary);
 }
 
 .dragHandle:active {
