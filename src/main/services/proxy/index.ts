@@ -150,6 +150,7 @@ export async function startProxy(): Promise<void> {
                 await createRequestLog({
                   providerId: session.providerId,
                   apiKeyId: session.apiKeyId,
+                  projectId: session.projectId,
                   sessionId: sessionToken,
                   model: model,
                   usage,
@@ -170,6 +171,7 @@ export async function startProxy(): Promise<void> {
                   await createRequestLog({
                     providerId: session.providerId,
                     apiKeyId: session.apiKeyId,
+                    projectId: session.projectId,
                     sessionId: sessionToken,
                     model: model,
                     usage,

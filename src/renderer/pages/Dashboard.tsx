@@ -1,6 +1,6 @@
 /**
  * Dashboard - 简化的仪表盘
- * 统计卡片 + 最近项目
+ * 费用统计卡片 + 趋势图 + Top 3 + 最近项目
  */
 import { useEffect, useState, useCallback } from 'react'
 import { Typography, Card, theme, Empty } from 'antd'
@@ -9,7 +9,7 @@ import {
   ThunderboltOutlined,
   DollarOutlined,
   WalletOutlined,
-  ProjectOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -18,10 +18,16 @@ import NewProjectModal from '../components/dashboard/NewProjectModal'
 import { useProjectStore } from '../stores/projectStore'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
-import type { Project } from '@shared/types'
+import type { Project, DashboardCostStats } from '@shared/types'
 import styles from './Dashboard.module.css'
 
 const { Title, Text } = Typography
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(n)
+}
 
 export default function Dashboard() {
   const message = useAppMessage()
@@ -41,8 +47,11 @@ export default function Dashboard() {
   const [modalOpen, setModalOpen] = useState(false)
   const [droppedPath, setDroppedPath] = useState('')
 
-  // Cost stats
-  const [costStats, setCostStats] = useState({ todayCost: 0, totalBalance: 0 })
+  // Dashboard cost stats
+  const [dashStats, setDashStats] = useState<DashboardCostStats | null>(null)
+
+  // Hover state for trend bars
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null)
 
   // Get all API keys across all providers
   const allApiKeys = getAllApiKeys()
@@ -50,16 +59,16 @@ export default function Dashboard() {
   useEffect(() => {
     fetchProjects()
     fetchProviders()
-    fetchCostStats()
+    fetchDashboardStats()
   }, [fetchProjects, fetchProviders])
 
-  // Fetch cost statistics
-  const fetchCostStats = async () => {
+  // Fetch dashboard cost statistics
+  const fetchDashboardStats = async () => {
     try {
-      const stats = await window.api.requestLog.getCostStats()
-      setCostStats(stats)
+      const stats = await window.api.requestLog.getDashboardStats()
+      setDashStats(stats)
     } catch (error) {
-      console.error('Failed to fetch cost stats:', error)
+      console.error('Failed to fetch dashboard stats:', error)
     }
   }
 
@@ -69,12 +78,6 @@ export default function Dashboard() {
       fetchAllApiKeys(providers.map((p) => p.id))
     }
   }, [providers, fetchAllApiKeys])
-
-  // Calculate total balance from providers
-  useEffect(() => {
-    const totalBalance = providers.reduce((sum, p) => sum + (p.cachedWalletBalance || 0), 0)
-    setCostStats(prev => ({ ...prev, totalBalance }))
-  }, [providers])
 
   // Ensure proxy is running before launching terminal
   const ensureProxyRunning = useCallback(async (): Promise<boolean> => {
@@ -190,10 +193,30 @@ export default function Dashboard() {
     }
   }
 
-  // Calculate stats
-  const activeKeys = allApiKeys.filter(k => !k.isExhausted).length
-  const totalKeys = allApiKeys.length
-  const activeProjects = projects.filter(p => p.providerId && p.apiKeyId).length
+  // Build 7-day trend data (fill missing days)
+  const buildWeeklyTrend = () => {
+    if (!dashStats) return []
+    const trendMap = new Map(dashStats.weeklyTrend.map((d) => [d.date, d]))
+    const days: { date: string; cost: number; requests: number; label: string }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().split('T')[0]
+      const item = trendMap.get(dateStr)
+      days.push({
+        date: dateStr,
+        cost: item?.cost || 0,
+        requests: item?.requests || 0,
+        label: `${d.getMonth() + 1}/${d.getDate()}`,
+      })
+    }
+    return days
+  }
+
+  const weeklyTrend = buildWeeklyTrend()
+  const maxCost = Math.max(...weeklyTrend.map((d) => d.cost), 0.0001)
+
+  const rankClasses = [styles.topRank1, styles.topRank2, styles.topRank3]
 
   return (
     <div className={styles.container}>
@@ -219,10 +242,10 @@ export default function Dashboard() {
               <DollarOutlined className={styles.statIcon} style={{ color: token.colorWarning }} />
               <div className={styles.statInfo}>
                 <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.todayCost') || '今日费用'}
+                  {t('dashboard.todayCost')}
                 </Text>
                 <Text strong className={styles.statValue}>
-                  ${costStats.todayCost.toFixed(4)}
+                  ${dashStats?.todayCost.toFixed(4) || '0.0000'}
                 </Text>
               </div>
             </div>
@@ -232,10 +255,10 @@ export default function Dashboard() {
               <WalletOutlined className={styles.statIcon} style={{ color: token.colorSuccess }} />
               <div className={styles.statInfo}>
                 <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.totalBalance') || '总余额'}
+                  {t('dashboard.totalCost')}
                 </Text>
                 <Text strong className={styles.statValue}>
-                  ${costStats.totalBalance.toFixed(2)}
+                  ${dashStats?.totalCost.toFixed(2) || '0.00'}
                 </Text>
               </div>
             </div>
@@ -245,28 +268,113 @@ export default function Dashboard() {
               <ThunderboltOutlined className={styles.statIcon} style={{ color: token.colorPrimary }} />
               <div className={styles.statInfo}>
                 <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.activeKeys') || '可用密钥'}
+                  {t('dashboard.todayRequests')}
                 </Text>
                 <Text strong className={styles.statValue}>
-                  {activeKeys} / {totalKeys}
+                  {dashStats?.todayRequests || 0}
                 </Text>
               </div>
             </div>
           </Card>
           <Card className={styles.statCard} variant="outlined">
             <div className={styles.statContent}>
-              <ProjectOutlined className={styles.statIcon} style={{ color: token.colorInfo }} />
+              <DatabaseOutlined className={styles.statIcon} style={{ color: '#722ed1' }} />
               <div className={styles.statInfo}>
                 <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.activeProjects') || '活跃项目'}
+                  {t('dashboard.todayTokens')}
                 </Text>
                 <Text strong className={styles.statValue}>
-                  {activeProjects} / {projects.length}
+                  {formatTokens(dashStats?.todayTokens || 0)}
                 </Text>
               </div>
             </div>
           </Card>
         </div>
+
+        {/* Weekly Trend Chart */}
+        <Card
+          className={styles.trendCard}
+          variant="outlined"
+          title={<Text strong>{t('dashboard.weeklyTrend')}</Text>}
+        >
+          {weeklyTrend.some((d) => d.cost > 0) ? (
+            <div className={styles.trendChart}>
+              {weeklyTrend.map((day, i) => (
+                <div
+                  key={day.date}
+                  className={styles.trendBarWrapper}
+                  onMouseEnter={() => setHoveredBar(i)}
+                  onMouseLeave={() => setHoveredBar(null)}
+                >
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', width: '100%', justifyContent: 'center', position: 'relative' }}>
+                    <div
+                      className={styles.trendBar}
+                      style={{
+                        height: `${Math.max((day.cost / maxCost) * 100, 2)}%`,
+                        background: token.colorPrimary,
+                      }}
+                    >
+                      {hoveredBar === i && (
+                        <div className={styles.trendTooltip}>
+                          ${day.cost.toFixed(4)} / {day.requests} req
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <span className={styles.trendBarLabel}>{day.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.trendEmpty}>
+              <Text type="secondary">{t('dashboard.noTrendData')}</Text>
+            </div>
+          )}
+        </Card>
+
+        {/* Top 3 Grid */}
+        {(dashStats?.topKeys.length || dashStats?.topProjects.length) ? (
+          <div className={styles.topGrid}>
+            <Card
+              className={styles.topCard}
+              variant="outlined"
+              title={<Text strong>{t('dashboard.topKeysByCost')}</Text>}
+            >
+              {dashStats!.topKeys.length > 0 ? (
+                <div className={styles.topList}>
+                  {dashStats!.topKeys.map((item, i) => (
+                    <div key={item.keyId} className={styles.topItem}>
+                      <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
+                      <span className={styles.topName}>{item.keyAlias}</span>
+                      <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.topEmpty}>{t('common.noData')}</div>
+              )}
+            </Card>
+            <Card
+              className={styles.topCard}
+              variant="outlined"
+              title={<Text strong>{t('dashboard.topProjectsByCost')}</Text>}
+            >
+              {dashStats!.topProjects.length > 0 ? (
+                <div className={styles.topList}>
+                  {dashStats!.topProjects.map((item, i) => (
+                    <div key={item.projectId} className={styles.topItem}>
+                      <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
+                      <span className={styles.topName}>{item.projectName}</span>
+                      <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.topEmpty}>{t('common.noData')}</div>
+              )}
+            </Card>
+          </div>
+        ) : null}
 
         {/* Recent Projects Section */}
         <Card

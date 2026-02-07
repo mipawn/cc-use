@@ -101,6 +101,152 @@
   font-size: 20px;
 }
 
+/* Weekly Trend Chart */
+.trendCard {
+  border-radius: var(--radius-ant-lg) !important;
+  margin-bottom: 24px;
+}
+
+.trendChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 120px;
+  padding: 8px 0;
+}
+
+.trendBarWrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  justify-content: flex-end;
+  position: relative;
+}
+
+.trendBar {
+  width: 100%;
+  max-width: 48px;
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+  transition: opacity 0.2s;
+  cursor: pointer;
+  position: relative;
+}
+
+.trendBar:hover {
+  opacity: 0.8;
+}
+
+.trendBarLabel {
+  font-size: 11px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  white-space: nowrap;
+}
+
+.trendTooltip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.trendEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+}
+
+/* Top 3 Grid */
+.topGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 700px) {
+  .topGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.topCard {
+  border-radius: var(--radius-ant-lg) !important;
+}
+
+.topList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.topItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topRank {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.topRank1 {
+  background: #fff7e6;
+  color: #d48806;
+}
+
+.topRank2 {
+  background: #f0f0f0;
+  color: #595959;
+}
+
+.topRank3 {
+  background: #fff2e8;
+  color: #d4380d;
+}
+
+.topName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.topCost {
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.topEmpty {
+  text-align: center;
+  padding: 16px 0;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  font-size: 13px;
+}
+
 /* Recent Projects Card */
 .recentCard {
   border-radius: var(--radius-ant-lg) !important;

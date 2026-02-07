@@ -20,6 +20,8 @@ import type {
   UsageStats,
   UsageLog,
   StatsTimeRange,
+  CostStatistics,
+  DashboardCostStats,
 } from '../shared/types'
 
 const api = {
@@ -163,6 +165,10 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_KEY_COSTS),
     getDailyTrend: (days?: number): Promise<{ date: string; cost: number; requests: number }[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_DAILY_TREND, days),
+    getCostStatistics: (timeRange: StatsTimeRange): Promise<CostStatistics> =>
+      ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_COST_STATISTICS, timeRange),
+    getDashboardStats: (): Promise<DashboardCostStats> =>
+      ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_DASHBOARD_STATS),
   },
 
   // System API

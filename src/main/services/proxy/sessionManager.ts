@@ -30,6 +30,7 @@ export function createSession(providerId: string, apiKeyId: string, projectId?: 
     sessionToken,
     providerId,
     apiKeyId,
+    projectId: projectId || null,
     createdAt: new Date().toISOString(),
   }
   sessions.set(sessionToken, session)

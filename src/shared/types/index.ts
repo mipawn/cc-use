@@ -279,6 +279,7 @@ export interface ProxySession {
   sessionToken: string
   providerId: string
   apiKeyId: string
+  projectId: string | null
   createdAt: string
 }
 
@@ -308,3 +309,86 @@ export interface UsageStats {
 
 // Time range for statistics query
 export type StatsTimeRange = 'today' | 'yesterday' | 'week' | 'month' | 'all'
+
+// Cost statistics types
+export interface CostStatsSummary {
+  totalRequests: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCacheReadTokens: number
+  totalCacheCreationTokens: number
+  totalCostUsd: number
+  avgLatencyMs: number | null
+}
+
+export interface TopKeyCostItem {
+  keyId: string
+  keyAlias: string
+  providerName: string
+  totalCost: number
+  totalRequests: number
+  totalTokens: number
+}
+
+export interface TopProviderCostItem {
+  providerId: string
+  providerName: string
+  totalCost: number
+  totalRequests: number
+  totalTokens: number
+}
+
+export interface TopProjectCostItem {
+  projectId: string
+  projectName: string
+  totalCost: number
+  totalRequests: number
+  totalTokens: number
+}
+
+export interface TopModelCostItem {
+  model: string
+  totalCost: number
+  totalRequests: number
+  totalTokens: number
+}
+
+export interface DailyCostTrendItem {
+  date: string
+  cost: number
+  requests: number
+}
+
+export interface RecentRequestLogDisplay {
+  id: string
+  model: string | null
+  keyAlias: string | null
+  providerName: string | null
+  projectName: string | null
+  totalCostUsd: number
+  inputTokens: number
+  outputTokens: number
+  latencyMs: number | null
+  statusCode: number | null
+  createdAt: string
+}
+
+export interface CostStatistics {
+  summary: CostStatsSummary
+  topKeys: TopKeyCostItem[]
+  topProviders: TopProviderCostItem[]
+  topProjects: TopProjectCostItem[]
+  topModels: TopModelCostItem[]
+  dailyTrend: DailyCostTrendItem[]
+  recentRequests: RecentRequestLogDisplay[]
+}
+
+export interface DashboardCostStats {
+  todayCost: number
+  totalCost: number
+  todayRequests: number
+  todayTokens: number
+  weeklyTrend: DailyCostTrendItem[]
+  topKeys: TopKeyCostItem[]
+  topProjects: TopProjectCostItem[]
+}

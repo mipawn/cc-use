@@ -70,6 +70,8 @@ export const IPC_CHANNELS = {
   REQUEST_LOG_GET_COST_STATS: 'requestLog:getCostStats',
   REQUEST_LOG_GET_KEY_COSTS: 'requestLog:getKeyCosts',
   REQUEST_LOG_GET_DAILY_TREND: 'requestLog:getDailyTrend',
+  REQUEST_LOG_GET_COST_STATISTICS: 'requestLog:getCostStatistics',
+  REQUEST_LOG_GET_DASHBOARD_STATS: 'requestLog:getDashboardStats',
 
   // System channels
   SYSTEM_GET_PLATFORM: 'system:getPlatform',

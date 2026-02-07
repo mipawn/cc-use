@@ -288,4 +288,15 @@ export function registerIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.REQUEST_LOG_GET_DAILY_TREND, async (_, days?: number) => {
     return requestLogService.getDailyCostTrend(days || 7)
   })
+
+  ipcMain.handle(
+    IPC_CHANNELS.REQUEST_LOG_GET_COST_STATISTICS,
+    async (_, timeRange: StatsTimeRange) => {
+      return requestLogService.getCostStatistics(timeRange)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.REQUEST_LOG_GET_DASHBOARD_STATS, async () => {
+    return requestLogService.getDashboardCostStats()
+  })
 }
