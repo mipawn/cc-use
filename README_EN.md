@@ -28,6 +28,7 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 - **Local Proxy** - Built-in proxy server that relays requests via session tokens, enabling cost tracking and hot-switching
 - **Cost Tracking** - In proxy mode, automatically logs token usage and cost for every API request
 - **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/project/model with request history
+- **System Tray** - Minimize to tray on close, keeping the proxy running; tray menu supports proxy control and quick-launching recent projects
 - **CLI Config Management** - Global and per-key CLI configuration (JSON), automatically merged and injected at launch
 - **Internationalization** - Chinese and English UI
 - **Dark Mode** - Light/dark theme switching
