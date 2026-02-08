@@ -59,6 +59,7 @@ export async function startProxy(): Promise<void> {
   app.use('/', async (req: Request, res: Response, next: NextFunction) => {
     requestCount++
     const startTime = Date.now()
+    console.log(`[Proxy] Incoming: ${req.method} ${req.url}, auth=${req.headers['authorization']}, x-api-key=${req.headers['x-api-key']}`)
 
     // Get authorization header - try both Authorization and x-api-key
     const authHeader = req.headers['authorization'] as string
@@ -86,6 +87,7 @@ export async function startProxy(): Promise<void> {
 
     // Get session
     const session = getSession(sessionToken)
+    console.log(`[Proxy] Session lookup: token=${sessionToken}, found=${!!session}, providerId=${session?.providerId}, apiKeyId=${session?.apiKeyId}`)
     if (!session) {
       res.status(401).json({
         error: 'Session not found',
@@ -96,55 +98,128 @@ export async function startProxy(): Promise<void> {
 
     // Get provider and API key from session
     const provider = await getProvider(session.providerId)
+    console.log(`[Proxy] Provider: found=${!!provider}, baseUrl=${provider?.baseUrl}`)
     if (!provider) {
       res.status(404).json({ error: 'Provider not found' })
       return
     }
 
     const apiKey = await getApiKey(session.apiKeyId)
+    console.log(`[Proxy] ApiKey: found=${!!apiKey}, alias=${apiKey?.alias}`)
     if (!apiKey) {
       res.status(404).json({ error: 'API key not found' })
       return
     }
 
-    const targetUrl = provider.baseUrl.replace(/\/$/, '')
+    // Parse baseUrl to separate origin and path prefix
+    // e.g. "https://api.openai.com/v1" → target "https://api.openai.com", pathPrefix "/v1"
+    const parsedUrl = new URL(provider.baseUrl.replace(/\/$/, ''))
+    const targetOrigin = parsedUrl.origin
+    const pathPrefix = parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')
+    console.log(`[Proxy] URL parsed: targetOrigin=${targetOrigin}, pathPrefix=${pathPrefix}, reqPath=${req.url}`)
 
     // Check if this is a streaming request
     const isStreaming = req.headers['accept']?.includes('text/event-stream') ||
                        req.body?.stream === true
 
-    // For streaming requests, we need to accumulate usage across chunks
-    const streamAccumulator = isStreaming ? new StreamUsageAccumulator() : null
+    if (isStreaming) {
+      // For streaming requests, do NOT use selfHandleResponse/responseInterceptor
+      // as it buffers the entire response and breaks SSE streaming
+      const streamAccumulator = new StreamUsageAccumulator()
 
-    // Create proxy middleware for this request
-    const proxy = createProxyMiddleware({
-      target: targetUrl,
-      changeOrigin: true,
-      selfHandleResponse: true,
-      on: {
-        proxyReq: (proxyReq) => {
-          // Replace authorization header with actual API key
-          proxyReq.setHeader('Authorization', `Bearer ${apiKey.value}`)
-          proxyReq.setHeader('x-api-key', apiKey.value)
+      const proxy = createProxyMiddleware({
+        target: targetOrigin,
+        changeOrigin: true,
+        on: {
+          proxyReq: (proxyReq) => {
+            if (pathPrefix) {
+              proxyReq.path = pathPrefix + proxyReq.path
+            }
+            proxyReq.setHeader('Authorization', `Bearer ${apiKey.value}`)
+            proxyReq.setHeader('x-api-key', apiKey.value)
+            console.log(`[Proxy] Forwarding (stream): ${proxyReq.method} ${targetOrigin}${proxyReq.path}`)
+          },
+          proxyRes: (proxyRes) => {
+            const statusCode = proxyRes.statusCode || 500
+
+            if (statusCode === 401 || statusCode === 429) {
+              console.log(`Request failed with ${statusCode} for key ${apiKey.alias || apiKey.id}`)
+              lastError = `Key error: ${statusCode}`
+            }
+
+            // Listen to chunks for usage tracking
+            proxyRes.on('data', (chunk: Buffer) => {
+              try {
+                streamAccumulator.processChunk(chunk.toString('utf-8'))
+              } catch {
+                // Ignore parse errors in individual chunks
+              }
+            })
+
+            proxyRes.on('end', async () => {
+              const latencyMs = Date.now() - startTime
+              try {
+                const usage = streamAccumulator.getUsage()
+                const model = streamAccumulator.getModel()
+                if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
+                  await createRequestLog({
+                    providerId: session.providerId,
+                    apiKeyId: session.apiKeyId,
+                    projectId: session.projectId,
+                    sessionId: sessionToken,
+                    model: model,
+                    usage,
+                    costMultiplier: provider.costMultiplier || 1,
+                    latencyMs,
+                    statusCode,
+                    isStreaming: true,
+                  })
+                }
+              } catch (err) {
+                console.error('Failed to log streaming request usage:', err)
+              }
+            })
+          },
+          error: (err, _req, res) => {
+            console.error('Proxy error:', err)
+            lastError = err.message
+            if (res && 'status' in res) {
+              (res as Response).status(502).json({ error: 'Proxy error', message: err.message })
+            }
+          },
         },
-        proxyRes: responseInterceptor(async (responseBuffer, proxyRes) => {
-          const statusCode = proxyRes.statusCode || 500
-          const latencyMs = Date.now() - startTime
+      })
 
-          if (statusCode === 401 || statusCode === 429) {
-            console.log(`Request failed with ${statusCode} for key ${apiKey.alias || apiKey.id}`)
-            lastError = `Key error: ${statusCode}`
-          }
+      proxy(req, res, next)
+    } else {
+      // For non-streaming requests, use responseInterceptor to capture full response
+      const proxy = createProxyMiddleware({
+        target: targetOrigin,
+        changeOrigin: true,
+        selfHandleResponse: true,
+        on: {
+          proxyReq: (proxyReq) => {
+            if (pathPrefix) {
+              proxyReq.path = pathPrefix + proxyReq.path
+            }
+            proxyReq.setHeader('Authorization', `Bearer ${apiKey.value}`)
+            proxyReq.setHeader('x-api-key', apiKey.value)
+            console.log(`[Proxy] Forwarding: ${proxyReq.method} ${targetOrigin}${proxyReq.path}`)
+          },
+          proxyRes: responseInterceptor(async (responseBuffer, proxyRes) => {
+            const statusCode = proxyRes.statusCode || 500
+            const latencyMs = Date.now() - startTime
 
-          // Try to parse usage from response
-          try {
-            const responseText = responseBuffer.toString('utf-8')
+            if (statusCode === 401 || statusCode === 429) {
+              console.log(`Request failed with ${statusCode} for key ${apiKey.alias || apiKey.id}`)
+              lastError = `Key error: ${statusCode}`
+            }
 
-            if (isStreaming && streamAccumulator) {
-              // For streaming, process the accumulated chunks
-              streamAccumulator.processChunk(responseText)
-              const usage = streamAccumulator.getUsage()
-              const model = streamAccumulator.getModel()
+            try {
+              const responseText = responseBuffer.toString('utf-8')
+              const responseJson = JSON.parse(responseText)
+              const usage = parseUsageFromResponse(responseJson)
+              const model = parseModelFromResponse(responseJson)
 
               if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
                 await createRequestLog({
@@ -157,51 +232,27 @@ export async function startProxy(): Promise<void> {
                   costMultiplier: provider.costMultiplier || 1,
                   latencyMs,
                   statusCode,
-                  isStreaming: true,
+                  isStreaming: false,
                 })
               }
-            } else {
-              // For non-streaming, parse the JSON response
-              try {
-                const responseJson = JSON.parse(responseText)
-                const usage = parseUsageFromResponse(responseJson)
-                const model = parseModelFromResponse(responseJson)
-
-                if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
-                  await createRequestLog({
-                    providerId: session.providerId,
-                    apiKeyId: session.apiKeyId,
-                    projectId: session.projectId,
-                    sessionId: sessionToken,
-                    model: model,
-                    usage,
-                    costMultiplier: provider.costMultiplier || 1,
-                    latencyMs,
-                    statusCode,
-                    isStreaming: false,
-                  })
-                }
-              } catch {
-                // Not JSON or no usage info - skip logging
-              }
+            } catch {
+              // Not JSON or no usage info - skip logging
             }
-          } catch (err) {
-            console.error('Failed to log request usage:', err)
-          }
 
-          return responseBuffer
-        }),
-        error: (err, _req, res) => {
-          console.error('Proxy error:', err)
-          lastError = err.message
-          if (res && 'status' in res) {
-            (res as Response).status(502).json({ error: 'Proxy error', message: err.message })
-          }
+            return responseBuffer
+          }),
+          error: (err, _req, res) => {
+            console.error('Proxy error:', err)
+            lastError = err.message
+            if (res && 'status' in res) {
+              (res as Response).status(502).json({ error: 'Proxy error', message: err.message })
+            }
+          },
         },
-      },
-    })
+      })
 
-    proxy(req, res, next)
+      proxy(req, res, next)
+    }
   })
 
   return new Promise((resolve, reject) => {

@@ -10,6 +10,9 @@ import { getGlobalSettings } from '../settingsService'
 import { createUsageLog } from '../usageLogService'
 import { createSession, getSessionByProject } from '../proxy/sessionManager'
 import type { ProviderType, TerminalType } from '@shared/types'
+import { writeFileSync, mkdirSync } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
 
 // All available strategies
 const allStrategies: Record<string, TerminalStrategy> = {
@@ -130,8 +133,22 @@ async function buildEnvForProject(
 
       // Use the session token as the API key - proxy will resolve it
       if (cliType === 'codex') {
-        env.OPENAI_BASE_URL = `http://localhost:${proxyPort}`
+        // Codex CLI expects base URL to include /v1 path
+        env.OPENAI_BASE_URL = `http://localhost:${proxyPort}/v1`
         env.OPENAI_API_KEY = session.sessionToken
+        // Codex CLI caches API key in ~/.codex/auth.json and ignores env vars,
+        // so we must write the session token there directly
+        try {
+          const codexDir = join(homedir(), '.codex')
+          mkdirSync(codexDir, { recursive: true })
+          writeFileSync(
+            join(codexDir, 'auth.json'),
+            JSON.stringify({ OPENAI_API_KEY: session.sessionToken }),
+            'utf-8'
+          )
+        } catch (err) {
+          console.error('Failed to write Codex auth.json:', err)
+        }
       } else {
         env.ANTHROPIC_BASE_URL = `http://localhost:${proxyPort}`
         env.ANTHROPIC_API_KEY = session.sessionToken
@@ -142,7 +159,7 @@ async function buildEnvForProject(
     const provider = await getProvider(providerId)
     if (provider) {
       if (cliType === 'codex') {
-        env.OPENAI_BASE_URL = `http://localhost:${proxyPort}`
+        env.OPENAI_BASE_URL = `http://localhost:${proxyPort}/v1`
       } else {
         env.ANTHROPIC_BASE_URL = `http://localhost:${proxyPort}`
       }

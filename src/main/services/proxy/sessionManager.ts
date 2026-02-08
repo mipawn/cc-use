@@ -34,6 +34,7 @@ export function createSession(providerId: string, apiKeyId: string, projectId?: 
     createdAt: new Date().toISOString(),
   }
   sessions.set(sessionToken, session)
+  console.log(`[Session] Created: token=${sessionToken}, providerId=${providerId}, apiKeyId=${apiKeyId}, projectId=${projectId}, totalSessions=${sessions.size}`)
 
   // Track by project if projectId is provided
   if (projectId) {
@@ -44,6 +45,7 @@ export function createSession(providerId: string, apiKeyId: string, projectId?: 
 }
 
 export function getSession(sessionToken: string): ProxySession | null {
+  console.log(`[Session] getSession: token=${sessionToken}, exists=${sessions.has(sessionToken)}, allTokens=[${Array.from(sessions.keys()).join(', ')}]`)
   return sessions.get(sessionToken) || null
 }
 
