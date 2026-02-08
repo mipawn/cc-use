@@ -2,6 +2,24 @@
 
 本文件记录项目的所有重要变更。
 
+## [1.3.0] - 2026-02-08
+
+### Added
+
+- Windows 安装快捷方式：NSIS 安装器显式创建桌面和开始菜单快捷方式，支持自定义安装目录
+- 终端命令适配多终端类型：复制的导出命令根据设置中的默认终端类型生成对应格式
+  - iTerm2 / Terminal (macOS)：`VAR="val" command`（Unix inline 风格）
+  - PowerShell / Windows Terminal：`$env:VAR="val"; command`
+  - CMD：`set VAR=val && command`
+- 复制命令弹窗标题显示当前终端类型标签，复制成功提示包含终端类型信息
+- 默认终端类型自动检测：Windows 平台默认 PowerShell，macOS 默认 iTerm2
+
+---
+
+### Fixed
+
+- windows 白屏修复
+
 ## [1.2.0] - 2026-02-08
 
 ### Added
