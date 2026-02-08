@@ -15,6 +15,7 @@ import {
   Tag,
   Modal,
   Button,
+  Progress,
   message,
 } from 'antd'
 import { useTranslation } from 'react-i18next'
@@ -29,9 +30,10 @@ import {
   InfoCircleOutlined,
   SyncOutlined,
   MinusCircleOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons'
 import styles from './Settings.module.css'
-import type { UpdateCheckResult } from '@shared/types'
+import type { UpdateCheckResult, UpdateProgressInfo } from '@shared/types'
 
 const { Title, Text } = Typography
 
@@ -58,11 +60,28 @@ export default function Settings() {
   // Version & update
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
+  const [updateDownloading, setUpdateDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState(0)
+  const [downloadSpeed, setDownloadSpeed] = useState(0)
+  const [updateDownloaded, setUpdateDownloaded] = useState(false)
+  const [platform, setPlatform] = useState<string>('')
+  const [cacheSize, setCacheSize] = useState(0)
+  const [cacheFiles, setCacheFiles] = useState<string[]>([])
+  const [clearingCache, setClearingCache] = useState(false)
+
+  const fetchCacheInfo = async () => {
+    const info = await window.api.app.getUpdatesCacheInfo()
+    setCacheSize(info.size)
+    setCacheFiles(info.files)
+  }
 
   useEffect(() => {
     fetchGlobalSettings()
     fetchProxyStatus()
+    fetchCacheInfo()
     window.api.app.getVersion().then(setAppVersion)
+    window.api.system.getPlatform().then(setPlatform)
 
     const unsubscribe = window.api.proxy.onStatusChanged((data) => {
       setProxyStatus({ isRunning: data.isRunning, port: data.port })
@@ -74,7 +93,29 @@ export default function Settings() {
         }
       }
     })
-    return () => { unsubscribe() }
+
+    const unsubProgress = window.api.app.onUpdateProgress((info: UpdateProgressInfo) => {
+      setDownloadProgress(Math.round(info.percent))
+      setDownloadSpeed(info.bytesPerSecond / 1024 / 1024)
+    })
+
+    const unsubDownloaded = window.api.app.onUpdateDownloaded(() => {
+      setUpdateDownloaded(true)
+      setUpdateDownloading(false)
+      fetchCacheInfo()
+    })
+
+    // Listen for auto update check results
+    const unsubUpdateAvailable = window.api.app.onUpdateAvailable((result: UpdateCheckResult) => {
+      setUpdateResult(result)
+    })
+
+    return () => {
+      unsubscribe()
+      unsubProgress()
+      unsubDownloaded()
+      unsubUpdateAvailable()
+    }
   }, [fetchGlobalSettings])
 
   // Fetch proxy status
@@ -132,40 +173,14 @@ export default function Settings() {
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true)
+    setUpdateResult(null)
+    setUpdateDownloading(false)
+    setUpdateDownloaded(false)
+    setDownloadProgress(0)
     try {
       const result: UpdateCheckResult = await window.api.app.checkUpdate()
       if (result.hasUpdate) {
-        Modal.confirm({
-          title: t('settings.newVersionAvailable'),
-          content: (
-            <div>
-              <p>{t('settings.newVersionDesc', { version: result.latestVersion })}</p>
-              {result.releaseNotes && (
-                <div>
-                  <p style={{ fontWeight: 500, marginBottom: 4 }}>{t('settings.releaseNotes')}:</p>
-                  <div
-                    style={{
-                      maxHeight: 200,
-                      overflow: 'auto',
-                      padding: '8px 12px',
-                      background: token.colorFillTertiary,
-                      borderRadius: 6,
-                      fontSize: 13,
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {result.releaseNotes}
-                  </div>
-                </div>
-              )}
-            </div>
-          ),
-          okText: t('settings.goToDownload'),
-          cancelText: t('common.cancel'),
-          onOk: () => {
-            window.api.system.openExternal(result.releaseUrl)
-          },
-        })
+        setUpdateResult(result)
       } else {
         message.success(t('settings.latestVersion'))
       }
@@ -174,6 +189,52 @@ export default function Settings() {
     } finally {
       setCheckingUpdate(false)
     }
+  }
+
+  const handleDownloadUpdate = async () => {
+    setUpdateDownloading(true)
+    setDownloadProgress(0)
+    try {
+      await window.api.app.downloadUpdate()
+    } catch {
+      setUpdateDownloading(false)
+      message.error(t('settings.downloadFailed'))
+      // Fallback: open browser
+      if (updateResult?.releaseUrl) {
+        window.api.system.openExternal(updateResult.releaseUrl)
+      }
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    const result = await window.api.app.installUpdate()
+    if (result && !result.includes('/')) {
+      // result is an error message
+      message.error(result)
+    } else if (result) {
+      // result is the file path - show success message for macOS
+      message.success(t('settings.installerOpened'))
+    }
+  }
+
+  const handleClearCache = async () => {
+    setClearingCache(true)
+    try {
+      const count = await window.api.app.clearUpdatesCache()
+      message.success(t('settings.cacheCleared', { count }))
+      setCacheSize(0)
+      setCacheFiles([])
+    } finally {
+      setClearingCache(false)
+    }
+  }
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
   }
 
   const themeOptions = [
@@ -438,6 +499,101 @@ export default function Settings() {
                   {checkingUpdate ? t('settings.checking') : t('settings.checkUpdate')}
                 </Button>
               </div>
+
+              {/* Update available */}
+              {updateResult && (
+                <div style={{ marginTop: 16, padding: '12px 16px', background: token.colorFillTertiary, borderRadius: 8 }}>
+                  <Text strong style={{ fontSize: 14 }}>
+                    {t('settings.newVersionDesc', { version: updateResult.latestVersion })}
+                  </Text>
+
+                  {updateResult.releaseNotes && (
+                    <div
+                      style={{
+                        maxHeight: 150,
+                        overflow: 'auto',
+                        padding: '8px 12px',
+                        marginTop: 8,
+                        background: token.colorBgContainer,
+                        borderRadius: 6,
+                        fontSize: 13,
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {updateResult.releaseNotes}
+                    </div>
+                  )}
+
+                  {/* Download progress */}
+                  {updateDownloading && (
+                    <div style={{ marginTop: 12 }}>
+                      <Progress
+                        percent={downloadProgress}
+                        size="small"
+                        status="active"
+                      />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {t('settings.downloadSpeed', { speed: downloadSpeed.toFixed(1) })}
+                      </Text>
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                    {!updateDownloading && !updateDownloaded && (
+                      <>
+                        <Button
+                          type="primary"
+                          icon={<DownloadOutlined />}
+                          onClick={handleDownloadUpdate}
+                        >
+                          {t('settings.downloadUpdate')}
+                        </Button>
+                        <Button onClick={() => window.api.system.openExternal(updateResult.releaseUrl)}>
+                          {t('settings.goToDownload')}
+                        </Button>
+                      </>
+                    )}
+
+                    {updateDownloaded && (
+                      <Button
+                        type="primary"
+                        onClick={handleInstallUpdate}
+                      >
+                        {platform === 'win32'
+                          ? t('settings.installAndRestart')
+                          : t('settings.openInstaller')}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Update cache info */}
+              {cacheFiles.length > 0 && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <Text type="secondary">{t('settings.updateCache')}</Text>
+                      <Text style={{ marginLeft: 8 }}>
+                        {cacheFiles.length} {t('settings.cacheFileCount')} ({formatBytes(cacheSize)})
+                      </Text>
+                    </div>
+                    <Button
+                      size="small"
+                      loading={clearingCache}
+                      onClick={handleClearCache}
+                    >
+                      {t('settings.clearCache')}
+                    </Button>
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    {cacheFiles.map((file) => (
+                      <Tag key={file} style={{ marginBottom: 4 }}>{file}</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
             </Card>
           </div>
         </SimpleBar>

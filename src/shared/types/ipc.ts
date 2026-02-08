@@ -82,6 +82,13 @@ export const IPC_CHANNELS = {
   // App channels
   APP_GET_VERSION: 'app:getVersion',
   APP_CHECK_UPDATE: 'app:checkUpdate',
+  APP_DOWNLOAD_UPDATE: 'app:downloadUpdate',
+  APP_INSTALL_UPDATE: 'app:installUpdate',
+  APP_UPDATE_PROGRESS: 'app:updateProgress',
+  APP_UPDATE_DOWNLOADED: 'app:updateDownloaded',
+  APP_UPDATE_AVAILABLE: 'app:updateAvailable',
+  APP_GET_UPDATES_CACHE_INFO: 'app:getUpdatesCacheInfo',
+  APP_CLEAR_UPDATES_CACHE: 'app:clearUpdatesCache',
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

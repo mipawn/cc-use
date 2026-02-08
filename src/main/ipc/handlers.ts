@@ -8,6 +8,7 @@ import * as iconService from '../services/iconService'
 import * as importExportService from '../services/importExportService'
 import * as usageLogService from '../services/usageLogService'
 import * as requestLogService from '../services/requestLogService'
+import * as updaterService from '../services/updaterService'
 import { refreshBalance } from '../services/balanceService'
 import { refreshUsage } from '../services/usageService'
 import { refreshKeyUsage } from '../services/keyUsageService'
@@ -308,38 +309,22 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.APP_CHECK_UPDATE, async (): Promise<UpdateCheckResult> => {
     const currentVersion = app.getVersion()
-    try {
-      const response = await fetch('https://api.github.com/repos/mipawn/cc-use/releases/latest', {
-        headers: { 'User-Agent': 'cc-use' },
-      })
-      if (!response.ok) {
-        throw new Error(`GitHub API returned ${response.status}`)
-      }
-      const data = await response.json()
-      const latestVersion = (data.tag_name || '').replace(/^v/, '')
-      const hasUpdate = compareVersions(latestVersion, currentVersion) > 0
-      return {
-        hasUpdate,
-        currentVersion,
-        latestVersion,
-        releaseUrl: data.html_url || 'https://github.com/mipawn/cc-use/releases',
-        releaseNotes: data.body || '',
-      }
-    } catch {
-      throw new Error('Failed to check for updates')
-    }
+    return updaterService.checkForUpdates(currentVersion)
   })
-}
 
-function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(Number)
-  const pb = b.split('.').map(Number)
-  const len = Math.max(pa.length, pb.length)
-  for (let i = 0; i < len; i++) {
-    const na = pa[i] || 0
-    const nb = pb[i] || 0
-    if (na > nb) return 1
-    if (na < nb) return -1
-  }
-  return 0
+  ipcMain.handle(IPC_CHANNELS.APP_DOWNLOAD_UPDATE, async () => {
+    return updaterService.downloadUpdate()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.APP_INSTALL_UPDATE, async () => {
+    return updaterService.installUpdate()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.APP_GET_UPDATES_CACHE_INFO, () => {
+    return updaterService.getUpdatesCacheInfo()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.APP_CLEAR_UPDATES_CACHE, () => {
+    return updaterService.clearUpdatesCache()
+  })
 }

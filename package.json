@@ -27,6 +27,7 @@
     "better-sqlite3": "^11.6.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.38.0",
+    "electron-updater": "^6.7.3",
     "express": "^4.21.0",
     "http-proxy-middleware": "^3.0.3",
     "i18next": "^25.8.0",
@@ -67,7 +68,11 @@
     "appId": "com.mipawn.cc-use",
     "productName": "CC Use",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-    "publish": null,
+    "publish": {
+      "provider": "github",
+      "owner": "mipawn",
+      "repo": "cc-use"
+    },
     "directories": {
       "output": "release"
     },

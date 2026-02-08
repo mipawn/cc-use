@@ -7,6 +7,7 @@ import { startProxy, stopProxy, getProxyStatus } from './services/proxy'
 import { listProjects } from './services/projectService'
 import { launchTerminal } from './services/terminal'
 import { getGlobalSettings } from './services/settingsService'
+import { setUpdaterWindow, cleanupOldUpdates } from './services/updaterService'
 import { IPC_CHANNELS } from '../shared/types/ipc'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -310,6 +311,9 @@ app.whenReady().then(async () => {
   initDatabase()
   registerIpcHandlers()
 
+  // Clean up old update files
+  cleanupOldUpdates()
+
   // Load initial settings
   try {
     const settings = await getGlobalSettings()
@@ -327,11 +331,17 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+  if (mainWindow) {
+    setUpdaterWindow(mainWindow)
+  }
   await createTray()
 
   app.on('activate', () => {
     if (!mainWindow) {
       createWindow()
+      if (mainWindow) {
+        setUpdaterWindow(mainWindow)
+      }
     } else {
       mainWindow.show()
       mainWindow.focus()

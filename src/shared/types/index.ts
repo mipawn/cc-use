@@ -400,4 +400,17 @@ export interface UpdateCheckResult {
   latestVersion: string
   releaseUrl: string
   releaseNotes: string
+  downloadUrl?: string
+}
+
+export interface UpdateProgressInfo {
+  percent: number
+  transferred: number
+  total: number
+  bytesPerSecond: number
+}
+
+export interface UpdatesCacheInfo {
+  size: number
+  files: string[]
 }

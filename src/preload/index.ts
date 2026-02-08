@@ -23,6 +23,8 @@ import type {
   CostStatistics,
   DashboardCostStats,
   UpdateCheckResult,
+  UpdateProgressInfo,
+  UpdatesCacheInfo,
 } from '../shared/types'
 
 const api = {
@@ -183,6 +185,29 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
     checkUpdate: (): Promise<UpdateCheckResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_CHECK_UPDATE),
+    downloadUpdate: (): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_DOWNLOAD_UPDATE),
+    installUpdate: (): Promise<string | null> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_INSTALL_UPDATE),
+    onUpdateProgress: (callback: (info: UpdateProgressInfo) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, info: UpdateProgressInfo) => callback(info)
+      ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_PROGRESS, handler)
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_PROGRESS, handler) }
+    },
+    onUpdateDownloaded: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_DOWNLOADED, handler)
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_DOWNLOADED, handler) }
+    },
+    getUpdatesCacheInfo: (): Promise<UpdatesCacheInfo> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_GET_UPDATES_CACHE_INFO),
+    clearUpdatesCache: (): Promise<number> =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_CLEAR_UPDATES_CACHE),
+    onUpdateAvailable: (callback: (result: UpdateCheckResult) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, result: UpdateCheckResult) => callback(result)
+      ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_AVAILABLE, handler)
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_AVAILABLE, handler) }
+    },
   },
 
   // System API
