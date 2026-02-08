@@ -270,6 +270,11 @@ async function createTray() {
 }
 
 function createWindow() {
+  // Hide default menu bar on Windows/Linux (macOS uses system menu bar)
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+  }
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -280,8 +285,9 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
     },
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 },
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 16 } }
+      : {}),
     backgroundColor: '#141414',
   })
 
