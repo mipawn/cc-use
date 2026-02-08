@@ -12,7 +12,8 @@ import {
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import type { Provider } from '@shared/types'
-import { getProviderTypeConfig, generateTerminalCommand } from '@shared/types'
+import { getProviderTypeConfig, generateTerminalCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
+import { useSettingsStore } from '../../stores/settingsStore'
 import styles from './ProviderCard.module.css'
 
 import claudeIcon from '../../assets/provider-icons/claude.svg'
@@ -56,13 +57,16 @@ export default function ProviderCard({
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const message = useAppMessage()
+  const { globalSettings } = useSettingsStore()
+  const terminalType = globalSettings.defaultTerminalType
 
   const handleCopyCommand = async () => {
     const apiKey = firstApiKey || provider.token || 'YOUR_API_KEY'
-    const command = generateTerminalCommand({ type: provider.type ?? 'claude', baseUrl: provider.baseUrl }, apiKey)
+    const command = generateTerminalCommand({ type: provider.type ?? 'claude', baseUrl: provider.baseUrl }, apiKey, false, 12345, terminalType)
     try {
       await navigator.clipboard.writeText(command)
-      message.success(t('providers.commandCopied'))
+      const terminalLabel = TERMINAL_TYPE_LABELS[terminalType]
+      message.success(`${t('providers.commandCopied')} (${terminalLabel})`)
     } catch {
       message.error(t('providers.copyFailed'))
     }

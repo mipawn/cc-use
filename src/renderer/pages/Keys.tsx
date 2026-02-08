@@ -47,7 +47,8 @@ import ProviderModal from '../components/providers/ProviderModal'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
 import type { Provider, ApiKey, ProviderType } from '@shared/types'
-import { getProviderTypeConfig } from '@shared/types'
+import { getProviderTypeConfig, formatEnvCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
+import { useSettingsStore } from '../stores/settingsStore'
 import styles from './Keys.module.css'
 
 // Import provider type icons
@@ -108,6 +109,8 @@ export default function Keys() {
     updateApiKey,
     deleteApiKey,
   } = useApiKeyStore()
+  const { globalSettings } = useSettingsStore()
+  const terminalType = globalSettings.defaultTerminalType
 
   // Filter state: 'all' or providerId
   const [activeFilter, setActiveFilter] = useState<string>('all')
@@ -332,26 +335,35 @@ export default function Keys() {
     setCopyCommandModalOpen(true)
   }
 
-  // Generate command based on proxy status
+  // Generate command based on proxy status and terminal type
   const generateCommand = (type: ProviderType, provider: Provider, key: ApiKey, useProxy: boolean): string => {
     const config = getProviderTypeConfig(type)
+    const envVars: Record<string, string> = {}
 
     if (useProxy && proxyStatus.isRunning && proxySessionToken) {
-      // Use proxy: localhost + session token
       const baseUrl = `http://localhost:${proxyStatus.port}`
+      envVars[config.envBaseUrlName] = baseUrl
       if (type === 'codex') {
-        return `${config.envBaseUrlName}="${baseUrl}" ${config.envKeyName}="${proxySessionToken}" ${config.cliCommand}`
+        envVars[config.envKeyName] = proxySessionToken
       } else {
-        return `${config.envBaseUrlName}="${baseUrl}" API_TIMEOUT_MS=3000000 CLAUDE_CODE_ATTRIBUTION_HEADER=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 ANTHROPIC_AUTH_TOKEN="${proxySessionToken}" ${config.cliCommand}`
+        envVars['API_TIMEOUT_MS'] = '3000000'
+        envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
+        envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
+        envVars['ANTHROPIC_AUTH_TOKEN'] = proxySessionToken
       }
     } else {
-      // Direct: real baseUrl + real key
+      envVars[config.envBaseUrlName] = provider.baseUrl
       if (type === 'codex') {
-        return `${config.envBaseUrlName}="${provider.baseUrl}" ${config.envKeyName}="${key.value}" ${config.cliCommand}`
+        envVars[config.envKeyName] = key.value
       } else {
-        return `${config.envBaseUrlName}="${provider.baseUrl}" API_TIMEOUT_MS=3000000 CLAUDE_CODE_ATTRIBUTION_HEADER=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 ANTHROPIC_AUTH_TOKEN="${key.value}" ${config.cliCommand}`
+        envVars['API_TIMEOUT_MS'] = '3000000'
+        envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
+        envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
+        envVars['ANTHROPIC_AUTH_TOKEN'] = key.value
       }
     }
+
+    return formatEnvCommand(envVars, config.cliCommand, terminalType)
   }
 
   // Handle edit key
@@ -738,7 +750,12 @@ export default function Keys() {
 
       {/* Copy Command List Modal */}
       <Modal
-        title={t('keys.commandList') || '终端命令'}
+        title={
+          <Space>
+            {t('keys.commandList') || '终端命令'}
+            <Tag color="blue">{TERMINAL_TYPE_LABELS[terminalType]}</Tag>
+          </Space>
+        }
         open={copyCommandModalOpen}
         onCancel={() => {
           setCopyCommandModalOpen(false)
@@ -784,7 +801,7 @@ export default function Keys() {
                           onClick={async () => {
                             try {
                               await navigator.clipboard.writeText(command)
-                              message.success(t('providers.commandCopied'))
+                              message.success(`${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`)
                             } catch (error) {
                               message.error(t('providers.copyFailed'))
                             }
@@ -832,7 +849,7 @@ export default function Keys() {
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(command)
-                          message.success(t('providers.commandCopied'))
+                          message.success(`${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`)
                         } catch (error) {
                           message.error(t('providers.copyFailed'))
                         }
