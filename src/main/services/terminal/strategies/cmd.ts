@@ -13,7 +13,9 @@ export class CmdStrategy implements TerminalStrategy {
       .map(([key, value]) => `set ${key}=${value}`)
       .join(' && ')
 
-    let finalCommand = `cd /d "${path}" && ${envSetCommands}`
+    // Use pushd instead of cd /d to support UNC paths (e.g. \\psf\Home\...)
+    // pushd automatically maps UNC paths to a temporary drive letter
+    let finalCommand = `pushd "${path}" && ${envSetCommands}`
     if (cliCommand) {
       finalCommand += ` && ${cliCommand}`
     }

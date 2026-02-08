@@ -104,6 +104,11 @@
       ],
       "icon": "build/icon.ico"
     },
+    "nsis": {
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "shortcutName": "CC Use"
+    },
     "linux": {
       "target": [
         "AppImage",

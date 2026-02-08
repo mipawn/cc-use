@@ -98,9 +98,10 @@ function getTrayIcon(): Electron.NativeImage {
 }
 
 function getAppIcon(): Electron.NativeImage {
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
   const iconPath = isDev
-    ? join(process.cwd(), 'build', 'icon.png')
-    : join(process.resourcesPath, 'build', 'icon.png')
+    ? join(process.cwd(), 'build', iconName)
+    : join(process.resourcesPath, 'build', iconName)
   return nativeImage.createFromPath(iconPath)
 }
 
@@ -280,6 +281,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    icon: getAppIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       nodeIntegration: false,
