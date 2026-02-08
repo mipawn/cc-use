@@ -32,6 +32,7 @@ const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   proxyPort: 12345,
   autoStartProxy: true,
   defaultTerminalType: 'iterm2',
+  closeToTray: true,
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

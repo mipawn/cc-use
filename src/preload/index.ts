@@ -88,6 +88,11 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.PROXY_STOP),
     status: (): Promise<{ isRunning: boolean; port: number }> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROXY_STATUS),
+    onStatusChanged: (callback: (data: { isRunning: boolean; port: number; source?: string }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: { isRunning: boolean; port: number; source?: string }) => callback(data)
+      ipcRenderer.on(IPC_CHANNELS.PROXY_STATUS_CHANGED, handler)
+      return () => { ipcRenderer.removeListener(IPC_CHANNELS.PROXY_STATUS_CHANGED, handler) }
+    },
   },
 
   // Balance API

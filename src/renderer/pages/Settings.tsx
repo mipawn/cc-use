@@ -28,6 +28,7 @@ import {
   CloudServerOutlined,
   InfoCircleOutlined,
   SyncOutlined,
+  MinusCircleOutlined,
 } from '@ant-design/icons'
 import styles from './Settings.module.css'
 import type { UpdateCheckResult } from '@shared/types'
@@ -62,6 +63,18 @@ export default function Settings() {
     fetchGlobalSettings()
     fetchProxyStatus()
     window.api.app.getVersion().then(setAppVersion)
+
+    const unsubscribe = window.api.proxy.onStatusChanged((data) => {
+      setProxyStatus({ isRunning: data.isRunning, port: data.port })
+      if (data.source === 'tray') {
+        if (data.isRunning) {
+          message.success(t('projects.proxyStarted'))
+        } else {
+          message.info(t('projects.proxyStopped'))
+        }
+      }
+    })
+    return () => { unsubscribe() }
   }, [fetchGlobalSettings])
 
   // Fetch proxy status
@@ -293,6 +306,34 @@ export default function Settings() {
                   checked={proxyStatus.isRunning}
                   onChange={handleToggleProxy}
                   loading={proxyLoading}
+                />
+              </div>
+            </Card>
+
+            {/* Close to Tray */}
+            <Card className={styles.settingCard} variant="outlined">
+              <div className={styles.settingRow}>
+                <Space>
+                  <div
+                    className={styles.iconBox}
+                    style={{ background: token.colorFillTertiary }}
+                  >
+                    <MinusCircleOutlined
+                      className={styles.settingIcon}
+                      style={{ color: token.colorText }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong>{t('settings.closeToTray')}</Text>
+                    <br />
+                    <Text type="secondary" className={styles.settingDesc}>
+                      {t('settings.closeToTrayDesc')}
+                    </Text>
+                  </div>
+                </Space>
+                <Switch
+                  checked={globalSettings.closeToTray}
+                  onChange={(checked) => updateGlobalSettings({ closeToTray: checked })}
                 />
               </div>
             </Card>

@@ -125,6 +125,18 @@ export default function Projects() {
     fetchProjects();
     fetchProviders();
     checkProxyStatus();
+
+    const unsubscribe = window.api.proxy.onStatusChanged((data) => {
+      setProxyRunning(data.isRunning);
+      if (data.source === 'tray') {
+        if (data.isRunning) {
+          message.success(t("projects.proxyStarted"));
+        } else {
+          message.info(t("projects.proxyStopped"));
+        }
+      }
+    });
+    return () => { unsubscribe(); };
   }, [fetchProjects, fetchProviders]);
 
   useEffect(() => {

@@ -75,6 +75,16 @@
       "dist-electron",
       "dist"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "build/icon.png"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "build/icon.ico"
+      }
+    ],
     "mac": {
       "target": [
         "dmg",

@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   proxyPort: 12345,
   autoStartProxy: true,
   defaultTerminalType: 'iterm2',
+  closeToTray: true,
 }
 
 export async function getGlobalSettings(): Promise<GlobalSettings> {
@@ -25,6 +26,8 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
       result.autoStartProxy = row.value === 'true'
     } else if (row.key === 'defaultTerminalType' && row.value) {
       result.defaultTerminalType = row.value as GlobalSettings['defaultTerminalType']
+    } else if (row.key === 'closeToTray' && row.value) {
+      result.closeToTray = row.value === 'true'
     } else if (row.key === 'claudeConfig' && row.value) {
       try {
         result.claudeConfig = JSON.parse(row.value) as CliConfig

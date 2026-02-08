@@ -226,6 +226,7 @@ export interface GlobalSettings {
   proxyPort: number
   autoStartProxy: boolean
   defaultTerminalType: TerminalType
+  closeToTray: boolean
   claudeConfig?: CliConfig
   codexConfig?: CliConfig
 }

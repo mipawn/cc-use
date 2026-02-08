@@ -49,6 +49,8 @@ export default {
     proxyPortDesc: 'Local proxy server port',
     autoStartProxy: 'Auto Start Proxy',
     autoStartProxyDesc: 'Automatically start proxy when app launches',
+    closeToTray: 'Close to Tray',
+    closeToTrayDesc: 'Minimize to system tray when closing window, proxy keeps running',
     proxyStatus: 'Proxy Service',
     proxyStatusDesc: 'Manually control the proxy service',
     proxyStarting: 'Starting...',

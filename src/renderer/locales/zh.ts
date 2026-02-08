@@ -50,6 +50,8 @@ export default {
     proxyPortDesc: '本地代理服务器端口',
     autoStartProxy: '自动启动代理',
     autoStartProxyDesc: '应用启动时自动启动代理服务',
+    closeToTray: '关闭到托盘',
+    closeToTrayDesc: '关闭窗口时最小化到系统托盘，代理服务继续运行',
     proxyStatus: '代理服务',
     proxyStatusDesc: '手动控制代理服务的开启和关闭',
     proxyStarting: '启动中...',

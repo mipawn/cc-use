@@ -31,6 +31,7 @@ export const IPC_CHANNELS = {
   PROXY_START: 'proxy:start',
   PROXY_STOP: 'proxy:stop',
   PROXY_STATUS: 'proxy:status',
+  PROXY_STATUS_CHANGED: 'proxy:statusChanged',
 
   // Balance channels
   BALANCE_REFRESH: 'balance:refresh',
