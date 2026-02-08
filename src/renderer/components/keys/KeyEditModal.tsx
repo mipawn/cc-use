@@ -90,9 +90,9 @@ export default function KeyEditModal({
     return pid ? providers.find((p) => p.id === pid) : null
   }, [defaultProviderId, apiKey, providers])
 
-  // 获取全局配置
-  const claudeGlobalConfig = globalSettings.claudeConfig || {}
-  const codexGlobalConfig = globalSettings.codexConfig || {}
+  // 获取全局配置（稳定引用，避免 useEffect 无限触发）
+  const claudeGlobalConfig = useMemo(() => globalSettings.claudeConfig || {}, [globalSettings.claudeConfig])
+  const codexGlobalConfig = useMemo(() => globalSettings.codexConfig || {}, [globalSettings.codexConfig])
 
   // 解析当前配置
   const parseConfig = (json: string): CliConfig => {

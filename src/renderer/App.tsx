@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Layout, theme, App as AntdApp, Alert, Button } from "antd";
 import { useState, useEffect } from "react";
 import Sidebar from "./components/layout/Sidebar";
@@ -80,8 +80,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <AppContent />
-    </BrowserRouter>
+    </HashRouter>
   );
 }

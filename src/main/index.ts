@@ -98,9 +98,10 @@ function getTrayIcon(): Electron.NativeImage {
 }
 
 function getAppIcon(): Electron.NativeImage {
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
   const iconPath = isDev
-    ? join(process.cwd(), 'build', 'icon.png')
-    : join(process.resourcesPath, 'build', 'icon.png')
+    ? join(process.cwd(), 'build', iconName)
+    : join(process.resourcesPath, 'build', iconName)
   return nativeImage.createFromPath(iconPath)
 }
 
@@ -270,18 +271,25 @@ async function createTray() {
 }
 
 function createWindow() {
+  // Hide default menu bar on Windows/Linux (macOS uses system menu bar)
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+  }
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    icon: getAppIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       nodeIntegration: false,
       contextIsolation: true,
     },
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 },
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 16 } }
+      : {}),
     backgroundColor: '#141414',
   })
 
