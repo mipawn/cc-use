@@ -429,7 +429,7 @@ export default function Keys() {
           <Title level={3} className="!m-0 !mb-1">
             {t('keys.title') || 'API 密钥'}
           </Title>
-          <Text type="secondary">{t('keys.subtitle') || '管理您的 API 密钥和服务商'}</Text>
+          <Text type="secondary">{t('keys.subtitle') || '管理您的 API 密钥和供应商'}</Text>
         </div>
         <Space>
           <Button
@@ -478,7 +478,7 @@ export default function Keys() {
               {t('keys.noKeys') || '暂无密钥'}
             </Title>
             <Text type="secondary" className="block">
-              {t('keys.noKeysHint') || '添加服务商并配置 API 密钥以开始使用'}
+              {t('keys.noKeysHint') || '添加供应商并配置 API 密钥以开始使用'}
             </Text>
           </Card>
         ) : (

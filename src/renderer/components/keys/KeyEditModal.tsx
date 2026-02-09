@@ -264,7 +264,7 @@ export default function KeyEditModal({
 
       const providerId = defaultProviderId || apiKey?.providerId || providers[0]?.id
       if (!providerId) {
-        message.error(t('apiKeys.noProvider') || '请先添加服务商')
+        message.error(t('apiKeys.noProvider') || '请先添加供应商')
         return
       }
 

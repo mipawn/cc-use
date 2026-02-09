@@ -152,7 +152,7 @@ export default function KeyCascader({
       value={value || undefined}
       onChange={handleChange}
       displayRender={displayRender}
-      placeholder={placeholder || t('keyCascader.placeholder') || '选择服务商 / 密钥'}
+      placeholder={placeholder || t('keyCascader.placeholder') || '选择供应商 / 密钥'}
       size={size}
       allowClear={allowClear}
       disabled={disabled}
