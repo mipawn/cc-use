@@ -788,125 +788,133 @@ export default function Keys() {
         }}
         footer={null}
         width={700}
+        style={{ top: 24 }}
+        styles={{
+          body: {
+            overflow: 'hidden',
+          },
+        }}
       >
         {copyCommandKey && (
-          <div className={styles.commandList}>
-            <Text type='secondary' className={styles.commandListHint}>
-              {t('keys.commandListHint') || '点击复制按钮复制对应命令'}
-            </Text>
-
-            {/* Proxy Mode Commands - only show if proxy is running */}
-            {proxyStatus.isRunning && proxySessionToken && (
-              <>
-                <Text strong className={styles.commandSectionTitle}>
-                  {t('keys.proxyMode') || '代理模式'}
-                  <Tag color='success' style={{ marginLeft: 8 }}>
-                    {t('keys.recommended') || '推荐'}
-                  </Tag>
-                </Text>
-                <Text type='secondary' className={styles.commandSectionHint}>
-                  {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
-                </Text>
-                {copyCommandKey.key.types.map((type) => {
-                  const command = generateCommand(
-                    type,
-                    copyCommandKey.provider,
-                    copyCommandKey.key,
-                    true,
-                  )
-                  return (
-                    <div key={`proxy-${type}`} className={styles.commandItem}>
-                      <div className={styles.commandHeader}>
-                        <Space>
-                          <Avatar
-                            src={TYPE_ICONS[type]}
-                            size={20}
-                            style={{ background: 'transparent' }}
-                          />
-                          <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
-                        </Space>
-                        <Button
-                          type='primary'
-                          size='small'
-                          icon={<CopyOutlined />}
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(command)
-                              message.success(
-                                `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
-                              )
-                            } catch (error) {
-                              message.error(t('providers.copyFailed'))
-                            }
-                          }}
-                        >
-                          {t('common.copy') || '复制'}
-                        </Button>
-                      </div>
-                      <div className={styles.commandCode}>
-                        <code>{command}</code>
-                      </div>
-                    </div>
-                  )
-                })}
-                <Divider style={{ margin: '16px 0' }} />
-              </>
-            )}
-
-            {/* Direct Mode Commands */}
-            <Text strong className={styles.commandSectionTitle}>
-              {proxyStatus.isRunning
-                ? t('keys.directMode') || '直连模式'
-                : t('keys.commandList') || '终端命令'}
-            </Text>
-            {proxyStatus.isRunning && (
-              <Text type='secondary' className={styles.commandSectionHint}>
-                {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
+          <SimpleBar style={{ maxHeight: '75vh' }} autoHide={false}>
+            <div className={styles.commandList}>
+              <Text type='secondary' className={styles.commandListHint}>
+                {t('keys.commandListHint') || '点击复制按钮复制对应命令'}
               </Text>
-            )}
-            {copyCommandKey.key.types.map((type) => {
-              const command = generateCommand(
-                type,
-                copyCommandKey.provider,
-                copyCommandKey.key,
-                false,
-              )
-              return (
-                <div key={`direct-${type}`} className={styles.commandItem}>
-                  <div className={styles.commandHeader}>
-                    <Space>
-                      <Avatar
-                        src={TYPE_ICONS[type]}
-                        size={20}
-                        style={{ background: 'transparent' }}
-                      />
-                      <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
-                    </Space>
-                    <Button
-                      type={proxyStatus.isRunning ? 'default' : 'primary'}
-                      size='small'
-                      icon={<CopyOutlined />}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(command)
-                          message.success(
-                            `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
-                          )
-                        } catch (error) {
-                          message.error(t('providers.copyFailed'))
-                        }
-                      }}
-                    >
-                      {t('common.copy') || '复制'}
-                    </Button>
+
+              {/* Proxy Mode Commands - only show if proxy is running */}
+              {proxyStatus.isRunning && proxySessionToken && (
+                <>
+                  <Text strong className={styles.commandSectionTitle}>
+                    {t('keys.proxyMode') || '代理模式'}
+                    <Tag color='success' style={{ marginLeft: 8 }}>
+                      {t('keys.recommended') || '推荐'}
+                    </Tag>
+                  </Text>
+                  <Text type='secondary' className={styles.commandSectionHint}>
+                    {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
+                  </Text>
+                  {copyCommandKey.key.types.map((type) => {
+                    const command = generateCommand(
+                      type,
+                      copyCommandKey.provider,
+                      copyCommandKey.key,
+                      true,
+                    )
+                    return (
+                      <div key={`proxy-${type}`} className={styles.commandItem}>
+                        <div className={styles.commandHeader}>
+                          <Space>
+                            <Avatar
+                              src={TYPE_ICONS[type]}
+                              size={20}
+                              style={{ background: 'transparent' }}
+                            />
+                            <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                          </Space>
+                          <Button
+                            type='primary'
+                            size='small'
+                            icon={<CopyOutlined />}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(command)
+                                message.success(
+                                  `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
+                                )
+                              } catch (error) {
+                                message.error(t('providers.copyFailed'))
+                              }
+                            }}
+                          >
+                            {t('common.copy') || '复制'}
+                          </Button>
+                        </div>
+                        <div className={styles.commandCode}>
+                          <code>{command}</code>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <Divider style={{ margin: '16px 0' }} />
+                </>
+              )}
+
+              {/* Direct Mode Commands */}
+              <Text strong className={styles.commandSectionTitle}>
+                {proxyStatus.isRunning
+                  ? t('keys.directMode') || '直连模式'
+                  : t('keys.commandList') || '终端命令'}
+              </Text>
+              {proxyStatus.isRunning && (
+                <Text type='secondary' className={styles.commandSectionHint}>
+                  {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
+                </Text>
+              )}
+              {copyCommandKey.key.types.map((type) => {
+                const command = generateCommand(
+                  type,
+                  copyCommandKey.provider,
+                  copyCommandKey.key,
+                  false,
+                )
+                return (
+                  <div key={`direct-${type}`} className={styles.commandItem}>
+                    <div className={styles.commandHeader}>
+                      <Space>
+                        <Avatar
+                          src={TYPE_ICONS[type]}
+                          size={20}
+                          style={{ background: 'transparent' }}
+                        />
+                        <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                      </Space>
+                      <Button
+                        type={proxyStatus.isRunning ? 'default' : 'primary'}
+                        size='small'
+                        icon={<CopyOutlined />}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(command)
+                            message.success(
+                              `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
+                            )
+                          } catch (error) {
+                            message.error(t('providers.copyFailed'))
+                          }
+                        }}
+                      >
+                        {t('common.copy') || '复制'}
+                      </Button>
+                    </div>
+                    <div className={styles.commandCode}>
+                      <code>{command}</code>
+                    </div>
                   </div>
-                  <div className={styles.commandCode}>
-                    <code>{command}</code>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          </SimpleBar>
         )}
       </Modal>
     </div>
