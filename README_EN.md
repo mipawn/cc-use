@@ -22,16 +22,18 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 
 ## Features
 
-- **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can support both Claude Code and Codex CLI, with balance/usage queries (NewAPI / custom endpoints)
+- **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can support both Claude Code and Codex CLI, with balance/usage queries (NewAPI / custom endpoints) and quick key duplication
 - **Project Management** - Create projects bound to a provider, key, and CLI type; quickly switch bindings directly on the project card
 - **One-Click Launch** - Click a project to launch a terminal with environment variables auto-injected, dropping you straight into CLI
 - **Local Proxy** - Built-in proxy server that relays requests via session tokens, enabling cost tracking and hot-switching
 - **Cost Tracking** - In proxy mode, automatically logs token usage and cost for every API request
 - **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/project/model with request history
 - **System Tray** - Minimize to tray on close, keeping the proxy running; tray menu supports proxy control and quick-launching recent projects
+- **Auto Update** - In-app update detection and download with progress display and cache management
 - **CLI Config Management** - Global and per-key CLI configuration (JSON), automatically merged and injected at launch
 - **Internationalization** - Chinese and English UI
 - **Dark Mode** - Light/dark theme switching
+- **Code Quality** - Integrated ESLint + Prettier for consistent code style
 
 ## Installation
 
@@ -116,6 +118,9 @@ pnpm typecheck
 
 # Lint
 pnpm lint
+
+# Format code
+pnpm format
 ```
 
 ## Tech Stack
