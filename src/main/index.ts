@@ -78,25 +78,36 @@ if (process.platform === "darwin" && isDev) {
 }
 
 function getTrayIcon(): Electron.NativeImage {
-  let iconPath: string;
-  if (isDev) {
-    iconPath =
-      process.platform === "win32"
-        ? join(process.cwd(), "build", "icon.ico")
-        : join(process.cwd(), "build", "icon.png");
-  } else {
-    iconPath =
-      process.platform === "win32"
-        ? join(process.resourcesPath, "build", "icon.ico")
-        : join(process.resourcesPath, "build", "icon.png");
+  // Tray style: light plate + transparent cutout
+  // macOS: load tray.png and add tray@2x.png as Retina representation (if present)
+  // Windows: tray.ico
+  // Linux: tray.png
+  if (process.platform === "win32") {
+    const iconPath = isDev
+      ? join(process.cwd(), "build", "tray.ico")
+      : join(process.resourcesPath, "build", "tray.ico");
+    return nativeImage.createFromPath(iconPath);
   }
 
-  let icon = nativeImage.createFromPath(iconPath);
+  const basePath = isDev
+    ? join(process.cwd(), "build")
+    : join(process.resourcesPath, "build");
+  const tray1xPath = join(basePath, "tray.png");
+  const tray2xPath = join(basePath, "tray@2x.png");
+
+  const image = nativeImage.createFromPath(tray1xPath);
   if (process.platform === "darwin") {
-    icon = icon.resize({ width: 16, height: 16 });
-    icon.setTemplateImage(true);
+    try {
+      const rep2x = nativeImage.createFromPath(tray2xPath);
+      if (!rep2x.isEmpty()) {
+        image.addRepresentation({ scaleFactor: 2, buffer: rep2x.toPNG() });
+      }
+    } catch {
+      // ignore
+    }
   }
-  return icon;
+
+  return image;
 }
 
 function getAppIcon(): Electron.NativeImage {

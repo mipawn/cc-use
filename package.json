@@ -88,6 +88,18 @@
       {
         "from": "build/icon.ico",
         "to": "build/icon.ico"
+      },
+      {
+        "from": "build/tray.ico",
+        "to": "build/tray.ico"
+      },
+      {
+        "from": "build/tray.png",
+        "to": "build/tray.png"
+      },
+      {
+        "from": "build/tray@2x.png",
+        "to": "build/tray@2x.png"
       }
     ],
     "mac": {
