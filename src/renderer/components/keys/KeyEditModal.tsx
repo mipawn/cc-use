@@ -305,7 +305,7 @@ export default function KeyEditModal({
       })
 
       message.success(
-        apiKey
+        apiKey?.id
           ? t('apiKeys.keyUpdated') || '密钥已更新'
           : t('apiKeys.keyAdded') || '密钥已添加'
       )
@@ -320,7 +320,7 @@ export default function KeyEditModal({
   }
 
   const modalTitle = useMemo(() => {
-    const baseTitle = apiKey
+    const baseTitle = apiKey?.id
       ? t('apiKeys.editKey') || '编辑密钥'
       : t('apiKeys.addKey') || '添加密钥'
     if (currentProvider) {
