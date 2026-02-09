@@ -4,6 +4,7 @@
 .scrollContainer {
   max-height: calc(80vh - 120px);
   padding-right: 12px;
+  overflow-x: hidden;
 }
 
 /* Body */
@@ -159,8 +160,8 @@
 /* Advanced Collapse */
 .advancedCollapse {
   border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
-  margin: 0 -24px;
-  padding: 0 24px;
+  margin: 0;
+  padding: 0;
 }
 
 .advancedCollapse :global(.ant-collapse-header) {
