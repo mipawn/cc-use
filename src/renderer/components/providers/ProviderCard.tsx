@@ -62,7 +62,13 @@ export default function ProviderCard({
 
   const handleCopyCommand = async () => {
     const apiKey = firstApiKey || provider.token || 'YOUR_API_KEY'
-    const command = generateTerminalCommand({ type: provider.type ?? 'claude', baseUrl: provider.baseUrl }, apiKey, false, 12345, terminalType)
+    const command = generateTerminalCommand(
+      { type: provider.type ?? 'claude', baseUrl: provider.baseUrl },
+      apiKey,
+      false,
+      12345,
+      terminalType,
+    )
     try {
       await navigator.clipboard.writeText(command)
       const terminalLabel = TERMINAL_TYPE_LABELS[terminalType]
@@ -79,8 +85,10 @@ export default function ProviderCard({
 
   const getTypeColor = () => {
     switch (provider.type) {
-      case 'codex': return 'green'
-      default: return 'blue'
+      case 'codex':
+        return 'green'
+      default:
+        return 'blue'
     }
   }
 
@@ -107,13 +115,7 @@ export default function ProviderCard({
 
   const renderIcon = () => {
     const iconSrc = getIconSrc()
-    return (
-      <img
-        src={iconSrc}
-        alt={provider.name}
-        className="w-6 h-6 object-contain"
-      />
-    )
+    return <img src={iconSrc} alt={provider.name} className='w-6 h-6 object-contain' />
   }
 
   return (
@@ -124,30 +126,22 @@ export default function ProviderCard({
       }}
       hoverable
       actions={[
-        <Tooltip title={t('providers.copyCommand')} key="copy">
-          <Button
-            type="text"
-            icon={<CopyOutlined />}
-            onClick={handleCopyCommand}
-          />
+        <Tooltip title={t('providers.copyCommand')} key='copy'>
+          <Button type='text' icon={<CopyOutlined />} onClick={handleCopyCommand} />
         </Tooltip>,
-        <Tooltip title={t('common.edit')} key="edit">
-          <Button
-            type="text"
-            icon={<EditOutlined />}
-            onClick={() => onEdit(provider)}
-          />
+        <Tooltip title={t('common.edit')} key='edit'>
+          <Button type='text' icon={<EditOutlined />} onClick={() => onEdit(provider)} />
         </Tooltip>,
-        <Tooltip title={t('providers.refreshBalance')} key="refresh">
+        <Tooltip title={t('providers.refreshBalance')} key='refresh'>
           <Button
-            type="text"
+            type='text'
             icon={<ReloadOutlined spin={refreshing} />}
             onClick={() => onRefreshBalance(provider.id)}
             disabled={provider.walletBalanceType === 'none' || refreshing}
           />
         </Tooltip>,
         <Popconfirm
-          key="delete"
+          key='delete'
           title={t('providers.deleteProvider')}
           description={t('providers.deleteProviderConfirm')}
           onConfirm={() => onDelete(provider.id)}
@@ -156,58 +150,50 @@ export default function ProviderCard({
           okButtonProps={{ danger: true }}
         >
           <Tooltip title={t('common.delete')}>
-            <Button type="text" danger icon={<DeleteOutlined />} />
+            <Button type='text' danger icon={<DeleteOutlined />} />
           </Tooltip>
         </Popconfirm>,
       ]}
     >
-      <Space direction="vertical" className="w-full" size="middle">
-        <Space align="start" className="w-full justify-between">
+      <Space direction='vertical' className='w-full' size='middle'>
+        <Space align='start' className='w-full justify-between'>
           <Space>
             <div
               className={clsx(
                 styles.iconBox,
-                provider.isActive ? styles.iconBoxActive : styles.iconBoxInactive
+                provider.isActive ? styles.iconBoxActive : styles.iconBoxInactive,
               )}
             >
               {renderIcon()}
             </div>
             <div>
-              <Title level={5} className="!m-0">
+              <Title level={5} className='!m-0'>
                 {provider.name}
               </Title>
-              <Text type="secondary" className="text-xs">
+              <Text type='secondary' className='text-xs'>
                 {provider.baseUrl}
               </Text>
             </div>
           </Space>
-          <Space direction="vertical" size={4} align="end">
+          <Space direction='vertical' size={4} align='end'>
             <Tag
-              icon={
-                provider.isActive ? (
-                  <CheckCircleOutlined />
-                ) : (
-                  <CloseCircleOutlined />
-                )
-              }
+              icon={provider.isActive ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
               color={provider.isActive ? 'processing' : 'default'}
             >
               {provider.isActive ? t('common.active') : t('common.inactive')}
             </Tag>
-            <Tag color={getTypeColor()}>
-              {getTypeLabel()}
-            </Tag>
+            <Tag color={getTypeColor()}>{getTypeLabel()}</Tag>
           </Space>
         </Space>
 
         {provider.website && (
-          <div className="flex items-center gap-1">
+          <div className='flex items-center gap-1'>
             <LinkOutlined style={{ color: token.colorTextQuaternary }} />
             <a
               href={provider.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs truncate"
+              target='_blank'
+              rel='noopener noreferrer'
+              className='text-xs truncate'
               style={{ color: token.colorPrimary }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -217,28 +203,28 @@ export default function ProviderCard({
         )}
 
         {provider.remark && (
-          <Text type="secondary" className="text-xs line-clamp-2">
+          <Text type='secondary' className='text-xs line-clamp-2'>
             {provider.remark}
           </Text>
         )}
 
         {provider.walletBalanceType !== 'none' && (
           <div className={styles.balanceBox}>
-            <Space direction="vertical" size={0} className="w-full">
-              <Space className="justify-between w-full">
-                <Text type="secondary">{t('providers.balance')}</Text>
+            <Space direction='vertical' size={0} className='w-full'>
+              <Space className='justify-between w-full'>
+                <Text type='secondary'>{t('providers.balance')}</Text>
                 <Text strong className={styles.balanceAmount} style={{ color: token.colorPrimary }}>
                   {formatBalance(provider.cachedWalletBalance)}
                 </Text>
               </Space>
-              <Text type="secondary" className={styles.lastChecked}>
+              <Text type='secondary' className={styles.lastChecked}>
                 {t('providers.lastChecked')}: {formatLastChecked(provider.lastBalanceCheckedAt)}
               </Text>
             </Space>
           </div>
         )}
 
-        <Tag color="blue">{provider.walletBalanceType.toUpperCase()}</Tag>
+        <Tag color='blue'>{provider.walletBalanceType.toUpperCase()}</Tag>
       </Space>
     </Card>
   )

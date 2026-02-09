@@ -25,7 +25,7 @@ const allStrategies: Record<string, TerminalStrategy> = {
 // Get strategy by terminal type
 async function getStrategyByType(terminalType: TerminalType): Promise<TerminalStrategy | null> {
   const strategy = allStrategies[terminalType]
-  if (strategy && await strategy.isAvailable()) {
+  if (strategy && (await strategy.isAvailable())) {
     return strategy
   }
   return null
@@ -58,7 +58,7 @@ export async function getAvailableStrategy(): Promise<TerminalStrategy | null> {
 
 export async function launchTerminal(
   projectId: string,
-  options?: { providerId?: string; apiKeyId?: string }
+  options?: { providerId?: string; apiKeyId?: string },
 ): Promise<void> {
   const project = await getProject(projectId)
   if (!project) {
@@ -88,7 +88,7 @@ export async function launchTerminal(
 export async function launchTerminalWithPath(
   path: string,
   providerId?: string,
-  cliType: ProviderType = 'claude'
+  cliType: ProviderType = 'claude',
 ): Promise<void> {
   const env = await buildEnvForProject(null, providerId ?? null, null, cliType)
   await launchWithEnv(path, env, cliType)
@@ -110,7 +110,7 @@ async function buildEnvForProject(
   projectId: string | null,
   providerId: string | null,
   apiKeyId: string | null,
-  cliType: ProviderType
+  cliType: ProviderType,
 ): Promise<EnvObject> {
   const settings = await getGlobalSettings()
   const env: EnvObject = {}
@@ -122,9 +122,7 @@ async function buildEnvForProject(
 
     if (provider && apiKey) {
       // Try to reuse existing session for this project+provider+apiKey combination
-      let session = projectId
-        ? getSessionByProject(projectId, providerId, apiKeyId)
-        : null
+      let session = projectId ? getSessionByProject(projectId, providerId, apiKeyId) : null
 
       // If no existing session, create a new one
       if (!session) {
@@ -144,7 +142,7 @@ async function buildEnvForProject(
           writeFileSync(
             join(codexDir, 'auth.json'),
             JSON.stringify({ OPENAI_API_KEY: session.sessionToken }),
-            'utf-8'
+            'utf-8',
           )
         } catch (err) {
           console.error('Failed to write Codex auth.json:', err)

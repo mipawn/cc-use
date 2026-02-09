@@ -18,10 +18,7 @@ export function getPresetIcons(): PresetIcon[] {
   return PRESET_ICONS
 }
 
-export async function uploadIcon(
-  buffer: Buffer,
-  originalFilename: string
-): Promise<string> {
+export async function uploadIcon(buffer: Buffer, originalFilename: string): Promise<string> {
   const iconsDir = getIconsDir()
   const ext = path.extname(originalFilename) || '.png'
   const filename = `${nanoid()}${ext}`

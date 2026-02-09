@@ -1,6 +1,14 @@
 // Provider types - only claude and codex are supported
 export type ProviderType = 'claude' | 'codex'
-export type PresetIcon = 'claude' | 'codex' | 'gemini' | 'zhipu' | 'minimax' | 'xiaomi' | 'deepseek' | 'custom'
+export type PresetIcon =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'zhipu'
+  | 'minimax'
+  | 'xiaomi'
+  | 'deepseek'
+  | 'custom'
 
 // Terminal types
 export type TerminalType = 'iterm2' | 'terminal' | 'wt' | 'powershell' | 'cmd'
@@ -23,7 +31,7 @@ export function isWindowsTerminal(terminalType: TerminalType): boolean {
 export function formatEnvCommand(
   envVars: Record<string, string>,
   command: string,
-  terminalType: TerminalType
+  terminalType: TerminalType,
 ): string {
   const entries = Object.entries(envVars)
   switch (terminalType) {
@@ -45,12 +53,12 @@ export function formatEnvCommand(
 
 // Usage data structure (from NewAPI or custom API)
 export interface UsageData {
-  total?: number       // Total quota
-  used?: number        // Used amount
-  remaining?: number   // Remaining amount
-  unit?: string        // Unit (e.g., "USD", "tokens")
-  isUnlimited?: boolean  // Whether unlimited
-  expireAt?: string    // Expiration time
+  total?: number // Total quota
+  used?: number // Used amount
+  remaining?: number // Remaining amount
+  unit?: string // Unit (e.g., "USD", "tokens")
+  isUnlimited?: boolean // Whether unlimited
+  expireAt?: string // Expiration time
 }
 
 // Provider type configuration for environment variable injection
@@ -71,7 +79,7 @@ export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
     envKeyName: 'ANTHROPIC_API_KEY',
     envBaseUrlName: 'ANTHROPIC_BASE_URL',
     defaultBaseUrl: 'https://api.anthropic.com',
-    cliCommand: 'claude'
+    cliCommand: 'claude',
   },
   {
     type: 'codex',
@@ -79,13 +87,13 @@ export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
     envKeyName: 'OPENAI_API_KEY',
     envBaseUrlName: 'OPENAI_BASE_URL',
     defaultBaseUrl: 'https://api.openai.com',
-    cliCommand: 'codex'
-  }
+    cliCommand: 'codex',
+  },
 ]
 
 // Helper function to get provider type config
 export function getProviderTypeConfig(type: ProviderType): ProviderTypeConfig {
-  const config = PROVIDER_TYPE_CONFIGS.find(c => c.type === type)
+  const config = PROVIDER_TYPE_CONFIGS.find((c) => c.type === type)
   if (!config) {
     return PROVIDER_TYPE_CONFIGS[0] // Default to claude
   }
@@ -98,7 +106,7 @@ export function generateTerminalCommand(
   apiKey: string,
   useProxy: boolean = false,
   proxyPort: number = 12345,
-  terminalType: TerminalType = 'iterm2'
+  terminalType: TerminalType = 'iterm2',
 ): string {
   const config = getProviderTypeConfig(provider.type)
   const baseUrl = useProxy ? `http://localhost:${proxyPort}` : provider.baseUrl
@@ -347,7 +355,13 @@ export interface UsageStats {
   uniqueProjects: number
   uniqueKeys: number
   byProject: { projectId: string; projectName: string; count: number }[]
-  byKey: { keyId: string; keyAlias: string; providerName: string; keyType: ProviderType; count: number }[]
+  byKey: {
+    keyId: string
+    keyAlias: string
+    providerName: string
+    keyType: ProviderType
+    count: number
+  }[]
   byDate: { date: string; count: number }[]
 }
 

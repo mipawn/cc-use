@@ -39,56 +39,38 @@ export function registerIpcHandlers() {
     return providerService.getProvider(id)
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_CREATE,
-    async (_, input: CreateProviderInput) => {
-      return providerService.createProvider(input)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_CREATE, async (_, input: CreateProviderInput) => {
+    return providerService.createProvider(input)
+  })
 
-  ipcMain.handle(
-    IPC_CHANNELS.PROVIDER_UPDATE,
-    async (_, input: UpdateProviderInput) => {
-      return providerService.updateProvider(input)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_UPDATE, async (_, input: UpdateProviderInput) => {
+    return providerService.updateProvider(input)
+  })
 
   ipcMain.handle(IPC_CHANNELS.PROVIDER_DELETE, async (_, id: string) => {
     return providerService.deleteProvider(id)
   })
 
   // API Key handlers
-  ipcMain.handle(
-    IPC_CHANNELS.API_KEY_LIST,
-    async (_, providerId: string) => {
-      return apiKeyService.listApiKeys(providerId)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.API_KEY_LIST, async (_, providerId: string) => {
+    return apiKeyService.listApiKeys(providerId)
+  })
 
-  ipcMain.handle(
-    IPC_CHANNELS.API_KEY_CREATE,
-    async (_, input: CreateApiKeyInput) => {
-      return apiKeyService.createApiKey(input)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.API_KEY_CREATE, async (_, input: CreateApiKeyInput) => {
+    return apiKeyService.createApiKey(input)
+  })
 
-  ipcMain.handle(
-    IPC_CHANNELS.API_KEY_UPDATE,
-    async (_, input: UpdateApiKeyInput) => {
-      return apiKeyService.updateApiKey(input)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.API_KEY_UPDATE, async (_, input: UpdateApiKeyInput) => {
+    return apiKeyService.updateApiKey(input)
+  })
 
   ipcMain.handle(IPC_CHANNELS.API_KEY_DELETE, async (_, id: string) => {
     return apiKeyService.deleteApiKey(id)
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.API_KEY_REORDER,
-    async (_, providerId: string, keyIds: string[]) => {
-      return apiKeyService.reorderApiKeys(providerId, keyIds)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.API_KEY_REORDER, async (_, providerId: string, keyIds: string[]) => {
+    return apiKeyService.reorderApiKeys(providerId, keyIds)
+  })
 
   // Project handlers
   ipcMain.handle(IPC_CHANNELS.PROJECT_LIST, async () => {
@@ -103,26 +85,24 @@ export function registerIpcHandlers() {
     return projectService.getProjectByPath(path)
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.PROJECT_CREATE,
-    async (_, input: CreateProjectInput) => {
-      return projectService.createProject(input)
+  ipcMain.handle(IPC_CHANNELS.PROJECT_CREATE, async (_, input: CreateProjectInput) => {
+    return projectService.createProject(input)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.PROJECT_UPDATE, async (_, input: UpdateProjectInput) => {
+    const result = await projectService.updateProject(input)
+
+    // Hot-switch: if provider or apiKey changed, update active sessions
+    if (
+      (input.providerId !== undefined || input.apiKeyId !== undefined) &&
+      result.providerId &&
+      result.apiKeyId
+    ) {
+      sessionManager.updateSessionsByProject(input.id, result.providerId, result.apiKeyId)
     }
-  )
 
-  ipcMain.handle(
-    IPC_CHANNELS.PROJECT_UPDATE,
-    async (_, input: UpdateProjectInput) => {
-      const result = await projectService.updateProject(input)
-
-      // Hot-switch: if provider or apiKey changed, update active sessions
-      if ((input.providerId !== undefined || input.apiKeyId !== undefined) && result.providerId && result.apiKeyId) {
-        sessionManager.updateSessionsByProject(input.id, result.providerId, result.apiKeyId)
-      }
-
-      return result
-    }
-  )
+    return result
+  })
 
   ipcMain.handle(IPC_CHANNELS.PROJECT_DELETE, async (_, id: string) => {
     return projectService.deleteProject(id)
@@ -133,14 +113,14 @@ export function registerIpcHandlers() {
     IPC_CHANNELS.TERMINAL_LAUNCH,
     async (_, projectId: string, options?: { providerId?: string; apiKeyId?: string }) => {
       return launchTerminal(projectId, options)
-    }
+    },
   )
 
   ipcMain.handle(
     IPC_CHANNELS.TERMINAL_LAUNCH_WITH_PATH,
     async (_, path: string, providerId?: string) => {
       return launchTerminalWithPath(path, providerId)
-    }
+    },
   )
 
   // Balance handler
@@ -167,7 +147,7 @@ export function registerIpcHandlers() {
     IPC_CHANNELS.IMPORT_PROVIDERS,
     async (_, data: ExportData, options?: ImportOptions) => {
       return importExportService.importProviders(data, options)
-    }
+    },
   )
 
   ipcMain.handle(IPC_CHANNELS.VALIDATE_IMPORT_DATA, async (_, data: unknown) => {
@@ -175,12 +155,9 @@ export function registerIpcHandlers() {
   })
 
   // Session handlers
-  ipcMain.handle(
-    IPC_CHANNELS.SESSION_CREATE,
-    async (_, providerId: string, apiKeyId: string) => {
-      return sessionManager.createSession(providerId, apiKeyId)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.SESSION_CREATE, async (_, providerId: string, apiKeyId: string) => {
+    return sessionManager.createSession(providerId, apiKeyId)
+  })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_GET, async (_, sessionToken: string) => {
     return sessionManager.getSession(sessionToken)
@@ -190,7 +167,7 @@ export function registerIpcHandlers() {
     IPC_CHANNELS.SESSION_UPDATE_KEY,
     async (_, sessionToken: string, apiKeyId: string) => {
       return sessionManager.updateSessionKey(sessionToken, apiKeyId)
-    }
+    },
   )
 
   ipcMain.handle(IPC_CHANNELS.SESSION_DELETE, async (_, sessionToken: string) => {
@@ -235,20 +212,14 @@ export function registerIpcHandlers() {
     return settingsService.getGlobalSettings()
   })
 
-  ipcMain.handle(
-    IPC_CHANNELS.SETTINGS_UPDATE,
-    async (_, updates: Partial<GlobalSettings>) => {
-      return settingsService.updateGlobalSettings(updates)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_, updates: Partial<GlobalSettings>) => {
+    return settingsService.updateGlobalSettings(updates)
+  })
 
   // Icon handlers
-  ipcMain.handle(
-    IPC_CHANNELS.ICON_UPLOAD,
-    async (_, buffer: Buffer, filename: string) => {
-      return iconService.uploadIcon(buffer, filename)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.ICON_UPLOAD, async (_, buffer: Buffer, filename: string) => {
+    return iconService.uploadIcon(buffer, filename)
+  })
 
   ipcMain.handle(IPC_CHANNELS.ICON_LIST, async () => {
     return {
@@ -258,19 +229,13 @@ export function registerIpcHandlers() {
   })
 
   // Usage log handlers
-  ipcMain.handle(
-    IPC_CHANNELS.USAGE_LOG_GET_STATS,
-    async (_, timeRange: StatsTimeRange) => {
-      return usageLogService.getUsageStats(timeRange)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.USAGE_LOG_GET_STATS, async (_, timeRange: StatsTimeRange) => {
+    return usageLogService.getUsageStats(timeRange)
+  })
 
-  ipcMain.handle(
-    IPC_CHANNELS.USAGE_LOG_GET_RECENT,
-    async (_, limit?: number) => {
-      return usageLogService.getRecentUsageLogs(limit)
-    }
-  )
+  ipcMain.handle(IPC_CHANNELS.USAGE_LOG_GET_RECENT, async (_, limit?: number) => {
+    return usageLogService.getRecentUsageLogs(limit)
+  })
 
   ipcMain.handle(IPC_CHANNELS.USAGE_LOG_TODAY_QUICK_STATS, async () => {
     return usageLogService.getTodayQuickStats()
@@ -295,7 +260,7 @@ export function registerIpcHandlers() {
     IPC_CHANNELS.REQUEST_LOG_GET_COST_STATISTICS,
     async (_, timeRange: StatsTimeRange) => {
       return requestLogService.getCostStatistics(timeRange)
-    }
+    },
   )
 
   ipcMain.handle(IPC_CHANNELS.REQUEST_LOG_GET_DASHBOARD_STATS, async () => {

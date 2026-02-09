@@ -1,18 +1,7 @@
 import { useEffect, useState } from 'react'
-import {
-  Table,
-  Button,
-  Input,
-  Switch,
-  Space,
-  Popconfirm,
-} from 'antd'
+import { Table, Button, Input, Switch, Space, Popconfirm } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import {
-  PlusOutlined,
-  DeleteOutlined,
-  HolderOutlined,
-} from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, HolderOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import type { ApiKey } from '@shared/types'
 import { useApiKeyStore } from '../../stores/apiKeyStore'
@@ -45,14 +34,9 @@ interface SortableRowProps {
 }
 
 function SortableRow({ children, ...props }: SortableRowProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: props['data-row-key'] })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props['data-row-key'],
+  })
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -62,7 +46,14 @@ function SortableRow({ children, ...props }: SortableRowProps) {
   }
 
   return (
-    <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners} className={styles.sortableRow}>
+    <tr
+      {...props}
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={styles.sortableRow}
+    >
       {children}
     </tr>
   )
@@ -71,8 +62,15 @@ function SortableRow({ children, ...props }: SortableRowProps) {
 export default function ApiKeyList({ providerId }: ApiKeyListProps) {
   const { t } = useTranslation()
   const message = useAppMessage()
-  const { apiKeys, loading, fetchApiKeys, createApiKey, updateApiKey, deleteApiKey, reorderApiKeys } =
-    useApiKeyStore()
+  const {
+    apiKeys,
+    loading,
+    fetchApiKeys,
+    createApiKey,
+    updateApiKey,
+    deleteApiKey,
+    reorderApiKeys,
+  } = useApiKeyStore()
   const [newKeyValue, setNewKeyValue] = useState('')
   const [newKeyAlias, setNewKeyAlias] = useState('')
   const [adding, setAdding] = useState(false)
@@ -84,7 +82,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   )
 
   useEffect(() => {
@@ -148,7 +146,10 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
     const newOrder = arrayMove(keys, oldIndex, newIndex)
 
     try {
-      await reorderApiKeys(providerId, newOrder.map((k) => k.id))
+      await reorderApiKeys(
+        providerId,
+        newOrder.map((k) => k.id),
+      )
     } catch (error) {
       message.error(t('messages.error'))
     }
@@ -167,7 +168,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
       width: 150,
       render: (alias: string | null, record: ApiKey) => (
         <Input
-          size="small"
+          size='small'
           defaultValue={alias || ''}
           placeholder={t('apiKeys.keyNamePlaceholder')}
           onBlur={(e) => handleUpdateAlias(record.id, e.target.value)}
@@ -178,12 +179,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
       title: t('apiKeys.apiKey'),
       dataIndex: 'value',
       render: (value: string) => (
-        <Input.Password
-          size="small"
-          value={value}
-          readOnly
-          className="w-full"
-        />
+        <Input.Password size='small' value={value} readOnly className='w-full' />
       ),
     },
     {
@@ -192,7 +188,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
       width: 80,
       render: (isExhausted: boolean, record: ApiKey) => (
         <Switch
-          size="small"
+          size='small'
           checked={!isExhausted}
           onChange={(checked) => handleToggleExhausted(record.id, !checked)}
         />
@@ -209,7 +205,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
           cancelText={t('common.cancel')}
           okButtonProps={{ danger: true }}
         >
-          <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+          <Button type='text' danger size='small' icon={<DeleteOutlined />} />
         </Popconfirm>
       ),
     },
@@ -230,37 +226,25 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
           onChange={(e) => setNewKeyValue(e.target.value)}
           style={{ width: 300 }}
         />
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={handleAddKey}
-          loading={adding}
-        >
+        <Button type='primary' icon={<PlusOutlined />} onClick={handleAddKey} loading={adding}>
           {t('common.add')}
         </Button>
       </Space>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={keys.map((k) => k.id)}
-          strategy={verticalListSortingStrategy}
-        >
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={keys.map((k) => k.id)} strategy={verticalListSortingStrategy}>
           <Table
             components={{
               body: {
                 row: SortableRow,
               },
             }}
-            rowKey="id"
+            rowKey='id'
             columns={columns}
             dataSource={keys}
             loading={isLoading}
             pagination={false}
-            size="small"
+            size='small'
           />
         </SortableContext>
       </DndContext>

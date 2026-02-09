@@ -91,8 +91,14 @@ export default function KeyEditModal({
   }, [defaultProviderId, apiKey, providers])
 
   // 获取全局配置（稳定引用，避免 useEffect 无限触发）
-  const claudeGlobalConfig = useMemo(() => globalSettings.claudeConfig || {}, [globalSettings.claudeConfig])
-  const codexGlobalConfig = useMemo(() => globalSettings.codexConfig || {}, [globalSettings.codexConfig])
+  const claudeGlobalConfig = useMemo(
+    () => globalSettings.claudeConfig || {},
+    [globalSettings.claudeConfig],
+  )
+  const codexGlobalConfig = useMemo(
+    () => globalSettings.codexConfig || {},
+    [globalSettings.codexConfig],
+  )
 
   // 解析当前配置
   const parseConfig = (json: string): CliConfig => {
@@ -107,7 +113,7 @@ export default function KeyEditModal({
   const getLocalConfigToSave = (
     configJson: string,
     globalConfig: CliConfig,
-    includeGlobal: boolean
+    includeGlobal: boolean,
   ): CliConfig => {
     const currentConfig = parseConfig(configJson)
     if (!includeGlobal) {
@@ -307,7 +313,7 @@ export default function KeyEditModal({
       message.success(
         apiKey?.id
           ? t('apiKeys.keyUpdated') || '密钥已更新'
-          : t('apiKeys.keyAdded') || '密钥已添加'
+          : t('apiKeys.keyAdded') || '密钥已添加',
       )
       onClose()
     } catch (error) {
@@ -330,8 +336,10 @@ export default function KeyEditModal({
   }, [apiKey, currentProvider, t])
 
   const currentConfigJson = activeConfigType === 'claude' ? claudeConfigJson : codexConfigJson
-  const setCurrentConfigJson = activeConfigType === 'claude' ? setClaudeConfigJson : setCodexConfigJson
-  const currentIncludeGlobal = activeConfigType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
+  const setCurrentConfigJson =
+    activeConfigType === 'claude' ? setClaudeConfigJson : setCodexConfigJson
+  const currentIncludeGlobal =
+    activeConfigType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
   const currentGlobalConfig = activeConfigType === 'claude' ? claudeGlobalConfig : codexGlobalConfig
   const hasGlobalConfig = Object.keys(currentGlobalConfig).length > 0
 
@@ -383,16 +391,16 @@ export default function KeyEditModal({
       className={styles.modal}
     >
       <SimpleBar className={styles.scrollContainer}>
-        <Form
-          form={form}
-          layout="vertical"
-          className={styles.form}
-        >
+        <Form form={form} layout='vertical' className={styles.form}>
           {/* Key Type - Multi Select */}
           <Form.Item
             label={t('apiKeys.keyType') || '密钥类型'}
             required
-            extra={selectedTypes.length > 1 ? (t('apiKeys.multiTypeHint') || '将为每种类型创建一个密钥') : undefined}
+            extra={
+              selectedTypes.length > 1
+                ? t('apiKeys.multiTypeHint') || '将为每种类型创建一个密钥'
+                : undefined
+            }
           >
             <Space size={16}>
               <Checkbox
@@ -423,34 +431,27 @@ export default function KeyEditModal({
           </Form.Item>
 
           {/* Alias */}
-          <Form.Item
-            name="alias"
-            label={t('apiKeys.keyName') || '密钥别名'}
-          >
+          <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
             <Input
               placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'}
-              size="large"
+              size='large'
             />
           </Form.Item>
 
           {/* API Key Value */}
           <Form.Item
-            name="value"
+            name='value'
             label={t('apiKeys.apiKey') || 'API 密钥'}
-            rules={[
-              { required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' },
-            ]}
+            rules={[{ required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' }]}
           >
             <Input.Password
               placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
-              size="large"
+              size='large'
             />
           </Form.Item>
 
           {/* Usage/Quota Config Section */}
-          <Form.Item
-            label={t('keys.usageConfig') || '额度查询配置'}
-          >
+          <Form.Item label={t('keys.usageConfig') || '额度查询配置'}>
             <Select
               value={usageType}
               onChange={(value) => {
@@ -475,12 +476,14 @@ export default function KeyEditModal({
             <>
               <Form.Item
                 label={t('keys.usageUrl') || '查询 URL'}
-                extra={t('keys.usageUrlVarHint') || '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'}
+                extra={
+                  t('keys.usageUrlVarHint') || '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'
+                }
               >
                 <Input
                   value={usageUrl}
                   onChange={(e) => setUsageUrl(e.target.value)}
-                  placeholder="{baseUrl}/api/usage/token/"
+                  placeholder='{baseUrl}/api/usage/token/'
                 />
               </Form.Item>
               <Form.Item
@@ -490,12 +493,15 @@ export default function KeyEditModal({
                 <Input
                   value={usagePath}
                   onChange={(e) => setUsagePath(e.target.value)}
-                  placeholder="data.total_available"
+                  placeholder='data.total_available'
                 />
               </Form.Item>
               <Form.Item
                 label={t('keys.usageHeaders') || '自定义 Headers'}
-                extra={t('keys.usageHeadersVarHint') || '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'}
+                extra={
+                  t('keys.usageHeadersVarHint') ||
+                  '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'
+                }
               >
                 <Input.TextArea
                   value={usageHeaders}
@@ -516,11 +522,7 @@ export default function KeyEditModal({
                 <Text strong>{t('apiKeys.configTitle') || '配置'}</Text>
               </Space>
               <Tooltip title={configCopied ? t('common.copied') : t('common.copy')}>
-                <button
-                  type="button"
-                  className={styles.copyButton}
-                  onClick={handleCopyConfig}
-                >
+                <button type='button' className={styles.copyButton} onClick={handleCopyConfig}>
                   {configCopied ? (
                     <CheckOutlined style={{ color: token.colorSuccess }} />
                   ) : (
@@ -557,11 +559,11 @@ export default function KeyEditModal({
             {/* Global Config Toggle */}
             {hasGlobalConfig && (
               <div className={styles.globalToggle}>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type='secondary' style={{ fontSize: 12 }}>
                   {t('apiKeys.mergeGlobal') || '合并全局配置'}
                 </Text>
                 <Switch
-                  size="small"
+                  size='small'
                   checked={currentIncludeGlobal}
                   onChange={(checked) => handleToggleGlobal(activeConfigType, checked)}
                 />
@@ -574,8 +576,10 @@ export default function KeyEditModal({
                 // 解析用户输入，移除 baseUrl 和 apiKey 字段后保存
                 try {
                   const parsed = JSON.parse(e.target.value)
-                  const baseUrlKey = activeConfigType === 'claude' ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL'
-                  const apiKeyKey = activeConfigType === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+                  const baseUrlKey =
+                    activeConfigType === 'claude' ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL'
+                  const apiKeyKey =
+                    activeConfigType === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
                   delete parsed[baseUrlKey]
                   delete parsed[apiKeyKey]
                   setCurrentConfigJson(JSON.stringify(parsed, null, 2))
@@ -587,11 +591,11 @@ export default function KeyEditModal({
               }}
               className={`${styles.jsonEditor} ${jsonError ? styles.jsonEditorError : ''}`}
               autoSize={{ minRows: 8, maxRows: 14 }}
-              placeholder="{}"
+              placeholder='{}'
             />
 
             {jsonError && (
-              <Text type="danger" className={styles.errorText}>
+              <Text type='danger' className={styles.errorText}>
                 {jsonError}
               </Text>
             )}

@@ -40,12 +40,12 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
         providerIds.map(async (providerId) => {
           const keys = await window.api.apiKey.list(providerId)
           return { providerId, keys }
-        })
+        }),
       )
 
       const newApiKeys = results.reduce(
         (acc, { providerId, keys }) => ({ ...acc, [providerId]: keys }),
-        {}
+        {},
       )
       const newLoading = providerIds.reduce((acc, id) => ({ ...acc, [id]: false }), {})
 
@@ -83,9 +83,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
     set({
       apiKeys: {
         ...get().apiKeys,
-        [providerId]: get().apiKeys[providerId].map((k) =>
-          k.id === apiKey.id ? apiKey : k
-        ),
+        [providerId]: get().apiKeys[providerId].map((k) => (k.id === apiKey.id ? apiKey : k)),
       },
     })
     return apiKey

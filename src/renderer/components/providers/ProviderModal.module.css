@@ -70,16 +70,16 @@
 
 /* Form Inputs */
 .input {
-  font-family: var(--font-display, "Plus Jakarta Sans", sans-serif);
+  font-family: var(--font-display, 'Plus Jakarta Sans', sans-serif);
 }
 
 .textarea {
-  font-family: var(--font-display, "Plus Jakarta Sans", sans-serif);
+  font-family: var(--font-display, 'Plus Jakarta Sans', sans-serif);
   resize: none;
 }
 
 .monoInput {
-  font-family: var(--font-mono, "JetBrains Mono", monospace) !important;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
   font-size: 12px !important;
 }
 
@@ -151,7 +151,7 @@
 }
 
 .envCode {
-  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 11px;
   color: var(--color-accent-primary, #00d4aa);
   line-height: 1.6;
@@ -223,26 +223,26 @@
 }
 
 /* Dark Mode */
-[data-theme="dark"] .typeSegmented {
+[data-theme='dark'] .typeSegmented {
   background: var(--surface-sunken, #0f172a);
 }
 
-[data-theme="dark"] .iconItem {
+[data-theme='dark'] .iconItem {
   background: var(--surface-elevated, #1e293b);
 }
 
-[data-theme="dark"] .envPreview {
+[data-theme='dark'] .envPreview {
   background: var(--surface-sunken, #0f172a);
 }
 
-[data-theme="dark"] .advancedContent {
+[data-theme='dark'] .advancedContent {
   background: var(--surface-sunken, #0f172a);
 }
 
-[data-theme="dark"] .hint {
+[data-theme='dark'] .hint {
   background: var(--surface-elevated, #1e293b);
 }
 
-[data-theme="dark"] .keysPlaceholder {
+[data-theme='dark'] .keysPlaceholder {
   background: var(--surface-sunken, #0f172a);
 }

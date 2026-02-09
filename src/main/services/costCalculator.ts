@@ -5,9 +5,9 @@
 
 // Model pricing per million tokens (in USD)
 export interface ModelPricing {
-  input: number          // Input tokens cost per million
-  output: number         // Output tokens cost per million
-  cacheRead?: number     // Cache read tokens cost per million
+  input: number // Input tokens cost per million
+  output: number // Output tokens cost per million
+  cacheRead?: number // Cache read tokens cost per million
   cacheCreation?: number // Cache creation tokens cost per million
 }
 
@@ -39,7 +39,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-4-32k': { input: 60, output: 120 },
   'gpt-3.5-turbo': { input: 0.5, output: 1.5 },
   'gpt-3.5-turbo-0125': { input: 0.5, output: 1.5 },
-  'o1': { input: 15, output: 60 },
+  o1: { input: 15, output: 60 },
   'o1-2024-12-17': { input: 15, output: 60 },
   'o1-preview': { input: 15, output: 60 },
   'o1-mini': { input: 3, output: 12 },
@@ -51,7 +51,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'deepseek-reasoner': { input: 0.55, output: 2.19, cacheRead: 0.055 },
 
   // Default fallback pricing (conservative estimate)
-  'default': { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
+  default: { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
 }
 
 // Get pricing for a model (with fallback)
@@ -100,15 +100,17 @@ export interface CostBreakdown {
 export function calculateCost(
   model: string,
   usage: TokenUsage,
-  costMultiplier: number = 1
+  costMultiplier: number = 1,
 ): CostBreakdown {
   const pricing = getModelPricing(model)
 
   // Calculate costs (price is per million tokens)
   const inputCostUsd = (usage.inputTokens / 1_000_000) * pricing.input * costMultiplier
   const outputCostUsd = (usage.outputTokens / 1_000_000) * pricing.output * costMultiplier
-  const cacheReadCostUsd = ((usage.cacheReadTokens || 0) / 1_000_000) * (pricing.cacheRead || 0) * costMultiplier
-  const cacheCreationCostUsd = ((usage.cacheCreationTokens || 0) / 1_000_000) * (pricing.cacheCreation || 0) * costMultiplier
+  const cacheReadCostUsd =
+    ((usage.cacheReadTokens || 0) / 1_000_000) * (pricing.cacheRead || 0) * costMultiplier
+  const cacheCreationCostUsd =
+    ((usage.cacheCreationTokens || 0) / 1_000_000) * (pricing.cacheCreation || 0) * costMultiplier
 
   // Total cost
   const totalCostUsd = inputCostUsd + outputCostUsd + cacheReadCostUsd + cacheCreationCostUsd
@@ -129,12 +131,13 @@ function roundToSixDecimals(value: number): number {
 
 // Get all supported models
 export function getSupportedModels(): string[] {
-  return Object.keys(MODEL_PRICING).filter(k => k !== 'default')
+  return Object.keys(MODEL_PRICING).filter((k) => k !== 'default')
 }
 
 // Check if a model is supported
 export function isModelSupported(model: string): boolean {
-  return model in MODEL_PRICING || getSupportedModels().some(m =>
-    model.toLowerCase().startsWith(m.toLowerCase())
+  return (
+    model in MODEL_PRICING ||
+    getSupportedModels().some((m) => model.toLowerCase().startsWith(m.toLowerCase()))
   )
 }

@@ -2,12 +2,7 @@ import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '../database'
 import { providers } from '../database/schema'
-import type {
-  Provider,
-  CreateProviderInput,
-  UpdateProviderInput,
-  UsageData,
-} from '@shared/types'
+import type { Provider, CreateProviderInput, UpdateProviderInput, UsageData } from '@shared/types'
 
 export async function listProviders(): Promise<Provider[]> {
   const db = getDatabase()
@@ -21,9 +16,7 @@ export async function getProvider(id: string): Promise<Provider | null> {
   return rows.length > 0 ? mapRowToProvider(rows[0]) : null
 }
 
-export async function createProvider(
-  input: CreateProviderInput
-): Promise<Provider> {
+export async function createProvider(input: CreateProviderInput): Promise<Provider> {
   const db = getDatabase()
   const id = nanoid()
 
@@ -59,9 +52,7 @@ export async function createProvider(
   return provider
 }
 
-export async function updateProvider(
-  input: UpdateProviderInput
-): Promise<Provider> {
+export async function updateProvider(input: UpdateProviderInput): Promise<Provider> {
   const db = getDatabase()
 
   const updateData: Record<string, unknown> = {}
@@ -72,12 +63,9 @@ export async function updateProvider(
   if (input.remark !== undefined) updateData.remark = input.remark
   if (input.token !== undefined) updateData.token = input.token
   if (input.icon !== undefined) updateData.icon = input.icon
-  if (input.walletBalanceType !== undefined)
-    updateData.walletBalanceType = input.walletBalanceType
-  if (input.walletBalanceUrl !== undefined)
-    updateData.walletBalanceUrl = input.walletBalanceUrl
-  if (input.walletBalancePath !== undefined)
-    updateData.walletBalancePath = input.walletBalancePath
+  if (input.walletBalanceType !== undefined) updateData.walletBalanceType = input.walletBalanceType
+  if (input.walletBalanceUrl !== undefined) updateData.walletBalanceUrl = input.walletBalanceUrl
+  if (input.walletBalancePath !== undefined) updateData.walletBalancePath = input.walletBalancePath
   if (input.walletBalanceHeaders !== undefined)
     updateData.walletBalanceHeaders = input.walletBalanceHeaders
   if (input.walletBalanceUserId !== undefined)

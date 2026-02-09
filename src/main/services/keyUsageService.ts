@@ -75,15 +75,17 @@ async function fetchNewApiKeyUsage(baseUrl: string, keyValue: string): Promise<U
 
   const data = json.data ?? json
 
-  const totalGranted = data.total_granted !== undefined ? parseFloat(String(data.total_granted)) : undefined
+  const totalGranted =
+    data.total_granted !== undefined ? parseFloat(String(data.total_granted)) : undefined
   const totalUsed = data.total_used !== undefined ? parseFloat(String(data.total_used)) : undefined
-  const totalAvailable = data.total_available !== undefined ? parseFloat(String(data.total_available)) : undefined
+  const totalAvailable =
+    data.total_available !== undefined ? parseFloat(String(data.total_available)) : undefined
   const isUnlimited = data.unlimited_quota === true
-  const expireAt = data.expires_at
-    ? new Date(data.expires_at * 1000).toISOString()
-    : undefined
+  const expireAt = data.expires_at ? new Date(data.expires_at * 1000).toISOString() : undefined
 
-  console.log(`[KeyUsage] granted=${totalGranted}, used=${totalUsed}, available=${totalAvailable}, unlimited=${isUnlimited}`)
+  console.log(
+    `[KeyUsage] granted=${totalGranted}, used=${totalUsed}, available=${totalAvailable}, unlimited=${isUnlimited}`,
+  )
 
   return {
     total: totalGranted,
@@ -96,8 +98,13 @@ async function fetchNewApiKeyUsage(baseUrl: string, keyValue: string): Promise<U
 }
 
 async function fetchCustomKeyUsage(
-  key: { value: string; usageUrl: string | null; usagePath: string | null; usageHeaders: string | null },
-  baseUrl: string
+  key: {
+    value: string
+    usageUrl: string | null
+    usagePath: string | null
+    usageHeaders: string | null
+  },
+  baseUrl: string,
 ): Promise<UsageData> {
   if (!key.usageUrl) {
     throw new Error('Custom usage URL not configured')

@@ -47,7 +47,7 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
 }
 
 export async function updateGlobalSettings(
-  updates: Partial<GlobalSettings>
+  updates: Partial<GlobalSettings>,
 ): Promise<GlobalSettings> {
   const db = getDatabase()
 

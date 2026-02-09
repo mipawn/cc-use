@@ -8,16 +8,16 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 
 ## Screenshots
 
-| Dashboard | Key Management |
-|:---:|:---:|
+|                 Dashboard                 |               Key Management               |
+| :---------------------------------------: | :----------------------------------------: |
 | ![Dashboard](./screenshots/dashboard.png) | ![Key Management](./screenshots/token.png) |
 
-| Project Management | Statistics |
-|:---:|:---:|
+|                Project Management                |               Statistics                |
+| :----------------------------------------------: | :-------------------------------------: |
 | ![Project Management](./screenshots/project.png) | ![Statistics](./screenshots/statis.png) |
 
-| Settings |
-|:---:|
+|                Settings                 |
+| :-------------------------------------: |
 | ![Settings](./screenshots/settings.png) |
 
 ## Features
@@ -37,10 +37,10 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 
 Download the installer for your platform from [Releases](https://github.com/mipawn/cc-use/releases):
 
-| Platform | Format |
-|----------|--------|
-| macOS | `.dmg` / `.zip` |
-| Windows | `.exe` (NSIS) / `.zip` |
+| Platform | Format                 |
+| -------- | ---------------------- |
+| macOS    | `.dmg` / `.zip`        |
+| Windows  | `.exe` (NSIS) / `.zip` |
 
 ## Usage
 
@@ -91,6 +91,7 @@ CLI → localhost:12345 (proxy) → actual API provider
 ```
 
 The proxy uses session tokens instead of real API keys, enabling:
+
 - Real API keys are never exposed to the terminal environment
 - Automatic logging of token usage and cost for every request
 - Hot-switching keys without restarting the terminal

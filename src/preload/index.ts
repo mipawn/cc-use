@@ -30,16 +30,14 @@ import type {
 const api = {
   // Provider API
   provider: {
-    list: (): Promise<Provider[]> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LIST),
+    list: (): Promise<Provider[]> => ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LIST),
     get: (id: string): Promise<Provider | null> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_GET, id),
     create: (input: CreateProviderInput): Promise<Provider> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_CREATE, input),
     update: (input: UpdateProviderInput): Promise<Provider> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_UPDATE, input),
-    delete: (id: string): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_DELETE, id),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_DELETE, id),
   },
 
   // API Key API
@@ -50,57 +48,66 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.API_KEY_CREATE, input),
     update: (input: UpdateApiKeyInput): Promise<ApiKey> =>
       ipcRenderer.invoke(IPC_CHANNELS.API_KEY_UPDATE, input),
-    delete: (id: string): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.API_KEY_DELETE, id),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.API_KEY_DELETE, id),
     reorder: (providerId: string, keyIds: string[]): Promise<ApiKey[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.API_KEY_REORDER, providerId, keyIds),
   },
 
   // Project API
   project: {
-    list: (): Promise<Project[]> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROJECT_LIST),
-    get: (id: string): Promise<Project | null> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROJECT_GET, id),
+    list: (): Promise<Project[]> => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_LIST),
+    get: (id: string): Promise<Project | null> => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_GET, id),
     getByPath: (path: string): Promise<Project | null> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROJECT_GET_BY_PATH, path),
     create: (input: CreateProjectInput): Promise<Project> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROJECT_CREATE, input),
     update: (input: UpdateProjectInput): Promise<Project> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROJECT_UPDATE, input),
-    delete: (id: string): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROJECT_DELETE, id),
-    open: (id: string): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN, id),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_DELETE, id),
+    open: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PROJECT_OPEN, id),
   },
 
   // Terminal API
   terminal: {
-    launch: (projectId: string, options?: { providerId?: string; apiKeyId?: string }): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_LAUNCH, projectId, options),
+    launch: (
+      projectId: string,
+      options?: { providerId?: string; apiKeyId?: string },
+    ): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_LAUNCH, projectId, options),
     launchWithPath: (path: string): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_LAUNCH_WITH_PATH, path),
   },
 
   // Proxy API
   proxy: {
-    start: (): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROXY_START),
-    stop: (): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.PROXY_STOP),
+    start: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PROXY_START),
+    stop: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PROXY_STOP),
     status: (): Promise<{ isRunning: boolean; port: number }> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROXY_STATUS),
-    onStatusChanged: (callback: (data: { isRunning: boolean; port: number; source?: string }) => void) => {
-      const handler = (_: Electron.IpcRendererEvent, data: { isRunning: boolean; port: number; source?: string }) => callback(data)
+    onStatusChanged: (
+      callback: (data: { isRunning: boolean; port: number; source?: string }) => void,
+    ) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        data: { isRunning: boolean; port: number; source?: string },
+      ) => callback(data)
       ipcRenderer.on(IPC_CHANNELS.PROXY_STATUS_CHANGED, handler)
-      return () => { ipcRenderer.removeListener(IPC_CHANNELS.PROXY_STATUS_CHANGED, handler) }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.PROXY_STATUS_CHANGED, handler)
+      }
     },
   },
 
   // Balance API
   balance: {
-    refresh: (providerId: string): Promise<{ balance: number | null; total: number | null; used: number | null; unlimited: boolean; error: string | null }> =>
-      ipcRenderer.invoke(IPC_CHANNELS.BALANCE_REFRESH, providerId),
+    refresh: (
+      providerId: string,
+    ): Promise<{
+      balance: number | null
+      total: number | null
+      used: number | null
+      unlimited: boolean
+      error: string | null
+    }> => ipcRenderer.invoke(IPC_CHANNELS.BALANCE_REFRESH, providerId),
   },
 
   // Usage API
@@ -117,8 +124,7 @@ const api = {
 
   // Import/Export API
   importExport: {
-    export: (): Promise<ExportData> =>
-      ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROVIDERS),
+    export: (): Promise<ExportData> => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROVIDERS),
     import: (data: ExportData, options?: ImportOptions): Promise<ImportResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.IMPORT_PROVIDERS, data, options),
     validate: (data: unknown): Promise<boolean> =>
@@ -135,14 +141,12 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_UPDATE_KEY, sessionToken, apiKeyId),
     delete: (sessionToken: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC_CHANNELS.SESSION_DELETE, sessionToken),
-    list: (): Promise<ProxySession[]> =>
-      ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
+    list: (): Promise<ProxySession[]> => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
   },
 
   // Settings API
   settings: {
-    get: (): Promise<GlobalSettings> =>
-      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
+    get: (): Promise<GlobalSettings> => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
     update: (updates: Partial<GlobalSettings>): Promise<GlobalSettings> =>
       ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_UPDATE, updates),
   },
@@ -161,8 +165,11 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_GET_STATS, timeRange),
     getRecent: (limit?: number): Promise<UsageLog[]> =>
       ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_GET_RECENT, limit),
-    getTodayQuickStats: (): Promise<{ launches: number; uniqueProjects: number; uniqueKeys: number }> =>
-      ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_TODAY_QUICK_STATS),
+    getTodayQuickStats: (): Promise<{
+      launches: number
+      uniqueProjects: number
+      uniqueKeys: number
+    }> => ipcRenderer.invoke(IPC_CHANNELS.USAGE_LOG_TODAY_QUICK_STATS),
   },
 
   // Request Log API (cost tracking)
@@ -181,23 +188,25 @@ const api = {
 
   // App API
   app: {
-    getVersion: (): Promise<string> =>
-      ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+    getVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
     checkUpdate: (): Promise<UpdateCheckResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_CHECK_UPDATE),
-    downloadUpdate: (): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.APP_DOWNLOAD_UPDATE),
+    downloadUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.APP_DOWNLOAD_UPDATE),
     installUpdate: (): Promise<string | null> =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_INSTALL_UPDATE),
     onUpdateProgress: (callback: (info: UpdateProgressInfo) => void) => {
       const handler = (_: Electron.IpcRendererEvent, info: UpdateProgressInfo) => callback(info)
       ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_PROGRESS, handler)
-      return () => { ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_PROGRESS, handler) }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_PROGRESS, handler)
+      }
     },
     onUpdateDownloaded: (callback: () => void) => {
       const handler = () => callback()
       ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_DOWNLOADED, handler)
-      return () => { ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_DOWNLOADED, handler) }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_DOWNLOADED, handler)
+      }
     },
     getUpdatesCacheInfo: (): Promise<UpdatesCacheInfo> =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_GET_UPDATES_CACHE_INFO),
@@ -206,7 +215,9 @@ const api = {
     onUpdateAvailable: (callback: (result: UpdateCheckResult) => void) => {
       const handler = (_: Electron.IpcRendererEvent, result: UpdateCheckResult) => callback(result)
       ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_AVAILABLE, handler)
-      return () => { ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_AVAILABLE, handler) }
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.APP_UPDATE_AVAILABLE, handler)
+      }
     },
   },
 

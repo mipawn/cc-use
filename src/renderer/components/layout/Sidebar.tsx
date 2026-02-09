@@ -51,15 +51,15 @@ export default function Sidebar() {
   return (
     <Sider
       width={220}
-      className="pt-12"
+      className='pt-12'
       style={{
         background: token.colorBgContainer,
         borderRight: `1px solid ${token.colorBorderSecondary}`,
       }}
     >
-      <div className="drag-region absolute top-0 left-0 right-0 h-12 flex items-center justify-start" />
+      <div className='drag-region absolute top-0 left-0 right-0 h-12 flex items-center justify-start' />
       <Menu
-        mode="inline"
+        mode='inline'
         selectedKeys={[selectedKey]}
         items={menuItems}
         onClick={({ key }) => navigate(key)}

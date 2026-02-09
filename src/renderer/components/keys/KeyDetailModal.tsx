@@ -3,16 +3,7 @@
  * 展示完整配置和操作选项
  */
 import { useState } from 'react'
-import {
-  Modal,
-  Typography,
-  Space,
-  Tag,
-  Button,
-  Input,
-  Divider,
-  theme,
-} from 'antd'
+import { Modal, Typography, Space, Tag, Button, Input, Divider, theme } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import {
   KeyOutlined,
@@ -105,12 +96,12 @@ export default function KeyDetailModal({
                 value={newAlias}
                 onChange={(e) => setNewAlias(e.target.value)}
                 placeholder={t('apiKeys.keyNamePlaceholder')}
-                size="small"
+                size='small'
                 autoFocus
               />
               <Button
-                size="small"
-                type="primary"
+                size='small'
+                type='primary'
                 icon={<SaveOutlined />}
                 loading={saving}
                 onClick={handleSaveAlias}
@@ -122,8 +113,8 @@ export default function KeyDetailModal({
                 {apiKey.alias || `Key ${apiKey.priority + 1}`}
               </Title>
               <Button
-                type="text"
-                size="small"
+                type='text'
+                size='small'
                 icon={<EditOutlined />}
                 onClick={() => {
                   setNewAlias(apiKey.alias || '')
@@ -135,8 +126,8 @@ export default function KeyDetailModal({
           {provider && (
             <Space size={8} className={styles.headerMeta}>
               <CloudServerOutlined style={{ color: token.colorTextSecondary }} />
-              <Text type="secondary">{provider.name}</Text>
-              <Tag color="cyan">{provider.type}</Tag>
+              <Text type='secondary'>{provider.name}</Text>
+              <Tag color='cyan'>{provider.type}</Tag>
             </Space>
           )}
         </div>
@@ -146,15 +137,11 @@ export default function KeyDetailModal({
 
       {/* Key Value */}
       <div className={styles.section}>
-        <Text type="secondary" className={styles.sectionLabel}>
+        <Text type='secondary' className={styles.sectionLabel}>
           {t('apiKeys.apiKey')}
         </Text>
         <div className={styles.keyValueBox}>
-          <Input.Password
-            value={apiKey.value}
-            readOnly
-            className={styles.keyValueInput}
-          />
+          <Input.Password value={apiKey.value} readOnly className={styles.keyValueInput} />
           <Button
             icon={copied ? <CheckOutlined /> : <CopyOutlined />}
             onClick={handleCopyKey}
@@ -167,14 +154,12 @@ export default function KeyDetailModal({
 
       {/* Status */}
       <div className={styles.section}>
-        <Text type="secondary" className={styles.sectionLabel}>
+        <Text type='secondary' className={styles.sectionLabel}>
           {t('common.status') || '状态'}
         </Text>
         <Space size={12}>
           <Tag color={apiKey.isExhausted ? 'error' : 'success'}>
-            {apiKey.isExhausted
-              ? t('keys.exhausted') || '已耗尽'
-              : t('keys.active') || '可用'}
+            {apiKey.isExhausted ? t('keys.exhausted') || '已耗尽' : t('keys.active') || '可用'}
           </Tag>
           <Tag>
             {t('keys.priority') || '优先级'}: {apiKey.priority + 1}
@@ -184,7 +169,7 @@ export default function KeyDetailModal({
 
       {/* Config Preview */}
       <div className={styles.section}>
-        <Text type="secondary" className={styles.sectionLabel}>
+        <Text type='secondary' className={styles.sectionLabel}>
           {t('configPreview.envVars') || '环境变量配置'}
         </Text>
         <ConfigPreview

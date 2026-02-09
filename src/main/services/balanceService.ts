@@ -23,11 +23,23 @@ export async function refreshBalance(providerId: string): Promise<BalanceResult>
   }
 
   if (provider.walletBalanceType === 'none') {
-    return { balance: null, total: null, used: null, unlimited: false, error: 'Balance checking not configured' }
+    return {
+      balance: null,
+      total: null,
+      used: null,
+      unlimited: false,
+      error: 'Balance checking not configured',
+    }
   }
 
   try {
-    let result: BalanceResult = { balance: null, total: null, used: null, unlimited: false, error: null }
+    let result: BalanceResult = {
+      balance: null,
+      total: null,
+      used: null,
+      unlimited: false,
+      error: null,
+    }
 
     if (provider.walletBalanceType === 'newapi') {
       result = await fetchNewApiBalance(provider)
@@ -60,9 +72,16 @@ async function fetchNewApiBalance(provider: Provider): Promise<BalanceResult> {
 
   // Strategy 1: If provider has access token + userId, use /api/user/self for account-level balance
   if (provider.token && provider.walletBalanceUserId) {
-    console.log('[Balance] Trying /api/user/self with access token and userId=%s...', provider.walletBalanceUserId)
+    console.log(
+      '[Balance] Trying /api/user/self with access token and userId=%s...',
+      provider.walletBalanceUserId,
+    )
     try {
-      const result = await fetchNewApiBalanceViaUserApi(baseUrl, provider.token, provider.walletBalanceUserId)
+      const result = await fetchNewApiBalanceViaUserApi(
+        baseUrl,
+        provider.token,
+        provider.walletBalanceUserId,
+      )
       if (result) return result
       console.log('[Balance] /api/user/self returned null, falling back to billing API')
     } catch (e) {
@@ -80,7 +99,11 @@ async function fetchNewApiBalance(provider: Provider): Promise<BalanceResult> {
   return fetchNewApiBalanceViaBillingApi(baseUrl, firstKey.value)
 }
 
-async function fetchNewApiBalanceViaUserApi(baseUrl: string, accessToken: string, userId: string): Promise<BalanceResult | null> {
+async function fetchNewApiBalanceViaUserApi(
+  baseUrl: string,
+  accessToken: string,
+  userId: string,
+): Promise<BalanceResult | null> {
   const url = `${baseUrl}/api/user/self`
   const resp = await fetch(url, {
     method: 'GET',
@@ -98,7 +121,11 @@ async function fetchNewApiBalanceViaUserApi(baseUrl: string, accessToken: string
   if (!data.success || !data.data) return null
 
   const user = data.data
-  console.log('[Balance] /api/user/self response: quota=%d, used_quota=%d', user.quota, user.used_quota)
+  console.log(
+    '[Balance] /api/user/self response: quota=%d, used_quota=%d',
+    user.quota,
+    user.used_quota,
+  )
 
   const remainQuota = typeof user.quota === 'number' ? user.quota : 0
   const usedQuota = typeof user.used_quota === 'number' ? user.used_quota : 0
@@ -110,7 +137,9 @@ async function fetchNewApiBalanceViaUserApi(baseUrl: string, accessToken: string
   const used = usedQuota / QUOTA_PER_UNIT
   const total = totalQuota / QUOTA_PER_UNIT
 
-  console.log(`[Balance] remaining=$${remaining.toFixed(2)}, used=$${used.toFixed(2)}, total=$${total.toFixed(2)}`)
+  console.log(
+    `[Balance] remaining=$${remaining.toFixed(2)}, used=$${used.toFixed(2)}, total=$${total.toFixed(2)}`,
+  )
 
   return {
     balance: Math.round(remaining * 100) / 100,
@@ -121,7 +150,10 @@ async function fetchNewApiBalanceViaUserApi(baseUrl: string, accessToken: string
   }
 }
 
-async function fetchNewApiBalanceViaBillingApi(baseUrl: string, apiKey: string): Promise<BalanceResult> {
+async function fetchNewApiBalanceViaBillingApi(
+  baseUrl: string,
+  apiKey: string,
+): Promise<BalanceResult> {
   const authHeaders = {
     Authorization: `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
@@ -137,9 +169,9 @@ async function fetchNewApiBalanceViaBillingApi(baseUrl: string, apiKey: string):
   const subscriptionData = await subscriptionResp.json()
   console.log('[Balance] subscription response:', JSON.stringify(subscriptionData))
 
-  const hardLimit = parseFloat(String(
-    subscriptionData.hard_limit_usd ?? subscriptionData.system_hard_limit_usd ?? 0
-  ))
+  const hardLimit = parseFloat(
+    String(subscriptionData.hard_limit_usd ?? subscriptionData.system_hard_limit_usd ?? 0),
+  )
 
   const usageUrl = `${baseUrl}/dashboard/billing/usage`
   const usageResp = await fetch(usageUrl, { method: 'GET', headers: authHeaders })
@@ -155,9 +187,10 @@ async function fetchNewApiBalanceViaBillingApi(baseUrl: string, apiKey: string):
 
   // Detect unit: if total_usage > hardLimit and hardLimit is a reasonable value,
   // then total_usage is likely in cents (OpenAI standard). Otherwise it's already in dollars.
-  const totalUsage = (hardLimit > 0 && hardLimit < UNLIMITED_THRESHOLD && rawUsage > hardLimit * 2)
-    ? rawUsage / 100
-    : rawUsage
+  const totalUsage =
+    hardLimit > 0 && hardLimit < UNLIMITED_THRESHOLD && rawUsage > hardLimit * 2
+      ? rawUsage / 100
+      : rawUsage
 
   const unlimited = hardLimit >= UNLIMITED_THRESHOLD
 
@@ -171,7 +204,9 @@ async function fetchNewApiBalanceViaBillingApi(baseUrl: string, apiKey: string):
     total = Math.round(hardLimit * 100) / 100
   }
 
-  console.log(`[Balance] hardLimit=$${hardLimit}, totalUsage=$${totalUsage}, unlimited=${unlimited}, balance=$${balance}`)
+  console.log(
+    `[Balance] hardLimit=$${hardLimit}, totalUsage=$${totalUsage}, unlimited=${unlimited}, balance=$${balance}`,
+  )
 
   if (isNaN(balance)) {
     throw new Error('Invalid balance response format')

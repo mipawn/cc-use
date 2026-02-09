@@ -93,7 +93,7 @@ export function parseModelFromResponse(response: unknown): string | null {
 export function parseUsageFromStreamChunk(chunk: string): TokenUsage | null {
   try {
     // Handle SSE format: "data: {...}"
-    const lines = chunk.split('\n').filter(line => line.startsWith('data: '))
+    const lines = chunk.split('\n').filter((line) => line.startsWith('data: '))
 
     for (const line of lines) {
       const jsonStr = line.slice(6) // Remove "data: " prefix
@@ -154,7 +154,7 @@ export class StreamUsageAccumulator {
 
   processChunk(chunk: string): void {
     try {
-      const lines = chunk.split('\n').filter(line => line.startsWith('data: '))
+      const lines = chunk.split('\n').filter((line) => line.startsWith('data: '))
 
       for (const line of lines) {
         const jsonStr = line.slice(6)

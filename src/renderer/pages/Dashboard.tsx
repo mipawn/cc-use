@@ -33,13 +33,8 @@ export default function Dashboard() {
   const message = useAppMessage()
   const { t } = useTranslation()
   const { token } = theme.useToken()
-  const {
-    projects,
-    fetchProjects,
-    createProject,
-    deleteProject,
-    getProjectByPath,
-  } = useProjectStore()
+  const { projects, fetchProjects, createProject, deleteProject, getProjectByPath } =
+    useProjectStore()
   const { providers, fetchProviders } = useProviderStore()
   const { fetchAllApiKeys, getAllApiKeys } = useApiKeyStore()
 
@@ -147,7 +142,7 @@ export default function Dashboard() {
   const handleCreateProject = async (
     name: string,
     providerId: string | undefined,
-    apiKeyId: string | undefined
+    apiKeyId: string | undefined,
   ) => {
     try {
       const project = await createProject({
@@ -226,7 +221,7 @@ export default function Dashboard() {
           <Title level={2} className={styles.title}>
             {t('dashboard.title')}
           </Title>
-          <Text type="secondary" className={styles.subtitle}>
+          <Text type='secondary' className={styles.subtitle}>
             {t('dashboard.subtitle')}
           </Text>
         </div>
@@ -235,170 +230,180 @@ export default function Dashboard() {
       {/* Content - Scrollable */}
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-        {/* Stats Cards - 4 columns */}
-        <div className={styles.statsRow}>
-          <Card className={styles.statCard} variant="outlined">
-            <div className={styles.statContent}>
-              <DollarOutlined className={styles.statIcon} style={{ color: token.colorWarning }} />
-              <div className={styles.statInfo}>
-                <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.todayCost')}
-                </Text>
-                <Text strong className={styles.statValue}>
-                  ${dashStats?.todayCost.toFixed(4) || '0.0000'}
-                </Text>
-              </div>
-            </div>
-          </Card>
-          <Card className={styles.statCard} variant="outlined">
-            <div className={styles.statContent}>
-              <WalletOutlined className={styles.statIcon} style={{ color: token.colorSuccess }} />
-              <div className={styles.statInfo}>
-                <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.totalCost')}
-                </Text>
-                <Text strong className={styles.statValue}>
-                  ${dashStats?.totalCost.toFixed(2) || '0.00'}
-                </Text>
-              </div>
-            </div>
-          </Card>
-          <Card className={styles.statCard} variant="outlined">
-            <div className={styles.statContent}>
-              <ThunderboltOutlined className={styles.statIcon} style={{ color: token.colorPrimary }} />
-              <div className={styles.statInfo}>
-                <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.todayRequests')}
-                </Text>
-                <Text strong className={styles.statValue}>
-                  {dashStats?.todayRequests || 0}
-                </Text>
-              </div>
-            </div>
-          </Card>
-          <Card className={styles.statCard} variant="outlined">
-            <div className={styles.statContent}>
-              <DatabaseOutlined className={styles.statIcon} style={{ color: '#722ed1' }} />
-              <div className={styles.statInfo}>
-                <Text type="secondary" className={styles.statLabel}>
-                  {t('dashboard.todayTokens')}
-                </Text>
-                <Text strong className={styles.statValue}>
-                  {formatTokens(dashStats?.todayTokens || 0)}
-                </Text>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Weekly Trend Chart */}
-        <Card
-          className={styles.trendCard}
-          variant="outlined"
-          title={<Text strong>{t('dashboard.weeklyTrend')}</Text>}
-        >
-          {weeklyTrend.some((d) => d.cost > 0) ? (
-            <div className={styles.trendChart}>
-              {weeklyTrend.map((day, i) => (
-                <div
-                  key={day.date}
-                  className={styles.trendBarWrapper}
-                  onMouseEnter={() => setHoveredBar(i)}
-                  onMouseLeave={() => setHoveredBar(null)}
-                >
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', width: '100%', justifyContent: 'center', position: 'relative' }}>
-                    <div
-                      className={styles.trendBar}
-                      style={{
-                        height: `${Math.max((day.cost / maxCost) * 100, 2)}%`,
-                        background: token.colorPrimary,
-                      }}
-                    >
-                      {hoveredBar === i && (
-                        <div className={styles.trendTooltip}>
-                          ${day.cost.toFixed(4)} / {day.requests} req
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <span className={styles.trendBarLabel}>{day.label}</span>
+          {/* Stats Cards - 4 columns */}
+          <div className={styles.statsRow}>
+            <Card className={styles.statCard} variant='outlined'>
+              <div className={styles.statContent}>
+                <DollarOutlined className={styles.statIcon} style={{ color: token.colorWarning }} />
+                <div className={styles.statInfo}>
+                  <Text type='secondary' className={styles.statLabel}>
+                    {t('dashboard.todayCost')}
+                  </Text>
+                  <Text strong className={styles.statValue}>
+                    ${dashStats?.todayCost.toFixed(4) || '0.0000'}
+                  </Text>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className={styles.trendEmpty}>
-              <Text type="secondary">{t('dashboard.noTrendData')}</Text>
-            </div>
-          )}
-        </Card>
-
-        {/* Top 3 Grid */}
-        {(dashStats?.topKeys.length || dashStats?.topProjects.length) ? (
-          <div className={styles.topGrid}>
-            <Card
-              className={styles.topCard}
-              variant="outlined"
-              title={<Text strong>{t('dashboard.topKeysByCost')}</Text>}
-            >
-              {dashStats!.topKeys.length > 0 ? (
-                <div className={styles.topList}>
-                  {dashStats!.topKeys.map((item, i) => (
-                    <div key={item.keyId} className={styles.topItem}>
-                      <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
-                      <span className={styles.topName}>{item.keyAlias}</span>
-                      <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.topEmpty}>{t('common.noData')}</div>
-              )}
+              </div>
             </Card>
-            <Card
-              className={styles.topCard}
-              variant="outlined"
-              title={<Text strong>{t('dashboard.topProjectsByCost')}</Text>}
-            >
-              {dashStats!.topProjects.length > 0 ? (
-                <div className={styles.topList}>
-                  {dashStats!.topProjects.map((item, i) => (
-                    <div key={item.projectId} className={styles.topItem}>
-                      <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
-                      <span className={styles.topName}>{item.projectName}</span>
-                      <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
-                    </div>
-                  ))}
+            <Card className={styles.statCard} variant='outlined'>
+              <div className={styles.statContent}>
+                <WalletOutlined className={styles.statIcon} style={{ color: token.colorSuccess }} />
+                <div className={styles.statInfo}>
+                  <Text type='secondary' className={styles.statLabel}>
+                    {t('dashboard.totalCost')}
+                  </Text>
+                  <Text strong className={styles.statValue}>
+                    ${dashStats?.totalCost.toFixed(2) || '0.00'}
+                  </Text>
                 </div>
-              ) : (
-                <div className={styles.topEmpty}>{t('common.noData')}</div>
-              )}
+              </div>
+            </Card>
+            <Card className={styles.statCard} variant='outlined'>
+              <div className={styles.statContent}>
+                <ThunderboltOutlined
+                  className={styles.statIcon}
+                  style={{ color: token.colorPrimary }}
+                />
+                <div className={styles.statInfo}>
+                  <Text type='secondary' className={styles.statLabel}>
+                    {t('dashboard.todayRequests')}
+                  </Text>
+                  <Text strong className={styles.statValue}>
+                    {dashStats?.todayRequests || 0}
+                  </Text>
+                </div>
+              </div>
+            </Card>
+            <Card className={styles.statCard} variant='outlined'>
+              <div className={styles.statContent}>
+                <DatabaseOutlined className={styles.statIcon} style={{ color: '#722ed1' }} />
+                <div className={styles.statInfo}>
+                  <Text type='secondary' className={styles.statLabel}>
+                    {t('dashboard.todayTokens')}
+                  </Text>
+                  <Text strong className={styles.statValue}>
+                    {formatTokens(dashStats?.todayTokens || 0)}
+                  </Text>
+                </div>
+              </div>
             </Card>
           </div>
-        ) : null}
 
-        {/* Recent Projects Section */}
-        <Card
-          className={styles.recentCard}
-          variant="outlined"
-          title={
-            <Text strong>{t('dashboard.recentProjects')}</Text>
-          }
-        >
-          {projects.length === 0 ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={t('dashboard.noRecentProjects')}
-            />
-          ) : (
-            <RecentProjects
-              projects={projects.slice(0, 8)}
-              providers={providers}
-              apiKeys={allApiKeys}
-              onOpen={handleOpenProject}
-              onDelete={handleDeleteProject}
-            />
-          )}
-        </Card>
+          {/* Weekly Trend Chart */}
+          <Card
+            className={styles.trendCard}
+            variant='outlined'
+            title={<Text strong>{t('dashboard.weeklyTrend')}</Text>}
+          >
+            {weeklyTrend.some((d) => d.cost > 0) ? (
+              <div className={styles.trendChart}>
+                {weeklyTrend.map((day, i) => (
+                  <div
+                    key={day.date}
+                    className={styles.trendBarWrapper}
+                    onMouseEnter={() => setHoveredBar(i)}
+                    onMouseLeave={() => setHoveredBar(null)}
+                  >
+                    <div
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        width: '100%',
+                        justifyContent: 'center',
+                        position: 'relative',
+                      }}
+                    >
+                      <div
+                        className={styles.trendBar}
+                        style={{
+                          height: `${Math.max((day.cost / maxCost) * 100, 2)}%`,
+                          background: token.colorPrimary,
+                        }}
+                      >
+                        {hoveredBar === i && (
+                          <div className={styles.trendTooltip}>
+                            ${day.cost.toFixed(4)} / {day.requests} req
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <span className={styles.trendBarLabel}>{day.label}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.trendEmpty}>
+                <Text type='secondary'>{t('dashboard.noTrendData')}</Text>
+              </div>
+            )}
+          </Card>
+
+          {/* Top 3 Grid */}
+          {dashStats?.topKeys.length || dashStats?.topProjects.length ? (
+            <div className={styles.topGrid}>
+              <Card
+                className={styles.topCard}
+                variant='outlined'
+                title={<Text strong>{t('dashboard.topKeysByCost')}</Text>}
+              >
+                {dashStats!.topKeys.length > 0 ? (
+                  <div className={styles.topList}>
+                    {dashStats!.topKeys.map((item, i) => (
+                      <div key={item.keyId} className={styles.topItem}>
+                        <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
+                        <span className={styles.topName}>{item.keyAlias}</span>
+                        <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={styles.topEmpty}>{t('common.noData')}</div>
+                )}
+              </Card>
+              <Card
+                className={styles.topCard}
+                variant='outlined'
+                title={<Text strong>{t('dashboard.topProjectsByCost')}</Text>}
+              >
+                {dashStats!.topProjects.length > 0 ? (
+                  <div className={styles.topList}>
+                    {dashStats!.topProjects.map((item, i) => (
+                      <div key={item.projectId} className={styles.topItem}>
+                        <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
+                        <span className={styles.topName}>{item.projectName}</span>
+                        <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={styles.topEmpty}>{t('common.noData')}</div>
+                )}
+              </Card>
+            </div>
+          ) : null}
+
+          {/* Recent Projects Section */}
+          <Card
+            className={styles.recentCard}
+            variant='outlined'
+            title={<Text strong>{t('dashboard.recentProjects')}</Text>}
+          >
+            {projects.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={t('dashboard.noRecentProjects')}
+              />
+            ) : (
+              <RecentProjects
+                projects={projects.slice(0, 8)}
+                providers={providers}
+                apiKeys={allApiKeys}
+                onOpen={handleOpenProject}
+                onDelete={handleDeleteProject}
+              />
+            )}
+          </Card>
         </SimpleBar>
       </div>
 

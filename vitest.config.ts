@@ -10,15 +10,15 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       include: ['src/main/services/**/*.ts', 'src/shared/types/**/*.ts'],
-      exclude: ['**/__tests__/**', '**/*.test.ts']
-    }
+      exclude: ['**/__tests__/**', '**/*.test.ts'],
+    },
   },
   resolve: {
     alias: {
       '@main': resolve(__dirname, 'src/main'),
       '@renderer': resolve(__dirname, 'src/renderer'),
       '@shared': resolve(__dirname, 'src/shared'),
-      '@preload': resolve(__dirname, 'src/preload')
-    }
-  }
+      '@preload': resolve(__dirname, 'src/preload'),
+    },
+  },
 })

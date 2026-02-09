@@ -60,7 +60,7 @@ export default function KeyCascader({
       .filter((p) => p.isActive)
       .map((provider) => {
         const providerKeys = apiKeys.filter(
-          (k) => k.providerId === provider.id && k.isActive && !k.isExhausted
+          (k) => k.providerId === provider.id && k.isActive && !k.isExhausted,
         )
         const hasKeys = providerKeys.length > 0
 
@@ -73,10 +73,7 @@ export default function KeyCascader({
               )}
               <span className={styles.providerName}>{provider.name}</span>
               {showKeyCount && (
-                <Tag
-                  color={hasKeys ? 'cyan' : 'default'}
-                  className={styles.keyCountTag}
-                >
+                <Tag color={hasKeys ? 'cyan' : 'default'} className={styles.keyCountTag}>
                   {providerKeys.length}
                 </Tag>
               )}
@@ -89,9 +86,7 @@ export default function KeyCascader({
             label: (
               <Space size={6} className={styles.keyLabel}>
                 <KeyOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />
-                <span className={styles.keyAlias}>
-                  {key.alias || `Key ${key.priority + 1}`}
-                </span>
+                <span className={styles.keyAlias}>{key.alias || `Key ${key.priority + 1}`}</span>
                 {key.priority === 0 && (
                   <ThunderboltOutlined
                     style={{ color: token.colorWarning, fontSize: 10 }}
@@ -118,13 +113,11 @@ export default function KeyCascader({
       if (provider && key) {
         return (
           <Space size={4} className={styles.selectedDisplay}>
-            <Text type="secondary" className={styles.selectedProvider}>
+            <Text type='secondary' className={styles.selectedProvider}>
               {provider.name}
             </Text>
             <span className={styles.separator}>/</span>
-            <Text className={styles.selectedKey}>
-              {key.alias || `Key ${key.priority + 1}`}
-            </Text>
+            <Text className={styles.selectedKey}>{key.alias || `Key ${key.priority + 1}`}</Text>
           </Space>
         )
       }
@@ -173,7 +166,7 @@ export default function KeyCascader({
             }
             if (apiKey) {
               return (
-                (apiKey.alias?.toLowerCase().includes(searchText)) ||
+                apiKey.alias?.toLowerCase().includes(searchText) ||
                 apiKey.value.toLowerCase().includes(searchText)
               )
             }
@@ -184,7 +177,7 @@ export default function KeyCascader({
       notFoundContent={
         <div className={styles.emptyState}>
           <KeyOutlined style={{ fontSize: 24, color: token.colorTextQuaternary }} />
-          <Text type="secondary" className={styles.emptyText}>
+          <Text type='secondary' className={styles.emptyText}>
             {t('keyCascader.noKeys') || '暂无可用密钥'}
           </Text>
         </div>

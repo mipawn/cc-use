@@ -9,7 +9,15 @@ interface ProviderState {
   createProvider: (input: Parameters<typeof window.api.provider.create>[0]) => Promise<Provider>
   updateProvider: (input: Parameters<typeof window.api.provider.update>[0]) => Promise<Provider>
   deleteProvider: (id: string) => Promise<void>
-  refreshBalance: (id: string) => Promise<{ balance: number | null; total: number | null; used: number | null; unlimited: boolean; error: string | null }>
+  refreshBalance: (
+    id: string,
+  ) => Promise<{
+    balance: number | null
+    total: number | null
+    used: number | null
+    unlimited: boolean
+    error: string | null
+  }>
 }
 
 export const useProviderStore = create<ProviderState>((set, get) => ({
@@ -39,9 +47,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   updateProvider: async (input) => {
     const provider = await window.api.provider.update(input)
     set({
-      providers: get().providers.map((p) =>
-        p.id === provider.id ? provider : p
-      ),
+      providers: get().providers.map((p) => (p.id === provider.id ? provider : p)),
     })
     return provider
   },
@@ -57,9 +63,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       const provider = await window.api.provider.get(id)
       if (provider) {
         set({
-          providers: get().providers.map((p) =>
-            p.id === id ? provider : p
-          ),
+          providers: get().providers.map((p) => (p.id === id ? provider : p)),
         })
       }
     }

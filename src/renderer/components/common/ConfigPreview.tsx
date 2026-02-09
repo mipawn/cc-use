@@ -54,9 +54,8 @@ export default function ConfigPreview({
     const config = getProviderTypeConfig(provider.type ?? 'claude')
     const baseUrl = useProxy ? `http://localhost:${proxyPort}` : provider.baseUrl
     const keyValue = apiKey?.value || 'YOUR_API_KEY'
-    const maskedKey = keyValue.length > 8
-      ? `${keyValue.slice(0, 4)}${'*'.repeat(8)}${keyValue.slice(-4)}`
-      : '****'
+    const maskedKey =
+      keyValue.length > 8 ? `${keyValue.slice(0, 4)}${'*'.repeat(8)}${keyValue.slice(-4)}` : '****'
 
     return [
       {
@@ -91,7 +90,7 @@ export default function ConfigPreview({
   if (!provider) {
     return (
       <div className={`${styles.container} ${styles.empty} ${className || ''}`}>
-        <Text type="secondary" className={styles.emptyText}>
+        <Text type='secondary' className={styles.emptyText}>
           {t('configPreview.selectKeyFirst') || '选择密钥后查看配置'}
         </Text>
       </div>
@@ -103,21 +102,15 @@ export default function ConfigPreview({
       {/* Header */}
       <div className={styles.header}>
         <Space size={8}>
-          <div
-            className={styles.indicator}
-            style={{ background: token.colorSuccess }}
-          />
-          <Text type="secondary" className={styles.headerText}>
+          <div className={styles.indicator} style={{ background: token.colorSuccess }} />
+          <Text type='secondary' className={styles.headerText}>
             {t('configPreview.envVars') || '环境变量'}
           </Text>
         </Space>
         <Space size={4}>
           {showMask && (
             <Tooltip title={masked ? t('common.show') : t('common.hide')}>
-              <button
-                className={styles.iconButton}
-                onClick={() => setMasked(!masked)}
-              >
+              <button className={styles.iconButton} onClick={() => setMasked(!masked)}>
                 {masked ? <EyeOutlined /> : <EyeInvisibleOutlined />}
               </button>
             </Tooltip>
@@ -153,7 +146,7 @@ export default function ConfigPreview({
       {/* Provider Info */}
       {!compact && (
         <div className={styles.footer}>
-          <Text type="secondary" className={styles.footerText}>
+          <Text type='secondary' className={styles.footerText}>
             {provider.name}
             {apiKey && (
               <>

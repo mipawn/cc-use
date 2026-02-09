@@ -2,7 +2,14 @@ import { eq, asc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '../database'
 import { apiKeys } from '../database/schema'
-import type { ApiKey, CreateApiKeyInput, UpdateApiKeyInput, ProviderType, CliConfig, UsageData } from '@shared/types'
+import type {
+  ApiKey,
+  CreateApiKeyInput,
+  UpdateApiKeyInput,
+  ProviderType,
+  CliConfig,
+  UsageData,
+} from '@shared/types'
 
 export async function listApiKeys(providerId: string): Promise<ApiKey[]> {
   const db = getDatabase()
@@ -26,10 +33,7 @@ export async function createApiKey(input: CreateApiKeyInput): Promise<ApiKey> {
 
   // Get max priority for this provider
   const existingKeys = await listApiKeys(input.providerId)
-  const maxPriority = existingKeys.reduce(
-    (max, key) => Math.max(max, key.priority),
-    -1
-  )
+  const maxPriority = existingKeys.reduce((max, key) => Math.max(max, key.priority), -1)
 
   const types = input.types ?? ['claude']
 
@@ -66,7 +70,8 @@ export async function updateApiKey(input: UpdateApiKeyInput): Promise<ApiKey> {
   if (input.priority !== undefined) updateData.priority = input.priority
   if (input.isExhausted !== undefined) updateData.isExhausted = input.isExhausted
   if (input.isActive !== undefined) updateData.isActive = input.isActive
-  if (input.config !== undefined) updateData.config = input.config ? JSON.stringify(input.config) : null
+  if (input.config !== undefined)
+    updateData.config = input.config ? JSON.stringify(input.config) : null
   if (input.usageType !== undefined) updateData.usageType = input.usageType
   if (input.usageUrl !== undefined) updateData.usageUrl = input.usageUrl || null
   if (input.usagePath !== undefined) updateData.usagePath = input.usagePath || null
@@ -86,17 +91,11 @@ export async function deleteApiKey(id: string): Promise<void> {
   await db.delete(apiKeys).where(eq(apiKeys.id, id))
 }
 
-export async function reorderApiKeys(
-  providerId: string,
-  keyIds: string[]
-): Promise<ApiKey[]> {
+export async function reorderApiKeys(providerId: string, keyIds: string[]): Promise<ApiKey[]> {
   const db = getDatabase()
 
   for (let i = 0; i < keyIds.length; i++) {
-    await db
-      .update(apiKeys)
-      .set({ priority: i })
-      .where(eq(apiKeys.id, keyIds[i]))
+    await db.update(apiKeys).set({ priority: i }).where(eq(apiKeys.id, keyIds[i]))
   }
 
   return listApiKeys(providerId)
@@ -110,9 +109,7 @@ export async function getAvailableApiKeys(providerId: string): Promise<ApiKey[]>
     .where(eq(apiKeys.providerId, providerId))
     .orderBy(asc(apiKeys.priority))
 
-  return rows
-    .filter((row) => !row.isExhausted)
-    .map(mapRowToApiKey)
+  return rows.filter((row) => !row.isExhausted).map(mapRowToApiKey)
 }
 
 export async function markKeyExhausted(id: string): Promise<void> {
@@ -122,10 +119,7 @@ export async function markKeyExhausted(id: string): Promise<void> {
 
 export async function resetAllKeysForProvider(providerId: string): Promise<void> {
   const db = getDatabase()
-  await db
-    .update(apiKeys)
-    .set({ isExhausted: false })
-    .where(eq(apiKeys.providerId, providerId))
+  await db.update(apiKeys).set({ isExhausted: false }).where(eq(apiKeys.providerId, providerId))
 }
 
 function mapRowToApiKey(row: typeof apiKeys.$inferSelect): ApiKey {

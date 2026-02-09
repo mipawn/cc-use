@@ -89,7 +89,8 @@
 }
 
 @keyframes subtle-glow {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 8px var(--color-accent-glow);
   }
   50% {

@@ -3,7 +3,13 @@ import { getDatabase } from '../database'
 import { providers } from '../database/schema'
 import { listProviders, createProvider } from './providerService'
 import { listApiKeys, createApiKey } from './apiKeyService'
-import type { ExportData, ExportProvider, ExportApiKey, ImportOptions, ImportResult } from '@shared/types'
+import type {
+  ExportData,
+  ExportProvider,
+  ExportApiKey,
+  ImportOptions,
+  ImportResult,
+} from '@shared/types'
 
 const EXPORT_VERSION = '1.0'
 
@@ -13,7 +19,7 @@ export async function exportProviders(): Promise<ExportData> {
 
   for (const provider of allProviders) {
     const keys = await listApiKeys(provider.id)
-    const exportKeys: ExportApiKey[] = keys.map(key => ({
+    const exportKeys: ExportApiKey[] = keys.map((key) => ({
       alias: key.alias ?? undefined,
       value: key.value,
       priority: key.priority,
@@ -47,7 +53,7 @@ export async function exportProviders(): Promise<ExportData> {
 
 export async function importProviders(
   data: ExportData,
-  options: ImportOptions = { overwrite: false }
+  options: ImportOptions = { overwrite: false },
 ): Promise<ImportResult> {
   const result: ImportResult = {
     imported: 0,
@@ -61,7 +67,7 @@ export async function importProviders(
   }
 
   const existingProviders = await listProviders()
-  const existingNameMap = new Map(existingProviders.map(p => [p.name, p]))
+  const existingNameMap = new Map(existingProviders.map((p) => [p.name, p]))
 
   for (const exportProvider of data.providers) {
     try {

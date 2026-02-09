@@ -1,20 +1,20 @@
-import { useEffect, useState } from "react";
-import { Typography, Button, Row, Col, Spin, theme, Card } from "antd";
+import { useEffect, useState } from 'react'
+import { Typography, Button, Row, Col, Spin, theme, Card } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
-import { PlusOutlined, CloudServerOutlined } from "@ant-design/icons";
-import { useTranslation } from "react-i18next";
-import SimpleBar from "simplebar-react";
-import { useProviderStore } from "../stores/providerStore";
-import ProviderCard from "../components/providers/ProviderCard";
-import ProviderModal from "../components/providers/ProviderModal";
-import type { Provider, CreateProviderInput } from "@shared/types";
+import { PlusOutlined, CloudServerOutlined } from '@ant-design/icons'
+import { useTranslation } from 'react-i18next'
+import SimpleBar from 'simplebar-react'
+import { useProviderStore } from '../stores/providerStore'
+import ProviderCard from '../components/providers/ProviderCard'
+import ProviderModal from '../components/providers/ProviderModal'
+import type { Provider, CreateProviderInput } from '@shared/types'
 
-const { Title, Text } = Typography;
+const { Title, Text } = Typography
 
 export default function Providers() {
-  const { t } = useTranslation();
-  const { token } = theme.useToken();
-  const message = useAppMessage();
+  const { t } = useTranslation()
+  const { token } = theme.useToken()
+  const message = useAppMessage()
   const {
     providers,
     loading,
@@ -23,108 +23,97 @@ export default function Providers() {
     updateProvider,
     deleteProvider,
     refreshBalance,
-  } = useProviderStore();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
-  const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set());
+  } = useProviderStore()
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
+  const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    fetchProviders();
-  }, [fetchProviders]);
+    fetchProviders()
+  }, [fetchProviders])
 
   const handleEdit = (provider: Provider) => {
-    setEditingProvider(provider);
-    setModalOpen(true);
-  };
+    setEditingProvider(provider)
+    setModalOpen(true)
+  }
 
   const handleCreate = () => {
-    setEditingProvider(null);
-    setModalOpen(true);
-  };
+    setEditingProvider(null)
+    setModalOpen(true)
+  }
 
-  const handleSave = async (
-    input: CreateProviderInput & { id?: string; isActive?: boolean },
-  ) => {
+  const handleSave = async (input: CreateProviderInput & { id?: string; isActive?: boolean }) => {
     if (input.id) {
-      await updateProvider({ ...input, id: input.id });
+      await updateProvider({ ...input, id: input.id })
     } else {
-      await createProvider(input);
+      await createProvider(input)
     }
-  };
+  }
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteProvider(id);
-      message.success(t("providers.providerDeleted"));
+      await deleteProvider(id)
+      message.success(t('providers.providerDeleted'))
     } catch (error) {
-      message.error(t("providers.deleteProviderFailed"));
+      message.error(t('providers.deleteProviderFailed'))
     }
-  };
+  }
 
   const handleRefreshBalance = async (id: string) => {
-    setRefreshingIds((prev) => new Set(prev).add(id));
+    setRefreshingIds((prev) => new Set(prev).add(id))
     try {
-      const result = await refreshBalance(id);
+      const result = await refreshBalance(id)
       if (result.error) {
-        message.error(result.error);
+        message.error(result.error)
       } else if (result.unlimited) {
-        message.success(
-          `${t("providers.usageUsed")}: $${result.used?.toFixed(2)}`,
-        );
+        message.success(`${t('providers.usageUsed')}: $${result.used?.toFixed(2)}`)
       } else {
-        message.success(
-          `${t("providers.usageRemaining")}: $${result.balance?.toFixed(2)}`,
-        );
+        message.success(`${t('providers.usageRemaining')}: $${result.balance?.toFixed(2)}`)
       }
     } catch (error) {
-      message.error(t("providers.refreshBalanceFailed"));
+      message.error(t('providers.refreshBalanceFailed'))
     } finally {
       setRefreshingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
-  };
+  }
 
   return (
-    <div className="page-container">
-      <div className="page-header">
+    <div className='page-container'>
+      <div className='page-header'>
         <div>
-          <Title level={3} className="!m-0 !mb-1">
-            {t("providers.title")}
+          <Title level={3} className='!m-0 !mb-1'>
+            {t('providers.title')}
           </Title>
-          <Text type="secondary">{t("providers.subtitle")}</Text>
+          <Text type='secondary'>{t('providers.subtitle')}</Text>
         </div>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={handleCreate}
-          size="large"
-        >
-          {t("providers.addProvider")}
+        <Button type='primary' icon={<PlusOutlined />} onClick={handleCreate} size='large'>
+          {t('providers.addProvider')}
         </Button>
       </div>
 
       <SimpleBar style={{ maxHeight: 'calc(100vh - 140px)', paddingRight: 12 }}>
         {loading ? (
-          <div className="empty-state">
-            <Spin size="large" />
+          <div className='empty-state'>
+            <Spin size='large' />
           </div>
         ) : providers.length === 0 ? (
-          <Card className="empty-state" variant="outlined">
+          <Card className='empty-state' variant='outlined'>
             <CloudServerOutlined
-              className="text-5xl mb-4"
+              className='text-5xl mb-4'
               style={{ color: token.colorTextSecondary }}
             />
-            <Title level={4} className="!mb-2">
-              {t("providers.noProviders")}
+            <Title level={4} className='!mb-2'>
+              {t('providers.noProviders')}
             </Title>
-            <Text type="secondary" className="block mb-6">
-              {t("providers.noProvidersHint")}
+            <Text type='secondary' className='block mb-6'>
+              {t('providers.noProvidersHint')}
             </Text>
-            <Button type="primary" size="large" onClick={handleCreate}>
-              {t("providers.addFirstProvider")}
+            <Button type='primary' size='large' onClick={handleCreate}>
+              {t('providers.addFirstProvider')}
             </Button>
           </Card>
         ) : (
@@ -148,11 +137,11 @@ export default function Providers() {
         open={modalOpen}
         provider={editingProvider}
         onClose={() => {
-          setModalOpen(false);
-          setEditingProvider(null);
+          setModalOpen(false)
+          setEditingProvider(null)
         }}
         onSave={handleSave}
       />
     </div>
-  );
+  )
 }
