@@ -227,6 +227,17 @@ export function initDatabase() {
     sqlite.exec(`ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT`)
   } catch {}
 
+  // Create proxy_sessions table to persist sessions across process restarts
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS proxy_sessions (
+      session_token TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      api_key_id TEXT NOT NULL,
+      project_id TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
+
   return db
 }
 

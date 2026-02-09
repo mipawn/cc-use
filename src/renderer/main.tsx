@@ -52,7 +52,12 @@ function Root() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const container = document.getElementById("root")!;
+const root =
+  (container as any).__root ??
+  ((container as any).__root = ReactDOM.createRoot(container));
+
+root.render(
   <React.StrictMode>
     <Root />
   </React.StrictMode>,

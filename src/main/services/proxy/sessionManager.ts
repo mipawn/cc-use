@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import type { ProxySession } from '@shared/types'
 
-// In-memory session storage for hot-switching
+// In-memory session cache (backed by SQLite for persistence)
 const sessions = new Map<string, ProxySession>()
 
 // Map to track sessions by project+provider+apiKey combination
@@ -10,6 +10,94 @@ const sessionByProject = new Map<string, string>() // key: `${projectId}:${provi
 function getProjectSessionKey(projectId: string, providerId: string, apiKeyId: string): string {
   return `${projectId}:${providerId}:${apiKeyId}`
 }
+
+// --- Database persistence helpers ---
+
+function getDb(): ReturnType<typeof import('../../database').getDatabase> | null {
+  try {
+    // Lazy import to avoid circular dependencies
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getDatabase } = require('../../database') as typeof import('../../database')
+    return getDatabase()
+  } catch {
+    return null
+  }
+}
+
+function persistSession(session: ProxySession): void {
+  try {
+    const db = getDb()
+    if (!db) return
+    const raw = (db as unknown as { $client: import('better-sqlite3').Database }).$client
+    raw.prepare(
+      `INSERT OR REPLACE INTO proxy_sessions (session_token, provider_id, api_key_id, project_id, created_at) VALUES (?, ?, ?, ?, ?)`
+    ).run(session.sessionToken, session.providerId, session.apiKeyId, session.projectId, session.createdAt)
+  } catch (err) {
+    console.error('[Session] Failed to persist session:', err)
+  }
+}
+
+function removePersistedSession(sessionToken: string): void {
+  try {
+    const db = getDb()
+    if (!db) return
+    const raw = (db as unknown as { $client: import('better-sqlite3').Database }).$client
+    raw.prepare(`DELETE FROM proxy_sessions WHERE session_token = ?`).run(sessionToken)
+  } catch (err) {
+    console.error('[Session] Failed to remove persisted session:', err)
+  }
+}
+
+function clearPersistedSessions(): void {
+  try {
+    const db = getDb()
+    if (!db) return
+    const raw = (db as unknown as { $client: import('better-sqlite3').Database }).$client
+    raw.prepare(`DELETE FROM proxy_sessions`).run()
+  } catch (err) {
+    console.error('[Session] Failed to clear persisted sessions:', err)
+  }
+}
+
+/**
+ * Restore sessions from the database into the in-memory cache.
+ * Should be called once at proxy startup.
+ */
+export function restoreSessions(): void {
+  try {
+    const db = getDb()
+    if (!db) return
+    const raw = (db as unknown as { $client: import('better-sqlite3').Database }).$client
+    const rows = raw.prepare(`SELECT session_token, provider_id, api_key_id, project_id, created_at FROM proxy_sessions`).all() as Array<{
+      session_token: string
+      provider_id: string
+      api_key_id: string
+      project_id: string | null
+      created_at: string
+    }>
+    for (const row of rows) {
+      const session: ProxySession = {
+        sessionToken: row.session_token,
+        providerId: row.provider_id,
+        apiKeyId: row.api_key_id,
+        projectId: row.project_id,
+        createdAt: row.created_at,
+      }
+      sessions.set(session.sessionToken, session)
+      if (session.projectId) {
+        sessionByProject.set(
+          getProjectSessionKey(session.projectId, session.providerId, session.apiKeyId),
+          session.sessionToken
+        )
+      }
+    }
+    console.log(`[Session] Restored ${rows.length} sessions from database`)
+  } catch (err) {
+    console.error('[Session] Failed to restore sessions:', err)
+  }
+}
+
+// --- Public API (unchanged interface) ---
 
 export function createSession(providerId: string, apiKeyId: string, projectId?: string): ProxySession {
   // If projectId is provided, check if we already have a session for this combination
@@ -34,6 +122,7 @@ export function createSession(providerId: string, apiKeyId: string, projectId?: 
     createdAt: new Date().toISOString(),
   }
   sessions.set(sessionToken, session)
+  persistSession(session)
   console.log(`[Session] Created: token=${sessionToken}, providerId=${providerId}, apiKeyId=${apiKeyId}, projectId=${projectId}, totalSessions=${sessions.size}`)
 
   // Track by project if projectId is provided
@@ -56,6 +145,7 @@ export function updateSessionKey(sessionToken: string, apiKeyId: string): boolea
   }
   session.apiKeyId = apiKeyId
   sessions.set(sessionToken, session)
+  persistSession(session)
   return true
 }
 
@@ -71,6 +161,7 @@ export function deleteSession(sessionToken: string): boolean {
       }
     }
   }
+  removePersistedSession(sessionToken)
   return sessions.delete(sessionToken)
 }
 
@@ -101,6 +192,7 @@ export function getSessionByProject(projectId: string, providerId: string, apiKe
 export function clearAllSessions(): void {
   sessions.clear()
   sessionByProject.clear()
+  clearPersistedSessions()
 }
 
 // Parse session token from API key header
@@ -148,6 +240,7 @@ export function updateSessionsByProject(
     if (session) {
       session.providerId = newProviderId
       session.apiKeyId = newApiKeyId
+      persistSession(session)
     }
     sessionByProject.delete(oldKey)
     sessionByProject.set(newKey, sessionToken)
