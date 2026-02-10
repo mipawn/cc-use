@@ -88,21 +88,55 @@ function getTrayLang(): 'zh' | 'en' {
   return locale.startsWith('zh') ? 'zh' : 'en'
 }
 
-// 尽早设置 Dock 图标，避免闪现默认 Electron 图标
-if (process.platform === 'darwin' && isDev) {
-  try {
-    const dockPath = join(process.cwd(), 'build', 'dock.png')
-    let image = nativeImage.createFromPath(dockPath)
-    if (image.isEmpty()) {
-      const iconPath = join(process.cwd(), 'build', 'icon.png')
-      image = nativeImage.createFromPath(iconPath)
-    }
-    if (!image.isEmpty()) {
-      app.dock.setIcon(image)
-    }
-  } catch {
-    // ignore
+function getDockIcon(): Electron.NativeImage {
+  const basePath = isDev ? join(process.cwd(), 'build') : join(process.resourcesPath, 'build')
+  const dockPath = join(basePath, 'dock.png')
+  let image = nativeImage.createFromPath(dockPath)
+  if (image.isEmpty()) {
+    image = nativeImage.createFromPath(join(basePath, 'icon.png'))
   }
+  return image
+}
+
+function ensureAppIcons() {
+  if (process.platform === 'darwin') {
+    try {
+      const image = getDockIcon()
+      if (!image.isEmpty()) app.dock.setIcon(image)
+    } catch {
+      // ignore
+    }
+    return
+  }
+
+  if (mainWindow) {
+    try {
+      const image = getAppIcon()
+      if (!image.isEmpty()) mainWindow.setIcon(image)
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function isMainWindowActuallyVisible(): boolean {
+  if (!mainWindow) return false
+  if (mainWindow.isDestroyed()) return false
+  if (mainWindow.isMinimized()) return false
+  // On macOS the app can be hidden while window still reports visible.
+  if (process.platform === 'darwin') {
+    try {
+      if (app.isHidden()) return false
+    } catch {
+      // ignore
+    }
+  }
+  return mainWindow.isVisible()
+}
+
+// 尽早设置 Dock 图标，避免闪现默认 Electron 图标
+if (process.platform === 'darwin') {
+  ensureAppIcons()
 }
 
 function getTrayIcon(): Electron.NativeImage {
@@ -148,12 +182,14 @@ function showWindow() {
   if (!mainWindow) {
     createWindow()
   } else {
+    if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
     mainWindow.focus()
   }
   if (process.platform === 'darwin') {
     app.dock.show()
   }
+  ensureAppIcons()
 }
 
 function hideWindow() {
@@ -421,7 +457,7 @@ function notifyProxyStatusChanged(source?: string) {
 
 async function buildTrayMenu(): Promise<Menu> {
   const labels = trayLabels[getTrayLang()]
-  const isWindowVisible = mainWindow?.isVisible() ?? false
+  const isWindowVisible = isMainWindowActuallyVisible()
   const proxyStatus = getProxyStatus()
 
   let projects: Awaited<ReturnType<typeof listProjects>> = []
@@ -436,7 +472,7 @@ async function buildTrayMenu(): Promise<Menu> {
     {
       label: isWindowVisible ? labels.hide : labels.show,
       click: () => {
-        if (mainWindow?.isVisible()) {
+        if (isMainWindowActuallyVisible()) {
           hideWindow()
         } else {
           showWindow()
@@ -532,10 +568,18 @@ async function createTray() {
   tray = new Tray(icon)
   tray.setToolTip('CC Use')
 
+  // Keep menu text in sync even when window visibility changes elsewhere.
+  tray.on('click', () => {
+    updateTrayMenu()
+  })
+  tray.on('right-click', () => {
+    updateTrayMenu()
+  })
+
   // Windows/Linux: left click toggles window visibility
   if (process.platform !== 'darwin') {
     tray.on('click', () => {
-      if (mainWindow?.isVisible()) {
+      if (isMainWindowActuallyVisible()) {
         hideWindow()
       } else {
         showWindow()
@@ -593,6 +637,23 @@ function createWindow() {
 
     mainWindow.show()
     mainWindow.focus()
+    ensureAppIcons()
+  })
+
+  // Sync tray menu label with the real window state.
+  mainWindow.on('show', () => {
+    ensureAppIcons()
+    updateTrayMenu()
+  })
+  mainWindow.on('hide', () => {
+    updateTrayMenu()
+  })
+  mainWindow.on('minimize', () => {
+    updateTrayMenu()
+  })
+  mainWindow.on('restore', () => {
+    ensureAppIcons()
+    updateTrayMenu()
   })
 
   // Ensure DevTools can never be opened in production.
@@ -683,6 +744,8 @@ app.whenReady().then(async () => {
     if (process.platform === 'darwin') {
       app.dock.show()
     }
+    ensureAppIcons()
+    updateTrayMenu()
   })
 })
 
