@@ -8,8 +8,10 @@ import * as iconService from '../services/iconService'
 import * as importExportService from '../services/importExportService'
 import * as usageLogService from '../services/usageLogService'
 import * as requestLogService from '../services/requestLogService'
+import * as costCalculator from '../services/costCalculator'
 import * as updaterService from '../services/updaterService'
 import { refreshBalance } from '../services/balanceService'
+import { syncProviderPricing } from '../services/pricingSyncService'
 import { refreshUsage } from '../services/usageService'
 import { refreshKeyUsage } from '../services/keyUsageService'
 import * as sessionManager from '../services/proxy/sessionManager'
@@ -126,6 +128,11 @@ export function registerIpcHandlers() {
   // Balance handler
   ipcMain.handle(IPC_CHANNELS.BALANCE_REFRESH, async (_, providerId: string) => {
     return refreshBalance(providerId)
+  })
+
+  // Pricing sync handler
+  ipcMain.handle(IPC_CHANNELS.PROVIDER_SYNC_PRICING, async (_, providerId: string) => {
+    return syncProviderPricing(providerId)
   })
 
   // Usage handler
@@ -265,6 +272,26 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.REQUEST_LOG_GET_DASHBOARD_STATS, async () => {
     return requestLogService.getDashboardCostStats()
+  })
+
+  // Model pricing handlers
+  ipcMain.handle(IPC_CHANNELS.MODEL_PRICING_GET_ALL, async () => {
+    return costCalculator.getAllModelPricing()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.MODEL_PRICING_GET_CUSTOM, async () => {
+    return costCalculator.getCustomModelPricing()
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.MODEL_PRICING_UPDATE_CUSTOM,
+    async (_, pricing: Record<string, costCalculator.ModelPricing>) => {
+      return costCalculator.updateCustomModelPricing(pricing)
+    },
+  )
+
+  ipcMain.handle(IPC_CHANNELS.MODEL_PRICING_GET_DEFAULT, async () => {
+    return costCalculator.getDefaultModelPricing()
   })
 
   // App handlers

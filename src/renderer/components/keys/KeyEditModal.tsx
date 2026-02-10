@@ -8,6 +8,7 @@ import {
   Modal,
   Form,
   Input,
+  InputNumber,
   Checkbox,
   Typography,
   Switch,
@@ -41,6 +42,7 @@ interface KeyEditModalProps {
     value: string
     types: ProviderType[]
     config?: CliConfig
+    costMultiplier?: number
     usageType?: 'none' | 'newapi' | 'custom'
     usageUrl?: string
     usagePath?: string
@@ -84,6 +86,7 @@ export default function KeyEditModal({
   const [usageUrl, setUsageUrl] = useState('')
   const [usagePath, setUsagePath] = useState('')
   const [usageHeaders, setUsageHeaders] = useState('')
+  const [costMultiplier, setCostMultiplier] = useState<number>(1)
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -187,6 +190,7 @@ export default function KeyEditModal({
         setUsageType(apiKey.usageType || 'none')
         setUsageUrl(apiKey.usageUrl || '')
         setUsagePath(apiKey.usagePath || '')
+        setCostMultiplier(apiKey.costMultiplier ?? 1)
         // Format headers JSON for display
         if (apiKey.usageHeaders) {
           try {
@@ -202,6 +206,7 @@ export default function KeyEditModal({
         setUsageUrl('')
         setUsagePath('')
         setUsageHeaders('')
+        setCostMultiplier(1)
       }
       setJsonError(null)
     }
@@ -304,6 +309,7 @@ export default function KeyEditModal({
         value: values.value,
         types: selectedTypes,
         config: Object.keys(localConfig).length > 0 ? localConfig : undefined,
+        costMultiplier,
         usageType,
         usageUrl: usageType === 'custom' ? usageUrl : undefined,
         usagePath: usageType === 'custom' ? usagePath : undefined,
@@ -447,6 +453,23 @@ export default function KeyEditModal({
             <Input.Password
               placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
               size='large'
+            />
+          </Form.Item>
+
+          {/* Cost Multiplier */}
+          <Form.Item
+            label={t('keys.costMultiplier') || '费用倍率'}
+            extra={t('keys.costMultiplierHint') || '中转站分组倍率，默认 1 表示按官方价格计算'}
+          >
+            <InputNumber
+              value={costMultiplier}
+              onChange={(val) => setCostMultiplier(val ?? 1)}
+              min={0}
+              step={0.1}
+              precision={2}
+              style={{ width: '100%' }}
+              size='large'
+              addonAfter='x'
             />
           </Form.Item>
 

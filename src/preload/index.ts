@@ -38,6 +38,8 @@ const api = {
     update: (input: UpdateProviderInput): Promise<Provider> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_UPDATE, input),
     delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_DELETE, id),
+    syncPricing: (providerId: string): Promise<{ count: number; error: string | null }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_SYNC_PRICING, providerId),
   },
 
   // API Key API
@@ -184,6 +186,18 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_COST_STATISTICS, timeRange),
     getDashboardStats: (): Promise<DashboardCostStats> =>
       ipcRenderer.invoke(IPC_CHANNELS.REQUEST_LOG_GET_DASHBOARD_STATS),
+  },
+
+  // Model Pricing API
+  modelPricing: {
+    getAll: (): Promise<Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>> =>
+      ipcRenderer.invoke(IPC_CHANNELS.MODEL_PRICING_GET_ALL),
+    getCustom: (): Promise<Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>> =>
+      ipcRenderer.invoke(IPC_CHANNELS.MODEL_PRICING_GET_CUSTOM),
+    updateCustom: (pricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>): Promise<void> =>
+      ipcRenderer.invoke(IPC_CHANNELS.MODEL_PRICING_UPDATE_CUSTOM, pricing),
+    getDefault: (): Promise<Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>> =>
+      ipcRenderer.invoke(IPC_CHANNELS.MODEL_PRICING_GET_DEFAULT),
   },
 
   // App API

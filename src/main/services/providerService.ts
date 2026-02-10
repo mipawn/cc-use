@@ -100,6 +100,15 @@ function mapRowToProvider(row: typeof providers.$inferSelect): Provider {
     }
   }
 
+  let cachedModelPricing: Provider['cachedModelPricing'] = null
+  if (row.cachedModelPricing) {
+    try {
+      cachedModelPricing = JSON.parse(row.cachedModelPricing)
+    } catch {
+      cachedModelPricing = null
+    }
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -122,6 +131,8 @@ function mapRowToProvider(row: typeof providers.$inferSelect): Provider {
     usageHeaders: row.usageHeaders,
     cachedUsage,
     lastUsageCheckedAt: row.lastUsageCheckedAt,
+    cachedModelPricing,
+    lastPricingSyncedAt: row.lastPricingSyncedAt,
     isActive: row.isActive ?? true,
   }
 }

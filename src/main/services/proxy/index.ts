@@ -1,10 +1,11 @@
 import express, { Request, Response, NextFunction } from 'express'
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware'
 import type { Server } from 'http'
-import { getProvider } from '../providerService'
+import { getProvider, listProviders } from '../providerService'
 import { getApiKey } from '../apiKeyService'
 import { getSession, restoreSessions } from './sessionManager'
 import { createRequestLog } from '../requestLogService'
+import { syncProviderPricing } from '../pricingSyncService'
 import {
   parseUsageFromResponse,
   parseModelFromResponse,
@@ -17,6 +18,37 @@ const DEFAULT_PORT = 12345
 let server: Server | null = null
 let requestCount = 0
 let lastError: string | null = null
+
+// Cached fallback pricing from other providers (refreshed every 5 minutes)
+let fallbackPricingCache: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | null = null
+let fallbackPricingCacheTime = 0
+const FALLBACK_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+async function getFallbackPricing(excludeProviderId: string): Promise<Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | undefined> {
+  const now = Date.now()
+  if (fallbackPricingCache && now - fallbackPricingCacheTime < FALLBACK_CACHE_TTL) {
+    return Object.keys(fallbackPricingCache).length > 0 ? fallbackPricingCache : undefined
+  }
+
+  try {
+    const allProviders = await listProviders()
+    // Filter providers that have synced pricing, sort by sync time (oldest first)
+    // so the most recently synced provider's prices win on merge
+    const withPricing = allProviders
+      .filter((p) => p.id !== excludeProviderId && p.cachedModelPricing && p.lastPricingSyncedAt)
+      .sort((a, b) => (a.lastPricingSyncedAt! < b.lastPricingSyncedAt! ? -1 : 1))
+
+    const merged: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> = {}
+    for (const p of withPricing) {
+      Object.assign(merged, p.cachedModelPricing)
+    }
+    fallbackPricingCache = merged
+    fallbackPricingCacheTime = now
+    return Object.keys(merged).length > 0 ? merged : undefined
+  } catch {
+    return undefined
+  }
+}
 
 async function killProcessOnPort(port: number): Promise<void> {
   try {
@@ -127,6 +159,28 @@ export async function startProxy(): Promise<void> {
       return
     }
 
+    // Parse provider's cached model pricing for cost calculation
+    let providerPricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | undefined
+    if (provider.cachedModelPricing) {
+      providerPricing = provider.cachedModelPricing
+    } else {
+      // Current provider has no synced pricing - fallback to other providers' pricing
+      providerPricing = await getFallbackPricing(provider.id)
+
+      // Also trigger background auto-sync if never attempted
+      if (!provider.lastPricingSyncedAt) {
+        syncProviderPricing(provider.id)
+          .then((result) => {
+            if (result.count > 0) {
+              console.log(`[Proxy] Auto-synced ${result.count} model prices for provider ${provider.name}`)
+            }
+          })
+          .catch((err) => {
+            console.log('[Proxy] Auto-sync pricing failed (non-fatal):', err)
+          })
+      }
+    }
+
     // Parse baseUrl to separate origin and path prefix
     // e.g. "https://api.openai.com/v1" → target "https://api.openai.com", pathPrefix "/v1"
     const parsedUrl = new URL(provider.baseUrl.replace(/\/$/, ''))
@@ -189,10 +243,11 @@ export async function startProxy(): Promise<void> {
                     sessionId: sessionToken,
                     model: model,
                     usage,
-                    costMultiplier: provider.costMultiplier || 1,
+                    costMultiplier: apiKey.costMultiplier ?? 1,
                     latencyMs,
                     statusCode,
                     isStreaming: true,
+                    providerPricing,
                   })
                 }
               } catch (err) {
@@ -249,10 +304,11 @@ export async function startProxy(): Promise<void> {
                   sessionId: sessionToken,
                   model: model,
                   usage,
-                  costMultiplier: provider.costMultiplier || 1,
+                  costMultiplier: apiKey.costMultiplier ?? 1,
                   latencyMs,
                   statusCode,
                   isStreaming: false,
+                  providerPricing,
                 })
               }
             } catch {

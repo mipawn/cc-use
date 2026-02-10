@@ -3,6 +3,10 @@
  * Calculates API request costs based on token usage and model pricing
  */
 
+import { eq } from 'drizzle-orm'
+import { getDatabase } from '../database'
+import { settings } from '../database/schema'
+
 // Model pricing per million tokens (in USD)
 export interface ModelPricing {
   input: number // Input tokens cost per million
@@ -13,8 +17,14 @@ export interface ModelPricing {
 
 // Model pricing table - prices per million tokens
 const MODEL_PRICING: Record<string, ModelPricing> = {
-  // Claude models
+  // Claude 4.x models
   'claude-sonnet-4-20250514': { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
+  'claude-sonnet-4-5-20250929': { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
+  'claude-opus-4-20250514': { input: 15, output: 75, cacheRead: 1.5, cacheCreation: 18.75 },
+  'claude-opus-4-0-20250514': { input: 15, output: 75, cacheRead: 1.5, cacheCreation: 18.75 },
+  'claude-opus-4-6': { input: 15, output: 75, cacheRead: 1.5, cacheCreation: 18.75 },
+  'claude-haiku-4-5-20251001': { input: 0.8, output: 4, cacheRead: 0.08, cacheCreation: 1 },
+  // Claude 3.x models
   'claude-3-5-sonnet-20241022': { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
   'claude-3-5-sonnet-latest': { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
   'claude-3-5-sonnet-20240620': { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
@@ -23,8 +33,6 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-3-haiku-20240307': { input: 0.25, output: 1.25, cacheRead: 0.03, cacheCreation: 0.3 },
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4, cacheRead: 0.08, cacheCreation: 1 },
   'claude-3-5-haiku-latest': { input: 0.8, output: 4, cacheRead: 0.08, cacheCreation: 1 },
-  'claude-opus-4-20250514': { input: 15, output: 75, cacheRead: 1.5, cacheCreation: 18.75 },
-  'claude-opus-4-0-20250514': { input: 15, output: 75, cacheRead: 1.5, cacheCreation: 18.75 },
 
   // OpenAI models
   'gpt-4o': { input: 2.5, output: 10 },
@@ -54,23 +62,138 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   default: { input: 3, output: 15, cacheRead: 0.3, cacheCreation: 3.75 },
 }
 
-// Get pricing for a model (with fallback)
-export function getModelPricing(model: string): ModelPricing {
+const SETTINGS_KEY = 'customModelPricing'
+
+// In-memory cache for custom model pricing
+let customPricingCache: Record<string, ModelPricing> | null = null
+
+/**
+ * Load custom model pricing from settings table (with in-memory cache)
+ */
+export async function loadCustomModelPricing(): Promise<Record<string, ModelPricing>> {
+  if (customPricingCache !== null) {
+    return customPricingCache
+  }
+  try {
+    const db = getDatabase()
+    const rows = await db.select().from(settings).where(eq(settings.key, SETTINGS_KEY))
+    if (rows.length > 0 && rows[0].value) {
+      customPricingCache = JSON.parse(rows[0].value) as Record<string, ModelPricing>
+    } else {
+      customPricingCache = {}
+    }
+  } catch {
+    customPricingCache = {}
+  }
+  return customPricingCache
+}
+
+/**
+ * Get custom model pricing (from cache or DB)
+ */
+export async function getCustomModelPricing(): Promise<Record<string, ModelPricing>> {
+  return loadCustomModelPricing()
+}
+
+/**
+ * Update custom model pricing in settings table and refresh cache
+ */
+export async function updateCustomModelPricing(
+  pricing: Record<string, ModelPricing>,
+): Promise<void> {
+  const db = getDatabase()
+  const value = JSON.stringify(pricing)
+  const existing = await db.select().from(settings).where(eq(settings.key, SETTINGS_KEY))
+  if (existing.length > 0) {
+    await db.update(settings).set({ value }).where(eq(settings.key, SETTINGS_KEY))
+  } else {
+    await db.insert(settings).values({ key: SETTINGS_KEY, value })
+  }
+  customPricingCache = pricing
+}
+
+/**
+ * Get default (hardcoded) model pricing table
+ */
+export function getDefaultModelPricing(): Record<string, ModelPricing> {
+  return { ...MODEL_PRICING }
+}
+
+/**
+ * Get all model pricing (custom merged over default, custom wins)
+ */
+export async function getAllModelPricing(): Promise<Record<string, ModelPricing>> {
+  const custom = await loadCustomModelPricing()
+  return { ...MODEL_PRICING, ...custom }
+}
+
+// Get pricing for a model (with fallback). Custom pricing takes priority.
+export function getModelPricing(
+  model: string,
+  customPricing?: Record<string, ModelPricing>,
+): ModelPricing {
+  // Merge custom pricing over hardcoded
+  const allPricing = customPricing ? { ...MODEL_PRICING, ...customPricing } : MODEL_PRICING
+
   // Try exact match first
-  if (MODEL_PRICING[model]) {
-    return MODEL_PRICING[model]
+  if (allPricing[model]) {
+    return allPricing[model]
   }
 
   // Try prefix matching for versioned models
   const modelLower = model.toLowerCase()
-  for (const [key, pricing] of Object.entries(MODEL_PRICING)) {
+  for (const [key, pricing] of Object.entries(allPricing)) {
+    if (key === 'default') continue
     if (modelLower.startsWith(key.toLowerCase()) || key.toLowerCase().startsWith(modelLower)) {
       return pricing
     }
   }
 
+  // Try keyword-based fuzzy matching for Claude models
+  // Handles cases like transit stations returning non-standard model names
+  const fuzzyMatch = fuzzyMatchClaudeModel(modelLower, allPricing)
+  if (fuzzyMatch) {
+    return fuzzyMatch
+  }
+
   // Return default pricing
-  return MODEL_PRICING['default']
+  return allPricing['default'] || MODEL_PRICING['default']
+}
+
+// Keyword-based fuzzy matching for Claude model variants
+// e.g. "claude-opus-4-6" should match opus-4 pricing
+function fuzzyMatchClaudeModel(
+  model: string,
+  allPricing: Record<string, ModelPricing>,
+): ModelPricing | null {
+  if (!model.includes('claude')) return null
+
+  // Define keyword patterns in priority order (most specific first)
+  const patterns: { keywords: string[]; candidates: string[] }[] = [
+    { keywords: ['opus', '4'], candidates: ['claude-opus-4-20250514', 'claude-3-opus-20240229'] },
+    { keywords: ['sonnet', '4'], candidates: ['claude-sonnet-4-20250514', 'claude-sonnet-4-5-20250929'] },
+    { keywords: ['haiku', '4'], candidates: ['claude-haiku-4-5-20251001', 'claude-3-5-haiku-20241022'] },
+    { keywords: ['opus', '3'], candidates: ['claude-3-opus-20240229'] },
+    { keywords: ['sonnet', '3', '5'], candidates: ['claude-3-5-sonnet-20241022'] },
+    { keywords: ['sonnet', '3'], candidates: ['claude-3-5-sonnet-20241022'] },
+    { keywords: ['haiku', '3', '5'], candidates: ['claude-3-5-haiku-20241022'] },
+    { keywords: ['haiku', '3'], candidates: ['claude-3-haiku-20240307'] },
+    { keywords: ['opus'], candidates: ['claude-opus-4-20250514', 'claude-3-opus-20240229'] },
+    { keywords: ['sonnet'], candidates: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022'] },
+    { keywords: ['haiku'], candidates: ['claude-haiku-4-5-20251001', 'claude-3-5-haiku-20241022'] },
+  ]
+
+  for (const { keywords, candidates } of patterns) {
+    if (keywords.every((kw) => model.includes(kw))) {
+      for (const candidate of candidates) {
+        if (allPricing[candidate]) {
+          return allPricing[candidate]
+        }
+      }
+    }
+  }
+
+  return null
 }
 
 // Token usage from API response
@@ -94,15 +217,17 @@ export interface CostBreakdown {
  * Calculate cost for a request
  * @param model - Model name
  * @param usage - Token usage
- * @param costMultiplier - Provider cost multiplier (default 1)
+ * @param costMultiplier - Key cost multiplier (default 1)
+ * @param customPricing - Optional custom model pricing to merge over defaults
  * @returns Cost breakdown in USD
  */
 export function calculateCost(
   model: string,
   usage: TokenUsage,
   costMultiplier: number = 1,
+  customPricing?: Record<string, ModelPricing>,
 ): CostBreakdown {
-  const pricing = getModelPricing(model)
+  const pricing = getModelPricing(model, customPricing)
 
   // Calculate costs (price is per million tokens)
   const inputCostUsd = (usage.inputTokens / 1_000_000) * pricing.input * costMultiplier

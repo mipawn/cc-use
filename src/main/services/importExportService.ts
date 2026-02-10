@@ -23,6 +23,7 @@ export async function exportProviders(): Promise<ExportData> {
       alias: key.alias ?? undefined,
       value: key.value,
       priority: key.priority,
+      costMultiplier: key.costMultiplier !== 1 ? key.costMultiplier : undefined,
     }))
 
     exportProviders.push({
@@ -110,6 +111,7 @@ export async function importProviders(
             alias: exportKey.alias,
             value: exportKey.value,
             priority: exportKey.priority,
+            costMultiplier: exportKey.costMultiplier,
           })
         }
       }

@@ -7,8 +7,8 @@ import { nanoid } from 'nanoid'
 import { eq, sql, and, gte, lte, desc } from 'drizzle-orm'
 import { getDatabase } from '../database'
 import { requestLogs, apiKeys, providers, projects } from '../database/schema'
-import type { CostBreakdown, TokenUsage } from './costCalculator'
-import { calculateCost } from './costCalculator'
+import type { CostBreakdown, TokenUsage, ModelPricing } from './costCalculator'
+import { calculateCost, loadCustomModelPricing } from './costCalculator'
 import type {
   StatsTimeRange,
   CostStatsSummary,
@@ -36,6 +36,7 @@ export interface CreateRequestLogInput {
   statusCode?: number
   errorMessage?: string | null
   isStreaming?: boolean
+  providerPricing?: Record<string, ModelPricing>
 }
 
 export interface RequestLog {
@@ -73,9 +74,17 @@ export async function createRequestLog(input: CreateRequestLogInput): Promise<Re
   const now = new Date().toISOString()
   const costMultiplier = input.costMultiplier || 1
 
+  // Load custom model pricing for accurate cost calculation
+  const customPricing = await loadCustomModelPricing()
+
+  // Merge pricing: hardcoded < global custom < provider synced
+  const mergedPricing = input.providerPricing
+    ? { ...customPricing, ...input.providerPricing }
+    : customPricing
+
   // Calculate costs
   const costs: CostBreakdown = input.model
-    ? calculateCost(input.model, input.usage, costMultiplier)
+    ? calculateCost(input.model, input.usage, costMultiplier, mergedPricing)
     : {
         inputCostUsd: 0,
         outputCostUsd: 0,

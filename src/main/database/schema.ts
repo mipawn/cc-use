@@ -26,6 +26,9 @@ export const providers = sqliteTable('providers', {
   lastUsageCheckedAt: text('last_usage_checked_at'),
   // Cost multiplier for this provider (e.g., 1.5 means 150% of base price)
   costMultiplier: real('cost_multiplier').default(1),
+  // Cached model pricing from provider's /api/pricing endpoint
+  cachedModelPricing: text('cached_model_pricing'), // JSON: Record<string, ModelPricing>
+  lastPricingSyncedAt: text('last_pricing_synced_at'),
   isActive: integer('is_active', { mode: 'boolean' }).default(true),
 })
 
@@ -48,6 +51,8 @@ export const apiKeys = sqliteTable('api_keys', {
   usageHeaders: text('usage_headers'),
   cachedUsage: text('cached_usage'), // JSON string of UsageData
   lastUsageCheckedAt: text('last_usage_checked_at'),
+  // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
+  costMultiplier: real('cost_multiplier').default(1),
 })
 
 export const projects = sqliteTable('projects', {

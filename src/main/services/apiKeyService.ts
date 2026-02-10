@@ -47,6 +47,7 @@ export async function createApiKey(input: CreateApiKeyInput): Promise<ApiKey> {
     isExhausted: false,
     isActive: input.isActive ?? true,
     config: input.config ? JSON.stringify(input.config) : null,
+    costMultiplier: input.costMultiplier ?? 1,
     usageType: input.usageType ?? 'none',
     usageUrl: input.usageUrl ?? null,
     usagePath: input.usagePath ?? null,
@@ -72,6 +73,7 @@ export async function updateApiKey(input: UpdateApiKeyInput): Promise<ApiKey> {
   if (input.isActive !== undefined) updateData.isActive = input.isActive
   if (input.config !== undefined)
     updateData.config = input.config ? JSON.stringify(input.config) : null
+  if (input.costMultiplier !== undefined) updateData.costMultiplier = input.costMultiplier
   if (input.usageType !== undefined) updateData.usageType = input.usageType
   if (input.usageUrl !== undefined) updateData.usageUrl = input.usageUrl || null
   if (input.usagePath !== undefined) updateData.usagePath = input.usagePath || null
@@ -166,5 +168,6 @@ function mapRowToApiKey(row: typeof apiKeys.$inferSelect): ApiKey {
     usageHeaders: row.usageHeaders ?? null,
     cachedUsage,
     lastUsageCheckedAt: row.lastUsageCheckedAt ?? null,
+    costMultiplier: row.costMultiplier ?? 1,
   }
 }

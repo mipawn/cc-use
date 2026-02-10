@@ -145,6 +145,9 @@ export interface Provider {
   lastUsageCheckedAt: string | null
   // Cost multiplier for this provider (e.g., 1.5 means 150% of base price)
   costMultiplier?: number
+  // Cached model pricing from provider's pricing API
+  cachedModelPricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | null
+  lastPricingSyncedAt: string | null
   isActive: boolean
 }
 
@@ -190,6 +193,8 @@ export interface ApiKey {
   usageHeaders: string | null
   cachedUsage: UsageData | null
   lastUsageCheckedAt: string | null
+  // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
+  costMultiplier: number
 }
 
 export interface CreateApiKeyInput {
@@ -200,6 +205,7 @@ export interface CreateApiKeyInput {
   priority?: number
   isActive?: boolean
   config?: CliConfig
+  costMultiplier?: number
   usageType?: 'none' | 'newapi' | 'custom'
   usageUrl?: string
   usagePath?: string
@@ -215,6 +221,7 @@ export interface UpdateApiKeyInput {
   isExhausted?: boolean
   isActive?: boolean
   config?: CliConfig
+  costMultiplier?: number
   usageType?: 'none' | 'newapi' | 'custom'
   usageUrl?: string
   usagePath?: string
@@ -312,6 +319,7 @@ export interface ExportApiKey {
   value: string
   types?: ProviderType[]
   priority: number
+  costMultiplier?: number
 }
 
 // Import options

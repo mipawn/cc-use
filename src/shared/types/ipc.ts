@@ -36,6 +36,9 @@ export const IPC_CHANNELS = {
   // Balance channels
   BALANCE_REFRESH: 'balance:refresh',
 
+  // Pricing sync channels
+  PROVIDER_SYNC_PRICING: 'provider:syncPricing',
+
   // Usage channels
   USAGE_REFRESH: 'usage:refresh',
 
@@ -73,6 +76,12 @@ export const IPC_CHANNELS = {
   REQUEST_LOG_GET_DAILY_TREND: 'requestLog:getDailyTrend',
   REQUEST_LOG_GET_COST_STATISTICS: 'requestLog:getCostStatistics',
   REQUEST_LOG_GET_DASHBOARD_STATS: 'requestLog:getDashboardStats',
+
+  // Model pricing channels
+  MODEL_PRICING_GET_ALL: 'modelPricing:getAll',
+  MODEL_PRICING_GET_CUSTOM: 'modelPricing:getCustom',
+  MODEL_PRICING_UPDATE_CUSTOM: 'modelPricing:updateCustom',
+  MODEL_PRICING_GET_DEFAULT: 'modelPricing:getDefault',
 
   // System channels
   SYSTEM_GET_PLATFORM: 'system:getPlatform',

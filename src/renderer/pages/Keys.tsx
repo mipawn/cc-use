@@ -38,6 +38,7 @@ import {
   FireOutlined,
   CopyOutlined,
   DollarOutlined,
+  CloudDownloadOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -120,6 +121,7 @@ export default function Keys() {
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
   const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
+  const [syncingPricingIds, setSyncingPricingIds] = useState<Set<string>>(new Set())
 
   // Cost stats per key (today and total)
   const [keyCostStats, setKeyCostStats] = useState<
@@ -287,6 +289,28 @@ export default function Keys() {
     }
   }
 
+  // Handle sync pricing
+  const handleSyncPricing = async (providerId: string) => {
+    setSyncingPricingIds((prev) => new Set(prev).add(providerId))
+    try {
+      const result = await window.api.provider.syncPricing(providerId)
+      if (result.error) {
+        message.error(result.error)
+      } else {
+        message.success(t('keys.syncPricingSuccess', { count: result.count }))
+        fetchProviders()
+      }
+    } catch (error) {
+      message.error(t('keys.syncPricingFailed'))
+    } finally {
+      setSyncingPricingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(providerId)
+        return next
+      })
+    }
+  }
+
   // Handle key actions
   const handleToggleKey = async (key: ApiKey, active: boolean) => {
     try {
@@ -411,6 +435,7 @@ export default function Keys() {
     value: string
     types: ProviderType[]
     config?: Record<string, unknown>
+    costMultiplier?: number
     usageType?: 'none' | 'newapi' | 'custom'
     usageUrl?: string
     usagePath?: string
@@ -423,6 +448,7 @@ export default function Keys() {
         value: input.value,
         types: input.types,
         config: input.config,
+        costMultiplier: input.costMultiplier,
         usageType: input.usageType,
         usageUrl: input.usageUrl,
         usagePath: input.usagePath,
@@ -435,6 +461,7 @@ export default function Keys() {
         value: input.value,
         types: input.types,
         config: input.config,
+        costMultiplier: input.costMultiplier,
         usageType: input.usageType,
         usageUrl: input.usageUrl,
         usagePath: input.usagePath,
@@ -517,8 +544,24 @@ export default function Keys() {
                           ${balance.toFixed(2)}
                         </Tag>
                       )}
+                      {provider.lastPricingSyncedAt && provider.cachedModelPricing && (
+                        <Tooltip title={`${t('keys.syncPricing')} - ${new Date(provider.lastPricingSyncedAt).toLocaleString()}`}>
+                          <Tag color='green'>
+                            {t('keys.pricingSynced', { count: Object.keys(provider.cachedModelPricing).length })}
+                          </Tag>
+                        </Tooltip>
+                      )}
                     </div>
                     <Space size={8}>
+                      <Tooltip title={t('keys.syncPricing')}>
+                        <Button
+                          type='text'
+                          size='small'
+                          icon={<CloudDownloadOutlined spin={syncingPricingIds.has(provider.id)} />}
+                          onClick={() => handleSyncPricing(provider.id)}
+                          disabled={syncingPricingIds.has(provider.id)}
+                        />
+                      </Tooltip>
                       {provider.walletBalanceType !== 'none' && (
                         <Tooltip title={t('providers.refreshBalance')}>
                           <Button

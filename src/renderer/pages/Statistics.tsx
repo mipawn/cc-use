@@ -3,7 +3,7 @@
  * 展示 API 请求费用、Top 10 排行、费用趋势、最近请求
  */
 import { useEffect, useState } from 'react'
-import { Typography, Card, Segmented, Table, Tag, Spin, theme, Space, Statistic } from 'antd'
+import { Typography, Card, Segmented, Table, Tag, Spin, theme, Space, Statistic, Button } from 'antd'
 import {
   DollarOutlined,
   ThunderboltOutlined,
@@ -14,10 +14,12 @@ import {
   CloudServerOutlined,
   FolderOutlined,
   RobotOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { CostStatistics, StatsTimeRange } from '@shared/types'
+import ModelPricingModal from '../components/common/ModelPricingModal'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
@@ -40,6 +42,7 @@ export default function Statistics() {
   const [stats, setStats] = useState<CostStatistics | null>(null)
   const [loading, setLoading] = useState(true)
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
+  const [pricingModalOpen, setPricingModalOpen] = useState(false)
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -196,6 +199,13 @@ export default function Statistics() {
           </Title>
           <Text type='secondary'>{t('statistics.subtitle')}</Text>
         </div>
+        <Button
+          icon={<SettingOutlined />}
+          onClick={() => setPricingModalOpen(true)}
+          size='large'
+        >
+          {t('modelPricing.editPricing')}
+        </Button>
       </div>
 
       {/* Time Range Filter */}
@@ -455,6 +465,9 @@ export default function Statistics() {
           )}
         </SimpleBar>
       </div>
+
+      {/* Model Pricing Modal */}
+      <ModelPricingModal open={pricingModalOpen} onClose={() => setPricingModalOpen(false)} />
     </div>
   )
 }

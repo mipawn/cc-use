@@ -231,6 +231,19 @@ export function initDatabase() {
     sqlite.exec(`ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT`)
   } catch {}
 
+  // Migration: Add cost_multiplier to api_keys table (key-level cost multiplier)
+  try {
+    sqlite.exec(`ALTER TABLE api_keys ADD COLUMN cost_multiplier REAL DEFAULT 1`)
+  } catch {}
+
+  // Migration: Add cached model pricing columns to providers table
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN cached_model_pricing TEXT`)
+  } catch {}
+  try {
+    sqlite.exec(`ALTER TABLE providers ADD COLUMN last_pricing_synced_at TEXT`)
+  } catch {}
+
   // Create proxy_sessions table to persist sessions across process restarts
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS proxy_sessions (
