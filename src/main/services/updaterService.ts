@@ -37,8 +37,8 @@ export function cleanupOldUpdates(): void {
   try {
     const files = fs.readdirSync(cacheDir)
     for (const file of files) {
-      // Extract version from filename like "CC Use-1.0.0-mac-arm64.dmg"
-      const versionMatch = file.match(/CC[- ]Use[- ](\d+\.\d+\.\d+)/i)
+      // Extract version from filename like "CC Use-1.0.0-mac-arm64.dmg" or "CC.Use-1.0.0-mac-arm64.dmg"
+      const versionMatch = file.match(/CC[.\- ]Use[.\- ](\d+\.\d+\.\d+)/i)
       if (versionMatch) {
         const fileVersion = versionMatch[1]
         if (compareVersions(currentVersion, fileVersion) >= 0) {
@@ -101,6 +101,10 @@ export function clearUpdatesCache(): number {
 
 export function setUpdaterWindow(win: BrowserWindow) {
   mainWindow = win
+
+  autoUpdater.on('error', (err) => {
+    console.error('autoUpdater error:', err)
+  })
 
   autoUpdater.on('download-progress', (progress) => {
     const info: UpdateProgressInfo = {
@@ -184,6 +188,15 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
       const hasUpdate = compareVersions(latestVersion, currentVersion) > 0
       if (hasUpdate) {
         useElectronUpdater = true
+        // Also prepare fallback download URL via GitHub API
+        // in case electron-updater download fails (e.g. unsigned app on macOS)
+        try {
+          await checkForUpdatesViaGitHub(currentVersion)
+          // cachedDownloadUrl is set inside checkForUpdatesViaGitHub
+          console.log('Fallback download URL prepared:', cachedDownloadUrl)
+        } catch {
+          console.warn('Failed to prepare fallback download URL')
+        }
       }
       return {
         hasUpdate,
@@ -191,9 +204,7 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
         latestVersion,
         releaseUrl: `https://github.com/mipawn/cc-use/releases/tag/v${latestVersion}`,
         releaseNotes:
-          typeof result.updateInfo.releaseNotes === 'string'
-            ? result.updateInfo.releaseNotes
-            : '',
+          typeof result.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : '',
       }
     }
     return {
@@ -252,17 +263,32 @@ async function checkForUpdatesViaGitHub(currentVersion: string): Promise<UpdateC
 }
 
 export async function downloadUpdate(): Promise<void> {
-  // If electron-updater check succeeded, use it
+  // If electron-updater check succeeded, try it first with a timeout
   if (useElectronUpdater) {
     try {
-      await autoUpdater.downloadUpdate()
+      const DOWNLOAD_TIMEOUT = 5 * 60 * 1000 // 5 minutes timeout
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('electron-updater download timeout')), DOWNLOAD_TIMEOUT),
+      )
+      await Promise.race([autoUpdater.downloadUpdate(), timeoutPromise])
       return
-    } catch {
+    } catch (err) {
+      console.warn('electron-updater download failed, falling back to manual download:', err)
       // Fall through to manual download
     }
   }
 
   // Manual download using cached URL
+  if (!cachedDownloadUrl) {
+    // Last resort: try to fetch download URL from GitHub API
+    try {
+      const currentVersion = app.getVersion()
+      await checkForUpdatesViaGitHub(currentVersion)
+    } catch {
+      // Ignore
+    }
+  }
+
   if (!cachedDownloadUrl) {
     throw new Error('No download URL available')
   }
@@ -294,7 +320,11 @@ async function manualDownload(url: string): Promise<string> {
 
       const req = https.get(options, (response) => {
         // Handle redirects (GitHub uses 302)
-        if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307) {
+        if (
+          response.statusCode === 301 ||
+          response.statusCode === 302 ||
+          response.statusCode === 307
+        ) {
           const redirectUrl = response.headers.location
           if (redirectUrl) {
             console.log('Redirecting to:', redirectUrl)

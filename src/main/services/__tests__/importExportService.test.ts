@@ -12,9 +12,9 @@ describe('importExportService', () => {
             name: 'Test Provider',
             type: 'claude',
             baseUrl: 'https://api.example.com',
-            apiKeys: []
-          }
-        ]
+            apiKeys: [],
+          },
+        ],
       }
       expect(validateExportData(validData)).toBe(true)
     })
@@ -28,15 +28,15 @@ describe('importExportService', () => {
             name: 'Provider 1',
             type: 'claude',
             baseUrl: 'https://api1.example.com',
-            apiKeys: [{ alias: 'Key 1', value: 'sk-xxx', priority: 0 }]
+            apiKeys: [{ alias: 'Key 1', value: 'sk-xxx', priority: 0 }],
           },
           {
             name: 'Provider 2',
             type: 'codex',
             baseUrl: 'https://api2.example.com',
-            apiKeys: []
-          }
-        ]
+            apiKeys: [],
+          },
+        ],
       }
       expect(validateExportData(validData)).toBe(true)
     })
@@ -57,7 +57,7 @@ describe('importExportService', () => {
     it('should return false for missing version', () => {
       const data = {
         exportedAt: '2025-02-04T12:00:00Z',
-        providers: []
+        providers: [],
       }
       expect(validateExportData(data)).toBe(false)
     })
@@ -65,7 +65,7 @@ describe('importExportService', () => {
     it('should return false for missing providers array', () => {
       const data = {
         version: '1.0',
-        exportedAt: '2025-02-04T12:00:00Z'
+        exportedAt: '2025-02-04T12:00:00Z',
       }
       expect(validateExportData(data)).toBe(false)
     })
@@ -74,7 +74,7 @@ describe('importExportService', () => {
       const data = {
         version: '1.0',
         exportedAt: '2025-02-04T12:00:00Z',
-        providers: 'not-an-array'
+        providers: 'not-an-array',
       }
       expect(validateExportData(data)).toBe(false)
     })
@@ -87,9 +87,9 @@ describe('importExportService', () => {
           {
             type: 'claude',
             baseUrl: 'https://api.example.com',
-            apiKeys: []
-          }
-        ]
+            apiKeys: [],
+          },
+        ],
       }
       expect(validateExportData(data)).toBe(false)
     })
@@ -102,9 +102,9 @@ describe('importExportService', () => {
           {
             name: 'Test Provider',
             type: 'claude',
-            apiKeys: []
-          }
-        ]
+            apiKeys: [],
+          },
+        ],
       }
       expect(validateExportData(data)).toBe(false)
     })
@@ -113,7 +113,7 @@ describe('importExportService', () => {
       const data = {
         version: '1.0',
         exportedAt: '2025-02-04T12:00:00Z',
-        providers: []
+        providers: [],
       }
       expect(validateExportData(data)).toBe(true)
     })

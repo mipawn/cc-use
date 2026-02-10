@@ -3,17 +3,7 @@
  * 展示 API 请求费用、Top 10 排行、费用趋势、最近请求
  */
 import { useEffect, useState } from 'react'
-import {
-  Typography,
-  Card,
-  Segmented,
-  Table,
-  Tag,
-  Spin,
-  theme,
-  Space,
-  Statistic,
-} from 'antd'
+import { Typography, Card, Segmented, Table, Tag, Spin, theme, Space, Statistic } from 'antd'
 import {
   DollarOutlined,
   ThunderboltOutlined,
@@ -201,12 +191,10 @@ export default function Statistics() {
       {/* Header */}
       <div className={styles.header}>
         <div>
-          <Title level={3} className="!m-0 !mb-1">
+          <Title level={3} className='!m-0 !mb-1'>
             {t('statistics.title')}
           </Title>
-          <Text type="secondary">
-            {t('statistics.subtitle')}
-          </Text>
+          <Text type='secondary'>{t('statistics.subtitle')}</Text>
         </div>
       </div>
 
@@ -225,13 +213,13 @@ export default function Statistics() {
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
           {loading ? (
             <div className={styles.loadingState}>
-              <Spin size="large" />
+              <Spin size='large' />
             </div>
           ) : hasData ? (
             <div className={styles.statsContent}>
               {/* Summary Cards */}
               <div className={styles.summaryRow}>
-                <Card className={styles.summaryCard} variant="outlined">
+                <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
                     title={t('statistics.totalCost')}
                     value={stats!.summary.totalCostUsd}
@@ -240,14 +228,14 @@ export default function Statistics() {
                     formatter={(v) => `$${Number(v).toFixed(4)}`}
                   />
                 </Card>
-                <Card className={styles.summaryCard} variant="outlined">
+                <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
                     title={t('statistics.totalRequests')}
                     value={stats!.summary.totalRequests}
                     prefix={<ThunderboltOutlined style={{ color: token.colorPrimary }} />}
                   />
                 </Card>
-                <Card className={styles.summaryCard} variant="outlined">
+                <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
                     title={t('statistics.totalTokens')}
                     value={stats!.summary.totalInputTokens + stats!.summary.totalOutputTokens}
@@ -255,11 +243,11 @@ export default function Statistics() {
                     formatter={(v) => formatTokens(Number(v))}
                   />
                 </Card>
-                <Card className={styles.summaryCard} variant="outlined">
+                <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
                     title={t('statistics.avgLatency')}
                     value={stats!.summary.avgLatencyMs || 0}
-                    suffix="ms"
+                    suffix='ms'
                     precision={0}
                     prefix={<FieldTimeOutlined style={{ color: token.colorSuccess }} />}
                   />
@@ -270,7 +258,7 @@ export default function Statistics() {
               {stats!.dailyTrend.length > 0 && (
                 <Card
                   className={styles.trendCard}
-                  variant="outlined"
+                  variant='outlined'
                   title={
                     <Space>
                       <BarChartOutlined style={{ color: token.colorPrimary }} />
@@ -287,7 +275,16 @@ export default function Statistics() {
                           onMouseEnter={() => setHoveredBar(i)}
                           onMouseLeave={() => setHoveredBar(null)}
                         >
-                          <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', width: '100%', justifyContent: 'center', position: 'relative' }}>
+                          <div
+                            style={{
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'flex-end',
+                              width: '100%',
+                              justifyContent: 'center',
+                              position: 'relative',
+                            }}
+                          >
                             <div
                               className={styles.trendBar}
                               style={{
@@ -313,7 +310,7 @@ export default function Statistics() {
                     </div>
                   ) : (
                     <div className={styles.trendEmpty}>
-                      <Text type="secondary">{t('statistics.noData')}</Text>
+                      <Text type='secondary'>{t('statistics.noData')}</Text>
                     </div>
                   )}
                 </Card>
@@ -323,7 +320,7 @@ export default function Statistics() {
               <div className={styles.tablesGrid}>
                 <Card
                   className={styles.tableCard}
-                  variant="outlined"
+                  variant='outlined'
                   title={
                     <Space>
                       <KeyOutlined style={{ color: token.colorPrimary }} />
@@ -332,10 +329,14 @@ export default function Statistics() {
                   }
                 >
                   <Table
-                    dataSource={stats!.topKeys.map((k) => ({ ...k, name: k.keyAlias, key: k.keyId }))}
+                    dataSource={stats!.topKeys.map((k) => ({
+                      ...k,
+                      name: k.keyAlias,
+                      key: k.keyId,
+                    }))}
                     columns={makeTopColumns(t('statistics.key'))}
-                    rowKey="keyId"
-                    size="small"
+                    rowKey='keyId'
+                    size='small'
                     pagination={false}
                     scroll={{ y: 240 }}
                   />
@@ -343,7 +344,7 @@ export default function Statistics() {
 
                 <Card
                   className={styles.tableCard}
-                  variant="outlined"
+                  variant='outlined'
                   title={
                     <Space>
                       <CloudServerOutlined style={{ color: token.colorPrimary }} />
@@ -352,10 +353,14 @@ export default function Statistics() {
                   }
                 >
                   <Table
-                    dataSource={stats!.topProviders.map((p) => ({ ...p, name: p.providerName, key: p.providerId }))}
+                    dataSource={stats!.topProviders.map((p) => ({
+                      ...p,
+                      name: p.providerName,
+                      key: p.providerId,
+                    }))}
                     columns={makeTopColumns(t('statistics.provider'))}
-                    rowKey="providerId"
-                    size="small"
+                    rowKey='providerId'
+                    size='small'
                     pagination={false}
                     scroll={{ y: 240 }}
                   />
@@ -366,7 +371,7 @@ export default function Statistics() {
               <div className={styles.tablesGrid}>
                 <Card
                   className={styles.tableCard}
-                  variant="outlined"
+                  variant='outlined'
                   title={
                     <Space>
                       <FolderOutlined style={{ color: token.colorPrimary }} />
@@ -375,10 +380,14 @@ export default function Statistics() {
                   }
                 >
                   <Table
-                    dataSource={stats!.topProjects.map((p) => ({ ...p, name: p.projectName, key: p.projectId }))}
+                    dataSource={stats!.topProjects.map((p) => ({
+                      ...p,
+                      name: p.projectName,
+                      key: p.projectId,
+                    }))}
                     columns={makeTopColumns(t('statistics.project'))}
-                    rowKey="projectId"
-                    size="small"
+                    rowKey='projectId'
+                    size='small'
                     pagination={false}
                     scroll={{ y: 240 }}
                   />
@@ -386,7 +395,7 @@ export default function Statistics() {
 
                 <Card
                   className={styles.tableCard}
-                  variant="outlined"
+                  variant='outlined'
                   title={
                     <Space>
                       <RobotOutlined style={{ color: token.colorPrimary }} />
@@ -395,10 +404,14 @@ export default function Statistics() {
                   }
                 >
                   <Table
-                    dataSource={stats!.topModels.map((m) => ({ ...m, name: m.model, key: m.model }))}
+                    dataSource={stats!.topModels.map((m) => ({
+                      ...m,
+                      name: m.model,
+                      key: m.model,
+                    }))}
                     columns={makeTopColumns(t('statistics.model'))}
-                    rowKey="model"
-                    size="small"
+                    rowKey='model'
+                    size='small'
                     pagination={false}
                     scroll={{ y: 240 }}
                   />
@@ -408,7 +421,7 @@ export default function Statistics() {
               {/* Recent Requests */}
               <Card
                 className={styles.recentCard}
-                variant="outlined"
+                variant='outlined'
                 title={
                   <Space>
                     <BarChartOutlined style={{ color: token.colorPrimary }} />
@@ -419,23 +432,23 @@ export default function Statistics() {
                 <Table
                   dataSource={stats!.recentRequests}
                   columns={recentColumns}
-                  rowKey="id"
-                  size="small"
+                  rowKey='id'
+                  size='small'
                   pagination={{ pageSize: 10 }}
                   scroll={{ x: 1000 }}
                 />
               </Card>
             </div>
           ) : (
-            <Card className="empty-state" variant="outlined">
+            <Card className='empty-state' variant='outlined'>
               <BarChartOutlined
-                className="text-5xl mb-4"
+                className='text-5xl mb-4'
                 style={{ color: token.colorTextSecondary }}
               />
-              <Title level={4} className="!mb-2">
+              <Title level={4} className='!mb-2'>
                 {t('statistics.noData')}
               </Title>
-              <Text type="secondary" className="block">
+              <Text type='secondary' className='block'>
                 {t('statistics.noDataHint')}
               </Text>
             </Card>

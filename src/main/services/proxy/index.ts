@@ -3,9 +3,13 @@ import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middlewar
 import type { Server } from 'http'
 import { getProvider } from '../providerService'
 import { getApiKey } from '../apiKeyService'
-import { getSession } from './sessionManager'
+import { getSession, restoreSessions } from './sessionManager'
 import { createRequestLog } from '../requestLogService'
-import { parseUsageFromResponse, parseModelFromResponse, StreamUsageAccumulator } from './usageParser'
+import {
+  parseUsageFromResponse,
+  parseModelFromResponse,
+  StreamUsageAccumulator,
+} from './usageParser'
 import { execSync } from 'child_process'
 
 const DEFAULT_PORT = 12345
@@ -17,12 +21,17 @@ let lastError: string | null = null
 async function killProcessOnPort(port: number): Promise<void> {
   try {
     if (process.platform === 'darwin' || process.platform === 'linux') {
-      execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' })
+      execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, {
+        stdio: 'ignore',
+      })
     } else if (process.platform === 'win32') {
-      execSync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /PID %P /F 2>nul`, { stdio: 'ignore', shell: 'cmd.exe' })
+      execSync(
+        `FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /PID %P /F 2>nul`,
+        { stdio: 'ignore', shell: 'cmd.exe' },
+      )
     }
     // Give OS time to release the port
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 500))
   } catch {
     // Ignore errors - port might not be in use
   }
@@ -50,6 +59,9 @@ export async function startProxy(): Promise<void> {
     return
   }
 
+  // Restore sessions from database so terminals launched before a restart keep working
+  restoreSessions()
+
   // Try to kill any process holding the port from a previous session
   await killProcessOnPort(DEFAULT_PORT)
 
@@ -59,7 +71,9 @@ export async function startProxy(): Promise<void> {
   app.use('/', async (req: Request, res: Response, next: NextFunction) => {
     requestCount++
     const startTime = Date.now()
-    console.log(`[Proxy] Incoming: ${req.method} ${req.url}, auth=${req.headers['authorization']}, x-api-key=${req.headers['x-api-key']}`)
+    console.log(
+      `[Proxy] Incoming: ${req.method} ${req.url}, auth=${req.headers['authorization']}, x-api-key=${req.headers['x-api-key']}`,
+    )
 
     // Get authorization header - try both Authorization and x-api-key
     const authHeader = req.headers['authorization'] as string
@@ -87,7 +101,9 @@ export async function startProxy(): Promise<void> {
 
     // Get session
     const session = getSession(sessionToken)
-    console.log(`[Proxy] Session lookup: token=${sessionToken}, found=${!!session}, providerId=${session?.providerId}, apiKeyId=${session?.apiKeyId}`)
+    console.log(
+      `[Proxy] Session lookup: token=${sessionToken}, found=${!!session}, providerId=${session?.providerId}, apiKeyId=${session?.apiKeyId}`,
+    )
     if (!session) {
       res.status(401).json({
         error: 'Session not found',
@@ -116,11 +132,13 @@ export async function startProxy(): Promise<void> {
     const parsedUrl = new URL(provider.baseUrl.replace(/\/$/, ''))
     const targetOrigin = parsedUrl.origin
     const pathPrefix = parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')
-    console.log(`[Proxy] URL parsed: targetOrigin=${targetOrigin}, pathPrefix=${pathPrefix}, reqPath=${req.url}`)
+    console.log(
+      `[Proxy] URL parsed: targetOrigin=${targetOrigin}, pathPrefix=${pathPrefix}, reqPath=${req.url}`,
+    )
 
     // Check if this is a streaming request
-    const isStreaming = req.headers['accept']?.includes('text/event-stream') ||
-                       req.body?.stream === true
+    const isStreaming =
+      req.headers['accept']?.includes('text/event-stream') || req.body?.stream === true
 
     if (isStreaming) {
       // For streaming requests, do NOT use selfHandleResponse/responseInterceptor
@@ -137,7 +155,9 @@ export async function startProxy(): Promise<void> {
             }
             proxyReq.setHeader('Authorization', `Bearer ${apiKey.value}`)
             proxyReq.setHeader('x-api-key', apiKey.value)
-            console.log(`[Proxy] Forwarding (stream): ${proxyReq.method} ${targetOrigin}${proxyReq.path}`)
+            console.log(
+              `[Proxy] Forwarding (stream): ${proxyReq.method} ${targetOrigin}${proxyReq.path}`,
+            )
           },
           proxyRes: (proxyRes) => {
             const statusCode = proxyRes.statusCode || 500
@@ -184,7 +204,7 @@ export async function startProxy(): Promise<void> {
             console.error('Proxy error:', err)
             lastError = err.message
             if (res && 'status' in res) {
-              (res as Response).status(502).json({ error: 'Proxy error', message: err.message })
+              ;(res as Response).status(502).json({ error: 'Proxy error', message: err.message })
             }
           },
         },
@@ -245,7 +265,7 @@ export async function startProxy(): Promise<void> {
             console.error('Proxy error:', err)
             lastError = err.message
             if (res && 'status' in res) {
-              (res as Response).status(502).json({ error: 'Proxy error', message: err.message })
+              ;(res as Response).status(502).json({ error: 'Proxy error', message: err.message })
             }
           },
         },

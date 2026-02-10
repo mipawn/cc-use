@@ -157,7 +157,7 @@ export async function getTotalCost(): Promise<number> {
 export async function getCostByKey(
   keyId: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): Promise<number> {
   const db = getDatabase()
 
@@ -187,7 +187,7 @@ export async function getCostByKey(
 export async function getCostByProvider(
   providerId: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): Promise<number> {
   const db = getDatabase()
 
@@ -217,7 +217,7 @@ export async function getCostByProvider(
 export async function getCostByProject(
   projectId: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): Promise<number> {
   const db = getDatabase()
 
@@ -351,10 +351,7 @@ export interface UsageSummary {
   avgLatencyMs: number | null
 }
 
-export async function getUsageSummary(
-  startDate?: string,
-  endDate?: string
-): Promise<UsageSummary> {
+export async function getUsageSummary(startDate?: string, endDate?: string): Promise<UsageSummary> {
   const db = getDatabase()
 
   const conditions = []
@@ -395,7 +392,10 @@ export async function getUsageSummary(
 /**
  * Get date range from StatsTimeRange
  */
-function getDateRange(timeRange: StatsTimeRange): { startDate: string | undefined; endDate: string | undefined } {
+function getDateRange(timeRange: StatsTimeRange): {
+  startDate: string | undefined
+  endDate: string | undefined
+} {
   const now = new Date()
 
   if (timeRange === 'all') {
@@ -430,7 +430,9 @@ function getDateRange(timeRange: StatsTimeRange): { startDate: string | undefine
 /**
  * Get usage summary by time range
  */
-export async function getUsageSummaryByTimeRange(timeRange: StatsTimeRange): Promise<CostStatsSummary> {
+export async function getUsageSummaryByTimeRange(
+  timeRange: StatsTimeRange,
+): Promise<CostStatsSummary> {
   const { startDate, endDate } = getDateRange(timeRange)
   return getUsageSummary(startDate, endDate)
 }
@@ -438,7 +440,10 @@ export async function getUsageSummaryByTimeRange(timeRange: StatsTimeRange): Pro
 /**
  * Get top keys by cost
  */
-export async function getTopKeysByCost(timeRange: StatsTimeRange, limit: number = 10): Promise<TopKeyCostItem[]> {
+export async function getTopKeysByCost(
+  timeRange: StatsTimeRange,
+  limit: number = 10,
+): Promise<TopKeyCostItem[]> {
   const db = getDatabase()
   const { startDate, endDate } = getDateRange(timeRange)
 
@@ -476,7 +481,10 @@ export async function getTopKeysByCost(timeRange: StatsTimeRange, limit: number 
 /**
  * Get top providers by cost
  */
-export async function getTopProvidersByCost(timeRange: StatsTimeRange, limit: number = 10): Promise<TopProviderCostItem[]> {
+export async function getTopProvidersByCost(
+  timeRange: StatsTimeRange,
+  limit: number = 10,
+): Promise<TopProviderCostItem[]> {
   const db = getDatabase()
   const { startDate, endDate } = getDateRange(timeRange)
 
@@ -511,7 +519,10 @@ export async function getTopProvidersByCost(timeRange: StatsTimeRange, limit: nu
 /**
  * Get top projects by cost
  */
-export async function getTopProjectsByCost(timeRange: StatsTimeRange, limit: number = 10): Promise<TopProjectCostItem[]> {
+export async function getTopProjectsByCost(
+  timeRange: StatsTimeRange,
+  limit: number = 10,
+): Promise<TopProjectCostItem[]> {
   const db = getDatabase()
   const { startDate, endDate } = getDateRange(timeRange)
 
@@ -546,7 +557,10 @@ export async function getTopProjectsByCost(timeRange: StatsTimeRange, limit: num
 /**
  * Get top models by cost
  */
-export async function getTopModelsByCost(timeRange: StatsTimeRange, limit: number = 10): Promise<TopModelCostItem[]> {
+export async function getTopModelsByCost(
+  timeRange: StatsTimeRange,
+  limit: number = 10,
+): Promise<TopModelCostItem[]> {
   const db = getDatabase()
   const { startDate, endDate } = getDateRange(timeRange)
 
@@ -578,7 +592,9 @@ export async function getTopModelsByCost(timeRange: StatsTimeRange, limit: numbe
 /**
  * Get daily cost trend by time range
  */
-export async function getDailyCostTrendByTimeRange(timeRange: StatsTimeRange): Promise<DailyCostTrendItem[]> {
+export async function getDailyCostTrendByTimeRange(
+  timeRange: StatsTimeRange,
+): Promise<DailyCostTrendItem[]> {
   const { startDate } = getDateRange(timeRange)
 
   const db = getDatabase()
@@ -610,7 +626,9 @@ export async function getDailyCostTrendByTimeRange(timeRange: StatsTimeRange): P
 /**
  * Get recent request logs with readable names
  */
-export async function getRecentRequestLogsWithNames(limit: number = 20): Promise<RecentRequestLogDisplay[]> {
+export async function getRecentRequestLogsWithNames(
+  limit: number = 20,
+): Promise<RecentRequestLogDisplay[]> {
   const db = getDatabase()
 
   const result = await db
@@ -653,15 +671,16 @@ export async function getRecentRequestLogsWithNames(limit: number = 20): Promise
  * Get cost statistics for Statistics page (aggregated)
  */
 export async function getCostStatistics(timeRange: StatsTimeRange): Promise<CostStatistics> {
-  const [summary, topKeys, topProviders, topProjects, topModels, dailyTrend, recentRequests] = await Promise.all([
-    getUsageSummaryByTimeRange(timeRange),
-    getTopKeysByCost(timeRange, 10),
-    getTopProvidersByCost(timeRange, 10),
-    getTopProjectsByCost(timeRange, 10),
-    getTopModelsByCost(timeRange, 10),
-    getDailyCostTrendByTimeRange(timeRange),
-    getRecentRequestLogsWithNames(20),
-  ])
+  const [summary, topKeys, topProviders, topProjects, topModels, dailyTrend, recentRequests] =
+    await Promise.all([
+      getUsageSummaryByTimeRange(timeRange),
+      getTopKeysByCost(timeRange, 10),
+      getTopProvidersByCost(timeRange, 10),
+      getTopProjectsByCost(timeRange, 10),
+      getTopModelsByCost(timeRange, 10),
+      getDailyCostTrendByTimeRange(timeRange),
+      getRecentRequestLogsWithNames(20),
+    ])
 
   return {
     summary,

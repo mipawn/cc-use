@@ -39,9 +39,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   updateProject: async (input) => {
     const project = await window.api.project.update(input)
     set({
-      projects: get().projects.map((p) =>
-        p.id === project.id ? project : p
-      ),
+      projects: get().projects.map((p) => (p.id === project.id ? project : p)),
     })
     return project
   },

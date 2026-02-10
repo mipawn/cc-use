@@ -116,7 +116,9 @@ export function initDatabase() {
 
   // Migration: Add api_key_id and terminal_type to projects table
   try {
-    sqlite.exec(`ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL`)
+    sqlite.exec(
+      `ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL`,
+    )
   } catch {}
   try {
     sqlite.exec(`ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'`)
@@ -144,7 +146,9 @@ export function initDatabase() {
   try {
     sqlite.exec(`ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '["claude"]'`)
     // Migrate existing type to types array
-    sqlite.exec(`UPDATE api_keys SET types = '["' || COALESCE(type, 'claude') || '"]' WHERE types = '["claude"]' AND type IS NOT NULL AND type != 'claude'`)
+    sqlite.exec(
+      `UPDATE api_keys SET types = '["' || COALESCE(type, 'claude') || '"]' WHERE types = '["claude"]' AND type IS NOT NULL AND type != 'claude'`,
+    )
   } catch {}
 
   // Migration: Add cli_type to projects table
@@ -226,6 +230,17 @@ export function initDatabase() {
   try {
     sqlite.exec(`ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT`)
   } catch {}
+
+  // Create proxy_sessions table to persist sessions across process restarts
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS proxy_sessions (
+      session_token TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      api_key_id TEXT NOT NULL,
+      project_id TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
 
   return db
 }

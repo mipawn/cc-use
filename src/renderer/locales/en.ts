@@ -28,6 +28,7 @@ export default {
     daysAgo: 'days ago',
     current: 'Current',
     copy: 'Copy',
+    copied: 'Copied',
   },
   settings: {
     title: 'Settings',
@@ -144,7 +145,8 @@ export default {
     refreshBalance: 'Refresh Balance',
     refreshBalanceFailed: 'Failed to refresh balance',
     deleteProvider: 'Delete Provider',
-    deleteProviderConfirm: 'Are you sure you want to delete this provider? All associated API keys will also be deleted.',
+    deleteProviderConfirm:
+      'Are you sure you want to delete this provider? All associated API keys will also be deleted.',
     lastChecked: 'Last checked',
     providerUpdated: 'Provider updated',
     providerCreated: 'Provider created',
@@ -185,7 +187,8 @@ export default {
     importJson: 'Import JSON',
     jsonPlaceholder: 'Paste JSON configuration, supports single object or array for batch import',
     jsonSyncHint: 'baseUrl and token will sync with the form',
-    newapiHint: 'NewAPI mode uses the Access Token above to query account balance. Fill in User ID for accurate account-level balance',
+    newapiHint:
+      'NewAPI mode uses the Access Token above to query account balance. Fill in User ID for accurate account-level balance',
     newapiUserId: 'NewAPI User ID',
     newapiUserIdPlaceholder: 'Find in NewAPI dashboard personal settings, e.g. 1',
     curlHint: 'You can paste curl command or JSON format headers',
@@ -320,7 +323,8 @@ export default {
     jsonEditHint: 'Changes in JSON will override global config, only differences are saved',
     noProvider: 'Please add a provider first',
     localConfig: 'Local Config',
-    localConfigHint: 'This configuration only applies to the current key and overrides global config fields with the same name',
+    localConfigHint:
+      'This configuration only applies to the current key and overrides global config fields with the same name',
     configPreview: 'Final Config Preview',
     envVars: 'Environment Variables',
     mergedConfig: 'Merged Config',
@@ -347,6 +351,7 @@ export default {
     totalCost: 'Total',
     unnamedKey: 'Unnamed Key',
     copyCommand: 'Copy Command',
+    copyKey: 'Copy Key',
     visitWebsite: 'Visit Website',
     selectCommandType: 'Select Command Type',
     commandList: 'Terminal Commands',

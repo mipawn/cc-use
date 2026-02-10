@@ -4,15 +4,7 @@
  * 每个 tab 独立保存
  */
 import { useState, useEffect } from 'react'
-import {
-  Modal,
-  Typography,
-  Input,
-  Segmented,
-  Space,
-  Button,
-  theme,
-} from 'antd'
+import { Modal, Typography, Input, Segmented, Space, Button, theme } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import { SaveOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -29,10 +21,7 @@ interface GlobalConfigModalProps {
   onClose: () => void
 }
 
-export default function GlobalConfigModal({
-  open,
-  onClose,
-}: GlobalConfigModalProps) {
+export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalProps) {
   const { t } = useTranslation()
   const message = useAppMessage()
   const { token } = theme.useToken()
@@ -132,8 +121,9 @@ export default function GlobalConfigModal({
     >
       <SimpleBar style={{ maxHeight: 'calc(80vh - 160px)' }}>
         <div className={styles.content}>
-          <Text type="secondary" className={styles.subtitle}>
-            {t('globalConfig.subtitle') || '配置 CLI 工具的默认参数，将应用于所有使用对应类型的密钥'}
+          <Text type='secondary' className={styles.subtitle}>
+            {t('globalConfig.subtitle') ||
+              '配置 CLI 工具的默认参数，将应用于所有使用对应类型的密钥'}
           </Text>
 
           {/* Type Selector */}
@@ -178,19 +168,19 @@ export default function GlobalConfigModal({
                 onChange={(e) => handleClaudeChange(e.target.value)}
                 className={`${styles.jsonEditor} ${claudeError ? styles.jsonEditorError : ''}`}
                 autoSize={{ minRows: 10, maxRows: 18 }}
-                placeholder="{}"
+                placeholder='{}'
               />
               {claudeError && (
-                <Text type="danger" className={styles.errorText}>
+                <Text type='danger' className={styles.errorText}>
                   {claudeError}
                 </Text>
               )}
               <div className={styles.editorFooter}>
-                <Text type="secondary" className={styles.editorHint}>
+                <Text type='secondary' className={styles.editorHint}>
                   {t('globalConfig.jsonConfigHint') || '配置将应用于所有 Claude Code 类型的密钥'}
                 </Text>
                 <Button
-                  type="primary"
+                  type='primary'
                   icon={<SaveOutlined />}
                   loading={claudeSaving}
                   onClick={handleSaveClaude}
@@ -209,19 +199,19 @@ export default function GlobalConfigModal({
                 onChange={(e) => handleCodexChange(e.target.value)}
                 className={`${styles.jsonEditor} ${codexError ? styles.jsonEditorError : ''}`}
                 autoSize={{ minRows: 10, maxRows: 18 }}
-                placeholder="{}"
+                placeholder='{}'
               />
               {codexError && (
-                <Text type="danger" className={styles.errorText}>
+                <Text type='danger' className={styles.errorText}>
                   {codexError}
                 </Text>
               )}
               <div className={styles.editorFooter}>
-                <Text type="secondary" className={styles.editorHint}>
+                <Text type='secondary' className={styles.editorHint}>
                   {t('globalConfig.jsonConfigHint') || '配置将应用于所有 Codex CLI 类型的密钥'}
                 </Text>
                 <Button
-                  type="primary"
+                  type='primary'
                   icon={<SaveOutlined />}
                   loading={codexSaving}
                   onClick={handleSaveCodex}

@@ -98,11 +98,7 @@ export default function RecentProjects({
               <Space size={4} className={styles.projectTags}>
                 {project.providerId ? (
                   <>
-                    <Tag
-                      icon={<CloudServerOutlined />}
-                      color="blue"
-                      className={styles.smallTag}
-                    >
+                    <Tag icon={<CloudServerOutlined />} color='blue' className={styles.smallTag}>
                       {getProviderName(project.providerId)}
                     </Tag>
                     {project.apiKeyId && (
@@ -112,21 +108,17 @@ export default function RecentProjects({
                     )}
                   </>
                 ) : (
-                  <Tag
-                    icon={<WarningOutlined />}
-                    color="warning"
-                    className={styles.smallTag}
-                  >
+                  <Tag icon={<WarningOutlined />} color='warning' className={styles.smallTag}>
                     {t('projects.noProvider') || '未配置'}
                   </Tag>
                 )}
               </Space>
             </div>
             <div className={styles.projectMeta}>
-              <Text type="secondary" className={styles.projectPath}>
+              <Text type='secondary' className={styles.projectPath}>
                 {project.path}
               </Text>
-              <Text type="secondary" className={styles.projectTime}>
+              <Text type='secondary' className={styles.projectTime}>
                 {formatDate(project.lastOpenedAt)}
               </Text>
             </div>
@@ -134,8 +126,8 @@ export default function RecentProjects({
 
           <div className={styles.projectActions}>
             <Button
-              type="primary"
-              size="small"
+              type='primary'
+              size='small'
               icon={<PlayCircleOutlined />}
               onClick={() => onOpen(project)}
               className={styles.openBtn}
@@ -150,12 +142,7 @@ export default function RecentProjects({
               cancelText={t('common.cancel')}
               okButtonProps={{ danger: true }}
             >
-              <Button
-                type="text"
-                danger
-                size="small"
-                icon={<DeleteOutlined />}
-              />
+              <Button type='text' danger size='small' icon={<DeleteOutlined />} />
             </Popconfirm>
           </div>
         </div>

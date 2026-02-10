@@ -1,18 +1,64 @@
 // Provider types - only claude and codex are supported
 export type ProviderType = 'claude' | 'codex'
-export type PresetIcon = 'claude' | 'codex' | 'gemini' | 'zhipu' | 'minimax' | 'xiaomi' | 'deepseek' | 'custom'
+export type PresetIcon =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'zhipu'
+  | 'minimax'
+  | 'xiaomi'
+  | 'deepseek'
+  | 'custom'
 
 // Terminal types
 export type TerminalType = 'iterm2' | 'terminal' | 'wt' | 'powershell' | 'cmd'
 
+// Terminal type display labels
+export const TERMINAL_TYPE_LABELS: Record<TerminalType, string> = {
+  iterm2: 'iTerm2',
+  terminal: 'Terminal (macOS)',
+  wt: 'Windows Terminal',
+  powershell: 'PowerShell',
+  cmd: 'CMD',
+}
+
+// Check if a terminal type uses Windows-style commands
+export function isWindowsTerminal(terminalType: TerminalType): boolean {
+  return terminalType === 'cmd' || terminalType === 'powershell' || terminalType === 'wt'
+}
+
+// Format inline env vars + command for the given terminal type
+export function formatEnvCommand(
+  envVars: Record<string, string>,
+  command: string,
+  terminalType: TerminalType,
+): string {
+  const entries = Object.entries(envVars)
+  switch (terminalType) {
+    case 'cmd': {
+      const sets = entries.map(([k, v]) => `set ${k}=${v}`)
+      return [...sets, command].join(' && ')
+    }
+    case 'powershell':
+    case 'wt': {
+      const sets = entries.map(([k, v]) => `$env:${k}="${v}"`)
+      return [...sets, command].join('; ')
+    }
+    default: {
+      const inline = entries.map(([k, v]) => `${k}="${v}"`).join(' ')
+      return `${inline} ${command}`
+    }
+  }
+}
+
 // Usage data structure (from NewAPI or custom API)
 export interface UsageData {
-  total?: number       // Total quota
-  used?: number        // Used amount
-  remaining?: number   // Remaining amount
-  unit?: string        // Unit (e.g., "USD", "tokens")
-  isUnlimited?: boolean  // Whether unlimited
-  expireAt?: string    // Expiration time
+  total?: number // Total quota
+  used?: number // Used amount
+  remaining?: number // Remaining amount
+  unit?: string // Unit (e.g., "USD", "tokens")
+  isUnlimited?: boolean // Whether unlimited
+  expireAt?: string // Expiration time
 }
 
 // Provider type configuration for environment variable injection
@@ -33,7 +79,7 @@ export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
     envKeyName: 'ANTHROPIC_API_KEY',
     envBaseUrlName: 'ANTHROPIC_BASE_URL',
     defaultBaseUrl: 'https://api.anthropic.com',
-    cliCommand: 'claude'
+    cliCommand: 'claude',
   },
   {
     type: 'codex',
@@ -41,13 +87,13 @@ export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
     envKeyName: 'OPENAI_API_KEY',
     envBaseUrlName: 'OPENAI_BASE_URL',
     defaultBaseUrl: 'https://api.openai.com',
-    cliCommand: 'codex'
-  }
+    cliCommand: 'codex',
+  },
 ]
 
 // Helper function to get provider type config
 export function getProviderTypeConfig(type: ProviderType): ProviderTypeConfig {
-  const config = PROVIDER_TYPE_CONFIGS.find(c => c.type === type)
+  const config = PROVIDER_TYPE_CONFIGS.find((c) => c.type === type)
   if (!config) {
     return PROVIDER_TYPE_CONFIGS[0] // Default to claude
   }
@@ -59,13 +105,18 @@ export function generateTerminalCommand(
   provider: { type: ProviderType; baseUrl: string },
   apiKey: string,
   useProxy: boolean = false,
-  proxyPort: number = 12345
+  proxyPort: number = 12345,
+  terminalType: TerminalType = 'iterm2',
 ): string {
   const config = getProviderTypeConfig(provider.type)
   const baseUrl = useProxy ? `http://localhost:${proxyPort}` : provider.baseUrl
   const key = useProxy ? 'proxy' : apiKey
 
-  return `export ${config.envBaseUrlName}=${baseUrl} && export ${config.envKeyName}=${key} && ${config.cliCommand}`
+  const envVars: Record<string, string> = {
+    [config.envBaseUrlName]: baseUrl,
+    [config.envKeyName]: key,
+  }
+  return formatEnvCommand(envVars, config.cliCommand, terminalType)
 }
 
 export interface Provider {
@@ -304,7 +355,13 @@ export interface UsageStats {
   uniqueProjects: number
   uniqueKeys: number
   byProject: { projectId: string; projectName: string; count: number }[]
-  byKey: { keyId: string; keyAlias: string; providerName: string; keyType: ProviderType; count: number }[]
+  byKey: {
+    keyId: string
+    keyAlias: string
+    providerName: string
+    keyType: ProviderType
+    count: number
+  }[]
   byDate: { date: string; count: number }[]
 }
 

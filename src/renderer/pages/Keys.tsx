@@ -47,7 +47,8 @@ import ProviderModal from '../components/providers/ProviderModal'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
 import type { Provider, ApiKey, ProviderType } from '@shared/types'
-import { getProviderTypeConfig } from '@shared/types'
+import { getProviderTypeConfig, formatEnvCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
+import { useSettingsStore } from '../stores/settingsStore'
 import styles from './Keys.module.css'
 
 // Import provider type icons
@@ -101,13 +102,9 @@ export default function Keys() {
     refreshBalance,
     deleteProvider,
   } = useProviderStore()
-  const {
-    apiKeys,
-    fetchAllApiKeys,
-    getAllApiKeys,
-    updateApiKey,
-    deleteApiKey,
-  } = useApiKeyStore()
+  const { apiKeys, fetchAllApiKeys, getAllApiKeys, updateApiKey, deleteApiKey } = useApiKeyStore()
+  const { globalSettings } = useSettingsStore()
+  const terminalType = globalSettings.defaultTerminalType
 
   // Filter state: 'all' or providerId
   const [activeFilter, setActiveFilter] = useState<string>('all')
@@ -125,7 +122,9 @@ export default function Keys() {
   const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
 
   // Cost stats per key (today and total)
-  const [keyCostStats, setKeyCostStats] = useState<Record<string, { todayCost: number; totalCost: number }>>({})
+  const [keyCostStats, setKeyCostStats] = useState<
+    Record<string, { todayCost: number; totalCost: number }>
+  >({})
 
   // Get all API keys
   const allApiKeys = getAllApiKeys()
@@ -150,7 +149,10 @@ export default function Keys() {
         const stats = await window.api.requestLog.getKeyCosts()
         const costMap: Record<string, { todayCost: number; totalCost: number }> = {}
         stats.forEach((item) => {
-          costMap[item.keyId] = { todayCost: item.todayCost, totalCost: item.totalCost }
+          costMap[item.keyId] = {
+            todayCost: item.todayCost,
+            totalCost: item.totalCost,
+          }
         })
         setKeyCostStats(costMap)
       } catch (error) {
@@ -303,10 +305,29 @@ export default function Keys() {
     }
   }
 
+  const handleDuplicateKey = (key: ApiKey) => {
+    // Create a copy without id, clear value so user must enter a new key
+    const duplicated = {
+      ...key,
+      id: '',
+      alias: key.alias ? `${key.alias} (copy)` : '',
+      value: '',
+    } as ApiKey
+    setEditingKey(duplicated)
+    setDefaultProviderId(key.providerId)
+    setKeyEditOpen(true)
+  }
+
   // State for copy command modal
   const [copyCommandModalOpen, setCopyCommandModalOpen] = useState(false)
-  const [copyCommandKey, setCopyCommandKey] = useState<{ provider: Provider; key: ApiKey } | null>(null)
-  const [proxyStatus, setProxyStatus] = useState<{ isRunning: boolean; port: number }>({ isRunning: false, port: 12345 })
+  const [copyCommandKey, setCopyCommandKey] = useState<{
+    provider: Provider
+    key: ApiKey
+  } | null>(null)
+  const [proxyStatus, setProxyStatus] = useState<{
+    isRunning: boolean
+    port: number
+  }>({ isRunning: false, port: 12345 })
   const [proxySessionToken, setProxySessionToken] = useState<string | null>(null)
 
   const handleCopyCommand = async (provider: Provider, key: ApiKey) => {
@@ -332,26 +353,40 @@ export default function Keys() {
     setCopyCommandModalOpen(true)
   }
 
-  // Generate command based on proxy status
-  const generateCommand = (type: ProviderType, provider: Provider, key: ApiKey, useProxy: boolean): string => {
+  // Generate command based on proxy status and terminal type
+  const generateCommand = (
+    type: ProviderType,
+    provider: Provider,
+    key: ApiKey,
+    useProxy: boolean,
+  ): string => {
     const config = getProviderTypeConfig(type)
+    const envVars: Record<string, string> = {}
 
     if (useProxy && proxyStatus.isRunning && proxySessionToken) {
-      // Use proxy: localhost + session token
       const baseUrl = `http://localhost:${proxyStatus.port}`
+      envVars[config.envBaseUrlName] = baseUrl
       if (type === 'codex') {
-        return `${config.envBaseUrlName}="${baseUrl}" ${config.envKeyName}="${proxySessionToken}" ${config.cliCommand}`
+        envVars[config.envKeyName] = proxySessionToken
       } else {
-        return `${config.envBaseUrlName}="${baseUrl}" API_TIMEOUT_MS=3000000 CLAUDE_CODE_ATTRIBUTION_HEADER=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 ANTHROPIC_AUTH_TOKEN="${proxySessionToken}" ${config.cliCommand}`
+        envVars['API_TIMEOUT_MS'] = '3000000'
+        envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
+        envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
+        envVars['ANTHROPIC_AUTH_TOKEN'] = proxySessionToken
       }
     } else {
-      // Direct: real baseUrl + real key
+      envVars[config.envBaseUrlName] = provider.baseUrl
       if (type === 'codex') {
-        return `${config.envBaseUrlName}="${provider.baseUrl}" ${config.envKeyName}="${key.value}" ${config.cliCommand}`
+        envVars[config.envKeyName] = key.value
       } else {
-        return `${config.envBaseUrlName}="${provider.baseUrl}" API_TIMEOUT_MS=3000000 CLAUDE_CODE_ATTRIBUTION_HEADER=0 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 ANTHROPIC_AUTH_TOKEN="${key.value}" ${config.cliCommand}`
+        envVars['API_TIMEOUT_MS'] = '3000000'
+        envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
+        envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
+        envVars['ANTHROPIC_AUTH_TOKEN'] = key.value
       }
     }
+
+    return formatEnvCommand(envVars, config.cliCommand, terminalType)
   }
 
   // Handle edit key
@@ -414,24 +449,20 @@ export default function Keys() {
       {/* Header - Fixed */}
       <div className={styles.header}>
         <div>
-          <Title level={3} className="!m-0 !mb-1">
+          <Title level={3} className='!m-0 !mb-1'>
             {t('keys.title') || 'API 密钥'}
           </Title>
-          <Text type="secondary">{t('keys.subtitle') || '管理您的 API 密钥和服务商'}</Text>
+          <Text type='secondary'>{t('keys.subtitle') || '管理您的 API 密钥和供应商'}</Text>
         </div>
         <Space>
-          <Button
-            icon={<GlobalOutlined />}
-            onClick={() => setGlobalConfigOpen(true)}
-            size="large"
-          >
+          <Button icon={<GlobalOutlined />} onClick={() => setGlobalConfigOpen(true)} size='large'>
             {t('globalConfig.title') || '全局配置'}
           </Button>
           <Button
-            type="primary"
+            type='primary'
             icon={<CloudServerOutlined />}
             onClick={handleAddProvider}
-            size="large"
+            size='large'
           >
             {t('providers.addProvider')}
           </Button>
@@ -451,250 +482,258 @@ export default function Keys() {
       {/* Content - Scrollable */}
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-        {/* Keys Content */}
-        {providersLoading ? (
-          <div className="empty-state">
-            <Spin size="large" />
-          </div>
-        ) : groupedKeys.length === 0 ? (
-          <Card className="empty-state" variant="outlined">
-            <KeyOutlined
-              className="text-5xl mb-4"
-              style={{ color: token.colorTextSecondary }}
-            />
-            <Title level={4} className="!mb-2">
-              {t('keys.noKeys') || '暂无密钥'}
-            </Title>
-            <Text type="secondary" className="block">
-              {t('keys.noKeysHint') || '添加服务商并配置 API 密钥以开始使用'}
-            </Text>
-          </Card>
-        ) : (
-          <div className={styles.keyGroups}>
-            {groupedKeys.map(({ provider, keys, balance }) => (
-            <div key={provider.id} className={styles.keyGroup}>
-              {/* Provider Header */}
-              <div className={styles.groupHeader}>
-                <div className={styles.groupInfo}>
-                  <Avatar
-                    src={getProviderIconSrc(provider)}
-                    size={20}
-                    style={{ background: 'transparent' }}
-                  />
-                  <Text strong className={styles.groupName}>
-                    {provider.name}
-                  </Text>
-                  {balance !== undefined && (
-                    <Tag icon={<WalletOutlined />} color="blue">
-                      ${balance.toFixed(2)}
-                    </Tag>
-                  )}
-                </div>
-                <Space size={8}>
-                  {provider.walletBalanceType !== 'none' && (
-                    <Tooltip title={t('providers.refreshBalance')}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ReloadOutlined spin={refreshingIds.has(provider.id)} />}
-                        onClick={() => handleRefreshBalance(provider.id)}
-                        disabled={refreshingIds.has(provider.id)}
+          {/* Keys Content */}
+          {providersLoading ? (
+            <div className='empty-state'>
+              <Spin size='large' />
+            </div>
+          ) : groupedKeys.length === 0 ? (
+            <Card className='empty-state' variant='outlined'>
+              <KeyOutlined className='text-5xl mb-4' style={{ color: token.colorTextSecondary }} />
+              <Title level={4} className='!mb-2'>
+                {t('keys.noKeys') || '暂无密钥'}
+              </Title>
+              <Text type='secondary' className='block'>
+                {t('keys.noKeysHint') || '添加供应商并配置 API 密钥以开始使用'}
+              </Text>
+            </Card>
+          ) : (
+            <div className={styles.keyGroups}>
+              {groupedKeys.map(({ provider, keys, balance }) => (
+                <div key={provider.id} className={styles.keyGroup}>
+                  {/* Provider Header */}
+                  <div className={styles.groupHeader}>
+                    <div className={styles.groupInfo}>
+                      <Avatar
+                        src={getProviderIconSrc(provider)}
+                        size={20}
+                        style={{ background: 'transparent' }}
                       />
-                    </Tooltip>
-                  )}
-                  <Tooltip title={t('common.settings')}>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<SettingOutlined />}
-                      onClick={() => handleEditProvider(provider)}
-                    />
-                  </Tooltip>
-                  <Popconfirm
-                    title={t('providers.deleteProvider')}
-                    description={t('providers.deleteProviderConfirm')}
-                    onConfirm={() => handleDeleteProvider(provider.id)}
-                    okText={t('common.delete')}
-                    cancelText={t('common.cancel')}
-                    okButtonProps={{ danger: true }}
-                  >
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                    />
-                  </Popconfirm>
-                </Space>
-              </div>
+                      <Text strong className={styles.groupName}>
+                        {provider.name}
+                      </Text>
+                      {balance !== undefined && (
+                        <Tag icon={<WalletOutlined />} color='blue'>
+                          ${balance.toFixed(2)}
+                        </Tag>
+                      )}
+                    </div>
+                    <Space size={8}>
+                      {provider.walletBalanceType !== 'none' && (
+                        <Tooltip title={t('providers.refreshBalance')}>
+                          <Button
+                            type='text'
+                            size='small'
+                            icon={<ReloadOutlined spin={refreshingIds.has(provider.id)} />}
+                            onClick={() => handleRefreshBalance(provider.id)}
+                            disabled={refreshingIds.has(provider.id)}
+                          />
+                        </Tooltip>
+                      )}
+                      <Tooltip title={t('common.settings')}>
+                        <Button
+                          type='text'
+                          size='small'
+                          icon={<SettingOutlined />}
+                          onClick={() => handleEditProvider(provider)}
+                        />
+                      </Tooltip>
+                      <Popconfirm
+                        title={t('providers.deleteProvider')}
+                        description={t('providers.deleteProviderConfirm')}
+                        onConfirm={() => handleDeleteProvider(provider.id)}
+                        okText={t('common.delete')}
+                        cancelText={t('common.cancel')}
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button type='text' size='small' danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </Space>
+                  </div>
 
-              {/* Keys Grid - 一排两个 */}
-              <Row gutter={[16, 16]}>
-                {keys.map((key) => (
-                  <Col key={key.id} xs={24} sm={24} md={12}>
-                    <Card
-                      className={`${styles.keyCard} ${key.isExhausted ? styles.exhausted : ''}`}
-                      variant="outlined"
-                    >
-                      {/* Card Header */}
-                      <div className={styles.keyCardHeader}>
-                        <div className={styles.keyCardTitle}>
-                          <div className={styles.keyTitleInfo}>
-                            <Text strong className={styles.keyAlias}>
-                              {key.alias || t('keys.unnamedKey')}
-                            </Text>
-                            <div className={styles.keyMeta}>
-                              {/* Type icons - show all supported types */}
-                              {key.types.map((type) => (
-                                <Tooltip key={type} title={type === 'codex' ? 'Codex' : 'Claude'}>
-                                  <Avatar
-                                    src={TYPE_ICONS[type]}
-                                    size={16}
-                                    style={{ background: 'transparent' }}
-                                  />
-                                </Tooltip>
-                              ))}
+                  {/* Keys Grid - 一排两个 */}
+                  <Row gutter={[16, 16]}>
+                    {keys.map((key) => (
+                      <Col key={key.id} xs={24} sm={24} md={12}>
+                        <Card
+                          className={`${styles.keyCard} ${key.isExhausted ? styles.exhausted : ''}`}
+                          variant='outlined'
+                        >
+                          {/* Card Header */}
+                          <div className={styles.keyCardHeader}>
+                            <div className={styles.keyCardTitle}>
+                              <div className={styles.keyTitleInfo}>
+                                <Text strong className={styles.keyAlias}>
+                                  {key.alias || t('keys.unnamedKey')}
+                                </Text>
+                                <div className={styles.keyMeta}>
+                                  {/* Type icons - show all supported types */}
+                                  {key.types.map((type) => (
+                                    <Tooltip
+                                      key={type}
+                                      title={type === 'codex' ? 'Codex' : 'Claude'}
+                                    >
+                                      <Avatar
+                                        src={TYPE_ICONS[type]}
+                                        size={16}
+                                        style={{ background: 'transparent' }}
+                                      />
+                                    </Tooltip>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            <Switch
+                              size='small'
+                              checked={!key.isExhausted}
+                              onChange={(checked) => handleToggleKey(key, checked)}
+                            />
+                          </div>
+
+                          {/* Stats Row */}
+                          <div className={styles.statsRow}>
+                            {/* Key Quota - 额度 */}
+                            {key.usageType && key.usageType !== 'none' && (
+                              <Tooltip title={t('keys.refreshQuota')}>
+                                <div
+                                  className={`${styles.statItem} ${styles.statItemClickable}`}
+                                  onClick={() => handleRefreshKeyUsage(key.id)}
+                                >
+                                  <DollarOutlined style={{ color: token.colorSuccess }} />
+                                  <span className={styles.statValue}>
+                                    {key.cachedUsage?.isUnlimited
+                                      ? '∞'
+                                      : key.cachedUsage?.remaining !== undefined
+                                        ? `$${key.cachedUsage.remaining.toFixed(2)}`
+                                        : '--'}
+                                  </span>
+                                  {refreshingKeyUsageIds.has(key.id) && (
+                                    <ReloadOutlined spin style={{ fontSize: 12, marginLeft: 4 }} />
+                                  )}
+                                </div>
+                              </Tooltip>
+                            )}
+                            {/* Today's cost - 今日费用 */}
+                            <div className={styles.statItem}>
+                              <FireOutlined style={{ color: token.colorWarning }} />
+                              <span className={styles.statValue}>
+                                {t('keys.todayCost') || '今日'}: $
+                                {(keyCostStats[key.id]?.todayCost || 0).toFixed(4)}
+                              </span>
+                            </div>
+                            {/* Total cost - 累计费用 */}
+                            <div className={styles.statItem}>
+                              <PlayCircleOutlined style={{ color: token.colorTextSecondary }} />
+                              <span className={styles.statValue}>
+                                {t('keys.totalCost') || '累计'}: $
+                                {(keyCostStats[key.id]?.totalCost || 0).toFixed(4)}
+                              </span>
                             </div>
                           </div>
-                        </div>
-                        <Switch
-                          size="small"
-                          checked={!key.isExhausted}
-                          onChange={(checked) => handleToggleKey(key, checked)}
-                        />
-                      </div>
 
-                      {/* Stats Row */}
-                      <div className={styles.statsRow}>
-                        {/* Key Quota - 额度 */}
-                        {key.usageType && key.usageType !== 'none' && (
-                          <Tooltip title={t('keys.refreshQuota')}>
-                            <div
-                              className={`${styles.statItem} ${styles.statItemClickable}`}
-                              onClick={() => handleRefreshKeyUsage(key.id)}
-                            >
-                              <DollarOutlined style={{ color: token.colorSuccess }} />
-                              <span className={styles.statValue}>
-                                {key.cachedUsage?.isUnlimited
-                                  ? '∞'
-                                  : key.cachedUsage?.remaining !== undefined
-                                    ? `$${key.cachedUsage.remaining.toFixed(2)}`
-                                    : '--'}
-                              </span>
-                              {refreshingKeyUsageIds.has(key.id) && (
-                                <ReloadOutlined spin style={{ fontSize: 12, marginLeft: 4 }} />
+                          {/* Actions */}
+                          <div className={styles.keyCardActions}>
+                            <Tooltip title={t('keys.copyCommand')}>
+                              <Button
+                                type='primary'
+                                size='small'
+                                icon={<PlayCircleOutlined />}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleCopyCommand(provider, key)
+                                }}
+                              >
+                                {t('keys.copyCommand')}
+                              </Button>
+                            </Tooltip>
+                            <Space size={4}>
+                              <Tooltip title={t('keys.copyKey')}>
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  icon={<CopyOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleDuplicateKey(key)
+                                  }}
+                                />
+                              </Tooltip>
+                              {provider.website && (
+                                <Tooltip title={t('keys.visitWebsite')}>
+                                  <Button
+                                    type='text'
+                                    size='small'
+                                    icon={<LinkOutlined />}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      window.api.system.openExternal(provider.website!)
+                                    }}
+                                  />
+                                </Tooltip>
                               )}
-                            </div>
-                          </Tooltip>
-                        )}
-                        {/* Today's cost - 今日费用 */}
-                        <div className={styles.statItem}>
-                          <FireOutlined style={{ color: token.colorWarning }} />
-                          <span className={styles.statValue}>
-                            {t('keys.todayCost') || '今日'}: ${(keyCostStats[key.id]?.todayCost || 0).toFixed(4)}
-                          </span>
-                        </div>
-                        {/* Total cost - 累计费用 */}
-                        <div className={styles.statItem}>
-                          <PlayCircleOutlined style={{ color: token.colorTextSecondary }} />
-                          <span className={styles.statValue}>
-                            {t('keys.totalCost') || '累计'}: ${(keyCostStats[key.id]?.totalCost || 0).toFixed(4)}
-                          </span>
-                        </div>
-                      </div>
+                              {provider.walletBalanceType !== 'none' && (
+                                <Tooltip title={t('providers.refreshBalance')}>
+                                  <Button
+                                    type='text'
+                                    size='small'
+                                    icon={<ReloadOutlined spin={refreshingIds.has(provider.id)} />}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleRefreshBalance(provider.id)
+                                    }}
+                                    disabled={refreshingIds.has(provider.id)}
+                                  />
+                                </Tooltip>
+                              )}
+                              <Tooltip title={t('common.edit')}>
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  icon={<EditOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleEditKey(key)
+                                  }}
+                                />
+                              </Tooltip>
+                              <Popconfirm
+                                title={t('apiKeys.deleteKey')}
+                                description={t('apiKeys.deleteKeyConfirm')}
+                                onConfirm={() => handleDeleteKey(key)}
+                                okText={t('common.delete')}
+                                cancelText={t('common.cancel')}
+                                okButtonProps={{ danger: true }}
+                              >
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </Popconfirm>
+                            </Space>
+                          </div>
+                        </Card>
+                      </Col>
+                    ))}
 
-                      {/* Actions */}
-                      <div className={styles.keyCardActions}>
-                        <Tooltip title={t('keys.copyCommand')}>
-                          <Button
-                            type="primary"
-                            size="small"
-                            icon={<PlayCircleOutlined />}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCopyCommand(provider, key)
-                            }}
-                          >
-                            {t('keys.copyCommand')}
-                          </Button>
-                        </Tooltip>
-                        <Space size={4}>
-                          {provider.website && (
-                            <Tooltip title={t('keys.visitWebsite')}>
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<LinkOutlined />}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  window.api.system.openExternal(provider.website!)
-                                }}
-                              />
-                            </Tooltip>
-                          )}
-                          {provider.walletBalanceType !== 'none' && (
-                            <Tooltip title={t('providers.refreshBalance')}>
-                              <Button
-                                type="text"
-                                size="small"
-                                icon={<ReloadOutlined spin={refreshingIds.has(provider.id)} />}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleRefreshBalance(provider.id)
-                                }}
-                                disabled={refreshingIds.has(provider.id)}
-                              />
-                            </Tooltip>
-                          )}
-                          <Tooltip title={t('common.edit')}>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<EditOutlined />}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleEditKey(key)
-                              }}
-                            />
-                          </Tooltip>
-                          <Popconfirm
-                            title={t('apiKeys.deleteKey')}
-                            description={t('apiKeys.deleteKeyConfirm')}
-                            onConfirm={() => handleDeleteKey(key)}
-                            okText={t('common.delete')}
-                            cancelText={t('common.cancel')}
-                            okButtonProps={{ danger: true }}
-                          >
-                            <Button
-                              type="text"
-                              size="small"
-                              danger
-                              icon={<DeleteOutlined />}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          </Popconfirm>
-                        </Space>
-                      </div>
-                    </Card>
-                  </Col>
-                ))}
-
-                {/* Add Key Card */}
-                <Col xs={24} sm={24} md={12}>
-                  <Card
-                    className={styles.addKeyCard}
-                    variant="outlined"
-                    onClick={() => handleAddKey(provider.id)}
-                  >
-                    <PlusOutlined className={styles.addIcon} />
-                    <Text type="secondary">{t('apiKeys.addKey')}</Text>
-                  </Card>
-                </Col>
-              </Row>
+                    {/* Add Key Card */}
+                    <Col xs={24} sm={24} md={12}>
+                      <Card
+                        className={styles.addKeyCard}
+                        variant='outlined'
+                        onClick={() => handleAddKey(provider.id)}
+                      >
+                        <PlusOutlined className={styles.addIcon} />
+                        <Text type='secondary'>{t('apiKeys.addKey')}</Text>
+                      </Card>
+                    </Col>
+                  </Row>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        )}
+          )}
         </SimpleBar>
       </div>
 
@@ -731,14 +770,16 @@ export default function Keys() {
       />
 
       {/* Global Config Modal */}
-      <GlobalConfigModal
-        open={globalConfigOpen}
-        onClose={() => setGlobalConfigOpen(false)}
-      />
+      <GlobalConfigModal open={globalConfigOpen} onClose={() => setGlobalConfigOpen(false)} />
 
       {/* Copy Command List Modal */}
       <Modal
-        title={t('keys.commandList') || '终端命令'}
+        title={
+          <Space>
+            {t('keys.commandList') || '终端命令'}
+            <Tag color='blue'>{TERMINAL_TYPE_LABELS[terminalType]}</Tag>
+          </Space>
+        }
         open={copyCommandModalOpen}
         onCancel={() => {
           setCopyCommandModalOpen(false)
@@ -747,107 +788,133 @@ export default function Keys() {
         }}
         footer={null}
         width={700}
+        style={{ top: 24 }}
+        styles={{
+          body: {
+            overflow: 'hidden',
+          },
+        }}
       >
         {copyCommandKey && (
-          <div className={styles.commandList}>
-            <Text type="secondary" className={styles.commandListHint}>
-              {t('keys.commandListHint') || '点击复制按钮复制对应命令'}
-            </Text>
-
-            {/* Proxy Mode Commands - only show if proxy is running */}
-            {proxyStatus.isRunning && proxySessionToken && (
-              <>
-                <Text strong className={styles.commandSectionTitle}>
-                  {t('keys.proxyMode') || '代理模式'}
-                  <Tag color="success" style={{ marginLeft: 8 }}>{t('keys.recommended') || '推荐'}</Tag>
-                </Text>
-                <Text type="secondary" className={styles.commandSectionHint}>
-                  {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
-                </Text>
-                {copyCommandKey.key.types.map((type) => {
-                  const command = generateCommand(type, copyCommandKey.provider, copyCommandKey.key, true)
-                  return (
-                    <div key={`proxy-${type}`} className={styles.commandItem}>
-                      <div className={styles.commandHeader}>
-                        <Space>
-                          <Avatar
-                            src={TYPE_ICONS[type]}
-                            size={20}
-                            style={{ background: 'transparent' }}
-                          />
-                          <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
-                        </Space>
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<CopyOutlined />}
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(command)
-                              message.success(t('providers.commandCopied'))
-                            } catch (error) {
-                              message.error(t('providers.copyFailed'))
-                            }
-                          }}
-                        >
-                          {t('common.copy') || '复制'}
-                        </Button>
-                      </div>
-                      <div className={styles.commandCode}>
-                        <code>{command}</code>
-                      </div>
-                    </div>
-                  )
-                })}
-                <Divider style={{ margin: '16px 0' }} />
-              </>
-            )}
-
-            {/* Direct Mode Commands */}
-            <Text strong className={styles.commandSectionTitle}>
-              {proxyStatus.isRunning ? (t('keys.directMode') || '直连模式') : (t('keys.commandList') || '终端命令')}
-            </Text>
-            {proxyStatus.isRunning && (
-              <Text type="secondary" className={styles.commandSectionHint}>
-                {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
+          <SimpleBar style={{ maxHeight: '75vh' }} autoHide={false}>
+            <div className={styles.commandList}>
+              <Text type='secondary' className={styles.commandListHint}>
+                {t('keys.commandListHint') || '点击复制按钮复制对应命令'}
               </Text>
-            )}
-            {copyCommandKey.key.types.map((type) => {
-              const command = generateCommand(type, copyCommandKey.provider, copyCommandKey.key, false)
-              return (
-                <div key={`direct-${type}`} className={styles.commandItem}>
-                  <div className={styles.commandHeader}>
-                    <Space>
-                      <Avatar
-                        src={TYPE_ICONS[type]}
-                        size={20}
-                        style={{ background: 'transparent' }}
-                      />
-                      <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
-                    </Space>
-                    <Button
-                      type={proxyStatus.isRunning ? 'default' : 'primary'}
-                      size="small"
-                      icon={<CopyOutlined />}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(command)
-                          message.success(t('providers.commandCopied'))
-                        } catch (error) {
-                          message.error(t('providers.copyFailed'))
-                        }
-                      }}
-                    >
-                      {t('common.copy') || '复制'}
-                    </Button>
+
+              {/* Proxy Mode Commands - only show if proxy is running */}
+              {proxyStatus.isRunning && proxySessionToken && (
+                <>
+                  <Text strong className={styles.commandSectionTitle}>
+                    {t('keys.proxyMode') || '代理模式'}
+                    <Tag color='success' style={{ marginLeft: 8 }}>
+                      {t('keys.recommended') || '推荐'}
+                    </Tag>
+                  </Text>
+                  <Text type='secondary' className={styles.commandSectionHint}>
+                    {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
+                  </Text>
+                  {copyCommandKey.key.types.map((type) => {
+                    const command = generateCommand(
+                      type,
+                      copyCommandKey.provider,
+                      copyCommandKey.key,
+                      true,
+                    )
+                    return (
+                      <div key={`proxy-${type}`} className={styles.commandItem}>
+                        <div className={styles.commandHeader}>
+                          <Space>
+                            <Avatar
+                              src={TYPE_ICONS[type]}
+                              size={20}
+                              style={{ background: 'transparent' }}
+                            />
+                            <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                          </Space>
+                          <Button
+                            type='primary'
+                            size='small'
+                            icon={<CopyOutlined />}
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(command)
+                                message.success(
+                                  `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
+                                )
+                              } catch (error) {
+                                message.error(t('providers.copyFailed'))
+                              }
+                            }}
+                          >
+                            {t('common.copy') || '复制'}
+                          </Button>
+                        </div>
+                        <div className={styles.commandCode}>
+                          <code>{command}</code>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  <Divider style={{ margin: '16px 0' }} />
+                </>
+              )}
+
+              {/* Direct Mode Commands */}
+              <Text strong className={styles.commandSectionTitle}>
+                {proxyStatus.isRunning
+                  ? t('keys.directMode') || '直连模式'
+                  : t('keys.commandList') || '终端命令'}
+              </Text>
+              {proxyStatus.isRunning && (
+                <Text type='secondary' className={styles.commandSectionHint}>
+                  {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
+                </Text>
+              )}
+              {copyCommandKey.key.types.map((type) => {
+                const command = generateCommand(
+                  type,
+                  copyCommandKey.provider,
+                  copyCommandKey.key,
+                  false,
+                )
+                return (
+                  <div key={`direct-${type}`} className={styles.commandItem}>
+                    <div className={styles.commandHeader}>
+                      <Space>
+                        <Avatar
+                          src={TYPE_ICONS[type]}
+                          size={20}
+                          style={{ background: 'transparent' }}
+                        />
+                        <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                      </Space>
+                      <Button
+                        type={proxyStatus.isRunning ? 'default' : 'primary'}
+                        size='small'
+                        icon={<CopyOutlined />}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(command)
+                            message.success(
+                              `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
+                            )
+                          } catch (error) {
+                            message.error(t('providers.copyFailed'))
+                          }
+                        }}
+                      >
+                        {t('common.copy') || '复制'}
+                      </Button>
+                    </div>
+                    <div className={styles.commandCode}>
+                      <code>{command}</code>
+                    </div>
                   </div>
-                  <div className={styles.commandCode}>
-                    <code>{command}</code>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          </SimpleBar>
         )}
       </Modal>
     </div>

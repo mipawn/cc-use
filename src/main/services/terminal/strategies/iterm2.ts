@@ -10,7 +10,9 @@ export class ITerm2Strategy implements TerminalStrategy {
   async isAvailable(): Promise<boolean> {
     try {
       // Check if iTerm2 is installed
-      const { stdout } = await execAsync('mdfind "kMDItemCFBundleIdentifier == com.googlecode.iterm2"')
+      const { stdout } = await execAsync(
+        'mdfind "kMDItemCFBundleIdentifier == com.googlecode.iterm2"',
+      )
       return stdout.trim().length > 0
     } catch {
       return false

@@ -1,81 +1,84 @@
-import { useState, useCallback } from "react";
-import { Typography } from "antd";
+import { useState, useCallback } from 'react'
+import { Typography } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import { FolderOpenOutlined, CloudUploadOutlined } from "@ant-design/icons";
-import { useTranslation } from "react-i18next";
-import styles from "./DropZone.module.css";
+import { FolderOpenOutlined, CloudUploadOutlined } from '@ant-design/icons'
+import { useTranslation } from 'react-i18next'
+import styles from './DropZone.module.css'
 
-const { Text } = Typography;
+const { Text } = Typography
 
 interface DropZoneProps {
-  onDrop: (path: string) => void;
-  disabled?: boolean;
-  hint?: string;
+  onDrop: (path: string) => void
+  disabled?: boolean
+  hint?: string
 }
 
 export default function DropZone({ onDrop, disabled = false, hint }: DropZoneProps) {
-  const { t } = useTranslation();
-  const message = useAppMessage();
-  const [isDragging, setIsDragging] = useState(false);
+  const { t } = useTranslation()
+  const message = useAppMessage()
+  const [isDragging, setIsDragging] = useState(false)
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!disabled) {
-      setIsDragging(true);
-    }
-  }, [disabled]);
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (!disabled) {
+        setIsDragging(true)
+      }
+    },
+    [disabled],
+  )
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault()
+    e.stopPropagation()
     // Only set dragging to false if we're leaving the drop zone entirely
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX;
-    const y = e.clientY;
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX
+    const y = e.clientY
     if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
-      setIsDragging(false);
+      setIsDragging(false)
     }
-  }, []);
+  }, [])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragging(false)
 
-      const files = e.dataTransfer.files;
+      const files = e.dataTransfer.files
       if (files.length === 0) {
-        message.error(t("dropZone.noFilesDropped"));
-        return;
+        message.error(t('dropZone.noFilesDropped'))
+        return
       }
 
-      const file = files[0];
+      const file = files[0]
       // In Electron, we can get the path from the file object
-      const path = (file as File & { path?: string }).path;
+      const path = (file as File & { path?: string }).path
 
       if (!path) {
-        message.error(t("dropZone.couldNotGetPath"));
-        return;
+        message.error(t('dropZone.couldNotGetPath'))
+        return
       }
 
-      onDrop(path);
+      onDrop(path)
     },
     [onDrop, t],
-  );
+  )
 
   const handleClick = async () => {
-    if (disabled) return;
+    if (disabled) return
     try {
-      const path = await window.api.system.selectFolder();
+      const path = await window.api.system.selectFolder()
       if (path) {
-        onDrop(path);
+        onDrop(path)
       }
     } catch (error) {
-      console.error("Failed to select folder:", error);
-      message.error(t("dropZone.couldNotGetPath"));
+      console.error('Failed to select folder:', error)
+      message.error(t('dropZone.couldNotGetPath'))
     }
-  };
+  }
 
   return (
     <div
@@ -105,11 +108,9 @@ export default function DropZone({ onDrop, disabled = false, hint }: DropZonePro
         </div>
 
         <div className={styles.textContent}>
-          <Text className={styles.title}>
-            {t("dashboard.dropZone")}
-          </Text>
-          <Text type="secondary" className={styles.hint}>
-            {hint || t("dashboard.dropZoneHint")}
+          <Text className={styles.title}>{t('dashboard.dropZone')}</Text>
+          <Text type='secondary' className={styles.hint}>
+            {hint || t('dashboard.dropZoneHint')}
           </Text>
         </div>
 
@@ -127,5 +128,5 @@ export default function DropZone({ onDrop, disabled = false, hint }: DropZonePro
       <div className={`${styles.corner} ${styles.cornerBottomLeft}`} />
       <div className={`${styles.corner} ${styles.cornerBottomRight}`} />
     </div>
-  );
+  )
 }

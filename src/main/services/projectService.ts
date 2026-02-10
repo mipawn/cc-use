@@ -2,14 +2,17 @@ import { eq, desc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { getDatabase } from '../database'
 import { projects } from '../database/schema'
-import type { Project, CreateProjectInput, UpdateProjectInput, TerminalType, ProviderType } from '@shared/types'
+import type {
+  Project,
+  CreateProjectInput,
+  UpdateProjectInput,
+  TerminalType,
+  ProviderType,
+} from '@shared/types'
 
 export async function listProjects(): Promise<Project[]> {
   const db = getDatabase()
-  const rows = await db
-    .select()
-    .from(projects)
-    .orderBy(desc(projects.lastOpenedAt))
+  const rows = await db.select().from(projects).orderBy(desc(projects.lastOpenedAt))
   return rows.map(mapRowToProject)
 }
 
@@ -25,9 +28,7 @@ export async function getProjectByPath(path: string): Promise<Project | null> {
   return rows.length > 0 ? mapRowToProject(rows[0]) : null
 }
 
-export async function createProject(
-  input: CreateProjectInput
-): Promise<Project> {
+export async function createProject(input: CreateProjectInput): Promise<Project> {
   const db = getDatabase()
   const id = nanoid()
   const now = new Date().toISOString()
@@ -51,9 +52,7 @@ export async function createProject(
   return project
 }
 
-export async function updateProject(
-  input: UpdateProjectInput
-): Promise<Project> {
+export async function updateProject(input: UpdateProjectInput): Promise<Project> {
   const db = getDatabase()
 
   const updateData: Record<string, unknown> = {}

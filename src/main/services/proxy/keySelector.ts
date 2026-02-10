@@ -21,7 +21,7 @@ export async function selectKey(providerId: string): Promise<KeySelectionResult>
 
 export async function handleKeyFailure(
   keyId: string,
-  providerId: string
+  providerId: string,
 ): Promise<KeySelectionResult> {
   // Mark the current key as exhausted
   await markKeyExhausted(keyId)

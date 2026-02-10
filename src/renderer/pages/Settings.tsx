@@ -254,10 +254,10 @@ export default function Settings() {
     <div className={styles.container}>
       {/* Header - Fixed */}
       <div className={styles.header}>
-        <Title level={3} className="!m-0 !mb-1">
+        <Title level={3} className='!m-0 !mb-1'>
           {t('settings.title')}
         </Title>
-        <Text type="secondary">{t('settings.subtitle')}</Text>
+        <Text type='secondary'>{t('settings.subtitle')}</Text>
       </div>
 
       {/* Content - Scrollable */}
@@ -265,13 +265,10 @@ export default function Settings() {
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
           <div className={styles.settingsSpace}>
             {/* Language */}
-            <Card className={styles.settingCard} variant="outlined">
+            <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
-                  <div
-                    className={styles.iconBox}
-                    style={{ background: token.colorFillTertiary }}
-                  >
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
                     <GlobalOutlined
                       className={styles.settingIcon}
                       style={{ color: token.colorText }}
@@ -280,7 +277,7 @@ export default function Settings() {
                   <div>
                     <Text strong>{t('settings.language')}</Text>
                     <br />
-                    <Text type="secondary" className={styles.settingDesc}>
+                    <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.languageDesc')}
                     </Text>
                   </div>
@@ -295,13 +292,10 @@ export default function Settings() {
             </Card>
 
             {/* Theme */}
-            <Card className={styles.settingCard} variant="outlined">
+            <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
-                  <div
-                    className={styles.iconBox}
-                    style={{ background: token.colorFillTertiary }}
-                  >
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
                     <BgColorsOutlined
                       className={styles.settingIcon}
                       style={{ color: token.colorText }}
@@ -310,7 +304,7 @@ export default function Settings() {
                   <div>
                     <Text strong>{t('settings.theme')}</Text>
                     <br />
-                    <Text type="secondary" className={styles.settingDesc}>
+                    <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.themeDesc')}
                     </Text>
                   </div>
@@ -331,13 +325,10 @@ export default function Settings() {
             </Title>
 
             {/* Proxy Status */}
-            <Card className={styles.settingCard} variant="outlined">
+            <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
-                  <div
-                    className={styles.iconBox}
-                    style={{ background: token.colorFillTertiary }}
-                  >
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
                     <CloudServerOutlined
                       className={styles.settingIcon}
                       style={{ color: token.colorText }}
@@ -352,13 +343,13 @@ export default function Settings() {
                           : t('dashboard.proxyStopped') || '已停止'}
                       </Tag>
                       {proxyStatus.isRunning && (
-                        <Text type="secondary" style={{ fontSize: 12 }}>
+                        <Text type='secondary' style={{ fontSize: 12 }}>
                           :{proxyStatus.port}
                         </Text>
                       )}
                     </Space>
                     <br />
-                    <Text type="secondary" className={styles.settingDesc}>
+                    <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.proxyStatusDesc')}
                     </Text>
                   </div>
@@ -372,13 +363,10 @@ export default function Settings() {
             </Card>
 
             {/* Close to Tray */}
-            <Card className={styles.settingCard} variant="outlined">
+            <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
-                  <div
-                    className={styles.iconBox}
-                    style={{ background: token.colorFillTertiary }}
-                  >
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
                     <MinusCircleOutlined
                       className={styles.settingIcon}
                       style={{ color: token.colorText }}
@@ -387,7 +375,7 @@ export default function Settings() {
                   <div>
                     <Text strong>{t('settings.closeToTray')}</Text>
                     <br />
-                    <Text type="secondary" className={styles.settingDesc}>
+                    <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.closeToTrayDesc')}
                     </Text>
                   </div>
@@ -400,13 +388,10 @@ export default function Settings() {
             </Card>
 
             {/* Default Terminal */}
-            <Card className={styles.settingCard} variant="outlined">
+            <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
-                  <div
-                    className={styles.iconBox}
-                    style={{ background: token.colorFillTertiary }}
-                  >
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
                     <CodeOutlined
                       className={styles.settingIcon}
                       style={{ color: token.colorText }}
@@ -415,16 +400,14 @@ export default function Settings() {
                   <div>
                     <Text strong>{t('settings.defaultTerminal')}</Text>
                     <br />
-                    <Text type="secondary" className={styles.settingDesc}>
+                    <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.defaultTerminalDesc')}
                     </Text>
                   </div>
                 </Space>
                 <Select
                   value={globalSettings.defaultTerminalType}
-                  onChange={(value) =>
-                    updateGlobalSettings({ defaultTerminalType: value })
-                  }
+                  onChange={(value) => updateGlobalSettings({ defaultTerminalType: value })}
                   options={terminalOptions}
                   style={{ width: 160 }}
                 />
@@ -432,13 +415,10 @@ export default function Settings() {
             </Card>
 
             {/* Proxy Port */}
-            <Card className={styles.settingCard} variant="outlined">
+            <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
-                  <div
-                    className={styles.iconBox}
-                    style={{ background: token.colorFillTertiary }}
-                  >
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
                     <ApiOutlined
                       className={styles.settingIcon}
                       style={{ color: token.colorText }}
@@ -447,16 +427,14 @@ export default function Settings() {
                   <div>
                     <Text strong>{t('settings.proxyPort')}</Text>
                     <br />
-                    <Text type="secondary" className={styles.settingDesc}>
+                    <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.proxyPortDesc')}
                     </Text>
                   </div>
                 </Space>
                 <InputNumber
                   value={globalSettings.proxyPort}
-                  onChange={(value) =>
-                    value && updateGlobalSettings({ proxyPort: value })
-                  }
+                  onChange={(value) => value && updateGlobalSettings({ proxyPort: value })}
                   min={1024}
                   max={65535}
                   style={{ width: 160 }}
@@ -471,13 +449,10 @@ export default function Settings() {
             </Title>
 
             {/* About / Version */}
-            <Card className={styles.settingCard} variant="outlined">
+            <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
-                  <div
-                    className={styles.iconBox}
-                    style={{ background: token.colorFillTertiary }}
-                  >
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
                     <InfoCircleOutlined
                       className={styles.settingIcon}
                       style={{ color: token.colorText }}
@@ -486,7 +461,7 @@ export default function Settings() {
                   <div>
                     <Text strong>CC Use {appVersion ? `v${appVersion}` : ''}</Text>
                     <br />
-                    <Text type="secondary" className={styles.settingDesc}>
+                    <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.version')}: {appVersion || '-'}
                     </Text>
                   </div>
@@ -502,7 +477,14 @@ export default function Settings() {
 
               {/* Update available */}
               {updateResult && (
-                <div style={{ marginTop: 16, padding: '12px 16px', background: token.colorFillTertiary, borderRadius: 8 }}>
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: '12px 16px',
+                    background: token.colorFillTertiary,
+                    borderRadius: 8,
+                  }}
+                >
                   <Text strong style={{ fontSize: 14 }}>
                     {t('settings.newVersionDesc', { version: updateResult.latestVersion })}
                   </Text>
@@ -527,12 +509,8 @@ export default function Settings() {
                   {/* Download progress */}
                   {updateDownloading && (
                     <div style={{ marginTop: 12 }}>
-                      <Progress
-                        percent={downloadProgress}
-                        size="small"
-                        status="active"
-                      />
-                      <Text type="secondary" style={{ fontSize: 12 }}>
+                      <Progress percent={downloadProgress} size='small' status='active' />
+                      <Text type='secondary' style={{ fontSize: 12 }}>
                         {t('settings.downloadSpeed', { speed: downloadSpeed.toFixed(1) })}
                       </Text>
                     </div>
@@ -543,23 +521,22 @@ export default function Settings() {
                     {!updateDownloading && !updateDownloaded && (
                       <>
                         <Button
-                          type="primary"
+                          type='primary'
                           icon={<DownloadOutlined />}
                           onClick={handleDownloadUpdate}
                         >
                           {t('settings.downloadUpdate')}
                         </Button>
-                        <Button onClick={() => window.api.system.openExternal(updateResult.releaseUrl)}>
+                        <Button
+                          onClick={() => window.api.system.openExternal(updateResult.releaseUrl)}
+                        >
                           {t('settings.goToDownload')}
                         </Button>
                       </>
                     )}
 
                     {updateDownloaded && (
-                      <Button
-                        type="primary"
-                        onClick={handleInstallUpdate}
-                      >
+                      <Button type='primary' onClick={handleInstallUpdate}>
                         {platform === 'win32'
                           ? t('settings.installAndRestart')
                           : t('settings.openInstaller')}
@@ -571,25 +548,36 @@ export default function Settings() {
 
               {/* Update cache info */}
               {cacheFiles.length > 0 && (
-                <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div
+                  style={{
+                    marginTop: 16,
+                    paddingTop: 16,
+                    borderTop: `1px solid ${token.colorBorderSecondary}`,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
                     <div>
-                      <Text type="secondary">{t('settings.updateCache')}</Text>
+                      <Text type='secondary'>{t('settings.updateCache')}</Text>
                       <Text style={{ marginLeft: 8 }}>
-                        {cacheFiles.length} {t('settings.cacheFileCount')} ({formatBytes(cacheSize)})
+                        {cacheFiles.length} {t('settings.cacheFileCount')} ({formatBytes(cacheSize)}
+                        )
                       </Text>
                     </div>
-                    <Button
-                      size="small"
-                      loading={clearingCache}
-                      onClick={handleClearCache}
-                    >
+                    <Button size='small' loading={clearingCache} onClick={handleClearCache}>
                       {t('settings.clearCache')}
                     </Button>
                   </div>
                   <div style={{ marginTop: 8 }}>
                     {cacheFiles.map((file) => (
-                      <Tag key={file} style={{ marginBottom: 4 }}>{file}</Tag>
+                      <Tag key={file} style={{ marginBottom: 4 }}>
+                        {file}
+                      </Tag>
                     ))}
                   </div>
                 </div>

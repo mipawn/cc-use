@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import i18n from '../locales'
-import type { GlobalSettings } from '@shared/types'
+import type { GlobalSettings, TerminalType } from '@shared/types'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -27,11 +27,17 @@ const resolveTheme = (mode: ThemeMode): 'light' | 'dark' => {
   return mode
 }
 
+const getDefaultTerminalType = (): TerminalType => {
+  const platform = navigator.userAgent.toLowerCase()
+  if (platform.includes('win')) return 'powershell'
+  return 'iterm2'
+}
+
 const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   defaultProviderType: 'claude',
   proxyPort: 12345,
   autoStartProxy: true,
-  defaultTerminalType: 'iterm2',
+  defaultTerminalType: getDefaultTerminalType(),
   closeToTray: true,
 }
 

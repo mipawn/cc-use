@@ -9,7 +9,7 @@ export async function createUsageLog(
   projectId: string,
   providerId: string,
   apiKeyId: string,
-  keyType: ProviderType = 'claude'
+  keyType: ProviderType = 'claude',
 ): Promise<UsageLog> {
   const db = getDatabase()
   const id = nanoid()
@@ -82,12 +82,13 @@ export async function getUsageStats(timeRange: StatsTimeRange): Promise<UsageSta
   const { start, end } = getDateRange(timeRange)
 
   // Build the where condition
-  const whereCondition = timeRange === 'all'
-    ? undefined
-    : and(
-        gte(usageLogs.launchedAt, start.toISOString()),
-        sql`${usageLogs.launchedAt} <= ${end.toISOString()}`
-      )
+  const whereCondition =
+    timeRange === 'all'
+      ? undefined
+      : and(
+          gte(usageLogs.launchedAt, start.toISOString()),
+          sql`${usageLogs.launchedAt} <= ${end.toISOString()}`,
+        )
 
   // Get all logs in range
   const logs = whereCondition
@@ -96,12 +97,12 @@ export async function getUsageStats(timeRange: StatsTimeRange): Promise<UsageSta
 
   // Calculate statistics
   const totalLaunches = logs.length
-  const uniqueProjects = new Set(logs.map(l => l.projectId).filter(Boolean)).size
-  const uniqueKeys = new Set(logs.map(l => l.apiKeyId).filter(Boolean)).size
+  const uniqueProjects = new Set(logs.map((l) => l.projectId).filter(Boolean)).size
+  const uniqueKeys = new Set(logs.map((l) => l.apiKeyId).filter(Boolean)).size
 
   // Group by project
   const projectCounts = new Map<string, { projectName: string; count: number }>()
-  logs.forEach(log => {
+  logs.forEach((log) => {
     if (log.projectId) {
       const existing = projectCounts.get(log.projectId)
       if (existing) {
@@ -116,8 +117,11 @@ export async function getUsageStats(timeRange: StatsTimeRange): Promise<UsageSta
     .sort((a, b) => b.count - a.count)
 
   // Group by key
-  const keyCounts = new Map<string, { keyAlias: string; providerName: string; keyType: ProviderType; count: number }>()
-  logs.forEach(log => {
+  const keyCounts = new Map<
+    string,
+    { keyAlias: string; providerName: string; keyType: ProviderType; count: number }
+  >()
+  logs.forEach((log) => {
     if (log.apiKeyId) {
       const existing = keyCounts.get(log.apiKeyId)
       if (existing) {
@@ -138,7 +142,7 @@ export async function getUsageStats(timeRange: StatsTimeRange): Promise<UsageSta
 
   // Group by date
   const dateCounts = new Map<string, number>()
-  logs.forEach(log => {
+  logs.forEach((log) => {
     const date = log.launchedAt.split('T')[0]
     dateCounts.set(date, (dateCounts.get(date) || 0) + 1)
   })
@@ -159,13 +163,9 @@ export async function getUsageStats(timeRange: StatsTimeRange): Promise<UsageSta
 // Get recent usage logs
 export async function getRecentUsageLogs(limit: number = 20): Promise<UsageLog[]> {
   const db = getDatabase()
-  const logs = await db
-    .select()
-    .from(usageLogs)
-    .orderBy(desc(usageLogs.launchedAt))
-    .limit(limit)
+  const logs = await db.select().from(usageLogs).orderBy(desc(usageLogs.launchedAt)).limit(limit)
 
-  return logs.map(log => ({
+  return logs.map((log) => ({
     id: log.id,
     projectId: log.projectId,
     projectName: log.projectName,
