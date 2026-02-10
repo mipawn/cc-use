@@ -99,6 +99,10 @@
         "to": "build/icon.png"
       },
       {
+        "from": "build/dock.png",
+        "to": "build/dock.png"
+      },
+      {
         "from": "build/icon.ico",
         "to": "build/icon.ico"
       },

@@ -134,10 +134,7 @@ function isMainWindowActuallyVisible(): boolean {
   return mainWindow.isVisible()
 }
 
-// 尽早设置 Dock 图标，避免闪现默认 Electron 图标
-if (process.platform === 'darwin') {
-  ensureAppIcons()
-}
+
 
 function getTrayIcon(): Electron.NativeImage {
   // Tray style: light plate + transparent cutout
@@ -702,6 +699,9 @@ app.whenReady().then(async () => {
       }
     })
   }
+
+  // Set macOS Dock icon as early as possible after app is ready.
+  ensureAppIcons()
 
   initDatabase()
   registerIpcHandlers()
