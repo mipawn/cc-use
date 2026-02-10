@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+/* eslint-env node */
+
 /**
  * Icon generation script for CC Use
  *
@@ -21,6 +23,7 @@ import pngToIco from 'png-to-ico'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { Buffer } from 'node:buffer'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -33,18 +36,7 @@ const PLATE_COLOR = '#f3f4f6'
 const PLATE_PADDING_RATIO = 0.12
 const GLYPH_PADDING_RATIO = 0.18
 
-const CORNER_RADIUS_RATIO = 0.22
-
 // --- Helpers ---
-
-function roundedRectSvg(size, color, radiusRatio) {
-  const r = Math.round(size * radiusRatio)
-  return Buffer.from(
-    `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width="${size}" height="${size}" rx="${r}" ry="${r}" fill="${color}"/>
-    </svg>`,
-  )
-}
 
 function circleSvg(size, color, padding) {
   const cx = size / 2
@@ -115,6 +107,97 @@ async function trayCutoutWhite(sourceBuffer, size) {
     .toBuffer()
 }
 
+async function renderTrimmedCentered(sourceBuffer, size, paddingRatio) {
+  const padding = Math.max(0, Math.round(size * paddingRatio))
+  const inner = Math.max(1, size - padding * 2)
+
+  let pipeline = sharp(sourceBuffer).ensureAlpha()
+  try {
+    // Remove transparent margins so the icon looks larger on Windows taskbar.
+    pipeline = pipeline.trim()
+  } catch {
+    // ignore
+  }
+
+  const icon = await pipeline
+    .resize(inner, inner, {
+      fit: 'contain',
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer()
+
+  return sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([{ input: icon, left: padding, top: padding }])
+    .png()
+    .toBuffer()
+}
+
+async function trayColorWindows(sourceBuffer, size) {
+  // Windows tray icons are commonly colored. Add a subtle shadow for contrast.
+  const paddingRatio = 0.12
+  const padding = Math.max(1, Math.round(size * paddingRatio))
+  const inner = Math.max(1, size - padding * 2)
+
+  let pipeline = sharp(sourceBuffer).ensureAlpha()
+  try {
+    pipeline = pipeline.trim()
+  } catch {
+    // ignore
+  }
+
+  const iconPng = await pipeline
+    .resize(inner, inner, {
+      fit: 'contain',
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer()
+
+  const { data, info } = await sharp(iconPng)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3]
+    data[i + 0] = 0
+    data[i + 1] = 0
+    data[i + 2] = 0
+    data[i + 3] = Math.round(a * 0.35)
+  }
+
+  const shadowPng = await sharp(data, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
+    .blur(0.9)
+    .png()
+    .toBuffer()
+
+  const shadowOffsetY = Math.max(1, Math.round(size * 0.04))
+
+  return sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([
+      { input: shadowPng, left: padding, top: padding + shadowOffsetY },
+      { input: iconPng, left: padding, top: padding },
+    ])
+    .png()
+    .toBuffer()
+}
+
 function writeTempPng(buffer, label) {
   const p = path.join(buildDir, `_tmp_${label}.png`)
   fs.writeFileSync(p, buffer)
@@ -128,76 +211,64 @@ async function main() {
   const dockSrcPath = path.join(buildDir, 'dock.png')
 
   if (!fs.existsSync(iconSrcPath)) {
-    console.error('Error: build/icon.png not found.')
-    process.exit(1)
+    globalThis.console.error('Error: build/icon.png not found.')
+    globalThis.process.exit(1)
   }
 
   const iconSrc = fs.readFileSync(iconSrcPath)
   const hasDock = fs.existsSync(dockSrcPath)
   const dockSrc = hasDock ? fs.readFileSync(dockSrcPath) : null
-  console.log('Source icons loaded\n')
+  globalThis.console.log('Source icons loaded\n')
 
   const tempFiles = []
 
   // ── 1. Tray icons (white plate + transparent cutout) ─────
-  console.log('Tray icons (white plate + transparent cutout):')
+  globalThis.console.log('Tray icons (white plate + transparent cutout):')
 
   // macOS/Linux tray base + Retina
   // macOS menu bar items size is derived from the image width; keep it small.
   const tray22 = await trayCutoutWhite(iconSrc, 22)
   fs.writeFileSync(path.join(buildDir, 'tray.png'), tray22)
-  console.log('  tray.png (22x22)')
+  globalThis.console.log('  tray.png (22x22)')
 
   const tray44 = await trayCutoutWhite(iconSrc, 44)
   fs.writeFileSync(path.join(buildDir, 'tray@2x.png'), tray44)
-  console.log('  tray@2x.png (44x44)')
+  globalThis.console.log('  tray@2x.png (44x44)')
 
   // Windows tray: tray.ico (16/20/24/32)
   const trayTempFiles = []
   for (const s of [16, 20, 24, 32]) {
-    const buf = await trayCutoutWhite(iconSrc, s)
+    const buf = await trayColorWindows(iconSrc, s)
     trayTempFiles.push(writeTempPng(buf, `tray_${s}`))
-    console.log(`  tray ${s}x${s}`)
+    globalThis.console.log(`  tray ${s}x${s} (colored)`)
   }
   const trayIcoBuffer = await pngToIco(trayTempFiles)
   fs.writeFileSync(path.join(buildDir, 'tray.ico'), trayIcoBuffer)
-  console.log('  -> build/tray.ico\n')
+  globalThis.console.log('  -> build/tray.ico\n')
 
   // ── 2. Windows app icon (icon.ico) ────────────────────────
   //    From dock.png so Windows shortcuts match macOS dock icon.
-  console.log('Windows app icon (icon.ico):')
+  globalThis.console.log('Windows app icon (icon.ico):')
   const appSizes = [16, 24, 32, 48, 64, 128, 256]
 
   if (dockSrc) {
     for (const s of appSizes) {
-      const buf = await sharp(dockSrc)
-        .resize(s, s, {
-          fit: 'contain',
-          background: { r: 0, g: 0, b: 0, alpha: 0 },
-        })
-        .png()
-        .toBuffer()
+      const buf = await renderTrimmedCentered(dockSrc, s, 0.04)
       tempFiles.push(writeTempPng(buf, `app_${s}`))
-      console.log(`  ${s}x${s} (from dock.png)`)
+      globalThis.console.log(`  ${s}x${s} (from dock.png)`)
     }
   } else {
     // Fallback: just resize icon.png
     for (const s of appSizes) {
-      const buf = await sharp(iconSrc)
-        .resize(s, s, {
-          fit: 'contain',
-          background: { r: 0, g: 0, b: 0, alpha: 0 },
-        })
-        .png()
-        .toBuffer()
+      const buf = await renderTrimmedCentered(iconSrc, s, 0.04)
       tempFiles.push(writeTempPng(buf, `app_${s}`))
-      console.log(`  ${s}x${s} (from icon.png)`)
+      globalThis.console.log(`  ${s}x${s} (from icon.png)`)
     }
   }
 
   const icoBuffer = await pngToIco(tempFiles)
   fs.writeFileSync(path.join(buildDir, 'icon.ico'), icoBuffer)
-  console.log('  -> build/icon.ico\n')
+  globalThis.console.log('  -> build/icon.ico\n')
 
   // ── Cleanup ───────────────────────────────────────────────
   ;[...tempFiles, ...trayTempFiles].forEach((f) => {
@@ -208,16 +279,16 @@ async function main() {
     }
   })
 
-  console.log('Done!')
-  console.log('  macOS dock:  build/icon.icns (unchanged)')
-  console.log('  macOS tray:  build/tray.png + tray@2x.png')
-  console.log('  Win app:     build/icon.ico (from dock.png)')
-  console.log('  Win tray:    build/tray.ico')
-  console.log('  Linux tray:  build/tray.png')
-  console.log('  Style:       white plate + transparent glyph')
+  globalThis.console.log('Done!')
+  globalThis.console.log('  macOS dock:  build/icon.icns (unchanged)')
+  globalThis.console.log('  macOS tray:  build/tray.png + tray@2x.png')
+  globalThis.console.log('  Win app:     build/icon.ico (from dock.png)')
+  globalThis.console.log('  Win tray:    build/tray.ico')
+  globalThis.console.log('  Linux tray:  build/tray.png')
+  globalThis.console.log('  Style:       white plate + transparent glyph')
 }
 
 main().catch((err) => {
-  console.error('Icon generation failed:', err)
-  process.exit(1)
+  globalThis.console.error('Icon generation failed:', err)
+  globalThis.process.exit(1)
 })

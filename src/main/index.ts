@@ -23,6 +23,16 @@ let cachedCloseToTray = true
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
+// Windows: ensure taskbar/shortcut grouping uses our AppUserModelID.
+// This helps the pinned/taskbar icon resolve to the app's icon instead of Electron's default.
+if (process.platform === 'win32') {
+  try {
+    app.setAppUserModelId('com.mipawn.cc-use')
+  } catch {
+    // ignore
+  }
+}
+
 // Prevent multiple instances in dev (and production)
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
