@@ -163,6 +163,63 @@ async function performAutoCheck() {
   }
 }
 
+// Strip HTML tags and decode common entities to plain text
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// Fetch CHANGELOG.md from GitHub and extract notes for a specific version
+async function fetchChangelogForVersion(version: string): Promise<string> {
+  // Prefer reading the changelog from the release tag to match the released artifact,
+  // fall back to main branch if the tag doesn't include CHANGELOG.md.
+  const candidates = [
+    `https://raw.githubusercontent.com/mipawn/cc-use/v${version}/CHANGELOG.md`,
+    'https://raw.githubusercontent.com/mipawn/cc-use/main/CHANGELOG.md',
+  ]
+
+  let lastError: unknown
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, { headers: { 'User-Agent': 'cc-use' } })
+      if (!response.ok) {
+        lastError = new Error(`Failed to fetch CHANGELOG.md: ${response.status}`)
+        continue
+      }
+      const content = await response.text()
+      return parseChangelogVersion(content, version)
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Failed to fetch CHANGELOG.md')
+}
+
+// Parse changelog content and extract section for a specific version
+function parseChangelogVersion(changelog: string, version: string): string {
+  // Match ## [version] header and capture everything until the next ## or ---\n## or end
+  const escapedVersion = version.replace(/\./g, '\\.')
+  const regex = new RegExp(
+    `## \\[${escapedVersion}\\][^\\n]*\\n([\\s\\S]*?)(?=\\n---\\s*\\n|\\n## \\[|$)`,
+  )
+  const match = changelog.match(regex)
+  if (!match) return ''
+  return match[1].trim()
+}
+
 function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map(Number)
   const pb = b.split('.').map(Number)
@@ -181,6 +238,11 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
   useElectronUpdater = false
   downloadedFilePath = null
 
+  // In dev mode, electron-updater skips check, go directly to GitHub API
+  if (!app.isPackaged) {
+    return checkForUpdatesViaGitHub(currentVersion)
+  }
+
   try {
     const result = await autoUpdater.checkForUpdates()
     if (result && result.updateInfo) {
@@ -198,13 +260,30 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
           console.warn('Failed to prepare fallback download URL')
         }
       }
+      let releaseNotes = ''
+      if (typeof result.updateInfo.releaseNotes === 'string') {
+        releaseNotes = stripHtml(result.updateInfo.releaseNotes)
+      }
+
+      // Prefer CHANGELOG.md over GitHub auto-generated release notes.
+      // This avoids showing the default "Full Changelog" compare link.
+      if (hasUpdate) {
+        try {
+          const changelogNotes = await fetchChangelogForVersion(latestVersion)
+          if (changelogNotes && changelogNotes.trim().length > 0) {
+            releaseNotes = changelogNotes
+          }
+        } catch {
+          // Ignore and keep electron-updater notes
+        }
+      }
+
       return {
         hasUpdate,
         currentVersion,
         latestVersion,
         releaseUrl: `https://github.com/mipawn/cc-use/releases/tag/v${latestVersion}`,
-        releaseNotes:
-          typeof result.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : '',
+        releaseNotes,
       }
     }
     return {
@@ -252,12 +331,25 @@ async function checkForUpdatesViaGitHub(currentVersion: string): Promise<UpdateC
   }
   cachedDownloadUrl = downloadUrl || null
 
+  // Prefer CHANGELOG.md over release body (which may only contain "Full Changelog" links).
+  let releaseNotes = data.body ? stripHtml(data.body) : ''
+  if (hasUpdate) {
+    try {
+      const changelogNotes = await fetchChangelogForVersion(latestVersion)
+      if (changelogNotes && changelogNotes.trim().length > 0) {
+        releaseNotes = changelogNotes
+      }
+    } catch {
+      // Ignore and keep release body
+    }
+  }
+
   return {
     hasUpdate,
     currentVersion,
     latestVersion,
     releaseUrl: data.html_url || 'https://github.com/mipawn/cc-use/releases',
-    releaseNotes: data.body || '',
+    releaseNotes,
     downloadUrl,
   }
 }
@@ -398,11 +490,11 @@ async function manualDownload(url: string): Promise<string> {
   })
 }
 
-export async function installUpdate(): Promise<string | null> {
+export async function installUpdate(): Promise<{ success: boolean; error?: string }> {
   // If electron-updater was used, use quitAndInstall
   if (useElectronUpdater) {
     autoUpdater.quitAndInstall(false, true)
-    return null
+    return { success: true }
   }
 
   // Otherwise open the downloaded file
@@ -411,13 +503,13 @@ export async function installUpdate(): Promise<string | null> {
     const error = await shell.openPath(downloadedFilePath)
     if (error) {
       console.error('Failed to open downloaded file:', error)
-      return error
+      return { success: false, error }
     }
-    return downloadedFilePath
+    return { success: true }
   }
 
   console.error('No downloaded file found, downloadedFilePath:', downloadedFilePath)
-  return 'No downloaded file found'
+  return { success: false, error: 'No downloaded file found' }
 }
 
 export function getDownloadedFilePath(): string | null {

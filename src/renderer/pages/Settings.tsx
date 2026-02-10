@@ -21,6 +21,9 @@ import {
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { useSettingsStore, ThemeMode } from '../stores/settingsStore'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { Components } from 'react-markdown'
 import {
   GlobalOutlined,
   BgColorsOutlined,
@@ -40,6 +43,69 @@ const { Title, Text } = Typography
 export default function Settings() {
   const { t } = useTranslation()
   const { token } = theme.useToken()
+
+  const markdownComponents: Components = {
+    h1: ({ children }) => (
+      <Text strong style={{ display: 'block', fontSize: 14, marginBottom: 8 }}>
+        {children}
+      </Text>
+    ),
+    h2: ({ children }) => (
+      <Text strong style={{ display: 'block', fontSize: 14, marginBottom: 8 }}>
+        {children}
+      </Text>
+    ),
+    h3: ({ children }) => (
+      <Text strong style={{ display: 'block', fontSize: 13, marginTop: 8, marginBottom: 6 }}>
+        {children}
+      </Text>
+    ),
+    h4: ({ children }) => (
+      <Text strong style={{ display: 'block', fontSize: 13, marginTop: 8, marginBottom: 6 }}>
+        {children}
+      </Text>
+    ),
+    p: ({ children }) => (
+      <Text style={{ display: 'block', marginBottom: 6, lineHeight: 1.6 }}>{children}</Text>
+    ),
+    ul: ({ children }) => (
+      <ul style={{ paddingInlineStart: 18, margin: '4px 0 8px 0' }}>{children}</ul>
+    ),
+    ol: ({ children }) => (
+      <ol style={{ paddingInlineStart: 18, margin: '4px 0 8px 0' }}>{children}</ol>
+    ),
+    li: ({ children }) => <li style={{ marginBottom: 4, lineHeight: 1.6 }}>{children}</li>,
+    strong: ({ children }) => <Text strong>{children}</Text>,
+    em: ({ children }) => <Text italic>{children}</Text>,
+    code: ({ children }) => <Text code>{children}</Text>,
+    pre: ({ children }) => (
+      <pre
+        style={{
+          margin: '8px 0',
+          padding: '8px 10px',
+          background: token.colorFillTertiary,
+          borderRadius: 6,
+          overflow: 'auto',
+          fontSize: 12,
+          lineHeight: 1.6,
+        }}
+      >
+        {children}
+      </pre>
+    ),
+    a: ({ href, children }) => (
+      <a
+        href={href}
+        style={{ color: token.colorLink }}
+        onClick={(e) => {
+          e.preventDefault()
+          if (href) window.api.system.openExternal(href)
+        }}
+      >
+        {children}
+      </a>
+    ),
+  }
   const {
     language,
     themeMode,
@@ -208,11 +274,9 @@ export default function Settings() {
 
   const handleInstallUpdate = async () => {
     const result = await window.api.app.installUpdate()
-    if (result && !result.includes('/')) {
-      // result is an error message
-      message.error(result)
-    } else if (result) {
-      // result is the file path - show success message for macOS
+    if (result && !result.success) {
+      message.error(result.error || t('settings.downloadFailed'))
+    } else if (result?.success) {
       message.success(t('settings.installerOpened'))
     }
   }
@@ -499,10 +563,11 @@ export default function Settings() {
                         background: token.colorBgContainer,
                         borderRadius: 6,
                         fontSize: 13,
-                        whiteSpace: 'pre-wrap',
                       }}
                     >
-                      {updateResult.releaseNotes}
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                        {updateResult.releaseNotes}
+                      </ReactMarkdown>
                     </div>
                   )}
 

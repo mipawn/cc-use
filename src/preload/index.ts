@@ -192,7 +192,7 @@ const api = {
     checkUpdate: (): Promise<UpdateCheckResult> =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_CHECK_UPDATE),
     downloadUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.APP_DOWNLOAD_UPDATE),
-    installUpdate: (): Promise<string | null> =>
+    installUpdate: (): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_INSTALL_UPDATE),
     onUpdateProgress: (callback: (info: UpdateProgressInfo) => void) => {
       const handler = (_: Electron.IpcRendererEvent, info: UpdateProgressInfo) => callback(info)
