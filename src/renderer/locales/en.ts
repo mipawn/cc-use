@@ -80,6 +80,8 @@ export default {
     downloadSpeed: '{{speed}} MB/s',
     openInstaller: 'Open Installer',
     installerOpened: 'Installer opened, please follow the prompts to complete installation',
+    updateNoPermission: 'Unable to auto-update: no write permission for the app directory',
+    updateMoveAppHint: 'Move the app to ~/Applications (user folder) and try again to avoid repeated password/authorization prompts',
     updateCache: 'Update Cache',
     updateCacheDesc: 'Downloaded update files are cached locally',
     cacheSize: 'Cache Size',

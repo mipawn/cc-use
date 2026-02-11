@@ -275,6 +275,11 @@ export default function Settings() {
   const handleInstallUpdate = async () => {
     const result = await window.api.app.installUpdate()
     if (result && !result.success) {
+      if (platform === 'darwin' && result.error === 'UPDATE_NO_PERMISSION') {
+        message.error(t('settings.updateNoPermission'))
+        message.info(t('settings.updateMoveAppHint'))
+        return
+      }
       message.error(result.error || t('settings.downloadFailed'))
     } else if (result?.success) {
       message.success(t('settings.installerOpened'))

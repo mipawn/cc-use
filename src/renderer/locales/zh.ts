@@ -83,6 +83,8 @@ export default {
     downloadSpeed: '{{speed}} MB/s',
     openInstaller: '打开安装包',
     installerOpened: '已打开安装包，请按提示完成安装',
+    updateNoPermission: '无法自动更新：应用所在目录无写入权限',
+    updateMoveAppHint: '建议将应用移动到 ~/Applications（用户目录）后再更新，可避免每次输入密码/授权',
     updateCache: '更新缓存',
     updateCacheDesc: '下载的更新文件会缓存在本地',
     cacheSize: '缓存大小',

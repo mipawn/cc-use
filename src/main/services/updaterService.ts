@@ -5,6 +5,7 @@ import type { UpdateCheckResult, UpdateProgressInfo } from '@shared/types'
 import * as https from 'https'
 import * as fs from 'fs'
 import * as path from 'path'
+import { spawn } from 'child_process'
 
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = false
@@ -83,18 +84,30 @@ export function clearUpdatesCache(): number {
   let deletedCount = 0
 
   try {
-    const files = fs.readdirSync(cacheDir)
-    for (const file of files) {
-      const filePath = path.join(cacheDir, file)
-      fs.unlinkSync(filePath)
+    const entries = fs.readdirSync(cacheDir, { withFileTypes: true })
+    for (const entry of entries) {
+      const entryPath = path.join(cacheDir, entry.name)
+      // Remove both files and directories (e.g. staged/, work-*)
+      fs.rmSync(entryPath, { recursive: true, force: true })
       deletedCount++
     }
   } catch (err) {
     console.error('Error clearing updates cache:', err)
   }
 
-  // Also clear the current download path
+  // Also clear the current download path/state
   downloadedFilePath = null
+  cachedDownloadUrl = null
+  useElectronUpdater = false
+
+  // Ensure cache directory exists after clearing
+  try {
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true })
+    }
+  } catch {
+    // Ignore
+  }
 
   return deletedCount
 }
@@ -317,11 +330,22 @@ async function checkForUpdatesViaGitHub(currentVersion: string): Promise<UpdateC
     const arch = process.arch
     for (const asset of data.assets) {
       const name: string = asset.name?.toLowerCase() || ''
-      if (platform === 'darwin' && name.endsWith('.dmg') && name.includes(arch)) {
-        downloadUrl = asset.browser_download_url
-        break
+      // macOS: prefer .zip for in-app update (avoid repeated dmg drag+drop + Gatekeeper prompts)
+      if (platform === 'darwin' && name.endsWith('.zip') && !name.endsWith('.zip.blockmap')) {
+        if (name.includes('mac') && name.includes(arch)) {
+          downloadUrl = asset.browser_download_url
+          break
+        }
+        // fallback: any mac .zip
+        if (name.includes('mac')) {
+          downloadUrl = asset.browser_download_url
+        }
       }
-      if (platform === 'darwin' && name.endsWith('.dmg')) {
+      if (platform === 'darwin' && !downloadUrl && name.endsWith('.dmg') && name.includes(arch)) {
+        // fallback to dmg only if zip is not present
+        downloadUrl = asset.browser_download_url
+      }
+      if (platform === 'darwin' && !downloadUrl && name.endsWith('.dmg')) {
         downloadUrl = asset.browser_download_url
       }
       if (platform === 'win32' && name.endsWith('.exe')) {
@@ -366,6 +390,8 @@ export async function downloadUpdate(): Promise<void> {
       return
     } catch (err) {
       console.warn('electron-updater download failed, falling back to manual download:', err)
+      // Important: we are falling back to manual download, so install should not use quitAndInstall.
+      useElectronUpdater = false
       // Fall through to manual download
     }
   }
@@ -491,6 +517,19 @@ async function manualDownload(url: string): Promise<string> {
 }
 
 export async function installUpdate(): Promise<{ success: boolean; error?: string }> {
+  // macOS: if we have a manually downloaded .zip, prefer in-app install even if
+  // previous check used electron-updater.
+  if (process.platform === 'darwin' && downloadedFilePath?.toLowerCase().endsWith('.zip')) {
+    try {
+      await installMacZipUpdate(downloadedFilePath)
+      return { success: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('Failed to install macOS zip update:', message)
+      return { success: false, error: message }
+    }
+  }
+
   // If electron-updater was used, use quitAndInstall
   if (useElectronUpdater) {
     autoUpdater.quitAndInstall(false, true)
@@ -510,6 +549,147 @@ export async function installUpdate(): Promise<{ success: boolean; error?: strin
 
   console.error('No downloaded file found, downloadedFilePath:', downloadedFilePath)
   return { success: false, error: 'No downloaded file found' }
+}
+
+function getCurrentAppBundlePath(): string | null {
+  const exePath = app.getPath('exe')
+  let current = path.resolve(exePath)
+  for (let i = 0; i < 20; i++) {
+    if (current.toLowerCase().endsWith('.app')) return current
+    const parent = path.dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+  return null
+}
+
+async function extractZip(zipPath: string, destDir: string): Promise<void> {
+  await fs.promises.mkdir(destDir, { recursive: true })
+  // Use macOS built-in ditto for best compatibility
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn('/usr/bin/ditto', ['-x', '-k', zipPath, destDir], {
+      stdio: 'ignore',
+    })
+    child.on('error', reject)
+    child.on('exit', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`Failed to extract zip (exit ${code})`))
+    })
+  })
+}
+
+async function copyAppBundleWithDitto(srcAppPath: string, destAppPath: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn('/usr/bin/ditto', [srcAppPath, destAppPath], { stdio: 'ignore' })
+    child.on('error', reject)
+    child.on('exit', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`Failed to copy app bundle (exit ${code})`))
+    })
+  })
+}
+
+async function findAppBundle(dir: string): Promise<string | null> {
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name.toLowerCase().endsWith('.app')) {
+      return path.join(dir, entry.name)
+    }
+  }
+  // Some zips may contain a single top-level folder
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const nested = await findAppBundle(path.join(dir, entry.name))
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+async function clearQuarantine(targetPath: string): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const child = spawn('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', targetPath], {
+      stdio: 'ignore',
+    })
+    child.on('error', () => resolve())
+    child.on('exit', () => resolve())
+  })
+}
+
+function canWriteToDir(dirPath: string): boolean {
+  try {
+    fs.accessSync(dirPath, fs.constants.W_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function installMacZipUpdate(zipPath: string): Promise<void> {
+  if (!fs.existsSync(zipPath)) {
+    throw new Error('Downloaded update zip not found')
+  }
+
+  const currentAppPath = getCurrentAppBundlePath()
+  if (!currentAppPath) {
+    throw new Error('Unable to determine current app bundle path')
+  }
+
+  const targetDir = path.dirname(currentAppPath)
+  if (!canWriteToDir(targetDir)) {
+    // Without write access, we cannot do a true in-app update.
+    // Most users can avoid repeated prompts by installing the app under a user-writable directory
+    // (e.g. ~/Applications) and updating there.
+    throw new Error('UPDATE_NO_PERMISSION')
+  }
+
+  const cacheDir = getUpdatesCacheDir()
+  const workDir = path.join(cacheDir, `work-${Date.now()}`)
+  const stageDir = path.join(cacheDir, 'staged')
+  await fs.promises.mkdir(stageDir, { recursive: true })
+
+  try {
+    await extractZip(zipPath, workDir)
+    const extractedAppPath = await findAppBundle(workDir)
+    if (!extractedAppPath) {
+      throw new Error('No .app bundle found inside the update zip')
+    }
+
+    const stagedAppPath = path.join(stageDir, path.basename(extractedAppPath))
+    // Replace existing staged bundle if any
+    await fs.promises.rm(stagedAppPath, { recursive: true, force: true })
+    await copyAppBundleWithDitto(extractedAppPath, stagedAppPath)
+    // Sanity check: the staged bundle must contain app.asar
+    const stagedAsarPath = path.join(stagedAppPath, 'Contents', 'Resources', 'app.asar')
+    if (!fs.existsSync(stagedAsarPath)) {
+      throw new Error(`Invalid staged update: missing app.asar at ${stagedAsarPath}`)
+    }
+    await clearQuarantine(stagedAppPath)
+
+    // Prepare background script to swap app after quit
+    const scriptPath = path.join(cacheDir, 'apply-update.sh')
+    const pid = String(process.pid)
+    const targetAppPath = currentAppPath
+    const script = `#!/bin/sh\nset -e\nPID="$1"\nSRC="$2"\nDEST="$3"\n\n# wait until the current app exits\nwhile kill -0 "$PID" 2>/dev/null; do\n  sleep 0.2\ndone\n\n# replace app bundle atomically-ish\nif [ -d "$DEST" ]; then\n  rm -rf "$DEST"\nfi\n/usr/bin/ditto "$SRC" "$DEST"\nrm -rf "$SRC"\n/usr/bin/xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true\n/usr/bin/open "$DEST"\nexit 0\n`
+    await fs.promises.writeFile(scriptPath, script, { encoding: 'utf8' })
+    await fs.promises.chmod(scriptPath, 0o755)
+
+    const child = spawn('/bin/sh', [scriptPath, pid, stagedAppPath, targetAppPath], {
+      detached: true,
+      stdio: 'ignore',
+    })
+    child.unref()
+
+    // Quit to allow replacement
+    app.quit()
+  } finally {
+    // Best effort cleanup of work dir
+    try {
+      await fs.promises.rm(workDir, { recursive: true, force: true })
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function getDownloadedFilePath(): string | null {
