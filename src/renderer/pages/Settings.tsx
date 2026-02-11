@@ -136,11 +136,21 @@ export default function Settings() {
   const [cacheFiles, setCacheFiles] = useState<string[]>([])
   const [clearingCache, setClearingCache] = useState(false)
 
-  const fetchCacheInfo = async () => {
+  const fetchCacheInfo = useCallback(async () => {
     const info = await window.api.app.getUpdatesCacheInfo()
     setCacheSize(info.size)
     setCacheFiles(info.files)
-  }
+  }, [])
+
+  // Fetch proxy status
+  const fetchProxyStatus = useCallback(async () => {
+    try {
+      const status = await window.api.proxy.status()
+      setProxyStatus(status)
+    } catch (error) {
+      console.error('Failed to fetch proxy status:', error)
+    }
+  }, [])
 
   useEffect(() => {
     fetchGlobalSettings()
@@ -182,17 +192,7 @@ export default function Settings() {
       unsubDownloaded()
       unsubUpdateAvailable()
     }
-  }, [fetchGlobalSettings])
-
-  // Fetch proxy status
-  const fetchProxyStatus = useCallback(async () => {
-    try {
-      const status = await window.api.proxy.status()
-      setProxyStatus(status)
-    } catch (error) {
-      console.error('Failed to fetch proxy status:', error)
-    }
-  }, [])
+  }, [fetchCacheInfo, fetchGlobalSettings, fetchProxyStatus, t])
 
   // Toggle proxy
   const handleToggleProxy = async (checked: boolean) => {
@@ -323,7 +323,7 @@ export default function Settings() {
     <div className={styles.container}>
       {/* Header - Fixed */}
       <div className={styles.header}>
-        <Title level={3} className='!m-0 !mb-1'>
+        <Title level={3} className='m-0! mb-1!'>
           {t('settings.title')}
         </Title>
         <Text type='secondary'>{t('settings.subtitle')}</Text>

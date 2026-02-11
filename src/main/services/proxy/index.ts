@@ -12,6 +12,7 @@ import {
   StreamUsageAccumulator,
 } from './usageParser'
 import { execSync } from 'child_process'
+import zlib from 'zlib'
 
 const DEFAULT_PORT = 12345
 
@@ -20,11 +21,19 @@ let requestCount = 0
 let lastError: string | null = null
 
 // Cached fallback pricing from other providers (refreshed every 5 minutes)
-let fallbackPricingCache: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | null = null
+let fallbackPricingCache: Record<
+  string,
+  { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+> | null = null
 let fallbackPricingCacheTime = 0
 const FALLBACK_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
-async function getFallbackPricing(excludeProviderId: string): Promise<Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | undefined> {
+async function getFallbackPricing(
+  excludeProviderId: string,
+): Promise<
+  | Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>
+  | undefined
+> {
   const now = Date.now()
   if (fallbackPricingCache && now - fallbackPricingCacheTime < FALLBACK_CACHE_TTL) {
     return Object.keys(fallbackPricingCache).length > 0 ? fallbackPricingCache : undefined
@@ -36,7 +45,10 @@ async function getFallbackPricing(excludeProviderId: string): Promise<Record<str
       .filter((p) => p.id !== excludeProviderId && p.cachedModelPricing && p.lastPricingSyncedAt)
       .sort((a, b) => (a.lastPricingSyncedAt! < b.lastPricingSyncedAt! ? -1 : 1))
 
-    const merged: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> = {}
+    const merged: Record<
+      string,
+      { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+    > = {}
     for (const p of withPricing) {
       Object.assign(merged, p.cachedModelPricing)
     }
@@ -89,8 +101,13 @@ export function getProxyStatus(): ProxyState {
 function parseUsageFromResponseData(
   responseText: string,
   contentType: string,
-): { usage: import('./usageParser').TokenUsage | null; model: string | null; isStreaming: boolean } {
-  const isSSE = contentType.includes('text/event-stream') || responseText.trimStart().startsWith('data: ')
+): {
+  usage: import('./usageParser').TokenUsage | null
+  model: string | null
+  isStreaming: boolean
+} {
+  const isSSE =
+    contentType.includes('text/event-stream') || responseText.trimStart().startsWith('data: ')
 
   if (isSSE) {
     const accumulator = new StreamUsageAccumulator()
@@ -101,7 +118,11 @@ function parseUsageFromResponseData(
   // Try JSON
   try {
     const json = JSON.parse(responseText)
-    return { usage: parseUsageFromResponse(json), model: parseModelFromResponse(json), isStreaming: false }
+    return {
+      usage: parseUsageFromResponse(json),
+      model: parseModelFromResponse(json),
+      isStreaming: false,
+    }
   } catch {
     return { usage: null, model: null, isStreaming: false }
   }
@@ -172,7 +193,12 @@ export async function startProxy(): Promise<void> {
     }
 
     // Resolve model pricing
-    let providerPricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | undefined
+    let providerPricing:
+      | Record<
+          string,
+          { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+        >
+      | undefined
     if (provider.cachedModelPricing) {
       providerPricing = provider.cachedModelPricing
     } else {
@@ -180,7 +206,10 @@ export async function startProxy(): Promise<void> {
       if (!provider.lastPricingSyncedAt) {
         syncProviderPricing(provider.id)
           .then((result) => {
-            if (result.count > 0) console.log(`[Proxy] Auto-synced ${result.count} model prices for provider ${provider.name}`)
+            if (result.count > 0)
+              console.log(
+                `[Proxy] Auto-synced ${result.count} model prices for provider ${provider.name}`,
+              )
           })
           .catch((err) => console.log('[Proxy] Auto-sync pricing failed (non-fatal):', err))
       }
@@ -205,6 +234,8 @@ export async function startProxy(): Promise<void> {
           }
           proxyReq.setHeader('Authorization', `Bearer ${apiKey.value}`)
           proxyReq.setHeader('x-api-key', apiKey.value)
+          // We may need to parse response bodies to extract usage/model.
+          // Upstreams can return compressed bodies; we handle decompression in proxyRes.
           console.log(`[Proxy] Forwarding: ${proxyReq.method} ${targetOrigin}${proxyReq.path}`)
         },
         proxyRes: (proxyRes) => {
@@ -222,9 +253,31 @@ export async function startProxy(): Promise<void> {
           proxyRes.on('end', async () => {
             const latencyMs = Date.now() - startTime
             try {
-              const responseText = Buffer.concat(responseChunks).toString('utf-8')
+              const rawBody = Buffer.concat(responseChunks)
+              const contentEncoding = String(
+                proxyRes.headers['content-encoding'] || '',
+              ).toLowerCase()
+
+              let decodedBody = rawBody
+              try {
+                if (contentEncoding.includes('gzip')) {
+                  decodedBody = zlib.gunzipSync(rawBody)
+                } else if (contentEncoding.includes('deflate')) {
+                  decodedBody = zlib.inflateSync(rawBody)
+                } else if (contentEncoding.includes('br')) {
+                  decodedBody = zlib.brotliDecompressSync(rawBody)
+                }
+              } catch {
+                // If decoding fails, fall back to raw bytes.
+                decodedBody = rawBody
+              }
+
+              const responseText = decodedBody.toString('utf-8')
               const contentType = proxyRes.headers['content-type'] || ''
-              const { usage, model, isStreaming } = parseUsageFromResponseData(responseText, contentType)
+              const { usage, model, isStreaming } = parseUsageFromResponseData(
+                responseText,
+                contentType,
+              )
 
               if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
                 await createRequestLog({

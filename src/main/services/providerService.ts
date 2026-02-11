@@ -4,6 +4,11 @@ import { getDatabase } from '../database'
 import { providers } from '../database/schema'
 import type { Provider, CreateProviderInput, UpdateProviderInput, UsageData } from '@shared/types'
 
+type ProviderModelPricing = Record<
+  string,
+  { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+>
+
 export async function listProviders(): Promise<Provider[]> {
   const db = getDatabase()
   const rows = await db.select().from(providers)
@@ -88,6 +93,28 @@ export async function updateProvider(input: UpdateProviderInput): Promise<Provid
 export async function deleteProvider(id: string): Promise<void> {
   const db = getDatabase()
   await db.delete(providers).where(eq(providers.id, id))
+}
+
+export async function updateProviderPricing(
+  providerId: string,
+  pricing: ProviderModelPricing,
+): Promise<Provider> {
+  const db = getDatabase()
+  const now = new Date().toISOString()
+
+  await db
+    .update(providers)
+    .set({
+      cachedModelPricing: JSON.stringify(pricing),
+      lastPricingSyncedAt: now,
+    })
+    .where(eq(providers.id, providerId))
+
+  const provider = await getProvider(providerId)
+  if (!provider) {
+    throw new Error('Provider not found')
+  }
+  return provider
 }
 
 function mapRowToProvider(row: typeof providers.$inferSelect): Provider {

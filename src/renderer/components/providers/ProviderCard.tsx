@@ -8,6 +8,7 @@ import {
   CloseCircleOutlined,
   LinkOutlined,
   CopyOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
@@ -42,6 +43,7 @@ interface ProviderCardProps {
   onEdit: (provider: Provider) => void
   onDelete: (id: string) => void
   onRefreshBalance: (id: string) => void
+  onEditPricing?: (provider: Provider) => void
   refreshing?: boolean
   firstApiKey?: string // First available API key value for copy command
 }
@@ -51,6 +53,7 @@ export default function ProviderCard({
   onEdit,
   onDelete,
   onRefreshBalance,
+  onEditPricing,
   refreshing,
   firstApiKey,
 }: ProviderCardProps) {
@@ -129,6 +132,14 @@ export default function ProviderCard({
         <Tooltip title={t('providers.copyCommand')} key='copy'>
           <Button type='text' icon={<CopyOutlined />} onClick={handleCopyCommand} />
         </Tooltip>,
+        <Tooltip title={t('keys.pricingEdit') || '编辑模型价格'} key='pricing'>
+          <Button
+            type='text'
+            icon={<DollarOutlined />}
+            onClick={() => onEditPricing?.(provider)}
+            disabled={!onEditPricing}
+          />
+        </Tooltip>,
         <Tooltip title={t('common.edit')} key='edit'>
           <Button type='text' icon={<EditOutlined />} onClick={() => onEdit(provider)} />
         </Tooltip>,
@@ -167,7 +178,7 @@ export default function ProviderCard({
               {renderIcon()}
             </div>
             <div>
-              <Title level={5} className='!m-0'>
+              <Title level={5} className='m-0!'>
                 {provider.name}
               </Title>
               <Text type='secondary' className='text-xs'>

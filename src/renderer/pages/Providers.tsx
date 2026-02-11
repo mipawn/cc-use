@@ -7,6 +7,7 @@ import SimpleBar from 'simplebar-react'
 import { useProviderStore } from '../stores/providerStore'
 import ProviderCard from '../components/providers/ProviderCard'
 import ProviderModal from '../components/providers/ProviderModal'
+import ProviderPricingModal from '../components/providers/ProviderPricingModal'
 import type { Provider, CreateProviderInput } from '@shared/types'
 
 const { Title, Text } = Typography
@@ -19,6 +20,7 @@ export default function Providers() {
     providers,
     loading,
     fetchProviders,
+    upsertProvider,
     createProvider,
     updateProvider,
     deleteProvider,
@@ -27,6 +29,10 @@ export default function Providers() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
+
+  const [pricingModalOpen, setPricingModalOpen] = useState(false)
+  const [pricingProvider, setPricingProvider] = useState<Provider | null>(null)
+  const [savingPricing, setSavingPricing] = useState(false)
 
   useEffect(() => {
     fetchProviders()
@@ -81,11 +87,35 @@ export default function Providers() {
     }
   }
 
+  const handleOpenPricingEditor = (provider: Provider) => {
+    setPricingProvider(provider)
+    setPricingModalOpen(true)
+  }
+
+  const handleSaveProviderPricing = async (
+    pricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>,
+  ) => {
+    if (!pricingProvider) return
+    setSavingPricing(true)
+    try {
+      const updated = await window.api.provider.updatePricing(pricingProvider.id, pricing)
+      message.success(t('keys.pricingSaveSuccess') || t('messages.success'))
+      setPricingModalOpen(false)
+      setPricingProvider(null)
+      upsertProvider(updated)
+    } catch (error) {
+      console.error('Failed to save provider pricing:', error)
+      message.error(t('keys.pricingSaveFailed') || t('messages.error'))
+    } finally {
+      setSavingPricing(false)
+    }
+  }
+
   return (
     <div className='page-container'>
       <div className='page-header'>
         <div>
-          <Title level={3} className='!m-0 !mb-1'>
+          <Title level={3} className='m-0! mb-1!'>
             {t('providers.title')}
           </Title>
           <Text type='secondary'>{t('providers.subtitle')}</Text>
@@ -106,7 +136,7 @@ export default function Providers() {
               className='text-5xl mb-4'
               style={{ color: token.colorTextSecondary }}
             />
-            <Title level={4} className='!mb-2'>
+            <Title level={4} className='mb-2!'>
               {t('providers.noProviders')}
             </Title>
             <Text type='secondary' className='block mb-6'>
@@ -125,6 +155,7 @@ export default function Providers() {
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                   onRefreshBalance={handleRefreshBalance}
+                  onEditPricing={handleOpenPricingEditor}
                   refreshing={refreshingIds.has(provider.id)}
                 />
               </Col>
@@ -141,6 +172,17 @@ export default function Providers() {
           setEditingProvider(null)
         }}
         onSave={handleSave}
+      />
+
+      <ProviderPricingModal
+        open={pricingModalOpen}
+        provider={pricingProvider}
+        saving={savingPricing}
+        onClose={() => {
+          setPricingModalOpen(false)
+          setPricingProvider(null)
+        }}
+        onSave={handleSaveProviderPricing}
       />
     </div>
   )

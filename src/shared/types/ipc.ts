@@ -38,6 +38,7 @@ export const IPC_CHANNELS = {
 
   // Pricing sync channels
   PROVIDER_SYNC_PRICING: 'provider:syncPricing',
+  PROVIDER_UPDATE_PRICING: 'provider:updatePricing',
 
   // Usage channels
   USAGE_REFRESH: 'usage:refresh',

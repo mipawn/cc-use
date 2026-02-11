@@ -29,6 +29,12 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+function toLocalDateKey(d: Date): string {
+  // YYYY-MM-DD in local time (stable across locales)
+  const offsetMs = d.getTimezoneOffset() * 60_000
+  return new Date(d.getTime() - offsetMs).toISOString().slice(0, 10)
+}
+
 export default function Dashboard() {
   const message = useAppMessage()
   const { t } = useTranslation()
@@ -196,7 +202,7 @@ export default function Dashboard() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      const dateStr = d.toISOString().split('T')[0]
+      const dateStr = toLocalDateKey(d)
       const item = trendMap.get(dateStr)
       days.push({
         date: dateStr,

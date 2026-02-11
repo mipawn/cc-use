@@ -135,6 +135,21 @@ export function registerIpcHandlers() {
     return syncProviderPricing(providerId)
   })
 
+  // Provider pricing update handler
+  ipcMain.handle(
+    IPC_CHANNELS.PROVIDER_UPDATE_PRICING,
+    async (
+      _,
+      providerId: string,
+      pricing: Record<
+        string,
+        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+      >,
+    ) => {
+      return providerService.updateProviderPricing(providerId, pricing)
+    },
+  )
+
   // Usage handler
   ipcMain.handle(IPC_CHANNELS.USAGE_REFRESH, async (_, providerId: string) => {
     return refreshUsage(providerId)

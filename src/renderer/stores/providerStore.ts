@@ -6,6 +6,7 @@ interface ProviderState {
   loading: boolean
   error: string | null
   fetchProviders: () => Promise<void>
+  upsertProvider: (provider: Provider) => void
   createProvider: (input: Parameters<typeof window.api.provider.create>[0]) => Promise<Provider>
   updateProvider: (input: Parameters<typeof window.api.provider.update>[0]) => Promise<Provider>
   deleteProvider: (id: string) => Promise<void>
@@ -38,6 +39,16 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
+  upsertProvider: (provider) => {
+    const existing = get().providers
+    const idx = existing.findIndex((p) => p.id === provider.id)
+    if (idx === -1) {
+      set({ providers: [...existing, provider] })
+      return
+    }
+    set({ providers: existing.map((p) => (p.id === provider.id ? provider : p)) })
+  },
+
   createProvider: async (input) => {
     const provider = await window.api.provider.create(input)
     set({ providers: [...get().providers, provider] })
@@ -62,9 +73,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     if (result.balance !== null) {
       const provider = await window.api.provider.get(id)
       if (provider) {
-        set({
-          providers: get().providers.map((p) => (p.id === id ? provider : p)),
-        })
+        get().upsertProvider(provider)
       }
     }
     return result

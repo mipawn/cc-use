@@ -40,6 +40,14 @@ const api = {
     delete: (id: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_DELETE, id),
     syncPricing: (providerId: string): Promise<{ count: number; error: string | null }> =>
       ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_SYNC_PRICING, providerId),
+
+    updatePricing: (
+      providerId: string,
+      pricing: Record<
+        string,
+        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+      >,
+    ): Promise<Provider> => ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_UPDATE_PRICING, providerId, pricing),
   },
 
   // API Key API

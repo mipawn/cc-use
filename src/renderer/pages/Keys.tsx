@@ -46,6 +46,7 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
+import ProviderPricingModal from '../components/providers/ProviderPricingModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
 import type { Provider, ApiKey, ProviderType } from '@shared/types'
 import { getProviderTypeConfig, formatEnvCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
@@ -100,6 +101,7 @@ export default function Keys() {
     providers,
     loading: providersLoading,
     fetchProviders,
+    upsertProvider,
     refreshBalance,
     deleteProvider,
   } = useProviderStore()
@@ -117,6 +119,11 @@ export default function Keys() {
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null)
   const [defaultProviderId, setDefaultProviderId] = useState<string | undefined>(undefined)
   const [globalConfigOpen, setGlobalConfigOpen] = useState(false)
+
+  // Provider pricing editor
+  const [pricingModalOpen, setPricingModalOpen] = useState(false)
+  const [pricingProvider, setPricingProvider] = useState<Provider | null>(null)
+  const [savingPricing, setSavingPricing] = useState(false)
 
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
@@ -241,7 +248,7 @@ export default function Keys() {
       if (activeFilter === id) {
         setActiveFilter('all')
       }
-    } catch (error) {
+    } catch {
       message.error(t('providers.deleteProviderFailed'))
     }
   }
@@ -255,7 +262,7 @@ export default function Keys() {
       } else {
         message.success(`${t('providers.balance')}: $${result.balance?.toFixed(2)}`)
       }
-    } catch (error) {
+    } catch {
       message.error(t('providers.refreshBalanceFailed'))
     } finally {
       setRefreshingIds((prev) => {
@@ -278,7 +285,7 @@ export default function Keys() {
       }
       // Refresh keys to get updated cached usage
       fetchAllApiKeys(providers.map((p) => p.id))
-    } catch (error) {
+    } catch {
       message.error(t('keys.refreshQuotaFailed'))
     } finally {
       setRefreshingKeyUsageIds((prev) => {
@@ -292,16 +299,19 @@ export default function Keys() {
   // Handle sync pricing
   const handleSyncPricing = async (providerId: string) => {
     setSyncingPricingIds((prev) => new Set(prev).add(providerId))
+    const msgKey = `syncPricing:${providerId}`
+    message.loading({ content: t('keys.syncPricing') || '同步模型价格中...', key: msgKey, duration: 0 })
     try {
       const result = await window.api.provider.syncPricing(providerId)
       if (result.error) {
-        message.error(result.error)
+        message.error({ content: result.error, key: msgKey })
       } else {
-        message.success(t('keys.syncPricingSuccess', { count: result.count }))
-        fetchProviders()
+        message.success({ content: t('keys.syncPricingSuccess', { count: result.count }), key: msgKey })
+        const updated = await window.api.provider.get(providerId)
+        if (updated) upsertProvider(updated)
       }
-    } catch (error) {
-      message.error(t('keys.syncPricingFailed'))
+    } catch {
+      message.error({ content: t('keys.syncPricingFailed'), key: msgKey })
     } finally {
       setSyncingPricingIds((prev) => {
         const next = new Set(prev)
@@ -311,11 +321,35 @@ export default function Keys() {
     }
   }
 
+  const handleOpenPricingEditor = (provider: Provider) => {
+    setPricingProvider(provider)
+    setPricingModalOpen(true)
+  }
+
+  const handleSaveProviderPricing = async (
+    pricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>,
+  ) => {
+    if (!pricingProvider) return
+    setSavingPricing(true)
+    try {
+      const updated = await window.api.provider.updatePricing(pricingProvider.id, pricing)
+      message.success(t('keys.pricingSaveSuccess') || t('messages.success'))
+      setPricingModalOpen(false)
+      setPricingProvider(null)
+      upsertProvider(updated)
+    } catch (error) {
+      console.error('Failed to save provider pricing:', error)
+      message.error(t('keys.pricingSaveFailed') || t('messages.error'))
+    } finally {
+      setSavingPricing(false)
+    }
+  }
+
   // Handle key actions
   const handleToggleKey = async (key: ApiKey, active: boolean) => {
     try {
       await updateApiKey({ id: key.id, isExhausted: !active })
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }
@@ -324,7 +358,7 @@ export default function Keys() {
     try {
       await deleteApiKey(key.providerId, key.id)
       message.success(t('apiKeys.keyDeleted'))
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }
@@ -476,7 +510,7 @@ export default function Keys() {
       {/* Header - Fixed */}
       <div className={styles.header}>
         <div>
-          <Title level={3} className='!m-0 !mb-1'>
+          <Title level={3} className='m-0! mb-1!'>
             {t('keys.title') || 'API 密钥'}
           </Title>
           <Text type='secondary'>{t('keys.subtitle') || '管理您的 API 密钥和供应商'}</Text>
@@ -517,7 +551,7 @@ export default function Keys() {
           ) : groupedKeys.length === 0 ? (
             <Card className='empty-state' variant='outlined'>
               <KeyOutlined className='text-5xl mb-4' style={{ color: token.colorTextSecondary }} />
-              <Title level={4} className='!mb-2'>
+              <Title level={4} className='mb-2!'>
                 {t('keys.noKeys') || '暂无密钥'}
               </Title>
               <Text type='secondary' className='block'>
@@ -544,6 +578,12 @@ export default function Keys() {
                           ${balance.toFixed(2)}
                         </Tag>
                       )}
+                      <Tag color={Object.keys(provider.cachedModelPricing || {}).length > 0 ? 'green' : undefined}>
+                        {(t('keys.pricingSourceLabel') || '价格') + ': '}
+                        {Object.keys(provider.cachedModelPricing || {}).length > 0
+                          ? t('keys.pricingSourceProviderShort') || '供应商'
+                          : t('keys.pricingSourceGlobalShort') || '全局'}
+                      </Tag>
                       {provider.lastPricingSyncedAt && provider.cachedModelPricing && (
                         <Tooltip title={`${t('keys.syncPricing')} - ${new Date(provider.lastPricingSyncedAt).toLocaleString()}`}>
                           <Tag color='green'>
@@ -553,13 +593,23 @@ export default function Keys() {
                       )}
                     </div>
                     <Space size={8}>
-                      <Tooltip title={t('keys.syncPricing')}>
+                      {(provider.walletBalanceType === 'newapi' || provider.usageType === 'newapi') && (
+                        <Tooltip title={t('keys.syncPricing')}>
+                          <Button
+                            type='text'
+                            size='small'
+                            icon={<CloudDownloadOutlined spin={syncingPricingIds.has(provider.id)} />}
+                            onClick={() => handleSyncPricing(provider.id)}
+                            disabled={syncingPricingIds.has(provider.id)}
+                          />
+                        </Tooltip>
+                      )}
+                      <Tooltip title={t('keys.pricingEdit') || '编辑模型价格'}>
                         <Button
                           type='text'
                           size='small'
-                          icon={<CloudDownloadOutlined spin={syncingPricingIds.has(provider.id)} />}
-                          onClick={() => handleSyncPricing(provider.id)}
-                          disabled={syncingPricingIds.has(provider.id)}
+                          icon={<DollarOutlined />}
+                          onClick={() => handleOpenPricingEditor(provider)}
                         />
                       </Tooltip>
                       {provider.walletBalanceType !== 'none' && (
@@ -885,7 +935,7 @@ export default function Keys() {
                                 message.success(
                                   `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
                                 )
-                              } catch (error) {
+                              } catch {
                                 message.error(t('providers.copyFailed'))
                               }
                             }}
@@ -942,7 +992,7 @@ export default function Keys() {
                             message.success(
                               `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
                             )
-                          } catch (error) {
+                          } catch {
                             message.error(t('providers.copyFailed'))
                           }
                         }}
@@ -960,6 +1010,17 @@ export default function Keys() {
           </SimpleBar>
         )}
       </Modal>
+
+      <ProviderPricingModal
+        open={pricingModalOpen}
+        provider={pricingProvider}
+        saving={savingPricing}
+        onClose={() => {
+          setPricingModalOpen(false)
+          setPricingProvider(null)
+        }}
+        onSave={handleSaveProviderPricing}
+      />
     </div>
   )
 }

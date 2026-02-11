@@ -331,14 +331,14 @@ export async function getDailyCostTrend(days: number = 7): Promise<DailyCost[]> 
 
   const result = await db
     .select({
-      date: sql<string>`DATE(${requestLogs.createdAt})`,
+      date: sql<string>`DATE(${requestLogs.createdAt}, 'localtime')`,
       cost: sql<number>`COALESCE(SUM(${requestLogs.totalCostUsd}), 0)`,
       requests: sql<number>`COUNT(*)`,
     })
     .from(requestLogs)
     .where(gte(requestLogs.createdAt, startDate.toISOString()))
-    .groupBy(sql`DATE(${requestLogs.createdAt})`)
-    .orderBy(sql`DATE(${requestLogs.createdAt})`)
+    .groupBy(sql`DATE(${requestLogs.createdAt}, 'localtime')`)
+    .orderBy(sql`DATE(${requestLogs.createdAt}, 'localtime')`)
 
   return result.map((r) => ({
     date: r.date,
@@ -616,14 +616,14 @@ export async function getDailyCostTrendByTimeRange(
 
   const result = await db
     .select({
-      date: sql<string>`DATE(${requestLogs.createdAt})`,
+      date: sql<string>`DATE(${requestLogs.createdAt}, 'localtime')`,
       cost: sql<number>`COALESCE(SUM(${requestLogs.totalCostUsd}), 0)`,
       requests: sql<number>`COUNT(*)`,
     })
     .from(requestLogs)
     .where(whereClause)
-    .groupBy(sql`DATE(${requestLogs.createdAt})`)
-    .orderBy(sql`DATE(${requestLogs.createdAt})`)
+    .groupBy(sql`DATE(${requestLogs.createdAt}, 'localtime')`)
+    .orderBy(sql`DATE(${requestLogs.createdAt}, 'localtime')`)
 
   return result.map((r) => ({
     date: r.date,
