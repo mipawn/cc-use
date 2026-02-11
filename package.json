@@ -1,6 +1,6 @@
 {
   "name": "cc-use",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Desktop configuration manager built exclusively for Claude Code / Codex CLI",
   "type": "module",
   "main": "dist-electron/main/index.js",
