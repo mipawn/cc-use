@@ -6,7 +6,8 @@
 
 .scrollContainer {
   max-height: calc(80vh - 120px);
-  padding-right: 12px;
+  padding-right: var(--simplebar-gutter);
+  margin-right: calc(-1 * var(--simplebar-gutter));
 }
 
 .form {

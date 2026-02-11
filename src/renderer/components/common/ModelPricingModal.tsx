@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useAppMessage } from '../../hooks/useAppMessage'
+import SimpleBar from 'simplebar-react'
 
 const { Text } = Typography
 
@@ -192,7 +193,7 @@ export default function ModelPricingModal({ open, onClose }: Props) {
       title: t('modelPricing.model'),
       dataIndex: 'model',
       key: 'model',
-      width: 260,
+      width: 220,
       ellipsis: true,
       render: (model: string, row: PricingRow) => (
         <Space size={4}>
@@ -206,65 +207,65 @@ export default function ModelPricingModal({ open, onClose }: Props) {
       ),
     },
     {
-      title: `Input ($/M)`,
+      title: t('keys.pricingInput') || '输入($/1M)',
       dataIndex: 'input',
       key: 'input',
-      width: 110,
+      width: 96,
       render: (val: number, row: PricingRow) => (
         <InputNumber
           size='small'
           value={val}
           min={0}
           step={0.1}
-          style={{ width: 90 }}
+          style={{ width: '100%' }}
           onChange={(v) => v !== null && updateField(row.model, 'input', v)}
         />
       ),
     },
     {
-      title: `Output ($/M)`,
+      title: t('keys.pricingOutput') || '输出($/1M)',
       dataIndex: 'output',
       key: 'output',
-      width: 110,
+      width: 96,
       render: (val: number, row: PricingRow) => (
         <InputNumber
           size='small'
           value={val}
           min={0}
           step={0.1}
-          style={{ width: 90 }}
+          style={{ width: '100%' }}
           onChange={(v) => v !== null && updateField(row.model, 'output', v)}
         />
       ),
     },
     {
-      title: `Cache Read`,
+      title: t('keys.pricingCacheRead') || '缓存读($/1M)',
       dataIndex: 'cacheRead',
       key: 'cacheRead',
-      width: 100,
+      width: 96,
       render: (val: number, row: PricingRow) => (
         <InputNumber
           size='small'
           value={val}
           min={0}
           step={0.01}
-          style={{ width: 80 }}
+          style={{ width: '100%' }}
           onChange={(v) => v !== null && updateField(row.model, 'cacheRead', v)}
         />
       ),
     },
     {
-      title: `Cache Write`,
+      title: t('keys.pricingCacheCreation') || '缓存写($/1M)',
       dataIndex: 'cacheCreation',
       key: 'cacheCreation',
-      width: 100,
+      width: 96,
       render: (val: number, row: PricingRow) => (
         <InputNumber
           size='small'
           value={val}
           min={0}
           step={0.01}
-          style={{ width: 80 }}
+          style={{ width: '100%' }}
           onChange={(v) => v !== null && updateField(row.model, 'cacheCreation', v)}
         />
       ),
@@ -293,8 +294,8 @@ export default function ModelPricingModal({ open, onClose }: Props) {
       title={t('modelPricing.title')}
       open={open}
       onCancel={onClose}
-      width={800}
-      styles={{ body: { padding: '12px 0' } }}
+      width='min(980px, 92vw)'
+      styles={{ body: { padding: '12px 0', overflow: 'hidden' } }}
       footer={
         <Space>
           <Popconfirm
@@ -319,42 +320,65 @@ export default function ModelPricingModal({ open, onClose }: Props) {
         </Space>
       }
     >
-      {/* Search + Add */}
-      <div style={{ display: 'flex', gap: 8, padding: '0 24px', marginBottom: 12 }}>
-        <Input
-          placeholder={t('common.search')}
-          prefix={<SearchOutlined />}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          allowClear
-          style={{ flex: 1 }}
-        />
-        <Input
-          placeholder={t('modelPricing.newModelPlaceholder')}
-          value={newModelName}
-          onChange={(e) => setNewModelName(e.target.value)}
-          onPressEnter={addNewModel}
-          style={{ width: 200 }}
-        />
-        <Button icon={<PlusOutlined />} onClick={addNewModel} disabled={!newModelName.trim()}>
-          {t('common.add')}
-        </Button>
-      </div>
+      <SimpleBar
+        className='no-horizontal-simplebar'
+        style={{
+          maxHeight: 'calc(80vh - 160px)',
+          paddingLeft: 12,
+          paddingRight: 'var(--simplebar-gutter)',
+          marginRight: 'calc(-1 * var(--simplebar-gutter))',
+        }}
+      >
+        {/* Search + Add */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 8,
+            padding: '0 24px',
+            marginBottom: 12,
+          }}
+        >
+          <Input
+            placeholder={t('common.search')}
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            allowClear
+            style={{ flex: '1 1 240px', minWidth: 240 }}
+          />
+          <Input
+            placeholder={t('modelPricing.newModelPlaceholder')}
+            value={newModelName}
+            onChange={(e) => setNewModelName(e.target.value)}
+            onPressEnter={addNewModel}
+            style={{ width: 200 }}
+          />
+          <Button icon={<PlusOutlined />} onClick={addNewModel} disabled={!newModelName.trim()}>
+            {t('common.add')}
+          </Button>
+        </div>
 
-      <Text type='secondary' style={{ display: 'block', padding: '0 24px', marginBottom: 8, fontSize: 12 }}>
-        {t('modelPricing.hint')}
-      </Text>
+        <Text
+          type='secondary'
+          style={{ display: 'block', padding: '0 24px', marginBottom: 8, fontSize: 12 }}
+        >
+          {t('modelPricing.hint')}
+        </Text>
 
-      {/* Table */}
-      <Table
-        dataSource={filteredData}
-        columns={columns}
-        size='small'
-        pagination={false}
-        scroll={{ y: 420 }}
-        rowKey='key'
-        style={{ padding: '0 12px' }}
-      />
+        {/* Table */}
+        <Table
+          dataSource={filteredData}
+          columns={columns}
+          size='small'
+          pagination={false}
+          sticky
+          rowKey='key'
+          tableLayout='fixed'
+          style={{ padding: '0 12px' }}
+        />
+      </SimpleBar>
     </Modal>
   )
 }

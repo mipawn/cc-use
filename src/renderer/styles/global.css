@@ -22,6 +22,12 @@ body {
   height: 100vh;
 }
 
+:root {
+  --simplebar-track-size: 14px;
+  --simplebar-scrollbar-size: 10px;
+  --simplebar-gutter: 14px;
+}
+
 /* Hide native scrollbar globally */
 ::-webkit-scrollbar {
   width: 0;
@@ -59,23 +65,32 @@ body {
 }
 
 .simplebar-track.simplebar-vertical {
-  width: 12px !important;
+  width: var(--simplebar-track-size) !important;
   right: 0 !important;
 }
 
 .simplebar-track.simplebar-vertical .simplebar-scrollbar {
   right: 2px !important;
-  width: 8px !important;
+  width: var(--simplebar-scrollbar-size) !important;
 }
 
 .simplebar-track.simplebar-horizontal {
-  height: 12px !important;
+  height: var(--simplebar-track-size) !important;
   bottom: 0 !important;
 }
 
 .simplebar-track.simplebar-horizontal .simplebar-scrollbar {
   bottom: 2px !important;
-  height: 8px !important;
+  height: var(--simplebar-scrollbar-size) !important;
+}
+
+/* Prevent horizontal scroll/track for specific SimpleBar containers */
+.no-horizontal-simplebar .simplebar-content-wrapper {
+  overflow-x: hidden !important;
+}
+
+.no-horizontal-simplebar .simplebar-track.simplebar-horizontal {
+  display: none !important;
 }
 
 /* Drag region for window */

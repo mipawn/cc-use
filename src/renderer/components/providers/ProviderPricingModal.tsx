@@ -3,6 +3,7 @@ import { Modal, Table, Input, InputNumber, Button, Space } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useTranslation } from 'react-i18next'
 import type { Provider } from '@shared/types'
+import SimpleBar from 'simplebar-react'
 
 type PricingValue = {
   input: number
@@ -212,21 +213,31 @@ export default function ProviderPricingModal(props: {
       confirmLoading={saving}
       destroyOnClose
     >
-      <Space style={{ marginBottom: 12 }}>
-        <Button onClick={addRow}>{t('keys.pricingAddModel') || '添加模型'}</Button>
-        <span style={{ color: 'rgba(0,0,0,0.45)' }}>
-          {t('keys.pricingHint') || '单位：美元/百万 tokens（$/1M）'}
-        </span>
-      </Space>
+      <SimpleBar
+        className='no-horizontal-simplebar'
+        style={{
+          maxHeight: 'calc(80vh - 160px)',
+          paddingLeft: 12,
+          paddingRight: 'var(--simplebar-gutter)',
+          marginRight: 'calc(-1 * var(--simplebar-gutter))',
+        }}
+      >
+        <Space style={{ marginBottom: 12 }}>
+          <Button onClick={addRow}>{t('keys.pricingAddModel') || '添加模型'}</Button>
+          <span style={{ color: 'rgba(0,0,0,0.45)' }}>
+            {t('keys.pricingHint') || '单位：美元/百万 tokens（$/1M）'}
+          </span>
+        </Space>
 
-      <Table<Row>
-        rowKey='id'
-        size='small'
-        pagination={{ pageSize: 10 }}
-        columns={columns}
-        dataSource={rows}
-        scroll={{ x: 900 }}
-      />
+        <Table<Row>
+          rowKey='id'
+          size='small'
+          pagination={{ pageSize: 10 }}
+          columns={columns}
+          dataSource={rows}
+          scroll={{ x: 900 }}
+        />
+      </SimpleBar>
     </Modal>
   )
 }

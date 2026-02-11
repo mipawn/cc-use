@@ -125,7 +125,13 @@ export default function Providers() {
         </Button>
       </div>
 
-      <SimpleBar style={{ maxHeight: 'calc(100vh - 140px)', paddingRight: 12 }}>
+      <SimpleBar
+        style={{
+          maxHeight: 'calc(100vh - 140px)',
+          paddingRight: 'var(--simplebar-gutter)',
+          marginRight: 'calc(-1 * var(--simplebar-gutter))',
+        }}
+      >
         {loading ? (
           <div className='empty-state'>
             <Spin size='large' />
