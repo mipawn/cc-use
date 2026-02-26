@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   defaultProviderType: 'claude',
   proxyPort: 12345,
   autoStartProxy: true,
-  defaultTerminalType: 'iterm2',
+  defaultTerminalType: process.platform === 'win32' ? 'cmd' : 'iterm2',
   closeToTray: true,
 }
 

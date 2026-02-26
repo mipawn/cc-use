@@ -400,9 +400,11 @@ function createSplashWindow() {
 </body>
 </html>`
 
+  const isMac = process.platform === 'darwin'
+
   splashWindow = new BrowserWindow({
     width: 380,
-    height: 380, // Slightly taller for new layout
+    height: 380,
     resizable: false,
     movable: true,
     minimizable: false,
@@ -411,8 +413,9 @@ function createSplashWindow() {
     frame: false,
     show: true,
     alwaysOnTop: true,
-    transparent: true, // Enable transparency for rounded corners if needed, though we use dark bg
-    backgroundColor: '#00000000', // Transparent base for custom css border-radius
+    // Transparency works well on macOS but causes black background / flicker on Windows
+    transparent: isMac,
+    backgroundColor: isMac ? '#00000000' : background,
     hasShadow: true,
     icon: getAppIcon(),
     webPreferences: {
@@ -422,13 +425,10 @@ function createSplashWindow() {
     },
   })
 
-  // To allow rounded corners on the window itself nicely, we can update the body style to have border-radius
-  // But standard frameless works too. Let's stick to standard solid background for safety on all platforms, 
-  // or use the color provided in CSS.
-  // Actually, setting transparent: true and backgroundColor: '#00000000' allows CSS to control the shape completely.
-  
-  // Update HTML body to have border radius and background
-  const finalHtml = html.replace('body {', 'body { border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 50px rgba(0,0,0,0.5); backdrop-filter: blur(10px);')
+  // On macOS, use rounded corners + blur. On Windows, use solid background (no transparency support).
+  const finalHtml = isMac
+    ? html.replace('body {', 'body { border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 50px rgba(0,0,0,0.5); backdrop-filter: blur(10px);')
+    : html
 
   splashWindow.center()
   splashWindow.setSkipTaskbar(true)
@@ -566,14 +566,7 @@ async function createTray() {
   tray.setToolTip('CC Use')
 
   // Keep menu text in sync even when window visibility changes elsewhere.
-  tray.on('click', () => {
-    updateTrayMenu()
-  })
-  tray.on('right-click', () => {
-    updateTrayMenu()
-  })
-
-  // Windows/Linux: left click toggles window visibility
+  // Windows/Linux: left click toggles window visibility; macOS: just refresh menu.
   if (process.platform !== 'darwin') {
     tray.on('click', () => {
       if (isMainWindowActuallyVisible()) {
@@ -583,7 +576,14 @@ async function createTray() {
       }
       updateTrayMenu()
     })
+  } else {
+    tray.on('click', () => {
+      updateTrayMenu()
+    })
   }
+  tray.on('right-click', () => {
+    updateTrayMenu()
+  })
 
   await updateTrayMenu()
 
@@ -750,8 +750,11 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  // Don't quit when all windows are closed - tray keeps the app alive
-  // On macOS this is already the default behavior
+  // On macOS, apps typically stay alive even without windows.
+  // On Windows/Linux, if tray failed to create, quit to avoid zombie process.
+  if (process.platform !== 'darwin' && !tray) {
+    app.quit()
+  }
 })
 
 app.on('before-quit', async () => {

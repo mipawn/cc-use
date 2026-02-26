@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
 import type { TerminalStrategy, EnvObject } from './base'
+import { escapeEnvValue, sanitizePath } from './escape'
 
 export class CmdStrategy implements TerminalStrategy {
   name = 'Command Prompt'
@@ -9,13 +10,16 @@ export class CmdStrategy implements TerminalStrategy {
   }
 
   async launch(path: string, env: EnvObject, cliCommand?: string): Promise<void> {
+    const safePath = sanitizePath(path)
     const envSetCommands = Object.entries(env)
-      .map(([key, value]) => `set ${key}=${value}`)
+      .map(([key, value]) => `set "${key}=${escapeEnvValue(value)}"`)
       .join(' && ')
 
-    // Use pushd instead of cd /d to support UNC paths (e.g. \\psf\Home\...)
-    // pushd automatically maps UNC paths to a temporary drive letter
-    let finalCommand = `pushd "${path}" && ${envSetCommands}`
+    // Use pushd to support UNC paths (e.g. \\psf\Home\...)
+    let finalCommand = `pushd "${safePath}"`
+    if (envSetCommands) {
+      finalCommand += ` && ${envSetCommands}`
+    }
     if (cliCommand) {
       finalCommand += ` && ${cliCommand}`
     }
@@ -23,7 +27,6 @@ export class CmdStrategy implements TerminalStrategy {
     spawn('cmd.exe', ['/k', finalCommand], {
       detached: true,
       stdio: 'ignore',
-      shell: true,
     }).unref()
   }
 }
