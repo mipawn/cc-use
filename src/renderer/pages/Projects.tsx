@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 /**
  * Projects - 项目管理页面（卡片布局）
  * 完整的增删改查 + 代理服务控制
@@ -110,7 +111,7 @@ export default function Projects() {
     fetchProviders()
     checkProxyStatus()
 
-    const unsubscribe = window.api.proxy.onStatusChanged((data) => {
+    const unsubscribe = getApi().proxy.onStatusChanged((data) => {
       setProxyRunning(data.isRunning)
       if (data.source === 'tray') {
         if (data.isRunning) {
@@ -134,7 +135,7 @@ export default function Projects() {
   // Check proxy status
   const checkProxyStatus = async () => {
     try {
-      const status = await window.api.proxy.status()
+      const status = await getApi().proxy.status()
       setProxyRunning(status.isRunning)
     } catch (error) {
       console.error('Failed to check proxy status:', error)
@@ -155,7 +156,7 @@ export default function Projects() {
         onOk: async () => {
           setProxyLoading(true)
           try {
-            await window.api.proxy.stop()
+            await getApi().proxy.stop()
             setProxyRunning(false)
             message.success(t('projects.proxyStopped'))
           } catch (error) {
@@ -171,7 +172,7 @@ export default function Projects() {
     // Turn on proxy
     setProxyLoading(true)
     try {
-      await window.api.proxy.start()
+      await getApi().proxy.start()
       setProxyRunning(true)
       message.success(t('projects.proxyStarted'))
     } catch (error) {
@@ -184,10 +185,10 @@ export default function Projects() {
   // Ensure proxy is running
   const ensureProxyRunning = useCallback(async (): Promise<boolean> => {
     try {
-      const status = await window.api.proxy.status()
+      const status = await getApi().proxy.status()
       if (status.isRunning) return true
 
-      await window.api.proxy.start()
+      await getApi().proxy.start()
       await new Promise((resolve) => setTimeout(resolve, 500))
       setProxyRunning(true)
       return true
@@ -253,7 +254,7 @@ export default function Projects() {
     }
 
     try {
-      await window.api.terminal.launch(project.id)
+      await getApi().terminal.launch(project.id)
       message.success(`${t('projects.opened')} ${project.name}`)
       fetchProjects()
     } catch (error) {
@@ -402,7 +403,7 @@ export default function Projects() {
   // Select folder
   const handleSelectFolder = async () => {
     try {
-      const path = await window.api.system.selectFolder()
+      const path = await getApi().system.selectFolder()
       if (path) {
         form.setFieldValue('path', path)
         // Auto-fill name from folder name

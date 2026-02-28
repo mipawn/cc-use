@@ -498,4 +498,14 @@ export default {
     resetConfirm: '确认清除所有自定义价格？将恢复为内置官方价格。',
     editPricing: '模型价格',
   },
+  migration: {
+    title: '检测到旧版数据',
+    description: '检测到旧版 CC Use (Electron) 的数据库文件，是否将数据迁移到新版？',
+    confirm: '立即迁移',
+    cancel: '跳过',
+    migrating: '正在迁移数据...',
+    success: '数据迁移成功',
+    successDetail: '已迁移 {{providers}} 个供应商、{{apiKeys}} 个密钥、{{projects}} 个项目',
+    failed: '数据迁移失败',
+  },
 }

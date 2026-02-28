@@ -51,13 +51,13 @@ export default function Sidebar() {
   return (
     <Sider
       width={220}
-      className='pt-12'
       style={{
         background: token.colorBgContainer,
         borderRight: `1px solid ${token.colorBorderSecondary}`,
       }}
     >
-      <div className='drag-region absolute top-0 left-0 right-0 h-12 flex items-center justify-start' />
+      {/* Drag region for sidebar top area (macOS traffic lights sit here) */}
+      <div data-tauri-drag-region style={{ height: 52, flexShrink: 0 }} />
       <Menu
         mode='inline'
         selectedKeys={[selectedKey]}

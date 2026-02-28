@@ -1,7 +1,9 @@
+import { getApi } from './api'
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
-import { Layout, theme, App as AntdApp, Alert, Button } from 'antd'
-import { useState, useEffect } from 'react'
+import { Layout, theme, App as AntdApp, Alert, Button, Modal } from 'antd'
+import { useState, useEffect, useCallback } from 'react'
 import Sidebar from './components/layout/Sidebar'
+import TitleBar from './components/layout/TitleBar'
 import Dashboard from './pages/Dashboard'
 import Keys from './pages/Keys'
 import Projects from './pages/Projects'
@@ -11,6 +13,7 @@ import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
 import type { UpdateCheckResult } from '@shared/types'
+import AppErrorBoundary from './components/common/AppErrorBoundary'
 
 const { Content } = Layout
 
@@ -20,7 +23,7 @@ function UpdateBanner() {
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
 
   useEffect(() => {
-    const unsubscribe = window.api.app.onUpdateAvailable((result: UpdateCheckResult) => {
+    const unsubscribe = getApi().app.onUpdateAvailable((result: UpdateCheckResult) => {
       setUpdateInfo(result)
     })
     return () => unsubscribe()
@@ -53,6 +56,67 @@ function UpdateBanner() {
   )
 }
 
+function MigrationModal() {
+  const { t } = useTranslation()
+  const { message } = AntdApp.useApp()
+  const [visible, setVisible] = useState(false)
+  const [migrating, setMigrating] = useState(false)
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<boolean>('app:migrationAvailable', () => {
+        setVisible(true)
+      }).then((fn) => {
+        unlisten = fn
+      })
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [])
+
+  const handleMigrate = useCallback(async () => {
+    setMigrating(true)
+    try {
+      const result = await getApi().importExport.migrateFromElectron()
+      if (result.success) {
+        message.success(
+          t('migration.successDetail', {
+            providers: result.providers,
+            apiKeys: result.apiKeys,
+            projects: result.projects,
+          }),
+        )
+        setVisible(false)
+        // Reload to pick up migrated data
+        setTimeout(() => window.location.reload(), 500)
+      }
+    } catch (e) {
+      message.error(`${t('migration.failed')}: ${e}`)
+    } finally {
+      setMigrating(false)
+    }
+  }, [message, t])
+
+  return (
+    <Modal
+      title={t('migration.title')}
+      open={visible}
+      onOk={handleMigrate}
+      onCancel={() => setVisible(false)}
+      okText={t('migration.confirm')}
+      cancelText={t('migration.cancel')}
+      confirmLoading={migrating}
+      closable={!migrating}
+      maskClosable={!migrating}
+      focusable={{ focusTriggerAfterClose: false }}
+    >
+      <p>{t('migration.description')}</p>
+    </Modal>
+  )
+}
+
 function AppContent() {
   const { token } = theme.useToken()
   const { message } = AntdApp.useApp()
@@ -65,16 +129,18 @@ function AppContent() {
     <Layout className='min-h-screen'>
       <Sidebar />
       <Layout style={{ background: token.colorBgLayout }}>
+        <TitleBar />
         <Content
           style={{
             padding: 24,
             overflow: 'hidden',
-            height: '100vh',
+            height: 'calc(100vh - 36px)',
             display: 'flex',
             flexDirection: 'column',
           }}
         >
           <UpdateBanner />
+          <MigrationModal />
           <Routes>
             <Route path='/' element={<Dashboard />} />
             <Route path='/keys' element={<Keys />} />
@@ -93,7 +159,9 @@ function AppContent() {
 export default function App() {
   return (
     <HashRouter>
-      <AppContent />
+      <AppErrorBoundary>
+        <AppContent />
+      </AppErrorBoundary>
     </HashRouter>
   )
 }

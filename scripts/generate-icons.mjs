@@ -9,13 +9,15 @@
  *   Mostly-white rounded-rect background with the original icon area cut out
  *   to transparency ("white plate + transparent glyph").
  *
- * Output:
+ * Output (written into src-tauri/icons/):
  *   - tray.png       (22x22)   macOS/Linux tray base
+ *   - tray.rgba      (22x22)   macOS runtime override (include_bytes)
+ *   - tray@2x.rgba   (44x44)   macOS Retina runtime override (include_bytes)
  *   - tray@2x.png    (44x44)   macOS Retina representation
  *   - tray.ico                  Windows tray (16/20/24/32)
  *   - icon.ico                  Windows app icon (from dock.png)
  *
- * Usage: node scripts/generate-icons.mjs
+ * Usage: pnpm generate:icons
  */
 
 import sharp from 'sharp'
@@ -27,14 +29,22 @@ import { Buffer } from 'node:buffer'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const buildDir = path.join(__dirname, '..', 'build')
+// Tauri stores bundle resources under src-tauri/icons.
+// This script reads source icons from there and overwrites the generated outputs in-place.
+const iconsDir = path.join(__dirname, '..', 'src-tauri', 'icons')
 
 // Tray tuning
 // - Plate color: slightly off-white to avoid harsh white
 // - Padding ratios: keep modest so the image stays compact (smaller click area)
 const PLATE_COLOR = '#f3f4f6'
-const PLATE_PADDING_RATIO = 0.12
-const GLYPH_PADDING_RATIO = 0.18
+// Smaller padding => larger perceived glyph (closer to Electron nativeImage resizing)
+// NOTE: 22px assets clamp to >=1px padding anyway; this mainly affects 44px (Retina).
+const PLATE_PADDING_RATIO = 0.03
+const GLYPH_PADDING_RATIO = 0.1
+// Make the plate/border around the cutout slightly thicker.
+// (+1px matches the previous style while improving readability.)
+const GLYPH_PADDING_PLUS_PX_1X = 1
+const GLYPH_PADDING_PLUS_PX_2X = 2
 
 // --- Helpers ---
 
@@ -60,7 +70,9 @@ function circleSvg(size, color, padding) {
  */
 async function trayCutoutWhite(sourceBuffer, size) {
   const platePadding = Math.max(Math.round(size * PLATE_PADDING_RATIO), 1)
-  const glyphPadding = Math.max(Math.round(size * GLYPH_PADDING_RATIO), 1)
+  const baseGlyphPadding = Math.max(Math.round(size * GLYPH_PADDING_RATIO), 1)
+  const glyphPaddingPlus = size >= 44 ? GLYPH_PADDING_PLUS_PX_2X : GLYPH_PADDING_PLUS_PX_1X
+  const glyphPadding = baseGlyphPadding + glyphPaddingPlus
 
   // Background: only a circular white content area, outer area stays transparent
   const { data: bg, info: bgInfo } = await sharp(circleSvg(size, PLATE_COLOR, platePadding))
@@ -70,12 +82,19 @@ async function trayCutoutWhite(sourceBuffer, size) {
 
   const inner = size - glyphPadding * 2
 
-  const { data: icon, info: iconInfo } = await sharp(sourceBuffer)
+  let pipeline = sharp(sourceBuffer).ensureAlpha()
+  try {
+    // Remove transparent margins so the cutout appears larger.
+    pipeline = pipeline.trim()
+  } catch {
+    // ignore
+  }
+
+  const { data: icon, info: iconInfo } = await pipeline
     .resize(inner, inner, {
       fit: 'contain',
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     })
-    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true })
 
@@ -142,7 +161,8 @@ async function renderTrimmedCentered(sourceBuffer, size, paddingRatio) {
 
 async function trayColorWindows(sourceBuffer, size) {
   // Windows tray icons are commonly colored. Add a subtle shadow for contrast.
-  const paddingRatio = 0.12
+  // Smaller padding => bigger perceived glyph.
+  const paddingRatio = 0.06
   const padding = Math.max(1, Math.round(size * paddingRatio))
   const inner = Math.max(1, size - padding * 2)
 
@@ -199,19 +219,25 @@ async function trayColorWindows(sourceBuffer, size) {
 }
 
 function writeTempPng(buffer, label) {
-  const p = path.join(buildDir, `_tmp_${label}.png`)
+  const p = path.join(iconsDir, `_tmp_${label}.png`)
   fs.writeFileSync(p, buffer)
   return p
+}
+
+function writeRgbaFromPng(pngBuffer, outPath) {
+  return sharp(pngBuffer).ensureAlpha().raw().toBuffer().then((raw) => {
+    fs.writeFileSync(outPath, raw)
+  })
 }
 
 // --- Main ---
 
 async function main() {
-  const iconSrcPath = path.join(buildDir, 'icon.png')
-  const dockSrcPath = path.join(buildDir, 'dock.png')
+  const iconSrcPath = path.join(iconsDir, 'icon.png')
+  const dockSrcPath = path.join(iconsDir, 'dock.png')
 
   if (!fs.existsSync(iconSrcPath)) {
-    globalThis.console.error('Error: build/icon.png not found.')
+    globalThis.console.error('Error: src-tauri/icons/icon.png not found.')
     globalThis.process.exit(1)
   }
 
@@ -228,12 +254,16 @@ async function main() {
   // macOS/Linux tray base + Retina
   // macOS menu bar items size is derived from the image width; keep it small.
   const tray22 = await trayCutoutWhite(iconSrc, 22)
-  fs.writeFileSync(path.join(buildDir, 'tray.png'), tray22)
+  fs.writeFileSync(path.join(iconsDir, 'tray.png'), tray22)
+  await writeRgbaFromPng(tray22, path.join(iconsDir, 'tray.rgba'))
   globalThis.console.log('  tray.png (22x22)')
+  globalThis.console.log('  tray.rgba (22x22 raw)')
 
   const tray44 = await trayCutoutWhite(iconSrc, 44)
-  fs.writeFileSync(path.join(buildDir, 'tray@2x.png'), tray44)
+  fs.writeFileSync(path.join(iconsDir, 'tray@2x.png'), tray44)
+  await writeRgbaFromPng(tray44, path.join(iconsDir, 'tray@2x.rgba'))
   globalThis.console.log('  tray@2x.png (44x44)')
+  globalThis.console.log('  tray@2x.rgba (44x44 raw)')
 
   // Windows tray: tray.ico (16/20/24/32)
   const trayTempFiles = []
@@ -243,8 +273,8 @@ async function main() {
     globalThis.console.log(`  tray ${s}x${s} (colored)`)
   }
   const trayIcoBuffer = await pngToIco(trayTempFiles)
-  fs.writeFileSync(path.join(buildDir, 'tray.ico'), trayIcoBuffer)
-  globalThis.console.log('  -> build/tray.ico\n')
+  fs.writeFileSync(path.join(iconsDir, 'tray.ico'), trayIcoBuffer)
+  globalThis.console.log('  -> src-tauri/icons/tray.ico\n')
 
   // ── 2. Windows app icon (icon.ico) ────────────────────────
   //    From dock.png so Windows shortcuts match macOS dock icon.
@@ -267,8 +297,8 @@ async function main() {
   }
 
   const icoBuffer = await pngToIco(tempFiles)
-  fs.writeFileSync(path.join(buildDir, 'icon.ico'), icoBuffer)
-  globalThis.console.log('  -> build/icon.ico\n')
+  fs.writeFileSync(path.join(iconsDir, 'icon.ico'), icoBuffer)
+  globalThis.console.log('  -> src-tauri/icons/icon.ico\n')
 
   // ── Cleanup ───────────────────────────────────────────────
   ;[...tempFiles, ...trayTempFiles].forEach((f) => {
@@ -280,11 +310,11 @@ async function main() {
   })
 
   globalThis.console.log('Done!')
-  globalThis.console.log('  macOS dock:  build/icon.icns (unchanged)')
-  globalThis.console.log('  macOS tray:  build/tray.png + tray@2x.png')
-  globalThis.console.log('  Win app:     build/icon.ico (from dock.png)')
-  globalThis.console.log('  Win tray:    build/tray.ico')
-  globalThis.console.log('  Linux tray:  build/tray.png')
+  globalThis.console.log('  macOS dock:  src-tauri/icons/icon.icns (unchanged)')
+  globalThis.console.log('  macOS tray:  src-tauri/icons/tray.png (+ tray.rgba / tray@2x.rgba runtime)')
+  globalThis.console.log('  Win app:     src-tauri/icons/icon.ico (from dock.png)')
+  globalThis.console.log('  Win tray:    src-tauri/icons/tray.ico')
+  globalThis.console.log('  Linux tray:  src-tauri/icons/tray.png')
   globalThis.console.log('  Style:       white plate + transparent glyph')
 }
 

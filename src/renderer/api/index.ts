@@ -1,0 +1,182 @@
+/**
+ * Tauri API layer — wraps Tauri invoke() calls into the Api interface shape.
+ */
+import type { Api } from './types'
+
+let _api: Api | null = null
+
+async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
+  return tauriInvoke<T>(cmd, args)
+}
+
+type UnlistenFn = () => void
+
+async function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
+  const { listen: tauriListen } = await import('@tauri-apps/api/event')
+  const unlisten = await tauriListen<T>(event, (e) => handler(e.payload))
+  return unlisten
+}
+
+function buildApi(): Api {
+  return {
+    provider: {
+      list: () => invoke('provider_list'),
+      get: (id) => invoke('provider_get', { id }),
+      create: (input) => invoke('provider_create', { input }),
+      update: (input) => invoke('provider_update', { input }),
+      delete: (id) => invoke('provider_delete', { id }),
+      syncPricing: (providerId) => invoke('provider_sync_pricing', { providerId }),
+      updatePricing: (providerId, pricing) =>
+        invoke('provider_update_pricing', { providerId, pricing }),
+    },
+    apiKey: {
+      list: (providerId) => invoke('api_key_list', { providerId }),
+      create: (input) => invoke('api_key_create', { input }),
+      update: (input) => invoke('api_key_update', { input }),
+      delete: (id) => invoke('api_key_delete', { id }),
+      reorder: (providerId, keyIds) => invoke('api_key_reorder', { providerId, keyIds }),
+    },
+    project: {
+      list: () => invoke('project_list'),
+      get: (id) => invoke('project_get', { id }),
+      getByPath: (path) => invoke('project_get_by_path', { path }),
+      create: (input) => invoke('project_create', { input }),
+      update: (input) => invoke('project_update', { input }),
+      delete: (id) => invoke('project_delete', { id }),
+      open: (id) => invoke('project_open', { id }),
+    },
+    terminal: {
+      launch: (projectId, options) => invoke('terminal_launch', { projectId, options }),
+      launchWithPath: (path) => invoke('terminal_launch_with_path', { path }),
+    },
+    proxy: {
+      start: () => invoke('proxy_start'),
+      stop: () => invoke('proxy_stop'),
+      status: () => invoke('proxy_status'),
+      onStatusChanged: (callback) => {
+        let unlisten: UnlistenFn | null = null
+        listen<{ isRunning: boolean; port: number; source?: string }>(
+          'proxy:statusChanged',
+          callback,
+        ).then((fn) => {
+          unlisten = fn
+        })
+        return () => {
+          unlisten?.()
+        }
+      },
+    },
+    balance: {
+      refresh: (providerId) => invoke('balance_refresh', { providerId }),
+    },
+    usage: {
+      refresh: (providerId) => invoke('usage_refresh', { providerId }),
+    },
+    keyUsage: {
+      refresh: (keyId) => invoke('key_usage_refresh', { keyId }),
+    },
+    importExport: {
+      export: () => invoke('export_providers'),
+      import: (data, options) => invoke('import_providers', { data, options }),
+      validate: (data) => invoke('validate_import_data', { data }),
+      checkElectronMigration: () => invoke('check_electron_migration'),
+      migrateFromElectron: () => invoke('migrate_from_electron'),
+    },
+    session: {
+      create: (providerId, apiKeyId) => invoke('session_create', { providerId, apiKeyId }),
+      get: (sessionToken) => invoke('session_get', { sessionToken }),
+      updateKey: (sessionToken, apiKeyId) =>
+        invoke('session_update_key', { sessionToken, apiKeyId }),
+      delete: (sessionToken) => invoke('session_delete', { sessionToken }),
+      list: () => invoke('session_list'),
+    },
+    settings: {
+      get: () => invoke('settings_get'),
+      update: (updates) => invoke('settings_update', { updates }),
+    },
+    icon: {
+      upload: (buffer, filename) => {
+        const arr = Array.from(new Uint8Array(buffer))
+        return invoke('icon_upload', { buffer: arr, filename })
+      },
+      list: () => invoke('icon_list'),
+    },
+    usageLog: {
+      getStats: (timeRange) => invoke('usage_log_get_stats', { timeRange }),
+      getRecent: (limit) => invoke('usage_log_get_recent', { limit }),
+      getTodayQuickStats: () => invoke('usage_log_today_quick_stats'),
+    },
+    requestLog: {
+      getCostStats: () => invoke('request_log_get_cost_stats'),
+      getKeyCosts: () => invoke('request_log_get_key_costs'),
+      getDailyTrend: (days) => invoke('request_log_get_daily_trend', { days }),
+      getCostStatistics: (timeRange) =>
+        invoke('request_log_get_cost_statistics', { timeRange }),
+      getDashboardStats: () => invoke('request_log_get_dashboard_stats'),
+    },
+    modelPricing: {
+      getAll: () => invoke('model_pricing_get_all'),
+      getCustom: () => invoke('model_pricing_get_custom'),
+      updateCustom: (pricing) => invoke('model_pricing_update_custom', { pricing }),
+      getDefault: () => invoke('model_pricing_get_default'),
+    },
+    app: {
+      getVersion: () => invoke('app_get_version'),
+      checkUpdate: () => invoke('app_check_update'),
+      downloadUpdate: () => invoke('app_download_update'),
+      installUpdate: () => invoke('app_install_update'),
+      onUpdateProgress: (callback) => {
+        let unlisten: UnlistenFn | null = null
+        listen('app:updateProgress', callback).then((fn) => {
+          unlisten = fn
+        })
+        return () => {
+          unlisten?.()
+        }
+      },
+      onUpdateDownloaded: (callback) => {
+        let unlisten: UnlistenFn | null = null
+        listen('app:updateDownloaded', callback).then((fn) => {
+          unlisten = fn
+        })
+        return () => {
+          unlisten?.()
+        }
+      },
+      getUpdatesCacheInfo: () => invoke('app_get_updates_cache_info'),
+      clearUpdatesCache: () => invoke('app_clear_updates_cache'),
+      onUpdateAvailable: (callback) => {
+        let unlisten: UnlistenFn | null = null
+        listen('app:updateAvailable', callback).then((fn) => {
+          unlisten = fn
+        })
+        return () => {
+          unlisten?.()
+        }
+      },
+    },
+    system: {
+      getPlatform: () => invoke('system_get_platform'),
+      selectFolder: async () => {
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const result = await open({ directory: true })
+        return result as string | null
+      },
+      openExternal: async (url) => {
+        const { openUrl } = await import('@tauri-apps/plugin-opener')
+        await openUrl(url)
+      },
+    },
+  }
+}
+
+/**
+ * Get the API object. Cached after first call.
+ */
+export function getApi(): Api {
+  if (!_api) {
+    _api = buildApi()
+  }
+  return _api
+}

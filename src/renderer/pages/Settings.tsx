@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 /**
  * Settings - 简化的设置页面
  * 只保留：语言、主题、代理端口、默认终端、代理开关
@@ -99,7 +100,7 @@ export default function Settings() {
         style={{ color: token.colorLink }}
         onClick={(e) => {
           e.preventDefault()
-          if (href) window.api.system.openExternal(href)
+          if (href) getApi().system.openExternal(href)
         }}
       >
         {children}
@@ -137,15 +138,24 @@ export default function Settings() {
   const [clearingCache, setClearingCache] = useState(false)
 
   const fetchCacheInfo = useCallback(async () => {
-    const info = await window.api.app.getUpdatesCacheInfo()
-    setCacheSize(info.size)
-    setCacheFiles(info.files)
+    try {
+      const info = await getApi().app.getUpdatesCacheInfo()
+      const size = typeof info?.size === 'number' && Number.isFinite(info.size) ? info.size : 0
+      const files = Array.isArray(info?.files)
+        ? info.files.filter((f): f is string => typeof f === 'string')
+        : []
+      setCacheSize(size)
+      setCacheFiles(files)
+    } catch {
+      setCacheSize(0)
+      setCacheFiles([])
+    }
   }, [])
 
   // Fetch proxy status
   const fetchProxyStatus = useCallback(async () => {
     try {
-      const status = await window.api.proxy.status()
+      const status = await getApi().proxy.status()
       setProxyStatus(status)
     } catch (error) {
       console.error('Failed to fetch proxy status:', error)
@@ -156,10 +166,10 @@ export default function Settings() {
     fetchGlobalSettings()
     fetchProxyStatus()
     fetchCacheInfo()
-    window.api.app.getVersion().then(setAppVersion)
-    window.api.system.getPlatform().then(setPlatform)
+    getApi().app.getVersion().then(setAppVersion)
+    getApi().system.getPlatform().then(setPlatform)
 
-    const unsubscribe = window.api.proxy.onStatusChanged((data) => {
+    const unsubscribe = getApi().proxy.onStatusChanged((data) => {
       setProxyStatus({ isRunning: data.isRunning, port: data.port })
       if (data.source === 'tray') {
         if (data.isRunning) {
@@ -170,19 +180,19 @@ export default function Settings() {
       }
     })
 
-    const unsubProgress = window.api.app.onUpdateProgress((info: UpdateProgressInfo) => {
+    const unsubProgress = getApi().app.onUpdateProgress((info: UpdateProgressInfo) => {
       setDownloadProgress(Math.round(info.percent))
       setDownloadSpeed(info.bytesPerSecond / 1024 / 1024)
     })
 
-    const unsubDownloaded = window.api.app.onUpdateDownloaded(() => {
+    const unsubDownloaded = getApi().app.onUpdateDownloaded(() => {
       setUpdateDownloaded(true)
       setUpdateDownloading(false)
       fetchCacheInfo()
     })
 
     // Listen for auto update check results
-    const unsubUpdateAvailable = window.api.app.onUpdateAvailable((result: UpdateCheckResult) => {
+    const unsubUpdateAvailable = getApi().app.onUpdateAvailable((result: UpdateCheckResult) => {
       setUpdateResult(result)
     })
 
@@ -208,7 +218,7 @@ export default function Settings() {
         onOk: async () => {
           setProxyLoading(true)
           try {
-            await window.api.proxy.stop()
+            await getApi().proxy.stop()
             await fetchProxyStatus()
           } catch (error) {
             console.error('Failed to stop proxy:', error)
@@ -223,7 +233,7 @@ export default function Settings() {
     // Turn on proxy
     setProxyLoading(true)
     try {
-      await window.api.proxy.start()
+      await getApi().proxy.start()
       await fetchProxyStatus()
     } catch (error) {
       console.error('Failed to start proxy:', error)
@@ -244,7 +254,7 @@ export default function Settings() {
     setUpdateDownloaded(false)
     setDownloadProgress(0)
     try {
-      const result: UpdateCheckResult = await window.api.app.checkUpdate()
+      const result: UpdateCheckResult = await getApi().app.checkUpdate()
       if (result.hasUpdate) {
         setUpdateResult(result)
       } else {
@@ -261,19 +271,19 @@ export default function Settings() {
     setUpdateDownloading(true)
     setDownloadProgress(0)
     try {
-      await window.api.app.downloadUpdate()
+      await getApi().app.downloadUpdate()
     } catch {
       setUpdateDownloading(false)
       message.error(t('settings.downloadFailed'))
       // Fallback: open browser
       if (updateResult?.releaseUrl) {
-        window.api.system.openExternal(updateResult.releaseUrl)
+        getApi().system.openExternal(updateResult.releaseUrl)
       }
     }
   }
 
   const handleInstallUpdate = async () => {
-    const result = await window.api.app.installUpdate()
+    const result = await getApi().app.installUpdate()
     if (result && !result.success) {
       if (platform === 'darwin' && result.error === 'UPDATE_NO_PERMISSION') {
         message.error(t('settings.updateNoPermission'))
@@ -289,8 +299,8 @@ export default function Settings() {
   const handleClearCache = async () => {
     setClearingCache(true)
     try {
-      const count = await window.api.app.clearUpdatesCache()
-      message.success(t('settings.cacheCleared', { count }))
+      const count = await getApi().app.clearUpdatesCache()
+      message.success(t('settings.cacheCleared', { count: typeof count === 'number' ? count : 0 }))
       setCacheSize(0)
       setCacheFiles([])
     } finally {
@@ -598,7 +608,7 @@ export default function Settings() {
                           {t('settings.downloadUpdate')}
                         </Button>
                         <Button
-                          onClick={() => window.api.system.openExternal(updateResult.releaseUrl)}
+                          onClick={() => getApi().system.openExternal(updateResult.releaseUrl)}
                         >
                           {t('settings.goToDownload')}
                         </Button>

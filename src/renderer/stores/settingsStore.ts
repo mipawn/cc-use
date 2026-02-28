@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 import { create } from 'zustand'
 import i18n from '../locales'
 import type { GlobalSettings, TerminalType } from '@shared/types'
@@ -76,7 +77,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   fetchGlobalSettings: async () => {
     try {
-      const settings = await window.api.settings.get()
+      const settings = await getApi().settings.get()
       set({ globalSettings: settings })
     } catch (error) {
       console.error('Failed to fetch global settings:', error)
@@ -85,7 +86,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   updateGlobalSettings: async (updates: Partial<GlobalSettings>) => {
     try {
-      const settings = await window.api.settings.update(updates)
+      const settings = await getApi().settings.update(updates)
       set({ globalSettings: settings })
     } catch (error) {
       console.error('Failed to update global settings:', error)

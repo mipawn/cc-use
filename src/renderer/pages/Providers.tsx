@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 import { useEffect, useState } from 'react'
 import { Typography, Button, Row, Col, Spin, theme, Card } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
@@ -98,7 +99,7 @@ export default function Providers() {
     if (!pricingProvider) return
     setSavingPricing(true)
     try {
-      const updated = await window.api.provider.updatePricing(pricingProvider.id, pricing)
+      const updated = await getApi().provider.updatePricing(pricingProvider.id, pricing)
       message.success(t('keys.pricingSaveSuccess') || t('messages.success'))
       setPricingModalOpen(false)
       setPricingProvider(null)

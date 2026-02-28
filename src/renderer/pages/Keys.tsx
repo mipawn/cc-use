@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 /**
  * Keys - 以 Key 为核心维度的管理页面
  * Provider 作为分组/筛选器
@@ -155,7 +156,7 @@ export default function Keys() {
 
     const fetchCostStats = async () => {
       try {
-        const stats = await window.api.requestLog.getKeyCosts()
+        const stats = await getApi().requestLog.getKeyCosts()
         const costMap: Record<string, { todayCost: number; totalCost: number }> = {}
         stats.forEach((item) => {
           costMap[item.keyId] = {
@@ -277,7 +278,7 @@ export default function Keys() {
   const handleRefreshKeyUsage = async (keyId: string) => {
     setRefreshingKeyUsageIds((prev) => new Set(prev).add(keyId))
     try {
-      const result = await window.api.keyUsage.refresh(keyId)
+      const result = await getApi().keyUsage.refresh(keyId)
       if (result.error) {
         message.error(result.error)
       } else {
@@ -302,12 +303,12 @@ export default function Keys() {
     const msgKey = `syncPricing:${providerId}`
     message.loading({ content: t('keys.syncPricing') || '同步模型价格中...', key: msgKey, duration: 0 })
     try {
-      const result = await window.api.provider.syncPricing(providerId)
+      const result = await getApi().provider.syncPricing(providerId)
       if (result.error) {
         message.error({ content: result.error, key: msgKey })
       } else {
         message.success({ content: t('keys.syncPricingSuccess', { count: result.count }), key: msgKey })
-        const updated = await window.api.provider.get(providerId)
+        const updated = await getApi().provider.get(providerId)
         if (updated) upsertProvider(updated)
       }
     } catch {
@@ -332,7 +333,7 @@ export default function Keys() {
     if (!pricingProvider) return
     setSavingPricing(true)
     try {
-      const updated = await window.api.provider.updatePricing(pricingProvider.id, pricing)
+      const updated = await getApi().provider.updatePricing(pricingProvider.id, pricing)
       message.success(t('keys.pricingSaveSuccess') || t('messages.success'))
       setPricingModalOpen(false)
       setPricingProvider(null)
@@ -391,12 +392,12 @@ export default function Keys() {
   const handleCopyCommand = async (provider: Provider, key: ApiKey) => {
     // Fetch current proxy status
     try {
-      const status = await window.api.proxy.status()
+      const status = await getApi().proxy.status()
       setProxyStatus(status)
 
       // If proxy is running, create a session for this key
       if (status.isRunning) {
-        const session = await window.api.session.create(provider.id, key.id)
+        const session = await getApi().session.create(provider.id, key.id)
         setProxySessionToken(session.sessionToken)
       } else {
         setProxySessionToken(null)
@@ -476,7 +477,7 @@ export default function Keys() {
     usageHeaders?: string
   }) => {
     if (input.id) {
-      await window.api.apiKey.update({
+      await getApi().apiKey.update({
         id: input.id,
         alias: input.alias,
         value: input.value,
@@ -489,7 +490,7 @@ export default function Keys() {
         usageHeaders: input.usageHeaders,
       })
     } else {
-      await window.api.apiKey.create({
+      await getApi().apiKey.create({
         providerId: input.providerId,
         alias: input.alias,
         value: input.value,
@@ -759,7 +760,7 @@ export default function Keys() {
                                     icon={<LinkOutlined />}
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      window.api.system.openExternal(provider.website!)
+                                      getApi().system.openExternal(provider.website!)
                                     }}
                                   />
                                 </Tooltip>
@@ -840,9 +841,9 @@ export default function Keys() {
         }}
         onSave={async (input) => {
           if (input.id) {
-            await window.api.provider.update(input as any)
+            await getApi().provider.update(input as any)
           } else {
-            await window.api.provider.create(input as any)
+            await getApi().provider.create(input as any)
           }
           fetchProviders()
         }}

@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 /**
  * Statistics - 费用统计页面
  * 展示 API 请求费用、Top 10 排行、费用趋势、最近请求
@@ -48,7 +49,7 @@ export default function Statistics() {
     const fetchStats = async () => {
       setLoading(true)
       try {
-        const data = await window.api.requestLog.getCostStatistics(timeRange)
+        const data = await getApi().requestLog.getCostStatistics(timeRange)
         setStats(data)
       } catch (error) {
         console.error('Failed to fetch cost statistics:', error)

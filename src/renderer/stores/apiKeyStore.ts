@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ApiKey } from '@shared/types'
+import { getApi } from '../api'
 
 interface ApiKeyState {
   apiKeys: Record<string, ApiKey[]>
@@ -20,7 +21,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
   fetchApiKeys: async (providerId) => {
     set({ loading: { ...get().loading, [providerId]: true } })
     try {
-      const keys = await window.api.apiKey.list(providerId)
+      const keys = await getApi().apiKey.list(providerId)
       set({
         apiKeys: { ...get().apiKeys, [providerId]: keys },
         loading: { ...get().loading, [providerId]: false },
@@ -38,7 +39,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
     try {
       const results = await Promise.all(
         providerIds.map(async (providerId) => {
-          const keys = await window.api.apiKey.list(providerId)
+          const keys = await getApi().apiKey.list(providerId)
           return { providerId, keys }
         }),
       )
@@ -66,7 +67,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
   },
 
   createApiKey: async (input) => {
-    const apiKey = await window.api.apiKey.create(input)
+    const apiKey = await getApi().apiKey.create(input)
     const currentKeys = get().apiKeys[input.providerId] || []
     set({
       apiKeys: {
@@ -78,7 +79,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
   },
 
   updateApiKey: async (input) => {
-    const apiKey = await window.api.apiKey.update(input)
+    const apiKey = await getApi().apiKey.update(input)
     const providerId = apiKey.providerId
     set({
       apiKeys: {
@@ -90,7 +91,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
   },
 
   deleteApiKey: async (providerId, id) => {
-    await window.api.apiKey.delete(id)
+    await getApi().apiKey.delete(id)
     set({
       apiKeys: {
         ...get().apiKeys,
@@ -100,7 +101,7 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
   },
 
   reorderApiKeys: async (providerId, keyIds) => {
-    const keys = await window.api.apiKey.reorder(providerId, keyIds)
+    const keys = await getApi().apiKey.reorder(providerId, keyIds)
     set({
       apiKeys: {
         ...get().apiKeys,

@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-electron/
 release/
+src-tauri/target/
 *.exe
 
 # IDE

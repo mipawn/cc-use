@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Provider } from '@shared/types'
+import { getApi } from '../api'
 
 interface ProviderState {
   providers: Provider[]
@@ -29,7 +30,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   fetchProviders: async () => {
     set({ loading: true, error: null })
     try {
-      const providers = await window.api.provider.list()
+      const providers = await getApi().provider.list()
       set({ providers, loading: false })
     } catch (error) {
       set({
@@ -50,13 +51,13 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   },
 
   createProvider: async (input) => {
-    const provider = await window.api.provider.create(input)
+    const provider = await getApi().provider.create(input)
     set({ providers: [...get().providers, provider] })
     return provider
   },
 
   updateProvider: async (input) => {
-    const provider = await window.api.provider.update(input)
+    const provider = await getApi().provider.update(input)
     set({
       providers: get().providers.map((p) => (p.id === provider.id ? provider : p)),
     })
@@ -64,14 +65,14 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   },
 
   deleteProvider: async (id) => {
-    await window.api.provider.delete(id)
+    await getApi().provider.delete(id)
     set({ providers: get().providers.filter((p) => p.id !== id) })
   },
 
   refreshBalance: async (id) => {
-    const result = await window.api.balance.refresh(id)
+    const result = await getApi().balance.refresh(id)
     if (result.balance !== null) {
-      const provider = await window.api.provider.get(id)
+      const provider = await getApi().provider.get(id)
       if (provider) {
         get().upsertProvider(provider)
       }

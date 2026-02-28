@@ -1,0 +1,13 @@
+{
+  "app": {
+    "windows": [
+      {
+        "decorations": false
+      }
+    ],
+    "trayIcon": {
+      "iconPath": "icons/tray.ico",
+      "iconAsTemplate": false
+    }
+  }
+}

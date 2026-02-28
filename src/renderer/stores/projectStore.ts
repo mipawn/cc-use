@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 import { create } from 'zustand'
 import type { Project } from '@shared/types'
 
@@ -20,7 +21,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   fetchProjects: async () => {
     set({ loading: true, error: null })
     try {
-      const projects = await window.api.project.list()
+      const projects = await getApi().project.list()
       set({ projects, loading: false })
     } catch (error) {
       set({
@@ -31,13 +32,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   createProject: async (input) => {
-    const project = await window.api.project.create(input)
+    const project = await getApi().project.create(input)
     set({ projects: [project, ...get().projects] })
     return project
   },
 
   updateProject: async (input) => {
-    const project = await window.api.project.update(input)
+    const project = await getApi().project.update(input)
     set({
       projects: get().projects.map((p) => (p.id === project.id ? project : p)),
     })
@@ -45,11 +46,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteProject: async (id) => {
-    await window.api.project.delete(id)
+    await getApi().project.delete(id)
     set({ projects: get().projects.filter((p) => p.id !== id) })
   },
 
   getProjectByPath: async (path) => {
-    return window.api.project.getByPath(path)
+    return getApi().project.getByPath(path)
   },
 }))

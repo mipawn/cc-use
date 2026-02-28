@@ -18,6 +18,18 @@ body {
   overflow: hidden;
 }
 
+/* Tauri drag region for custom titlebar */
+*[data-tauri-drag-region] {
+  app-region: drag;
+}
+
+/* Prevent drag on interactive elements inside drag regions */
+*[data-tauri-drag-region] button,
+*[data-tauri-drag-region] a,
+*[data-tauri-drag-region] input {
+  app-region: no-drag;
+}
+
 #root {
   height: 100vh;
 }
@@ -93,15 +105,6 @@ body {
   display: none !important;
 }
 
-/* Drag region for window */
-.drag-region {
-  -webkit-app-region: drag;
-}
-
-.no-drag {
-  -webkit-app-region: no-drag;
-}
-
 /* Custom utility classes - full width containers */
 .page-container {
   width: 100%;
@@ -155,4 +158,13 @@ body {
 
 .rounded-ant-lg {
   border-radius: var(--radius-ant-lg);
+}
+
+/* Remove focus outline from Modal close button */
+.ant-modal-close:focus-visible {
+  outline: none;
+}
+
+.ant-modal-close:focus {
+  outline: none;
 }

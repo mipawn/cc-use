@@ -1,3 +1,4 @@
+import { getApi } from '../../api'
 import { useState, useCallback } from 'react'
 import { Typography } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
@@ -54,7 +55,7 @@ export default function DropZone({ onDrop, disabled = false, hint }: DropZonePro
       }
 
       const file = files[0]
-      // In Electron, we can get the path from the file object
+      // Get the path from the dropped file
       const path = (file as File & { path?: string }).path
 
       if (!path) {
@@ -70,7 +71,7 @@ export default function DropZone({ onDrop, disabled = false, hint }: DropZonePro
   const handleClick = async () => {
     if (disabled) return
     try {
-      const path = await window.api.system.selectFolder()
+      const path = await getApi().system.selectFolder()
       if (path) {
         onDrop(path)
       }

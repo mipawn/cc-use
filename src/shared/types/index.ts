@@ -479,3 +479,18 @@ export interface UpdatesCacheInfo {
   size: number
   files: string[]
 }
+
+// Migration types (Electron → Tauri)
+export interface MigrationCheck {
+  needed: boolean
+  electronDbPath: string
+}
+
+export interface MigrationResult {
+  success: boolean
+  providers: number
+  apiKeys: number
+  projects: number
+  requestLogs: number
+  usageLogs: number
+}

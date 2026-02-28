@@ -1,0 +1,9 @@
+{
+  "app": {
+    "trayIcon": {
+      "iconPath": "icons/tray.png",
+      "iconAsTemplate": false,
+      "showMenuOnLeftClick": true
+    }
+  }
+}

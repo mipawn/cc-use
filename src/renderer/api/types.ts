@@ -1,0 +1,177 @@
+/**
+ * Api type definition — describes the shape of the API layer.
+ * Previously derived from the Electron preload (typeof api).
+ * Now standalone for Tauri-only usage.
+ */
+import type {
+  Provider,
+  CreateProviderInput,
+  UpdateProviderInput,
+  ApiKey,
+  CreateApiKeyInput,
+  UpdateApiKeyInput,
+  Project,
+  CreateProjectInput,
+  UpdateProjectInput,
+  GlobalSettings,
+  PresetIcon,
+  UsageData,
+  ExportData,
+  ImportOptions,
+  ImportResult,
+  ProxySession,
+  UsageStats,
+  UsageLog,
+  StatsTimeRange,
+  CostStatistics,
+  DashboardCostStats,
+  UpdateCheckResult,
+  UpdateProgressInfo,
+  UpdatesCacheInfo,
+  MigrationCheck,
+  MigrationResult,
+} from '../../shared/types'
+
+export interface Api {
+  provider: {
+    list: () => Promise<Provider[]>
+    get: (id: string) => Promise<Provider | null>
+    create: (input: CreateProviderInput) => Promise<Provider>
+    update: (input: UpdateProviderInput) => Promise<Provider>
+    delete: (id: string) => Promise<void>
+    syncPricing: (providerId: string) => Promise<{ count: number; error: string | null }>
+    updatePricing: (
+      providerId: string,
+      pricing: Record<
+        string,
+        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+      >,
+    ) => Promise<Provider>
+  }
+  apiKey: {
+    list: (providerId: string) => Promise<ApiKey[]>
+    create: (input: CreateApiKeyInput) => Promise<ApiKey>
+    update: (input: UpdateApiKeyInput) => Promise<ApiKey>
+    delete: (id: string) => Promise<void>
+    reorder: (providerId: string, keyIds: string[]) => Promise<ApiKey[]>
+  }
+  project: {
+    list: () => Promise<Project[]>
+    get: (id: string) => Promise<Project | null>
+    getByPath: (path: string) => Promise<Project | null>
+    create: (input: CreateProjectInput) => Promise<Project>
+    update: (input: UpdateProjectInput) => Promise<Project>
+    delete: (id: string) => Promise<void>
+    open: (id: string) => Promise<void>
+  }
+  terminal: {
+    launch: (
+      projectId: string,
+      options?: { providerId?: string; apiKeyId?: string },
+    ) => Promise<void>
+    launchWithPath: (path: string) => Promise<void>
+  }
+  proxy: {
+    start: () => Promise<void>
+    stop: () => Promise<void>
+    status: () => Promise<{ isRunning: boolean; port: number }>
+    onStatusChanged: (
+      callback: (data: { isRunning: boolean; port: number; source?: string }) => void,
+    ) => () => void
+  }
+  balance: {
+    refresh: (providerId: string) => Promise<{
+      balance: number | null
+      total: number | null
+      used: number | null
+      unlimited: boolean
+      error: string | null
+    }>
+  }
+  usage: {
+    refresh: (providerId: string) => Promise<{ usage: UsageData | null; error: string | null }>
+  }
+  keyUsage: {
+    refresh: (keyId: string) => Promise<{ usage: UsageData | null; error: string | null }>
+  }
+  importExport: {
+    export: () => Promise<ExportData>
+    import: (data: ExportData, options?: ImportOptions) => Promise<ImportResult>
+    validate: (data: unknown) => Promise<boolean>
+    checkElectronMigration: () => Promise<MigrationCheck>
+    migrateFromElectron: () => Promise<MigrationResult>
+  }
+  session: {
+    create: (providerId: string, apiKeyId: string) => Promise<ProxySession>
+    get: (sessionToken: string) => Promise<ProxySession | null>
+    updateKey: (sessionToken: string, apiKeyId: string) => Promise<boolean>
+    delete: (sessionToken: string) => Promise<boolean>
+    list: () => Promise<ProxySession[]>
+  }
+  settings: {
+    get: () => Promise<GlobalSettings>
+    update: (updates: Partial<GlobalSettings>) => Promise<GlobalSettings>
+  }
+  icon: {
+    upload: (buffer: ArrayBuffer, filename: string) => Promise<string>
+    list: () => Promise<{ preset: PresetIcon[]; uploaded: string[] }>
+  }
+  usageLog: {
+    getStats: (timeRange: StatsTimeRange) => Promise<UsageStats>
+    getRecent: (limit?: number) => Promise<UsageLog[]>
+    getTodayQuickStats: () => Promise<{
+      launches: number
+      uniqueProjects: number
+      uniqueKeys: number
+    }>
+  }
+  requestLog: {
+    getCostStats: () => Promise<{ todayCost: number; totalBalance: number }>
+    getKeyCosts: () => Promise<{ keyId: string; todayCost: number; totalCost: number }[]>
+    getDailyTrend: (days?: number) => Promise<{ date: string; cost: number; requests: number }[]>
+    getCostStatistics: (timeRange: StatsTimeRange) => Promise<CostStatistics>
+    getDashboardStats: () => Promise<DashboardCostStats>
+  }
+  modelPricing: {
+    getAll: () => Promise<
+      Record<
+        string,
+        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+      >
+    >
+    getCustom: () => Promise<
+      Record<
+        string,
+        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+      >
+    >
+    updateCustom: (
+      pricing: Record<
+        string,
+        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+      >,
+    ) => Promise<void>
+    getDefault: () => Promise<
+      Record<
+        string,
+        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+      >
+    >
+  }
+  app: {
+    getVersion: () => Promise<string>
+    checkUpdate: () => Promise<UpdateCheckResult>
+    downloadUpdate: () => Promise<void>
+    installUpdate: () => Promise<{ success: boolean; error?: string }>
+    onUpdateProgress: (callback: (info: UpdateProgressInfo) => void) => () => void
+    onUpdateDownloaded: (callback: () => void) => () => void
+    getUpdatesCacheInfo: () => Promise<UpdatesCacheInfo>
+    clearUpdatesCache: () => Promise<number>
+    onUpdateAvailable: (callback: (result: UpdateCheckResult) => void) => () => void
+  }
+  system: {
+    getPlatform: () => Promise<string>
+    selectFolder: () => Promise<string | null>
+    openExternal: (url: string) => Promise<void>
+  }
+}

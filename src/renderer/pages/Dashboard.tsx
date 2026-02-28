@@ -1,3 +1,4 @@
+import { getApi } from '../api'
 /**
  * Dashboard - 简化的仪表盘
  * 费用统计卡片 + 趋势图 + Top 3 + 最近项目
@@ -66,7 +67,7 @@ export default function Dashboard() {
   // Fetch dashboard cost statistics
   const fetchDashboardStats = async () => {
     try {
-      const stats = await window.api.requestLog.getDashboardStats()
+      const stats = await getApi().requestLog.getDashboardStats()
       setDashStats(stats)
     } catch (error) {
       console.error('Failed to fetch dashboard stats:', error)
@@ -83,18 +84,18 @@ export default function Dashboard() {
   // Ensure proxy is running before launching terminal
   const ensureProxyRunning = useCallback(async (): Promise<boolean> => {
     try {
-      const status = await window.api.proxy.status()
+      const status = await getApi().proxy.status()
       if (status.isRunning) {
         return true
       }
 
       // Start proxy if not running
-      await window.api.proxy.start()
+      await getApi().proxy.start()
 
       // Wait a bit for proxy to be ready
       await new Promise((resolve) => setTimeout(resolve, 500))
 
-      const newStatus = await window.api.proxy.status()
+      const newStatus = await getApi().proxy.status()
       return newStatus.isRunning
     } catch (error) {
       console.error('Failed to start proxy:', error)
@@ -136,7 +137,7 @@ export default function Dashboard() {
     }
 
     try {
-      await window.api.terminal.launch(project.id)
+      await getApi().terminal.launch(project.id)
       message.success(`${t('projects.opened')} ${project.name}`)
       fetchProjects()
     } catch (error) {
@@ -166,7 +167,7 @@ export default function Dashboard() {
           return
         }
 
-        await window.api.terminal.launch(project.id)
+        await getApi().terminal.launch(project.id)
         message.success(`${t('newProject.createdAndOpened')} ${name}`)
       } else {
         message.success(t('projects.projectCreated') || '项目创建成功')

@@ -1,0 +1,537 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+// ── Provider ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Provider {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    #[serde(rename = "type")]
+    pub provider_type: Option<String>,
+    pub website: Option<String>,
+    pub remark: Option<String>,
+    pub token: Option<String>,
+    pub icon: Option<String>,
+    // Balance
+    pub wallet_balance_type: String,
+    pub wallet_balance_url: Option<String>,
+    pub wallet_balance_path: Option<String>,
+    pub wallet_balance_headers: Option<String>,
+    pub wallet_balance_user_id: Option<String>,
+    pub cached_wallet_balance: Option<f64>,
+    pub last_balance_checked_at: Option<String>,
+    // Usage
+    pub usage_type: String,
+    pub usage_url: Option<String>,
+    pub usage_path: Option<String>,
+    pub usage_headers: Option<String>,
+    pub cached_usage: Option<UsageData>,
+    pub last_usage_checked_at: Option<String>,
+    // Cost
+    pub cost_multiplier: Option<f64>,
+    // Pricing
+    pub cached_model_pricing: Option<HashMap<String, ModelPricing>>,
+    pub last_pricing_synced_at: Option<String>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProviderInput {
+    pub name: String,
+    pub base_url: String,
+    #[serde(rename = "type")]
+    pub provider_type: Option<String>,
+    pub website: Option<String>,
+    pub remark: Option<String>,
+    pub token: Option<String>,
+    pub icon: Option<String>,
+    pub wallet_balance_type: Option<String>,
+    pub wallet_balance_url: Option<String>,
+    pub wallet_balance_path: Option<String>,
+    pub wallet_balance_headers: Option<String>,
+    pub wallet_balance_user_id: Option<String>,
+    pub usage_type: Option<String>,
+    pub usage_url: Option<String>,
+    pub usage_path: Option<String>,
+    pub usage_headers: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProviderInput {
+    pub id: String,
+    pub name: Option<String>,
+    pub base_url: Option<String>,
+    #[serde(rename = "type")]
+    pub provider_type: Option<String>,
+    pub website: Option<String>,
+    pub remark: Option<String>,
+    pub token: Option<String>,
+    pub icon: Option<String>,
+    pub wallet_balance_type: Option<String>,
+    pub wallet_balance_url: Option<String>,
+    pub wallet_balance_path: Option<String>,
+    pub wallet_balance_headers: Option<String>,
+    pub wallet_balance_user_id: Option<String>,
+    pub usage_type: Option<String>,
+    pub usage_url: Option<String>,
+    pub usage_path: Option<String>,
+    pub usage_headers: Option<String>,
+    pub is_active: Option<bool>,
+    pub cost_multiplier: Option<f64>,
+    pub cached_wallet_balance: Option<f64>,
+    pub last_balance_checked_at: Option<String>,
+    pub cached_usage: Option<UsageData>,
+    pub last_usage_checked_at: Option<String>,
+    pub cached_model_pricing: Option<HashMap<String, ModelPricing>>,
+    pub last_pricing_synced_at: Option<String>,
+}
+
+// ── API Key ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKey {
+    pub id: String,
+    pub provider_id: String,
+    pub alias: Option<String>,
+    pub value: String,
+    pub types: Vec<String>,
+    pub priority: i32,
+    pub is_exhausted: bool,
+    pub is_active: bool,
+    pub config: Option<serde_json::Value>,
+    // Key-level usage
+    pub usage_type: String,
+    pub usage_url: Option<String>,
+    pub usage_path: Option<String>,
+    pub usage_headers: Option<String>,
+    pub cached_usage: Option<UsageData>,
+    pub last_usage_checked_at: Option<String>,
+    pub cost_multiplier: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiKeyInput {
+    pub provider_id: String,
+    pub alias: Option<String>,
+    pub value: String,
+    pub types: Option<Vec<String>>,
+    pub priority: Option<i32>,
+    pub is_active: Option<bool>,
+    pub config: Option<serde_json::Value>,
+    pub cost_multiplier: Option<f64>,
+    pub usage_type: Option<String>,
+    pub usage_url: Option<String>,
+    pub usage_path: Option<String>,
+    pub usage_headers: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateApiKeyInput {
+    pub id: String,
+    pub alias: Option<String>,
+    pub value: Option<String>,
+    pub types: Option<Vec<String>>,
+    pub priority: Option<i32>,
+    pub is_exhausted: Option<bool>,
+    pub is_active: Option<bool>,
+    pub config: Option<serde_json::Value>,
+    pub cost_multiplier: Option<f64>,
+    pub usage_type: Option<String>,
+    pub usage_url: Option<String>,
+    pub usage_path: Option<String>,
+    pub usage_headers: Option<String>,
+    pub cached_usage: Option<UsageData>,
+    pub last_usage_checked_at: Option<String>,
+}
+
+// ── Project ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub remark: Option<String>,
+    pub provider_id: Option<String>,
+    pub api_key_id: Option<String>,
+    pub cli_type: String,
+    pub terminal_type: String,
+    pub last_opened_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectInput {
+    pub name: String,
+    pub path: String,
+    pub remark: Option<String>,
+    pub provider_id: Option<String>,
+    pub api_key_id: Option<String>,
+    pub cli_type: Option<String>,
+    pub terminal_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectInput {
+    pub id: String,
+    pub name: Option<String>,
+    pub remark: Option<String>,
+    pub provider_id: Option<String>,
+    pub api_key_id: Option<String>,
+    pub cli_type: Option<String>,
+    pub terminal_type: Option<String>,
+}
+
+// ── Settings ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSettings {
+    pub default_provider_type: String,
+    pub proxy_port: i32,
+    pub auto_start_proxy: bool,
+    pub default_terminal_type: String,
+    pub close_to_tray: bool,
+    pub claude_config: Option<serde_json::Value>,
+    pub codex_config: Option<serde_json::Value>,
+}
+
+impl Default for GlobalSettings {
+    fn default() -> Self {
+        Self {
+            default_provider_type: "claude".to_string(),
+            proxy_port: 12345,
+            auto_start_proxy: true,
+            default_terminal_type: "iterm2".to_string(),
+            close_to_tray: true,
+            claude_config: None,
+            codex_config: None,
+        }
+    }
+}
+
+// ── Proxy ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyStatus {
+    pub is_running: bool,
+    pub port: i32,
+    pub request_count: i32,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxySession {
+    pub session_token: String,
+    pub provider_id: String,
+    pub api_key_id: String,
+    pub project_id: Option<String>,
+    pub created_at: String,
+}
+
+// ── Usage ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageData {
+    pub total: Option<f64>,
+    pub used: Option<f64>,
+    pub remaining: Option<f64>,
+    pub unit: Option<String>,
+    pub is_unlimited: Option<bool>,
+    pub expire_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelPricing {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: Option<f64>,
+    pub cache_creation: Option<f64>,
+}
+
+// ── Usage Log ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageLog {
+    pub id: String,
+    pub project_id: Option<String>,
+    pub project_name: String,
+    pub provider_id: Option<String>,
+    pub provider_name: Option<String>,
+    pub api_key_id: Option<String>,
+    pub api_key_alias: Option<String>,
+    pub key_type: Option<String>,
+    pub launched_at: String,
+    pub duration: Option<i64>,
+}
+
+// ── Request Log ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLog {
+    pub id: String,
+    pub provider_id: Option<String>,
+    pub api_key_id: Option<String>,
+    pub project_id: Option<String>,
+    pub session_id: Option<String>,
+    pub model: Option<String>,
+    pub request_model: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
+    pub input_cost_usd: f64,
+    pub output_cost_usd: f64,
+    pub cache_read_cost_usd: f64,
+    pub cache_creation_cost_usd: f64,
+    pub total_cost_usd: f64,
+    pub cost_multiplier: f64,
+    pub latency_ms: Option<i64>,
+    pub first_token_ms: Option<i64>,
+    pub status_code: Option<i32>,
+    pub error_message: Option<String>,
+    pub is_streaming: bool,
+    pub created_at: String,
+}
+
+// ── Statistics ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageStats {
+    pub total_launches: i64,
+    pub unique_projects: i64,
+    pub unique_keys: i64,
+    pub by_project: Vec<ProjectUsageCount>,
+    pub by_key: Vec<KeyUsageCount>,
+    pub by_date: Vec<DateCount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectUsageCount {
+    pub project_id: String,
+    pub project_name: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyUsageCount {
+    pub key_id: String,
+    pub key_alias: String,
+    pub provider_name: String,
+    pub key_type: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DateCount {
+    pub date: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CostStatsSummary {
+    pub total_requests: i64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cache_read_tokens: i64,
+    pub total_cache_creation_tokens: i64,
+    pub total_cost_usd: f64,
+    pub avg_latency_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopKeyCostItem {
+    pub key_id: String,
+    pub key_alias: String,
+    pub provider_name: String,
+    pub total_cost: f64,
+    pub total_requests: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopProviderCostItem {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub total_cost: f64,
+    pub total_requests: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopProjectCostItem {
+    pub project_id: String,
+    pub project_name: String,
+    pub total_cost: f64,
+    pub total_requests: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopModelCostItem {
+    pub model: String,
+    pub total_cost: f64,
+    pub total_requests: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyCostTrendItem {
+    pub date: String,
+    pub cost: f64,
+    pub requests: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentRequestLogDisplay {
+    pub id: String,
+    pub model: Option<String>,
+    pub key_alias: Option<String>,
+    pub provider_name: Option<String>,
+    pub project_name: Option<String>,
+    pub total_cost_usd: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub latency_ms: Option<i64>,
+    pub status_code: Option<i32>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CostStatistics {
+    pub summary: CostStatsSummary,
+    pub top_keys: Vec<TopKeyCostItem>,
+    pub top_providers: Vec<TopProviderCostItem>,
+    pub top_projects: Vec<TopProjectCostItem>,
+    pub top_models: Vec<TopModelCostItem>,
+    pub daily_trend: Vec<DailyCostTrendItem>,
+    pub recent_requests: Vec<RecentRequestLogDisplay>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardCostStats {
+    pub today_cost: f64,
+    pub total_cost: f64,
+    pub today_requests: i64,
+    pub today_tokens: i64,
+    pub weekly_trend: Vec<DailyCostTrendItem>,
+    pub top_keys: Vec<TopKeyCostItem>,
+    pub top_projects: Vec<TopProjectCostItem>,
+}
+
+// ── Import/Export ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportData {
+    pub version: String,
+    pub exported_at: String,
+    pub providers: Vec<ExportProvider>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProvider {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub provider_type: String,
+    pub base_url: String,
+    pub website: Option<String>,
+    pub remark: Option<String>,
+    pub icon: Option<String>,
+    pub wallet_balance_type: Option<String>,
+    pub wallet_balance_url: Option<String>,
+    pub wallet_balance_path: Option<String>,
+    pub wallet_balance_headers: Option<String>,
+    pub usage_type: Option<String>,
+    pub usage_url: Option<String>,
+    pub usage_path: Option<String>,
+    pub usage_headers: Option<String>,
+    pub api_keys: Vec<ExportApiKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportApiKey {
+    pub alias: Option<String>,
+    pub value: String,
+    pub types: Option<Vec<String>>,
+    pub priority: i32,
+    pub cost_multiplier: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportOptions {
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    pub imported: i32,
+    pub skipped: i32,
+    pub errors: Vec<String>,
+}
+
+// ── Migration ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationCheck {
+    pub needed: bool,
+    pub electron_db_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationResult {
+    pub success: bool,
+    pub providers: i32,
+    pub api_keys: i32,
+    pub projects: i32,
+    pub request_logs: i32,
+    pub usage_logs: i32,
+}
+
+// ── Update ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub has_update: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub release_url: String,
+    pub release_notes: String,
+    pub download_url: Option<String>,
+}

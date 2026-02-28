@@ -492,4 +492,16 @@ export default {
     resetConfirm: 'Clear all custom prices? Will revert to built-in official prices.',
     editPricing: 'Model Pricing',
   },
+  migration: {
+    title: 'Legacy Data Detected',
+    description:
+      'A database from the old Electron version of CC Use was found. Would you like to migrate your data to the new version?',
+    confirm: 'Migrate Now',
+    cancel: 'Skip',
+    migrating: 'Migrating data...',
+    success: 'Data migration successful',
+    successDetail:
+      'Migrated {{providers}} providers, {{apiKeys}} keys, {{projects}} projects',
+    failed: 'Data migration failed',
+  },
 }

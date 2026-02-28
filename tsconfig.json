@@ -19,10 +19,8 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@main/*": ["src/main/*"],
       "@renderer/*": ["src/renderer/*"],
-      "@shared/*": ["src/shared/*"],
-      "@preload/*": ["src/preload/*"]
+      "@shared/*": ["src/shared/*"]
     }
   },
   "include": ["src"]

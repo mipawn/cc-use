@@ -1,3 +1,4 @@
+import { getApi } from '../../api'
 import { useEffect, useState, useRef } from 'react'
 import { Modal, Form, Input, Select, Typography, Tooltip, Space, Collapse } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
@@ -130,7 +131,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const handleIconUpload = async (file: File) => {
     try {
       const buffer = await file.arrayBuffer()
-      const path = await window.api.icon.upload(buffer, file.name)
+      const path = await getApi().icon.upload(buffer, file.name)
       setCustomIconPath(path)
       setSelectedIcon('custom')
     } catch (error) {

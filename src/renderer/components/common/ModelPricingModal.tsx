@@ -1,3 +1,4 @@
+import { getApi } from '../../api'
 /**
  * ModelPricingModal - 模型价格管理弹窗
  * 展示默认（官方）价格 + 用户自定义覆盖
@@ -69,8 +70,8 @@ export default function ModelPricingModal({ open, onClose }: Props) {
     const load = async () => {
       try {
         const [defaults, custom] = await Promise.all([
-          window.api.modelPricing.getDefault(),
-          window.api.modelPricing.getCustom(),
+          getApi().modelPricing.getDefault(),
+          getApi().modelPricing.getCustom(),
         ])
         setDefaultPricing(defaults)
         setCustomPricing(custom)
@@ -171,7 +172,7 @@ export default function ModelPricingModal({ open, onClose }: Props) {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await window.api.modelPricing.updateCustom(editedCustom)
+      await getApi().modelPricing.updateCustom(editedCustom)
       setCustomPricing({ ...editedCustom })
       setHasChanges(false)
       message.success(t('messages.success'))
