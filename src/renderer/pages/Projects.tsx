@@ -3,7 +3,7 @@ import { getApi } from '../api'
  * Projects - 项目管理页面（卡片布局）
  * 完整的增删改查 + 代理服务控制
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Typography,
   Button,
@@ -182,22 +182,6 @@ export default function Projects() {
     }
   }
 
-  // Ensure proxy is running
-  const ensureProxyRunning = useCallback(async (): Promise<boolean> => {
-    try {
-      const status = await getApi().proxy.status()
-      if (status.isRunning) return true
-
-      await getApi().proxy.start()
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      setProxyRunning(true)
-      return true
-    } catch (error) {
-      console.error('Failed to start proxy:', error)
-      return false
-    }
-  }, [])
-
   const getProvider = (providerId: string | null) => {
     if (!providerId) return null
     return providers.find((p) => p.id === providerId) || null
@@ -247,9 +231,8 @@ export default function Projects() {
       return
     }
 
-    const proxyReady = await ensureProxyRunning()
-    if (!proxyReady) {
-      message.error(t('projects.proxyStartFailed'))
+    if (!proxyRunning) {
+      message.warning(t('projects.proxyNotRunning'))
       return
     }
 

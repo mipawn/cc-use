@@ -81,24 +81,12 @@ export default function Dashboard() {
     }
   }, [providers, fetchAllApiKeys])
 
-  // Ensure proxy is running before launching terminal
-  const ensureProxyRunning = useCallback(async (): Promise<boolean> => {
+  // Check if proxy is running
+  const isProxyRunning = useCallback(async (): Promise<boolean> => {
     try {
       const status = await getApi().proxy.status()
-      if (status.isRunning) {
-        return true
-      }
-
-      // Start proxy if not running
-      await getApi().proxy.start()
-
-      // Wait a bit for proxy to be ready
-      await new Promise((resolve) => setTimeout(resolve, 500))
-
-      const newStatus = await getApi().proxy.status()
-      return newStatus.isRunning
-    } catch (error) {
-      console.error('Failed to start proxy:', error)
+      return status.isRunning
+    } catch {
       return false
     }
   }, [])
@@ -130,9 +118,9 @@ export default function Dashboard() {
 
   // Launch project with its bound key
   const launchProject = async (project: Project) => {
-    const proxyReady = await ensureProxyRunning()
-    if (!proxyReady) {
-      message.error(t('dashboard.proxyStartFailed') || '代理服务启动失败')
+    const running = await isProxyRunning()
+    if (!running) {
+      message.warning(t('projects.proxyNotRunning'))
       return
     }
 
@@ -160,10 +148,10 @@ export default function Dashboard() {
       })
 
       if (providerId && apiKeyId) {
-        // Ensure proxy and launch
-        const proxyReady = await ensureProxyRunning()
-        if (!proxyReady) {
-          message.warning(t('dashboard.proxyStartFailed') || '代理服务启动失败，项目已创建')
+        // Check proxy before launching
+        const running = await isProxyRunning()
+        if (!running) {
+          message.warning(t('projects.proxyNotRunning'))
           return
         }
 

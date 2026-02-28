@@ -283,6 +283,7 @@ export default {
     proxyError: '代理服务操作失败',
     proxyRunning: '代理运行中',
     proxyStartFailed: '代理服务启动失败',
+    proxyNotRunning: '请先开启代理服务',
     proxy: '代理',
     cliType: '启动类型',
     keyNotCompatible: '绑定的密钥不支持当前启动类型',

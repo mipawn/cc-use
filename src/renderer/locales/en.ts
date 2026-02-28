@@ -280,6 +280,7 @@ export default {
     proxyError: 'Proxy operation failed',
     proxyRunning: 'Proxy running',
     proxyStartFailed: 'Failed to start proxy',
+    proxyNotRunning: 'Please start the proxy service first',
     proxy: 'Proxy',
     cliType: 'CLI Type',
     keyNotCompatible: 'Bound key does not support current CLI type',
