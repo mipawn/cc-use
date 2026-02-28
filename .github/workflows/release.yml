@@ -14,19 +14,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS ARM runner (Apple Silicon)
+          # macOS ARM (Apple Silicon)
           - platform: macos-14
             args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
-            releaseAssetNamePattern: '[name]-[version]-mac-arm64[ext]'
-          # Build macOS Intel artifacts (x86_64) on macos-14 runner
+            assetName: '[name]-[version]-mac-arm[ext]'
+          # macOS Intel (x86_64)
           - platform: macos-14
             args: --target x86_64-apple-darwin
             target: x86_64-apple-darwin
-            releaseAssetNamePattern: '[name]-[version]-mac-x64[ext]'
+            assetName: '[name]-[version]-mac-intel[ext]'
+          # Windows x64
           - platform: windows-latest
             args: ''
-            releaseAssetNamePattern: '[name]-[version]-win-x64[ext]'
+            assetName: '[name]-[version]-windows[ext]'
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +51,7 @@ jobs:
 
       - run: pnpm install
 
-      - uses: tauri-apps/tauri-action@v0.6.1
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -75,5 +76,5 @@ jobs:
           prerelease: false
           uploadUpdaterJson: true
           uploadUpdaterSignatures: false
-          releaseAssetNamePattern: ${{ matrix.releaseAssetNamePattern }}
+          assetNamePattern: ${{ matrix.assetName }}
           args: ${{ matrix.args }}
