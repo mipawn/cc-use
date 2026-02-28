@@ -42,7 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: 781E24B565B5B282\nRWSCsrVltSQeeIiBX6yBkBTOAOLmWSe3j6OCrS7BEKrZdTuhlaqnJPWO",
+      "pubkey": "RWSCsrVltSQeeIiBX6yBkBTOAOLmWSe3j6OCrS7BEKrZdTuhlaqnJPWO",
       "endpoints": ["https://github.com/mipawn/cc-use/releases/latest/download/latest.json"]
     }
   },
