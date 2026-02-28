@@ -310,8 +310,16 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 fn toggle_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         if win.is_visible().unwrap_or(false) {
+            #[cfg(target_os = "macos")]
+            {
+                let _ = app.set_dock_visibility(false);
+            }
             let _ = win.hide();
         } else {
+            #[cfg(target_os = "macos")]
+            {
+                let _ = app.set_dock_visibility(true);
+            }
             let _ = win.show();
             let _ = win.set_focus();
         }

@@ -70,6 +70,8 @@ pub fn run() {
             commands::import_export::export_providers,
             commands::import_export::import_providers,
             commands::import_export::validate_import_data,
+            commands::import_export::export_to_file,
+            commands::import_export::import_from_file,
             commands::import_export::check_electron_migration,
             commands::import_export::migrate_from_electron,
             // Proxy commands
@@ -194,6 +196,10 @@ pub fn run() {
                         if tray::should_close_to_tray(&handle3) {
                             api.prevent_close();
                             if let Some(w) = handle3.get_webview_window("main") {
+                                #[cfg(target_os = "macos")]
+                                {
+                                    let _ = handle3.set_dock_visibility(false);
+                                }
                                 let _ = w.hide();
                             }
                             tray::refresh_tray_menu(&handle3);
