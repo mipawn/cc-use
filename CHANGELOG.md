@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.1] - 2026-02-28
+
+### Fixed
+
+- 修复 Windows 上自定义标题栏关闭/最小化/最大化按钮不显示的问题
+
 ## [2.0.0] - 2026-02-28
 
 ### 🎉 重大重构 - 从 Electron 迁移到 Tauri
