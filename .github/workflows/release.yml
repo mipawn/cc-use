@@ -18,12 +18,15 @@ jobs:
           - platform: macos-14
             args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
+            releaseAssetNamePattern: '[name]-[version]-mac-arm64[ext]'
           # Build macOS Intel artifacts (x86_64) on macos-14 runner
           - platform: macos-14
             args: --target x86_64-apple-darwin
             target: x86_64-apple-darwin
+            releaseAssetNamePattern: '[name]-[version]-mac-x64[ext]'
           - platform: windows-latest
             args: ''
+            releaseAssetNamePattern: '[name]-[version]-win-x64[ext]'
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +50,7 @@ jobs:
 
       - run: pnpm install
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v0.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -71,5 +74,6 @@ jobs:
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
-          releaseAssetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
+          uploadUpdaterSignatures: false
+          releaseAssetNamePattern: ${{ matrix.releaseAssetNamePattern }}
           args: ${{ matrix.args }}
