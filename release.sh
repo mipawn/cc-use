@@ -17,14 +17,23 @@ fi
 
 echo "Releasing v${VERSION}..."
 
+# Ensure script is run from repo root
+if [ ! -f "package.json" ] || [ ! -f "src-tauri/tauri.conf.json" ] || [ ! -f "src-tauri/Cargo.toml" ]; then
+  echo "Error: Please run this script from the repository root (where package.json is located)."
+  exit 1
+fi
+
 # Update package.json
 sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
 
 # Update tauri.conf.json
 sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" src-tauri/tauri.conf.json
 
-# Update Cargo.toml (only the first occurrence under [package])
-sed -i '' "0,/^version = \".*\"/s//version = \"${VERSION}\"/" src-tauri/Cargo.toml
+# Update Cargo.toml (only the version field under [package])
+# NOTE: BSD sed (macOS) does not support the "0,/<regex>/" addressing mode reliably.
+# Use a safe multi-line replacement scoped to the [package] section.
+export VERSION
+perl -0777 -i -pe 's/(^\[package\][\s\S]*?^version\s*=\s*")[^"]*(")/${1}$ENV{VERSION}${2}/m' src-tauri/Cargo.toml
 
 # Update Cargo.lock
 cd src-tauri && cargo generate-lockfile 2>/dev/null && cd ..
