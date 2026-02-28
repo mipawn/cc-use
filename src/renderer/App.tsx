@@ -12,7 +12,6 @@ import Settings from './pages/Settings'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
-import type { UpdateCheckResult } from '@shared/types'
 import AppErrorBoundary from './components/common/AppErrorBoundary'
 
 const { Content } = Layout
@@ -20,13 +19,46 @@ const { Content } = Layout
 function UpdateBanner() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<{
+    available: boolean
+    version?: string
+    body?: string
+  } | null>(null)
 
   useEffect(() => {
-    const unsubscribe = getApi().app.onUpdateAvailable((result: UpdateCheckResult) => {
-      setUpdateInfo(result)
-    })
-    return () => unsubscribe()
+    const lastCheckRef = { time: 0 }
+
+    // Check on startup (delayed)
+    const timer = setTimeout(() => {
+      lastCheckRef.time = Date.now()
+      getApi()
+        .app.checkUpdate()
+        .then((result) => {
+          if (result.available) setUpdateInfo(result)
+        })
+        .catch(() => {})
+    }, 5000)
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const elapsed = Date.now() - lastCheckRef.time
+        if (elapsed >= 24 * 60 * 60 * 1000) {
+          lastCheckRef.time = Date.now()
+          getApi()
+            .app.checkUpdate()
+            .then((result) => {
+              if (result.available) setUpdateInfo(result)
+            })
+            .catch(() => {})
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [])
 
   if (!updateInfo) return null
@@ -34,7 +66,7 @@ function UpdateBanner() {
   return (
     <Alert
       message={t('settings.newVersionAvailable')}
-      description={t('settings.newVersionDesc', { version: updateInfo.latestVersion })}
+      description={t('settings.newVersionDesc', { version: updateInfo.version })}
       type='info'
       showIcon
       closable

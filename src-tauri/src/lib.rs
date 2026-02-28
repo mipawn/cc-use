@@ -17,6 +17,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(db))
         .invoke_handler(tauri::generate_handler![
             // Provider commands
@@ -86,12 +88,7 @@ pub fn run() {
             commands::system::icon_upload,
             commands::system::icon_list,
             // App commands
-            commands::updater::app_get_version,
-            commands::updater::app_check_update,
-            commands::updater::app_download_update,
-            commands::updater::app_install_update,
-            commands::updater::app_get_updates_cache_info,
-            commands::updater::app_clear_updates_cache,
+            commands::system::app_get_version,
         ])
         .setup(|app| {
             // Keep legacy behavior: close button hides to tray by default unless user explicitly changed it.

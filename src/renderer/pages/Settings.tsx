@@ -37,7 +37,6 @@ import {
   DownloadOutlined,
 } from '@ant-design/icons'
 import styles from './Settings.module.css'
-import type { UpdateCheckResult, UpdateProgressInfo } from '@shared/types'
 
 const { Title, Text } = Typography
 
@@ -127,30 +126,14 @@ export default function Settings() {
   // Version & update
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
+  const [updateResult, setUpdateResult] = useState<{
+    available: boolean
+    version?: string
+    body?: string
+  } | null>(null)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [downloadProgress, setDownloadProgress] = useState(0)
-  const [downloadSpeed, setDownloadSpeed] = useState(0)
-  const [updateDownloaded, setUpdateDownloaded] = useState(false)
-  const [platform, setPlatform] = useState<string>('')
-  const [cacheSize, setCacheSize] = useState(0)
-  const [cacheFiles, setCacheFiles] = useState<string[]>([])
-  const [clearingCache, setClearingCache] = useState(false)
-
-  const fetchCacheInfo = useCallback(async () => {
-    try {
-      const info = await getApi().app.getUpdatesCacheInfo()
-      const size = typeof info?.size === 'number' && Number.isFinite(info.size) ? info.size : 0
-      const files = Array.isArray(info?.files)
-        ? info.files.filter((f): f is string => typeof f === 'string')
-        : []
-      setCacheSize(size)
-      setCacheFiles(files)
-    } catch {
-      setCacheSize(0)
-      setCacheFiles([])
-    }
-  }, [])
+  const [updateInstalled, setUpdateInstalled] = useState(false)
 
   // Fetch proxy status
   const fetchProxyStatus = useCallback(async () => {
@@ -165,9 +148,7 @@ export default function Settings() {
   useEffect(() => {
     fetchGlobalSettings()
     fetchProxyStatus()
-    fetchCacheInfo()
     getApi().app.getVersion().then(setAppVersion)
-    getApi().system.getPlatform().then(setPlatform)
 
     const unsubscribe = getApi().proxy.onStatusChanged((data) => {
       setProxyStatus({ isRunning: data.isRunning, port: data.port })
@@ -180,29 +161,10 @@ export default function Settings() {
       }
     })
 
-    const unsubProgress = getApi().app.onUpdateProgress((info: UpdateProgressInfo) => {
-      setDownloadProgress(Math.round(info.percent))
-      setDownloadSpeed(info.bytesPerSecond / 1024 / 1024)
-    })
-
-    const unsubDownloaded = getApi().app.onUpdateDownloaded(() => {
-      setUpdateDownloaded(true)
-      setUpdateDownloading(false)
-      fetchCacheInfo()
-    })
-
-    // Listen for auto update check results
-    const unsubUpdateAvailable = getApi().app.onUpdateAvailable((result: UpdateCheckResult) => {
-      setUpdateResult(result)
-    })
-
     return () => {
       unsubscribe()
-      unsubProgress()
-      unsubDownloaded()
-      unsubUpdateAvailable()
     }
-  }, [fetchCacheInfo, fetchGlobalSettings, fetchProxyStatus, t])
+  }, [fetchGlobalSettings, fetchProxyStatus, t])
 
   // Toggle proxy
   const handleToggleProxy = async (checked: boolean) => {
@@ -251,11 +213,11 @@ export default function Settings() {
     setCheckingUpdate(true)
     setUpdateResult(null)
     setUpdateDownloading(false)
-    setUpdateDownloaded(false)
+    setUpdateInstalled(false)
     setDownloadProgress(0)
     try {
-      const result: UpdateCheckResult = await getApi().app.checkUpdate()
-      if (result.hasUpdate) {
+      const result = await getApi().app.checkUpdate()
+      if (result.available) {
         setUpdateResult(result)
       } else {
         message.success(t('settings.latestVersion'))
@@ -267,53 +229,25 @@ export default function Settings() {
     }
   }
 
-  const handleDownloadUpdate = async () => {
+  const handleDownloadAndInstall = async () => {
     setUpdateDownloading(true)
     setDownloadProgress(0)
     try {
-      await getApi().app.downloadUpdate()
+      await getApi().app.downloadAndInstall((progress) => {
+        if (progress.total > 0) {
+          setDownloadProgress(Math.round((progress.downloaded / progress.total) * 100))
+        }
+      })
+      setUpdateDownloading(false)
+      setUpdateInstalled(true)
     } catch {
       setUpdateDownloading(false)
       message.error(t('settings.downloadFailed'))
-      // Fallback: open browser
-      if (updateResult?.releaseUrl) {
-        getApi().system.openExternal(updateResult.releaseUrl)
-      }
     }
   }
 
-  const handleInstallUpdate = async () => {
-    const result = await getApi().app.installUpdate()
-    if (result && !result.success) {
-      if (platform === 'darwin' && result.error === 'UPDATE_NO_PERMISSION') {
-        message.error(t('settings.updateNoPermission'))
-        message.info(t('settings.updateMoveAppHint'))
-        return
-      }
-      message.error(result.error || t('settings.downloadFailed'))
-    } else if (result?.success) {
-      message.success(t('settings.installerOpened'))
-    }
-  }
-
-  const handleClearCache = async () => {
-    setClearingCache(true)
-    try {
-      const count = await getApi().app.clearUpdatesCache()
-      message.success(t('settings.cacheCleared', { count: typeof count === 'number' ? count : 0 }))
-      setCacheSize(0)
-      setCacheFiles([])
-    } finally {
-      setClearingCache(false)
-    }
-  }
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+  const handleRelaunch = async () => {
+    await getApi().app.relaunch()
   }
 
   const themeOptions = [
@@ -565,10 +499,10 @@ export default function Settings() {
                   }}
                 >
                   <Text strong style={{ fontSize: 14 }}>
-                    {t('settings.newVersionDesc', { version: updateResult.latestVersion })}
+                    {t('settings.newVersionDesc', { version: updateResult.version })}
                   </Text>
 
-                  {updateResult.releaseNotes && (
+                  {updateResult.body && (
                     <div
                       style={{
                         maxHeight: 150,
@@ -581,7 +515,7 @@ export default function Settings() {
                       }}
                     >
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                        {updateResult.releaseNotes}
+                        {updateResult.body}
                       </ReactMarkdown>
                     </div>
                   )}
@@ -590,75 +524,26 @@ export default function Settings() {
                   {updateDownloading && (
                     <div style={{ marginTop: 12 }}>
                       <Progress percent={downloadProgress} size='small' status='active' />
-                      <Text type='secondary' style={{ fontSize: 12 }}>
-                        {t('settings.downloadSpeed', { speed: downloadSpeed.toFixed(1) })}
-                      </Text>
                     </div>
                   )}
 
                   {/* Action buttons */}
                   <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                    {!updateDownloading && !updateDownloaded && (
-                      <>
-                        <Button
-                          type='primary'
-                          icon={<DownloadOutlined />}
-                          onClick={handleDownloadUpdate}
-                        >
-                          {t('settings.downloadUpdate')}
-                        </Button>
-                        <Button
-                          onClick={() => getApi().system.openExternal(updateResult.releaseUrl)}
-                        >
-                          {t('settings.goToDownload')}
-                        </Button>
-                      </>
-                    )}
-
-                    {updateDownloaded && (
-                      <Button type='primary' onClick={handleInstallUpdate}>
-                        {platform === 'win32'
-                          ? t('settings.installAndRestart')
-                          : t('settings.openInstaller')}
+                    {!updateDownloading && !updateInstalled && (
+                      <Button
+                        type='primary'
+                        icon={<DownloadOutlined />}
+                        onClick={handleDownloadAndInstall}
+                      >
+                        {t('settings.installAndRestart')}
                       </Button>
                     )}
-                  </div>
-                </div>
-              )}
 
-              {/* Update cache info */}
-              {cacheFiles.length > 0 && (
-                <div
-                  style={{
-                    marginTop: 16,
-                    paddingTop: 16,
-                    borderTop: `1px solid ${token.colorBorderSecondary}`,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <Text type='secondary'>{t('settings.updateCache')}</Text>
-                      <Text style={{ marginLeft: 8 }}>
-                        {cacheFiles.length} {t('settings.cacheFileCount')} ({formatBytes(cacheSize)}
-                        )
-                      </Text>
-                    </div>
-                    <Button size='small' loading={clearingCache} onClick={handleClearCache}>
-                      {t('settings.clearCache')}
-                    </Button>
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    {cacheFiles.map((file) => (
-                      <Tag key={file} style={{ marginBottom: 4 }}>
-                        {file}
-                      </Tag>
-                    ))}
+                    {updateInstalled && (
+                      <Button type='primary' onClick={handleRelaunch}>
+                        {t('settings.restartToUpdate')}
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}

@@ -8,4 +8,3 @@ pub mod balance;
 pub mod import_export;
 pub mod proxy;
 pub mod terminal;
-pub mod updater;

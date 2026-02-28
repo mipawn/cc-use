@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 
 #[tauri::command]
+pub fn app_get_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
 pub fn system_get_platform() -> String {
     std::env::consts::OS.to_string()
 }

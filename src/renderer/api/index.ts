@@ -123,37 +123,36 @@ function buildApi(): Api {
     },
     app: {
       getVersion: () => invoke('app_get_version'),
-      checkUpdate: () => invoke('app_check_update'),
-      downloadUpdate: () => invoke('app_download_update'),
-      installUpdate: () => invoke('app_install_update'),
-      onUpdateProgress: (callback) => {
-        let unlisten: UnlistenFn | null = null
-        listen('app:updateProgress', callback).then((fn) => {
-          unlisten = fn
-        })
-        return () => {
-          unlisten?.()
+      checkUpdate: async () => {
+        const { check } = await import('@tauri-apps/plugin-updater')
+        const update = await check()
+        if (!update) return { available: false }
+        return {
+          available: true,
+          version: update.version,
+          body: update.body,
+          date: update.date,
         }
       },
-      onUpdateDownloaded: (callback) => {
-        let unlisten: UnlistenFn | null = null
-        listen('app:updateDownloaded', callback).then((fn) => {
-          unlisten = fn
+      downloadAndInstall: async (onProgress) => {
+        const { check } = await import('@tauri-apps/plugin-updater')
+        const update = await check()
+        if (!update) throw new Error('No update available')
+        let downloaded = 0
+        let total = 0
+        await update.downloadAndInstall((e) => {
+          if (e.event === 'Started') {
+            total = e.data.contentLength ?? 0
+            if (onProgress) onProgress({ downloaded: 0, total })
+          } else if (e.event === 'Progress') {
+            downloaded += e.data.chunkLength
+            if (onProgress) onProgress({ downloaded, total })
+          }
         })
-        return () => {
-          unlisten?.()
-        }
       },
-      getUpdatesCacheInfo: () => invoke('app_get_updates_cache_info'),
-      clearUpdatesCache: () => invoke('app_clear_updates_cache'),
-      onUpdateAvailable: (callback) => {
-        let unlisten: UnlistenFn | null = null
-        listen('app:updateAvailable', callback).then((fn) => {
-          unlisten = fn
-        })
-        return () => {
-          unlisten?.()
-        }
+      relaunch: async () => {
+        const { relaunch } = await import('@tauri-apps/plugin-process')
+        await relaunch()
       },
     },
     system: {

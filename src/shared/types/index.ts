@@ -459,27 +459,6 @@ export interface DashboardCostStats {
   topProjects: TopProjectCostItem[]
 }
 
-export interface UpdateCheckResult {
-  hasUpdate: boolean
-  currentVersion: string
-  latestVersion: string
-  releaseUrl: string
-  releaseNotes: string
-  downloadUrl?: string
-}
-
-export interface UpdateProgressInfo {
-  percent: number
-  transferred: number
-  total: number
-  bytesPerSecond: number
-}
-
-export interface UpdatesCacheInfo {
-  size: number
-  files: string[]
-}
-
 // Migration types (Electron → Tauri)
 export interface MigrationCheck {
   needed: boolean

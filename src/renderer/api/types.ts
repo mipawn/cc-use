@@ -25,9 +25,6 @@ import type {
   StatsTimeRange,
   CostStatistics,
   DashboardCostStats,
-  UpdateCheckResult,
-  UpdateProgressInfo,
-  UpdatesCacheInfo,
   MigrationCheck,
   MigrationResult,
 } from '../../shared/types'
@@ -160,14 +157,16 @@ export interface Api {
   }
   app: {
     getVersion: () => Promise<string>
-    checkUpdate: () => Promise<UpdateCheckResult>
-    downloadUpdate: () => Promise<void>
-    installUpdate: () => Promise<{ success: boolean; error?: string }>
-    onUpdateProgress: (callback: (info: UpdateProgressInfo) => void) => () => void
-    onUpdateDownloaded: (callback: () => void) => () => void
-    getUpdatesCacheInfo: () => Promise<UpdatesCacheInfo>
-    clearUpdatesCache: () => Promise<number>
-    onUpdateAvailable: (callback: (result: UpdateCheckResult) => void) => () => void
+    checkUpdate: () => Promise<{
+      available: boolean
+      version?: string
+      body?: string
+      date?: string
+    }>
+    downloadAndInstall: (
+      onProgress?: (progress: { downloaded: number; total: number }) => void,
+    ) => Promise<void>
+    relaunch: () => Promise<void>
   }
   system: {
     getPlatform: () => Promise<string>

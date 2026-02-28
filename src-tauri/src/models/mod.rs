@@ -522,16 +522,3 @@ pub struct MigrationResult {
     pub request_logs: i32,
     pub usage_logs: i32,
 }
-
-// ── Update ──
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateCheckResult {
-    pub has_update: bool,
-    pub current_version: String,
-    pub latest_version: String,
-    pub release_url: String,
-    pub release_notes: String,
-    pub download_url: Option<String>,
-}

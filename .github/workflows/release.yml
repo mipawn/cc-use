@@ -9,80 +9,46 @@ permissions:
   contents: write
 
 jobs:
-  build-mac:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install
-
-      - run: pnpm vite build && pnpm electron-builder --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-mac
-          path: |
-            release/*.dmg
-            release/*.zip
-            release/latest*.yml
-            release/*.zip.blockmap
-          if-no-files-found: error
-
-  build-win:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install
-
-      - run: pnpm vite build && pnpm electron-builder --publish never
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-win
-          path: |
-            release/*.exe
-            release/*.zip
-            release/latest*.yml
-            release/*.exe.blockmap
-          if-no-files-found: error
-
   release:
-    needs: [build-mac, build-win]
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+            target: aarch64-apple-darwin
+          - platform: macos-13
+            args: --target x86_64-apple-darwin
+            target: x86_64-apple-darwin
+          - platform: windows-latest
+            args: ''
+            target: ''
+    runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
+      - uses: actions/checkout@v4
 
-      - name: List artifacts
-        run: ls -R artifacts
-
-      - uses: softprops/action-gh-release@v2
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          draft: false
-          generate_release_notes: false
-          files: artifacts/*
-          body: |
+          targets: ${{ matrix.target || '' }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          tagName: v__VERSION__
+          releaseName: v__VERSION__
+          releaseBody: |
             For stable releases, please refer to CHANGELOG.md for details.
-            https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md
+            https://github.com/${{ github.repository }}/blob/v__VERSION__/CHANGELOG.md
 
             ---
 
@@ -93,3 +59,7 @@ jobs:
             sudo xattr -rd com.apple.quarantine /Applications/CC\ Use.app
             ```
             如果你的应用不在 `/Applications` 目录，请将路径替换为实际安装路径。
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
