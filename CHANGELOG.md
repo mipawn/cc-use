@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.2] - 2026-03-01
+
+### Added
+
+- SSE 流式请求费用记录：代理服务器在转发 SSE 流的同时解析 usage 并记录费用，解决流式请求费用丢失问题
+
+### Changed
+
+- 移除前端代理自动启动：打开项目时不再自动启动代理，改为提示用户手动开启
+
+### Removed
+
+- 清理未实现的密钥自动切换死代码（`is_retryable_error`）
+
 ## [2.0.1] - 2026-02-28
 
 ### Added
