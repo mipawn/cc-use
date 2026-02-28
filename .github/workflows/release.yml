@@ -17,8 +17,8 @@ jobs:
           - platform: macos-14
             args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
-          # macOS Intel runner (x86_64)
-          - platform: macos-13
+          # Build macOS Intel artifacts (x86_64) on macos-14 runner
+          - platform: macos-14
             args: --target x86_64-apple-darwin
             target: x86_64-apple-darwin
           - platform: windows-latest
