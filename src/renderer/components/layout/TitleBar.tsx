@@ -29,7 +29,7 @@ export default function TitleBar() {
 
   if (!platform) return <div style={{ height: 36 }} />
 
-  const isWindows = platform === 'win32'
+  const isWindows = platform === 'windows' || platform === 'win32'
 
   return (
     <div
