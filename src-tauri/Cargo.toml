@@ -38,6 +38,7 @@ thiserror = "2"
 dirs = "6"
 open = "5"
 url = "2"
+futures = "0.3"
 sys-locale = "0.3"
 
 [features]

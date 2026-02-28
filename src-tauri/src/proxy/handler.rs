@@ -9,7 +9,10 @@ use axum::{
     http::{Request, Response, StatusCode, HeaderValue},
     response::IntoResponse,
 };
-use std::sync::Arc;
+use futures::Stream;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 /// Main proxy handler — forwards requests to the upstream provider
 pub async fn proxy_handler(
@@ -155,9 +158,27 @@ pub async fn proxy_handler(
         .unwrap_or("")
         .to_lowercase();
 
-    // Claude/Codex streaming requests rely on immediate SSE passthrough.
-    // Buffering the full upstream body can cause client-side connection reset/timeouts.
+    // Claude/Codex streaming requests — intercept chunks for usage tracking
     if content_type.contains("text/event-stream") {
+        let accumulator = usage_parser::StreamUsageAccumulator::new();
+        let tracking_stream = UsageTrackingStream {
+            inner: upstream_resp.bytes_stream(),
+            accumulator,
+            log_ctx: Some(LogContext {
+                db: state.db.clone(),
+                session_token: session.session_token.clone(),
+                provider_id: session.provider_id.clone(),
+                api_key_id: session.api_key_id.clone(),
+                project_id: session.project_id.clone(),
+                request_model,
+                cost_multiplier: api_key.cost_multiplier,
+                cached_model_pricing: provider.cached_model_pricing.clone(),
+                status_code: status.as_u16(),
+                start_time,
+            }),
+            finished: false,
+        };
+
         let mut response = Response::builder().status(status.as_u16());
         for (name, value) in resp_headers.iter() {
             if let Ok(v) = value.to_str() {
@@ -166,7 +187,7 @@ pub async fn proxy_handler(
         }
 
         return response
-            .body(Body::from_stream(upstream_resp.bytes_stream()))
+            .body(Body::from_stream(tracking_stream))
             .unwrap_or_else(|_| {
                 Response::builder()
                     .status(500)
@@ -195,54 +216,19 @@ pub async fn proxy_handler(
     // Log request if we got usage data
     if let Some(ref u) = usage {
         if u.input_tokens > 0 || u.output_tokens > 0 {
-            let latency_ms = start_time.elapsed().as_millis() as i64;
-            let model_name = model.as_deref().unwrap_or("unknown");
-
-            // Calculate cost
-            let custom_pricing = std::collections::HashMap::new();
-            let provider_pricing = provider.cached_model_pricing.clone();
-            let multiplier = api_key.cost_multiplier;
-
-            let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
-                cost_calculator::calculate_cost(
-                    model_name,
-                    u.input_tokens,
-                    u.output_tokens,
-                    u.cache_read_tokens,
-                    u.cache_creation_tokens,
-                    multiplier,
-                    &custom_pricing,
-                    &provider_pricing,
-                );
-
-            let log = RequestLog {
-                id: nanoid::nanoid!(),
-                provider_id: Some(session.provider_id.clone()),
-                api_key_id: Some(session.api_key_id.clone()),
+            let ctx = LogContext {
+                db: state.db.clone(),
+                session_token: session.session_token.clone(),
+                provider_id: session.provider_id.clone(),
+                api_key_id: session.api_key_id.clone(),
                 project_id: session.project_id.clone(),
-                session_id: Some(session.session_token.clone()),
-                model: model.clone(),
                 request_model,
-                input_tokens: u.input_tokens,
-                output_tokens: u.output_tokens,
-                cache_read_tokens: u.cache_read_tokens,
-                cache_creation_tokens: u.cache_creation_tokens,
-                input_cost_usd: input_cost,
-                output_cost_usd: output_cost,
-                cache_read_cost_usd: cache_read_cost,
-                cache_creation_cost_usd: cache_creation_cost,
-                total_cost_usd: total_cost,
-                cost_multiplier: multiplier,
-                latency_ms: Some(latency_ms),
-                first_token_ms: None,
-                status_code: Some(status.as_u16() as i32),
-                error_message: None,
-                is_streaming,
-                created_at: chrono::Utc::now().to_rfc3339(),
+                cost_multiplier: api_key.cost_multiplier,
+                cached_model_pricing: provider.cached_model_pricing.clone(),
+                status_code: status.as_u16(),
+                start_time,
             };
-
-            let db = state.db.lock().unwrap();
-            let _ = db.request_log_create(&log);
+            record_usage(&ctx, u, model.as_deref(), is_streaming);
         }
     }
 
@@ -304,4 +290,116 @@ fn decompress(data: &[u8], encoding: &str) -> Vec<u8> {
         }
     }
     data.to_vec()
+}
+
+/// Shared context for recording usage (used by both streaming and non-streaming paths)
+struct LogContext {
+    db: Arc<Mutex<crate::db::Database>>,
+    session_token: String,
+    provider_id: String,
+    api_key_id: String,
+    project_id: Option<String>,
+    request_model: Option<String>,
+    cost_multiplier: f64,
+    cached_model_pricing: Option<std::collections::HashMap<String, crate::models::ModelPricing>>,
+    status_code: u16,
+    start_time: std::time::Instant,
+}
+
+fn record_usage(
+    ctx: &LogContext,
+    usage: &usage_parser::TokenUsage,
+    model: Option<&str>,
+    is_streaming: bool,
+) {
+    let latency_ms = ctx.start_time.elapsed().as_millis() as i64;
+    let model_name = model.unwrap_or("unknown");
+
+    let custom_pricing = std::collections::HashMap::new();
+    let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
+        cost_calculator::calculate_cost(
+            model_name,
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cache_read_tokens,
+            usage.cache_creation_tokens,
+            ctx.cost_multiplier,
+            &custom_pricing,
+            &ctx.cached_model_pricing,
+        );
+
+    let log = RequestLog {
+        id: nanoid::nanoid!(),
+        provider_id: Some(ctx.provider_id.clone()),
+        api_key_id: Some(ctx.api_key_id.clone()),
+        project_id: ctx.project_id.clone(),
+        session_id: Some(ctx.session_token.clone()),
+        model: model.map(|s| s.to_string()),
+        request_model: ctx.request_model.clone(),
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_tokens: usage.cache_read_tokens,
+        cache_creation_tokens: usage.cache_creation_tokens,
+        input_cost_usd: input_cost,
+        output_cost_usd: output_cost,
+        cache_read_cost_usd: cache_read_cost,
+        cache_creation_cost_usd: cache_creation_cost,
+        total_cost_usd: total_cost,
+        cost_multiplier: ctx.cost_multiplier,
+        latency_ms: Some(latency_ms),
+        first_token_ms: None,
+        status_code: Some(ctx.status_code as i32),
+        error_message: None,
+        is_streaming,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    let db = ctx.db.lock().unwrap();
+    let _ = db.request_log_create(&log);
+}
+
+/// Stream wrapper that intercepts SSE chunks for usage tracking,
+/// then records usage to the database when the stream ends.
+struct UsageTrackingStream<S> {
+    inner: S,
+    accumulator: usage_parser::StreamUsageAccumulator,
+    log_ctx: Option<LogContext>,
+    finished: bool,
+}
+
+impl<S> Stream for UsageTrackingStream<S>
+where
+    S: Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Unpin,
+{
+    type Item = Result<axum::body::Bytes, std::io::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        if this.finished {
+            return Poll::Ready(None);
+        }
+
+        match Pin::new(&mut this.inner).poll_next(cx) {
+            Poll::Ready(Some(Ok(bytes))) => {
+                if let Ok(text) = std::str::from_utf8(&bytes) {
+                    this.accumulator.process_chunk(text);
+                }
+                Poll::Ready(Some(Ok(bytes)))
+            }
+            Poll::Ready(Some(Err(e))) => {
+                Poll::Ready(Some(Err(std::io::Error::new(std::io::ErrorKind::Other, e))))
+            }
+            Poll::Ready(None) => {
+                this.finished = true;
+                if let Some(ctx) = this.log_ctx.take() {
+                    if let Some(usage) = this.accumulator.get_usage() {
+                        record_usage(&ctx, &usage, this.accumulator.model.as_deref(), true);
+                    }
+                }
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
 }
