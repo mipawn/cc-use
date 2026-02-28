@@ -17,6 +17,7 @@ import type {
   PresetIcon,
   UsageData,
   ExportData,
+  ExportOptions,
   ImportOptions,
   ImportResult,
   ProxySession,
@@ -95,6 +96,8 @@ export interface Api {
     export: () => Promise<ExportData>
     import: (data: ExportData, options?: ImportOptions) => Promise<ImportResult>
     validate: (data: unknown) => Promise<boolean>
+    exportToFile: (path: string, options?: ExportOptions) => Promise<void>
+    importFromFile: (path: string, options?: ImportOptions) => Promise<ImportResult>
     checkElectronMigration: () => Promise<MigrationCheck>
     migrateFromElectron: () => Promise<MigrationResult>
   }

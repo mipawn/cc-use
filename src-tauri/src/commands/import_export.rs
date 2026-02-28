@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::models::{ExportData, ImportOptions, ImportResult, MigrationCheck, MigrationResult};
+use crate::models::{ExportData, ExportOptions, ImportOptions, ImportResult, MigrationCheck, MigrationResult};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -17,6 +17,43 @@ pub fn import_providers(
 ) -> Result<ImportResult, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     let opts = options.unwrap_or(ImportOptions { overwrite: false });
+    crate::services::import_export::import_all(&db, &data, &opts).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn export_to_file(
+    db: State<'_, Mutex<Database>>,
+    path: String,
+    options: Option<ExportOptions>,
+) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Path is empty".to_string());
+    }
+
+    let db = db.lock().map_err(|e| e.to_string())?;
+    let opts = options.unwrap_or_default();
+    let data = crate::services::import_export::export_selected(&db, &opts)
+        .map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn import_from_file(
+    db: State<'_, Mutex<Database>>,
+    path: String,
+    options: Option<ImportOptions>,
+) -> Result<ImportResult, String> {
+    if path.trim().is_empty() {
+        return Err("Path is empty".to_string());
+    }
+
+    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let data: ExportData = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let opts = options.unwrap_or(ImportOptions { overwrite: false });
+
+    let db = db.lock().map_err(|e| e.to_string())?;
     crate::services::import_export::import_all(&db, &data, &opts).map_err(|e| e.to_string())
 }
 

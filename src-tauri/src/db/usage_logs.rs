@@ -2,6 +2,31 @@ use crate::db::Database;
 use crate::models::{UsageLog, UsageStats, ProjectUsageCount, KeyUsageCount, DateCount};
 
 impl Database {
+    pub fn usage_log_list_all(&self) -> Result<Vec<UsageLog>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, project_id, project_name, provider_id, provider_name,
+                    api_key_id, api_key_alias, key_type, launched_at, duration
+             FROM usage_logs ORDER BY launched_at ASC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(UsageLog {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                project_name: row.get(2)?,
+                provider_id: row.get(3)?,
+                provider_name: row.get(4)?,
+                api_key_id: row.get(5)?,
+                api_key_alias: row.get(6)?,
+                key_type: row.get(7)?,
+                launched_at: row.get(8)?,
+                duration: row.get(9)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
     pub fn usage_log_get_stats(&self, time_range: &str) -> Result<UsageStats, rusqlite::Error> {
         let where_clause = self.time_range_where("launched_at", time_range);
 
@@ -147,6 +172,27 @@ impl Database {
             rusqlite::params![
                 log.id, log.project_id, log.project_name, log.provider_id, log.provider_name,
                 log.api_key_id, log.api_key_alias, log.key_type, log.launched_at, log.duration,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn usage_log_upsert(&self, log: &UsageLog) -> Result<(), rusqlite::Error> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO usage_logs (id, project_id, project_name, provider_id, provider_name,
+                api_key_id, api_key_alias, key_type, launched_at, duration)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                log.id,
+                log.project_id,
+                log.project_name,
+                log.provider_id,
+                log.provider_name,
+                log.api_key_id,
+                log.api_key_alias,
+                log.key_type,
+                log.launched_at,
+                log.duration,
             ],
         )?;
         Ok(())

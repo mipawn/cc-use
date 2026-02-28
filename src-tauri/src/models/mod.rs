@@ -456,11 +456,17 @@ pub struct ExportData {
     pub version: String,
     pub exported_at: String,
     pub providers: Vec<ExportProvider>,
+    #[serde(default)]
+    pub usage_logs: Vec<UsageLog>,
+    #[serde(default)]
+    pub request_logs: Vec<RequestLog>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportProvider {
+    #[serde(default)]
+    pub id: String,
     pub name: String,
     #[serde(rename = "type")]
     pub provider_type: String,
@@ -482,6 +488,8 @@ pub struct ExportProvider {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportApiKey {
+    #[serde(default)]
+    pub id: String,
     pub alias: Option<String>,
     pub value: String,
     pub types: Option<Vec<String>>,
@@ -493,6 +501,24 @@ pub struct ExportApiKey {
 #[serde(rename_all = "camelCase")]
 pub struct ImportOptions {
     pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportOptions {
+    pub include_providers: bool,
+    pub include_usage_logs: bool,
+    pub include_request_logs: bool,
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self {
+            include_providers: true,
+            include_usage_logs: true,
+            include_request_logs: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

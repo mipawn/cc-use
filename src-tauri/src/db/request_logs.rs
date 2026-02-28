@@ -6,6 +6,50 @@ use crate::models::{
 };
 
 impl Database {
+    pub fn request_log_list_all(&self) -> Result<Vec<RequestLog>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, provider_id, api_key_id, project_id, session_id,
+                    model, request_model, input_tokens, output_tokens,
+                    cache_read_tokens, cache_creation_tokens,
+                    input_cost_usd, output_cost_usd, cache_read_cost_usd,
+                    cache_creation_cost_usd, total_cost_usd, cost_multiplier,
+                    latency_ms, first_token_ms, status_code, error_message,
+                    is_streaming, created_at
+             FROM request_logs ORDER BY created_at ASC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let is_streaming: i32 = row.get(21)?;
+            Ok(RequestLog {
+                id: row.get(0)?,
+                provider_id: row.get(1)?,
+                api_key_id: row.get(2)?,
+                project_id: row.get(3)?,
+                session_id: row.get(4)?,
+                model: row.get(5)?,
+                request_model: row.get(6)?,
+                input_tokens: row.get(7)?,
+                output_tokens: row.get(8)?,
+                cache_read_tokens: row.get(9)?,
+                cache_creation_tokens: row.get(10)?,
+                input_cost_usd: row.get(11)?,
+                output_cost_usd: row.get(12)?,
+                cache_read_cost_usd: row.get(13)?,
+                cache_creation_cost_usd: row.get(14)?,
+                total_cost_usd: row.get(15)?,
+                cost_multiplier: row.get(16)?,
+                latency_ms: row.get(17)?,
+                first_token_ms: row.get(18)?,
+                status_code: row.get(19)?,
+                error_message: row.get(20)?,
+                is_streaming: is_streaming != 0,
+                created_at: row.get(22)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
     pub fn request_log_create(&self, log: &RequestLog) -> Result<(), rusqlite::Error> {
         self.conn.execute(
             "INSERT INTO request_logs (id, provider_id, api_key_id, project_id, session_id,
@@ -22,6 +66,43 @@ impl Database {
                 log.cache_creation_cost_usd, log.total_cost_usd, log.cost_multiplier,
                 log.latency_ms, log.first_token_ms, log.status_code, log.error_message,
                 if log.is_streaming { 1i32 } else { 0i32 }, log.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn request_log_upsert(&self, log: &RequestLog) -> Result<(), rusqlite::Error> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO request_logs (id, provider_id, api_key_id, project_id, session_id,
+                model, request_model, input_tokens, output_tokens, cache_read_tokens,
+                cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
+                cache_creation_cost_usd, total_cost_usd, cost_multiplier, latency_ms,
+                first_token_ms, status_code, error_message, is_streaming, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+            rusqlite::params![
+                log.id,
+                log.provider_id,
+                log.api_key_id,
+                log.project_id,
+                log.session_id,
+                log.model,
+                log.request_model,
+                log.input_tokens,
+                log.output_tokens,
+                log.cache_read_tokens,
+                log.cache_creation_tokens,
+                log.input_cost_usd,
+                log.output_cost_usd,
+                log.cache_read_cost_usd,
+                log.cache_creation_cost_usd,
+                log.total_cost_usd,
+                log.cost_multiplier,
+                log.latency_ms,
+                log.first_token_ms,
+                log.status_code,
+                log.error_message,
+                if log.is_streaming { 1i32 } else { 0i32 },
+                log.created_at,
             ],
         )?;
         Ok(())

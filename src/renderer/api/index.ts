@@ -80,6 +80,8 @@ function buildApi(): Api {
       export: () => invoke('export_providers'),
       import: (data, options) => invoke('import_providers', { data, options }),
       validate: (data) => invoke('validate_import_data', { data }),
+      exportToFile: (path, options) => invoke('export_to_file', { path, options }),
+      importFromFile: (path, options) => invoke('import_from_file', { path, options }),
       checkElectronMigration: () => invoke('check_electron_migration'),
       migrateFromElectron: () => invoke('migrate_from_electron'),
     },

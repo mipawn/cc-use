@@ -294,9 +294,12 @@ export interface ExportData {
   version: string
   exportedAt: string
   providers: ExportProvider[]
+  usageLogs: UsageLog[]
+  requestLogs: RequestLog[]
 }
 
 export interface ExportProvider {
+  id: string
   name: string
   type: ProviderType
   baseUrl: string
@@ -315,11 +318,45 @@ export interface ExportProvider {
 }
 
 export interface ExportApiKey {
+  id: string
   alias?: string
   value: string
   types?: ProviderType[]
   priority: number
   costMultiplier?: number
+}
+
+export interface RequestLog {
+  id: string
+  providerId: string | null
+  apiKeyId: string | null
+  projectId: string | null
+  sessionId: string | null
+  model: string | null
+  requestModel: string | null
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  inputCostUsd: number
+  outputCostUsd: number
+  cacheReadCostUsd: number
+  cacheCreationCostUsd: number
+  totalCostUsd: number
+  costMultiplier: number
+  latencyMs: number | null
+  firstTokenMs: number | null
+  statusCode: number | null
+  errorMessage: string | null
+  isStreaming: boolean
+  createdAt: string
+}
+
+// Export options
+export interface ExportOptions {
+  includeProviders: boolean
+  includeUsageLogs: boolean
+  includeRequestLogs: boolean
 }
 
 // Import options

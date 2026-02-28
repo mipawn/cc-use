@@ -18,6 +18,7 @@ import {
   Button,
   Progress,
   message,
+  Checkbox,
 } from 'antd'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -35,6 +36,7 @@ import {
   SyncOutlined,
   MinusCircleOutlined,
   DownloadOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import styles from './Settings.module.css'
 
@@ -134,6 +136,17 @@ export default function Settings() {
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [updateInstalled, setUpdateInstalled] = useState(false)
+
+  // Import/Export
+  const [exportingData, setExportingData] = useState(false)
+  const [importingData, setImportingData] = useState(false)
+  const [overwriteOnImport, setOverwriteOnImport] = useState(true)
+  const [exportSelections, setExportSelections] = useState<string[]>([
+    'providers',
+    'usageLogs',
+    'requestLogs',
+  ])
+  const [backupModalOpen, setBackupModalOpen] = useState(false)
 
   // Fetch proxy status
   const fetchProxyStatus = useCallback(async () => {
@@ -248,6 +261,88 @@ export default function Settings() {
 
   const handleRelaunch = async () => {
     await getApi().app.relaunch()
+  }
+
+  const handleExportData = async () => {
+    if (exportingData) return
+    if (exportSelections.length === 0) {
+      message.warning(t('settings.exportSelectAtLeastOne') || '请至少选择一项导出内容')
+      return
+    }
+
+    setExportingData(true)
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog')
+      const today = new Date().toISOString().slice(0, 10)
+      const path = (await save({
+        defaultPath: `cc-use-backup-${today}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      })) as string | null
+      if (!path) return
+
+      await getApi().importExport.exportToFile(path, {
+        includeProviders: exportSelections.includes('providers'),
+        includeUsageLogs: exportSelections.includes('usageLogs'),
+        includeRequestLogs: exportSelections.includes('requestLogs'),
+      })
+      message.success(t('settings.exportSuccess') || '导出成功')
+      setBackupModalOpen(false)
+    } catch (e) {
+      console.error('Export failed:', e)
+      message.error(t('settings.exportFailed') || '导出失败')
+    } finally {
+      setExportingData(false)
+    }
+  }
+
+  const handleImportData = async () => {
+    if (importingData) return
+    setImportingData(true)
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      })
+      const path = (Array.isArray(selected) ? selected[0] : selected) as string | null
+      if (!path) return
+
+      const result = await getApi().importExport.importFromFile(path, {
+        overwrite: overwriteOnImport,
+      })
+
+      message.success(
+        `${t('settings.importSuccess') || '导入成功'}: ${t('providers.importedCount', { count: result.imported })}`,
+      )
+
+      if (result.errors?.length) {
+        Modal.error({
+          title: t('settings.importErrors') || '导入有部分失败',
+          content: (
+            <div style={{ maxHeight: 240, overflow: 'auto' }}>
+              {result.errors.map((err, idx) => (
+                <div key={idx} style={{ marginBottom: 6 }}>
+                  <Text type='secondary'>{err}</Text>
+                </div>
+              ))}
+            </div>
+          ),
+        })
+      }
+
+      // Ensure UI reflects newly imported data.
+      window.location.reload()
+    } catch (e) {
+      console.error('Import failed:', e)
+      message.error(t('settings.importFailed') || '导入失败')
+    } finally {
+      setImportingData(false)
+    }
+  }
+
+  const openBackupModal = () => {
+    setBackupModalOpen(true)
   }
 
   const themeOptions = [
@@ -454,6 +549,123 @@ export default function Settings() {
                 />
               </div>
             </Card>
+
+            <Divider className={styles.divider} />
+
+            <Title level={4} className={styles.sectionTitle}>
+              {t('settings.dataBackup') || '数据导入/导出'}
+            </Title>
+
+            <Card className={styles.settingCard} variant='outlined'>
+              <div className={styles.settingRow}>
+                <Space>
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
+                    <DownloadOutlined
+                      className={styles.settingIcon}
+                      style={{ color: token.colorText }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong>{t('settings.dataBackup') || '数据导入/导出'}</Text>
+                    <br />
+                    <Text type='secondary' className={styles.settingDesc}>
+                      {t('settings.dataBackupDesc') ||
+                        '导出/导入：使用记录、密钥、供应商（不包含项目）'}
+                    </Text>
+                  </div>
+                </Space>
+
+                <Space>
+                  <Button
+                    icon={<DownloadOutlined />}
+                    loading={exportingData}
+                    onClick={openBackupModal}
+                  >
+                    {t('settings.dataBackup') || '数据导入/导出'}
+                  </Button>
+                </Space>
+              </div>
+            </Card>
+
+            <Modal
+              title={t('settings.dataBackup') || '数据导入/导出'}
+              open={backupModalOpen}
+              onCancel={() => setBackupModalOpen(false)}
+              footer={null}
+              destroyOnClose
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <Text strong>{t('settings.exportData') || '导出'}</Text>
+                  <div style={{ marginTop: 8 }}>
+                    <Text type='secondary' style={{ fontSize: 12 }}>
+                      {t('settings.exportInclude') || '导出内容'}
+                    </Text>
+                    <div style={{ marginTop: 6 }}>
+                      <Checkbox.Group
+                        value={exportSelections}
+                        onChange={(values) => setExportSelections(values as string[])}
+                        options={[
+                          {
+                            label: t('settings.exportOptionProvidersKeys') || '供应商 + 密钥',
+                            value: 'providers',
+                          },
+                          {
+                            label: t('settings.exportOptionUsageLogs') || '使用记录',
+                            value: 'usageLogs',
+                          },
+                          {
+                            label: t('settings.exportOptionRequestLogs') || '请求记录',
+                            value: 'requestLogs',
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 12, textAlign: 'right' }}>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      loading={exportingData}
+                      onClick={handleExportData}
+                    >
+                      {t('settings.exportData') || '导出'}
+                    </Button>
+                  </div>
+                </div>
+
+                <Divider style={{ margin: '4px 0' }} />
+
+                <div>
+                  <Text strong>{t('settings.importData') || '导入'}</Text>
+                  <div style={{ marginTop: 10 }}>
+                    <Space size={8}>
+                      <Text type='secondary' style={{ fontSize: 12 }}>
+                        {t('settings.overwriteOnImport') || '导入时覆盖同名供应商'}
+                      </Text>
+                      <Switch
+                        checked={overwriteOnImport}
+                        onChange={setOverwriteOnImport}
+                        size='small'
+                      />
+                    </Space>
+                    <Text type='secondary' style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                      {t('settings.overwriteOnImportHelp') ||
+                        '关闭后：遇到同名供应商将跳过导入（含其密钥）'}
+                    </Text>
+                  </div>
+                  <div style={{ marginTop: 12, textAlign: 'right' }}>
+                    <Button
+                      type='default'
+                      icon={<UploadOutlined />}
+                      loading={importingData}
+                      onClick={handleImportData}
+                    >
+                      {t('settings.importData') || '导入'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </Modal>
 
             <Divider className={styles.divider} />
 
