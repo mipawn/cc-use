@@ -2,6 +2,43 @@
 
 本文件记录项目的所有重要变更。
 
+格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
+版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [2.0.0] - 2026-02-28
+
+### 🎉 重大重构 - 从 Electron 迁移到 Tauri
+
+这是 CC Use 的完全重写版本，从 Electron 迁移到 Tauri 2.x，采用 Rust 后端。
+
+### ⚠️ 破坏性变更
+
+- **架构完全变更**：从 Electron + Node.js 迁移到 Tauri + Rust
+- **自动数据迁移**：首次启动时自动检测并迁移 1.x 数据（需保留旧数据目录）
+
+### ✨ 核心优势
+
+**更可靠的自动更新机制**
+
+- ✅ 应用内检查 GitHub Releases（latest.json）
+- ✅ 应用内下载并展示进度
+- ✅ 基于 `tauri-plugin-updater` 的签名校验
+- ✅ 跨平台统一的更新检查与下载逻辑（macOS / Windows）
+
+### 🔧 技术变更
+
+- **框架**：Electron → Tauri 2.x
+- **后端**：Node.js → Rust (axum, rusqlite, tokio)
+- **数据库**：better-sqlite3 → rusqlite
+- **代理**：Express → Axum + Hyper
+- **更新**：electron-updater → `tauri-plugin-updater`（latest.json + 签名校验）
+
+### 📚 迁移指南
+
+详见 [guides/MIGRATION.md](./guides/MIGRATION.md)
+
+---
+
 ## [1.5.0] - 2026-02-11
 
 ### Added

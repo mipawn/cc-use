@@ -4,7 +4,11 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 
 [中文文档](./README.md)
 
-> **Migrating from cc-switch?** See [Migrating from cc-switch](#migrating-from-cc-switch).
+> **🎉 2.0 Major Update**: Completely rewritten from Electron to Tauri + Rust! Core advantage: **More reliable auto-update mechanism**
+>
+> **Migrating from 1.x?** Data migrates automatically → [Migration Guide](./guides/MIGRATION_EN.md)
+>
+> **Migrating from 0.x (cc-switch)?** See [Migrating from cc-switch](./guides/MIGRATION_FROM_CC_SWITCH_EN.md)
 
 ## Screenshots
 
@@ -29,7 +33,7 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 - **Cost Tracking** - In proxy mode, automatically logs token usage and cost for every API request
 - **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/project/model with request history
 - **System Tray** - Minimize to tray on close, keeping the proxy running; tray menu supports proxy control and quick-launching recent projects
-- **Auto Update** - In-app update detection and download with progress display and cache management
+- **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
 - **CLI Config Management** - Global and per-key CLI configuration (JSON), automatically merged and injected at launch
 - **Internationalization** - Chinese and English UI
 - **Dark Mode** - Light/dark theme switching
@@ -41,8 +45,8 @@ Download the installer for your platform from [Releases](https://github.com/mipa
 
 | Platform | Format                 |
 | -------- | ---------------------- |
-| macOS    | `.dmg` / `.zip`        |
-| Windows  | `.exe` (NSIS) / `.zip` |
+| macOS    | `.dmg`                 |
+| Windows  | `.exe` (NSIS) / `.msi` |
 
 ## Usage
 
@@ -110,8 +114,11 @@ pnpm dev
 # Production build
 pnpm build
 
-# Build without packaging (for testing)
-pnpm build:unpack
+# Development build (for testing)
+pnpm build:dev
+
+# Rust tests
+cd src-tauri && cargo test
 
 # Type check
 pnpm typecheck
@@ -125,13 +132,14 @@ pnpm format
 
 ## Tech Stack
 
-- **Framework**: Electron + Vite
+- **Framework**: Tauri 2.x + Vite
+- **Backend**: Rust (axum, rusqlite, tokio)
 - **Frontend**: React 18 + TypeScript
 - **UI**: Ant Design 6 + Tailwind CSS 4
 - **State**: Zustand
-- **Database**: SQLite (better-sqlite3) + Drizzle ORM
-- **Proxy**: Express
-- **i18n**: i18next
+- **Database**: SQLite (rusqlite)
+- **Proxy**: Axum + Hyper
+- **i18n**: i18next + sys-locale
 
 ## Supported Platforms
 
@@ -139,36 +147,6 @@ pnpm format
 - Windows (x64)
 
 > ⚠️ **Note**: The Windows build has not been thoroughly tested yet and may have compatibility issues. If you encounter any problems, please open an [Issue](https://github.com/mipawn/cc-use/issues).
-
-## Migrating from cc-switch
-
-CC Use v1.0.0 is a completely new Electron desktop app and is not compatible with the old cc-switch CLI tool. Uninstall the old version first:
-
-```bash
-cc-switch uninstall
-```
-
-If `cc-switch uninstall` doesn't work, clean up manually:
-
-```bash
-sudo rm /usr/local/bin/cc-switch
-rm -rf ~/.config/cc-switch
-rm -f ~/.zsh/completions/_cc-switch
-rm -f ~/.local/share/bash-completion/completions/cc-switch
-rm -f ~/.config/fish/completions/cc-switch.fish
-```
-
-Also clean up the old cc-use CLI if previously installed:
-
-```bash
-sudo rm /usr/local/bin/cc-use
-rm -rf ~/.config/cc-use
-rm -f ~/.zsh/completions/_cc-use
-rm -f ~/.local/share/bash-completion/completions/cc-use
-rm -f ~/.config/fish/completions/cc-use.fish
-```
-
-Then download the new desktop app from [Releases](https://github.com/mipawn/cc-use/releases).
 
 ## License
 

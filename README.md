@@ -4,7 +4,11 @@
 
 [English](./README_EN.md)
 
-> **从 cc-switch 迁移？** 请参阅 [从 cc-switch 迁移](#从-cc-switch-迁移)。
+> **🎉 2.0 重大更新**：已从 Electron 完全重写为 Tauri + Rust！核心优势：**更可靠的自动更新机制**
+>
+> **从 1.x 迁移？** 数据会自动迁移 → [迁移指南](./guides/MIGRATION.md)
+>
+> **从 0.x (cc-switch) 迁移？** 请参阅 [从 cc-switch 迁移](./guides/MIGRATION_FROM_CC_SWITCH.md)
 
 ## 截图
 
@@ -29,7 +33,7 @@
 - **费用追踪** - 代理模式下自动记录每次请求的 Token 用量和费用
 - **统计分析** - 仪表盘展示今日费用、请求量、每日趋势、Top 密钥/项目；统计页提供按密钥/供应商/项目/模型的详细分析和请求明细
 - **系统托盘** - 关闭窗口时最小化到托盘，代理服务持续运行；托盘菜单支持代理控制和最近项目快速启动
-- **自动更新** - 应用内检测并下载新版本，支持下载进度显示和缓存管理
+- **自动更新** - 应用内检测并下载新版本，支持下载进度显示（`tauri-plugin-updater` 签名校验）
 - **CLI 配置管理** - 支持全局配置和密钥级别的 CLI 配置（JSON），启动时自动合并注入
 - **国际化** - 中文 / 英文界面
 - **深色模式** - 亮色 / 深色主题切换
@@ -41,8 +45,8 @@
 
 | 平台    | 格式                   |
 | ------- | ---------------------- |
-| macOS   | `.dmg` / `.zip`        |
-| Windows | `.exe` (NSIS) / `.zip` |
+| macOS   | `.dmg`                 |
+| Windows | `.exe` (NSIS) / `.msi` |
 
 ## 使用方式
 
@@ -110,8 +114,11 @@ pnpm dev
 # 构建生产版本
 pnpm build
 
-# 构建但不打包（用于测试）
-pnpm build:unpack
+# 构建开发版本（用于测试）
+pnpm build:dev
+
+# Rust 测试
+cd src-tauri && cargo test
 
 # 类型检查
 pnpm typecheck
@@ -125,13 +132,14 @@ pnpm format
 
 ## 技术栈
 
-- **框架**: Electron + Vite
+- **框架**: Tauri 2.x + Vite
+- **后端**: Rust (axum, rusqlite, tokio)
 - **前端**: React 18 + TypeScript
 - **UI**: Ant Design 6 + Tailwind CSS 4
 - **状态管理**: Zustand
-- **数据库**: SQLite (better-sqlite3) + Drizzle ORM
-- **代理**: Express
-- **国际化**: i18next
+- **数据库**: SQLite (rusqlite)
+- **代理**: Axum + Hyper
+- **国际化**: i18next + sys-locale
 
 ## 支持平台
 
@@ -139,36 +147,6 @@ pnpm format
 - Windows (x64)
 
 > ⚠️ **注意**：Windows 版本目前尚未经过充分测试，可能存在兼容性问题。如遇到问题，欢迎提交 [Issue](https://github.com/mipawn/cc-use/issues)。
-
-## 从 cc-switch 迁移
-
-CC Use v1.0.0 是全新的 Electron 桌面应用，与旧版 cc-switch CLI 工具不兼容。请先卸载旧版本：
-
-```bash
-cc-switch uninstall
-```
-
-如果 `cc-switch uninstall` 无法正常工作，手动清理：
-
-```bash
-sudo rm /usr/local/bin/cc-switch
-rm -rf ~/.config/cc-switch
-rm -f ~/.zsh/completions/_cc-switch
-rm -f ~/.local/share/bash-completion/completions/cc-switch
-rm -f ~/.config/fish/completions/cc-switch.fish
-```
-
-同时也清理旧版 cc-use CLI（如果安装过）：
-
-```bash
-sudo rm /usr/local/bin/cc-use
-rm -rf ~/.config/cc-use
-rm -f ~/.zsh/completions/_cc-use
-rm -f ~/.local/share/bash-completion/completions/cc-use
-rm -f ~/.config/fish/completions/cc-use.fish
-```
-
-清理完成后，从 [Releases](https://github.com/mipawn/cc-use/releases) 下载新版桌面应用即可。
 
 ## License
 
