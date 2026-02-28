@@ -13,10 +13,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: macos-latest
+          # macOS ARM runner (Apple Silicon)
+          - platform: macos-14
             args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
-          - platform: macos-latest
+          # macOS Intel runner (x86_64)
+          - platform: macos-13
             args: --target x86_64-apple-darwin
             target: x86_64-apple-darwin
           - platform: windows-latest
@@ -62,5 +64,6 @@ jobs:
             如果你的应用不在 `/Applications` 目录，请将路径替换为实际安装路径。
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          uploadUpdaterJson: true
+          releaseAssetNamePattern: "[name]-[version]-[platform]-[arch][setup][ext]"
           args: ${{ matrix.args }}
