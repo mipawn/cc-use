@@ -11,6 +11,7 @@ permissions:
 jobs:
   release:
     strategy:
+      fail-fast: false
       matrix:
         include:
           # macOS ARM runner (Apple Silicon)
@@ -23,14 +24,19 @@ jobs:
             target: x86_64-apple-darwin
           - platform: windows-latest
             args: ''
-            target: ''
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust stable (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target || '' }}
+          targets: ${{ matrix.target }}
+
+      - name: Install Rust stable
+        if: ${{ !startsWith(matrix.platform, 'macos') }}
+        uses: dtolnay/rust-toolchain@stable
 
       - uses: pnpm/action-setup@v4
 
@@ -41,7 +47,7 @@ jobs:
 
       - run: pnpm install
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -50,7 +56,7 @@ jobs:
           tagName: v__VERSION__
           releaseName: v__VERSION__
           releaseBody: |
-            For stable releases, please refer to CHANGELOG.md for details.
+            关于稳定版本的详细信息，请参阅CHANGELOG.md文件。
             https://github.com/${{ github.repository }}/blob/v__VERSION__/CHANGELOG.md
 
             ---
@@ -65,5 +71,5 @@ jobs:
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
-          releaseAssetNamePattern: "[name]-[version]-[platform]-[arch][setup][ext]"
+          releaseAssetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
           args: ${{ matrix.args }}
