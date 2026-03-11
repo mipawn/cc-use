@@ -13,11 +13,17 @@ impl TerminalStrategy for MacTerminalStrategy {
     fn launch(&self, path: &str, env: &EnvObject, cli_command: &str) -> Result<(), String> {
         let escaped_path = path.replace('\'', "'\\''");
         let env_inline: String = env.iter()
-            .map(|(k, v)| format!("{}=\"{}\"", k, v.replace('"', "\\\"")))
+            .map(|(k, v)| {
+                // Escape single quotes in the value for shell
+                let escaped_value = v.replace('\'', "'\\''");
+                // Use single quotes to avoid issues with special characters
+                format!("{}='{}'", k, escaped_value)
+            })
             .collect::<Vec<_>>()
             .join(" ");
 
         let full_command = format!("cd '{}' && clear && {} {}", escaped_path, env_inline, cli_command);
+        // Escape for AppleScript string: backslash and double quote need escaping
         let escaped_command = full_command.replace('\\', "\\\\").replace('"', "\\\"");
 
         let script = format!(
