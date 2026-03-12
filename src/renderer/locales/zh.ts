@@ -349,6 +349,13 @@ export default {
     willSaveLocal: '将保存局部差异配置',
     selectAtLeastOne: '至少选择一种类型',
     multiTypeHint: '将为每种类型创建一个密钥',
+    modelMapping: '模型映射',
+    modelMappingHint: '将请求中的模型名替换为上游实际模型名，留空表示不做映射',
+    modelMappingFrom: '请求模型名',
+    modelMappingTo: '映射为',
+    modelMappingAdd: '添加映射',
+    modelMappingFromPlaceholder: '例如：o3-pro',
+    modelMappingToPlaceholder: '例如：claude-sonnet-4-20250514',
   },
   keys: {
     title: 'API 密钥',

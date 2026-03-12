@@ -347,6 +347,13 @@ export default {
     willSaveLocal: 'Will save local diff config',
     selectAtLeastOne: 'Select at least one type',
     multiTypeHint: 'Will create a key for each type',
+    modelMapping: 'Model Mapping',
+    modelMappingHint: 'Replace model name in requests with upstream model name. Leave empty for no mapping',
+    modelMappingFrom: 'Request Model',
+    modelMappingTo: 'Map To',
+    modelMappingAdd: 'Add Mapping',
+    modelMappingFromPlaceholder: 'e.g. o3-pro',
+    modelMappingToPlaceholder: 'e.g. claude-sonnet-4-20250514',
   },
   keys: {
     title: 'API Keys',

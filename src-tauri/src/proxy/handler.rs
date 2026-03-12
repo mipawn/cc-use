@@ -123,6 +123,22 @@ pub async fn proxy_handler(
         .ok()
         .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(|s| s.to_string()));
 
+    // Apply model mapping: replace model in request body if mapping exists
+    let body_bytes = if let (Some(ref req_model), Some(ref mapping)) = (&request_model, &api_key.model_mapping) {
+        if let Some(mapped_model) = mapping.get(req_model.as_str()) {
+            if let Ok(mut body_json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+                body_json["model"] = serde_json::Value::String(mapped_model.clone());
+                serde_json::to_vec(&body_json).unwrap_or_else(|_| body_bytes.to_vec()).into()
+            } else {
+                body_bytes
+            }
+        } else {
+            body_bytes
+        }
+    } else {
+        body_bytes
+    };
+
     let client = reqwest::Client::new();
     let mut req_builder = client.request(method, &upstream_url);
 

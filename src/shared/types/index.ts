@@ -195,6 +195,8 @@ export interface ApiKey {
   lastUsageCheckedAt: string | null
   // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
   costMultiplier: number
+  // Model name mapping (e.g., {"o3-pro": "claude-sonnet-4-20250514"})
+  modelMapping: Record<string, string> | null
 }
 
 export interface CreateApiKeyInput {
@@ -210,6 +212,7 @@ export interface CreateApiKeyInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  modelMapping?: Record<string, string>
 }
 
 export interface UpdateApiKeyInput {
@@ -226,6 +229,7 @@ export interface UpdateApiKeyInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  modelMapping?: Record<string, string>
 }
 
 // Project types
@@ -324,6 +328,7 @@ export interface ExportApiKey {
   types?: ProviderType[]
   priority: number
   costMultiplier?: number
+  modelMapping?: Record<string, string>
 }
 
 export interface RequestLog {

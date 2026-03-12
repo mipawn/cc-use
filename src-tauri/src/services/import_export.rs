@@ -24,6 +24,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 types: Some(k.types),
                 priority: k.priority,
                 cost_multiplier: Some(k.cost_multiplier),
+                model_mapping: k.model_mapping,
             })
             .collect();
 
@@ -134,8 +135,8 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
 
                 if let Err(e) = db.conn.execute(
                     "INSERT OR REPLACE INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
-                        config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 1, NULL, 'none', NULL, NULL, NULL, ?7)",
+                        config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 1, NULL, 'none', NULL, NULL, NULL, ?7, ?8)",
                     rusqlite::params![
                         ek.id,
                         ep.id,
@@ -144,6 +145,7 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
                         types_json,
                         ek.priority,
                         ek.cost_multiplier.unwrap_or(1.0),
+                        ek.model_mapping.as_ref().map(|m| serde_json::to_string(m).unwrap_or_default()),
                     ],
                 ) {
                     errors.push(format!("Failed to import key for {}: {}", ep.name, e));
@@ -186,6 +188,7 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
                             usage_url: None,
                             usage_path: None,
                             usage_headers: None,
+                            model_mapping: ek.model_mapping.clone(),
                         });
                     }
                     imported += 1;

@@ -263,6 +263,7 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
             "ALTER TABLE projects ADD COLUMN remark TEXT",
             "ALTER TABLE projects ADD COLUMN cli_type TEXT DEFAULT 'claude'",
+            "ALTER TABLE api_keys ADD COLUMN model_mapping TEXT",
         ];
 
         for stmt in &alter_statements {

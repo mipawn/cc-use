@@ -138,3 +138,61 @@
 [data-theme='dark'] .jsonEditor {
   background: var(--surface-base, #1e293b) !important;
 }
+
+/* Model Mapping Section */
+.mappingSection {
+  background: var(--surface-sunken, #f8fafc);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 8px;
+}
+
+.mappingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mappingRow :global(.ant-input) {
+  flex: 1;
+}
+
+.mappingArrow {
+  color: var(--ant-color-text-secondary);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+[data-theme='dark'] .mappingSection {
+  background: var(--surface-sunken, #0f172a);
+}
+
+/* Model Mapping Section */
+.mappingSection {
+  background: var(--surface-sunken, #f8fafc);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 8px;
+}
+
+.mappingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mappingRow :global(.ant-input) {
+  flex: 1;
+}
+
+.mappingArrow {
+  color: var(--ant-color-text-secondary);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+[data-theme='dark'] .mappingSection {
+  background: var(--surface-sunken, #0f172a);
+}

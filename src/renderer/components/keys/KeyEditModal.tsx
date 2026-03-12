@@ -17,9 +17,10 @@ import {
   theme,
   Tooltip,
   Select,
+  Button,
 } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import { SettingOutlined, CopyOutlined, CheckOutlined } from '@ant-design/icons'
+import { SettingOutlined, CopyOutlined, CheckOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { ApiKey, Provider, ProviderType, CliConfig } from '@shared/types'
@@ -47,6 +48,7 @@ interface KeyEditModalProps {
     usageUrl?: string
     usagePath?: string
     usageHeaders?: string
+    modelMapping?: Record<string, string>
   }) => Promise<void>
 }
 
@@ -87,6 +89,9 @@ export default function KeyEditModal({
   const [usagePath, setUsagePath] = useState('')
   const [usageHeaders, setUsageHeaders] = useState('')
   const [costMultiplier, setCostMultiplier] = useState<number>(1)
+
+  // Model mapping state
+  const [modelMappingRows, setModelMappingRows] = useState<{ from: string; to: string }[]>([])
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -191,6 +196,14 @@ export default function KeyEditModal({
         setUsageUrl(apiKey.usageUrl || '')
         setUsagePath(apiKey.usagePath || '')
         setCostMultiplier(apiKey.costMultiplier ?? 1)
+        // Initialize model mapping
+        if (apiKey.modelMapping && Object.keys(apiKey.modelMapping).length > 0) {
+          setModelMappingRows(
+            Object.entries(apiKey.modelMapping).map(([from, to]) => ({ from, to })),
+          )
+        } else {
+          setModelMappingRows([])
+        }
         // Format headers JSON for display
         if (apiKey.usageHeaders) {
           try {
@@ -207,6 +220,7 @@ export default function KeyEditModal({
         setUsagePath('')
         setUsageHeaders('')
         setCostMultiplier(1)
+        setModelMappingRows([])
       }
       setJsonError(null)
     }
@@ -302,6 +316,13 @@ export default function KeyEditModal({
 
       const localConfig = getLocalConfigToSave(configJson, globalConfig, includeGlobal)
 
+      // Build model mapping from rows
+      const validMappingRows = modelMappingRows.filter((r) => r.from.trim() && r.to.trim())
+      const modelMapping =
+        validMappingRows.length > 0
+          ? Object.fromEntries(validMappingRows.map((r) => [r.from.trim(), r.to.trim()]))
+          : undefined
+
       await onSave({
         id: apiKey?.id,
         providerId,
@@ -314,6 +335,7 @@ export default function KeyEditModal({
         usageUrl: usageType === 'custom' ? usageUrl : undefined,
         usagePath: usageType === 'custom' ? usagePath : undefined,
         usageHeaders: usageType === 'custom' ? usageHeaders : undefined,
+        modelMapping,
       })
 
       message.success(
@@ -536,6 +558,63 @@ export default function KeyEditModal({
               </Form.Item>
             </>
           )}
+
+          {/* Model Mapping Section */}
+          <div className={styles.mappingSection}>
+            <div className={styles.configHeader}>
+              <Space>
+                <SettingOutlined style={{ color: token.colorPrimary }} />
+                <Text strong>{t('apiKeys.modelMapping')}</Text>
+              </Space>
+              <Button
+                type='text'
+                size='small'
+                icon={<PlusOutlined />}
+                onClick={() => setModelMappingRows((prev) => [...prev, { from: '', to: '' }])}
+              >
+                {t('apiKeys.modelMappingAdd')}
+              </Button>
+            </div>
+            {modelMappingRows.length === 0 && (
+              <Text type='secondary' style={{ fontSize: 12 }}>
+                {t('apiKeys.modelMappingHint')}
+              </Text>
+            )}
+            {modelMappingRows.map((row, idx) => (
+              <div key={idx} className={styles.mappingRow}>
+                <Input
+                  value={row.from}
+                  onChange={(e) => {
+                    const newRows = [...modelMappingRows]
+                    newRows[idx] = { ...newRows[idx], from: e.target.value }
+                    setModelMappingRows(newRows)
+                  }}
+                  placeholder={t('apiKeys.modelMappingFromPlaceholder') || 'o3-pro'}
+                  size='small'
+                />
+                <span className={styles.mappingArrow}>→</span>
+                <Input
+                  value={row.to}
+                  onChange={(e) => {
+                    const newRows = [...modelMappingRows]
+                    newRows[idx] = { ...newRows[idx], to: e.target.value }
+                    setModelMappingRows(newRows)
+                  }}
+                  placeholder={
+                    t('apiKeys.modelMappingToPlaceholder') || 'claude-sonnet-4-20250514'
+                  }
+                  size='small'
+                />
+                <Button
+                  type='text'
+                  size='small'
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => setModelMappingRows((prev) => prev.filter((_, i) => i !== idx))}
+                />
+              </div>
+            ))}
+          </div>
 
           {/* Config Section */}
           <div className={styles.configSection}>

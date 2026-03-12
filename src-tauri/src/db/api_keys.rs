@@ -6,7 +6,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier
+                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC"
         )?;
 
@@ -19,6 +19,9 @@ impl Database {
             let config_str: Option<String> = row.get(8)?;
             let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
 
+            let model_mapping_str: Option<String> = row.get(16)?;
+            let model_mapping = model_mapping_str.and_then(|s| serde_json::from_str(&s).ok());
+
             Ok(ApiKey {
                 id: row.get(0)?,
                 provider_id: row.get(1)?,
@@ -37,6 +40,7 @@ impl Database {
                     .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
                 last_usage_checked_at: row.get(14)?,
                 cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
+                model_mapping,
             })
         })?;
 
@@ -47,7 +51,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier
+                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping
              FROM api_keys WHERE id = ?1"
         )?;
 
@@ -60,6 +64,9 @@ impl Database {
             let config_str: Option<String> = row.get(8)?;
             let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
 
+            let model_mapping_str: Option<String> = row.get(16)?;
+            let model_mapping = model_mapping_str.and_then(|s| serde_json::from_str(&s).ok());
+
             Ok(ApiKey {
                 id: row.get(0)?,
                 provider_id: row.get(1)?,
@@ -78,6 +85,7 @@ impl Database {
                     .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
                 last_usage_checked_at: row.get(14)?,
                 cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
+                model_mapping,
             })
         })?;
 
@@ -94,11 +102,12 @@ impl Database {
             &input.types.clone().unwrap_or_else(|| vec!["claude".to_string()])
         ).unwrap_or_else(|_| "[\"claude\"]".to_string());
         let config_json = input.config.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
+        let model_mapping_json = input.model_mapping.as_ref().map(|m| serde_json::to_string(m).unwrap_or_default());
 
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
-                config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             rusqlite::params![
                 id,
                 input.provider_id,
@@ -113,6 +122,7 @@ impl Database {
                 input.usage_path,
                 input.usage_headers,
                 input.cost_multiplier.unwrap_or(1.0),
+                model_mapping_json,
             ],
         )?;
 
@@ -164,6 +174,11 @@ impl Database {
 
         if let Some(ref val) = input.cached_usage {
             sets.push("cached_usage = ?".to_string());
+            params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
+        }
+
+        if let Some(ref val) = input.model_mapping {
+            sets.push("model_mapping = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
         }
 
@@ -228,6 +243,7 @@ mod tests {
             config: None,
             cost_multiplier: None,
             usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
+            model_mapping: None,
         }).unwrap();
 
         assert_eq!(key.alias, Some("Test Key".to_string()));
@@ -253,7 +269,7 @@ mod tests {
             value: "sk-test".to_string(),
             types: None, priority: None, is_active: None, config: None,
             cost_multiplier: None, usage_type: None, usage_url: None,
-            usage_path: None, usage_headers: None,
+            usage_path: None, usage_headers: None, model_mapping: None,
         }).unwrap();
 
         // Delete provider should cascade delete api keys
