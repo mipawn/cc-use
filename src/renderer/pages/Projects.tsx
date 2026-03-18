@@ -285,6 +285,9 @@ export default function Projects() {
         providerId,
         apiKeyId: keyId,
       })
+      // Also update any active proxy session for this project
+      // so usage stats are recorded against the new key
+      await getApi().session.updateByProject(project.id, providerId, keyId)
       message.success(t('projects.keySwitched'))
     } catch (error) {
       message.error(t('messages.error'))
@@ -342,14 +345,20 @@ export default function Projects() {
 
       if (editingProject) {
         // Update existing project
+        const providerId = values.key?.[0] || null
+        const apiKeyId = values.key?.[1] || null
         await updateProject({
           id: editingProject.id,
           name: values.name,
           remark: values.remark,
-          providerId: values.key?.[0] || null,
-          apiKeyId: values.key?.[1] || null,
+          providerId,
+          apiKeyId,
           cliType: values.cliType as ProviderType,
         })
+        // Sync active proxy session so usage stats track the new key
+        if (providerId && apiKeyId) {
+          await getApi().session.updateByProject(editingProject.id, providerId, apiKeyId)
+        }
         message.success(t('projects.projectUpdated'))
       } else {
         // Create new project

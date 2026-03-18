@@ -81,6 +81,7 @@ pub fn run() {
             commands::proxy::session_create,
             commands::proxy::session_get,
             commands::proxy::session_update_key,
+            commands::proxy::session_update_by_project,
             commands::proxy::session_delete,
             commands::proxy::session_list,
             // Terminal commands

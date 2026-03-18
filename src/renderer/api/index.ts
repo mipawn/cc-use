@@ -90,6 +90,8 @@ function buildApi(): Api {
       get: (sessionToken) => invoke('session_get', { sessionToken }),
       updateKey: (sessionToken, apiKeyId) =>
         invoke('session_update_key', { sessionToken, apiKeyId }),
+      updateByProject: (projectId, providerId, apiKeyId) =>
+        invoke('session_update_by_project', { projectId, providerId, apiKeyId }),
       delete: (sessionToken) => invoke('session_delete', { sessionToken }),
       list: () => invoke('session_list'),
     },

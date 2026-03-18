@@ -105,6 +105,7 @@ export interface Api {
     create: (providerId: string, apiKeyId: string) => Promise<ProxySession>
     get: (sessionToken: string) => Promise<ProxySession | null>
     updateKey: (sessionToken: string, apiKeyId: string) => Promise<boolean>
+    updateByProject: (projectId: string, providerId: string, apiKeyId: string) => Promise<void>
     delete: (sessionToken: string) => Promise<boolean>
     list: () => Promise<ProxySession[]>
   }

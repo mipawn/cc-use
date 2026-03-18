@@ -54,7 +54,8 @@ pub async fn proxy_start_inner(
         Arc::new(Mutex::new(map))
     };
 
-    // Share the main DB connection with the proxy
+    // Share the main DB connection so the proxy immediately sees
+    // dynamic key switches written by frontend commands.
     let proxy_db = Arc::clone(db);
 
     let state = Arc::new(ProxyState {
@@ -153,6 +154,18 @@ pub fn session_update_key(
 ) -> Result<bool, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.proxy_session_update_key(&session_token, &api_key_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn session_update_by_project(
+    db: State<'_, Arc<Mutex<Database>>>,
+    project_id: String,
+    provider_id: String,
+    api_key_id: String,
+) -> Result<(), String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.proxy_session_update_by_project(&project_id, &provider_id, &api_key_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

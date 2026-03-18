@@ -113,6 +113,10 @@ pub async fn proxy_handler(
     // Remove host header (reqwest will set it)
     headers.remove("host");
 
+    // Remove accept-encoding so upstream returns uncompressed SSE data,
+    // allowing UsageTrackingStream to parse usage from plain-text chunks.
+    headers.remove("accept-encoding");
+
     let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
         Ok(b) => b,
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "Failed to read request body"),
