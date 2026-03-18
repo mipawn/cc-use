@@ -1,10 +1,10 @@
 use crate::db::Database;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 #[tauri::command]
 pub fn terminal_launch(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     project_id: String,
     options: Option<serde_json::Value>,
 ) -> Result<(), String> {
@@ -30,7 +30,7 @@ pub fn terminal_launch(
 
 #[tauri::command]
 pub fn terminal_launch_with_path(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     path: String,
 ) -> Result<(), String> {
     let db = db.lock().map_err(|e| e.to_string())?;

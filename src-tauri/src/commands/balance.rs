@@ -1,12 +1,12 @@
 use crate::db::Database;
 use crate::models::ModelPricing;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 #[tauri::command]
 pub async fn balance_refresh(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
 ) -> Result<serde_json::Value, String> {
     let (provider, api_keys) = {
@@ -36,7 +36,7 @@ pub async fn balance_refresh(
 
 #[tauri::command]
 pub async fn usage_refresh(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
 ) -> Result<serde_json::Value, String> {
     let (provider, api_keys) = {
@@ -67,7 +67,7 @@ pub async fn usage_refresh(
 
 #[tauri::command]
 pub async fn key_usage_refresh(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     key_id: String,
 ) -> Result<serde_json::Value, String> {
     let (key, provider_base_url) = {
@@ -99,7 +99,7 @@ pub async fn key_usage_refresh(
 
 #[tauri::command]
 pub async fn provider_sync_pricing(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
 ) -> Result<serde_json::Value, String> {
     let (provider, api_keys) = {
@@ -130,7 +130,7 @@ pub async fn provider_sync_pricing(
 
 #[tauri::command]
 pub fn provider_update_pricing(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
     pricing: HashMap<String, ModelPricing>,
 ) -> Result<crate::models::Provider, String> {

@@ -22,14 +22,14 @@ pub fn is_proxy_running() -> bool {
 
 #[tauri::command]
 pub async fn proxy_start(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<(), String> {
     proxy_start_inner(&*db).await
 }
 
 /// Inner implementation callable from both command handler and tray
 pub async fn proxy_start_inner(
-    db: &Mutex<Database>,
+    db: &Arc<Mutex<Database>>,
 ) -> Result<(), String> {
     if PROXY_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
@@ -54,10 +54,8 @@ pub async fn proxy_start_inner(
         Arc::new(Mutex::new(map))
     };
 
-    // Create a new DB connection for the proxy (runs on separate task)
-    let proxy_db = Arc::new(Mutex::new(
-        crate::db::Database::new().map_err(|e| e.to_string())?
-    ));
+    // Share the main DB connection with the proxy
+    let proxy_db = Arc::clone(db);
 
     let state = Arc::new(ProxyState {
         db: proxy_db,
@@ -122,7 +120,7 @@ pub fn proxy_status() -> Result<ProxyStatus, String> {
 
 #[tauri::command]
 pub fn session_create(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
     api_key_id: String,
 ) -> Result<ProxySession, String> {
@@ -140,7 +138,7 @@ pub fn session_create(
 
 #[tauri::command]
 pub fn session_get(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     session_token: String,
 ) -> Result<Option<ProxySession>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
@@ -149,7 +147,7 @@ pub fn session_get(
 
 #[tauri::command]
 pub fn session_update_key(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     session_token: String,
     api_key_id: String,
 ) -> Result<bool, String> {
@@ -159,7 +157,7 @@ pub fn session_update_key(
 
 #[tauri::command]
 pub fn session_delete(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     session_token: String,
 ) -> Result<bool, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
@@ -168,7 +166,7 @@ pub fn session_delete(
 
 #[tauri::command]
 pub fn session_list(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<Vec<ProxySession>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.proxy_session_list().map_err(|e| e.to_string())

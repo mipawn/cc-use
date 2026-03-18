@@ -1,17 +1,17 @@
 use crate::db::Database;
 use crate::models::{ExportData, ExportOptions, ImportOptions, ImportResult, MigrationCheck, MigrationResult};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 #[tauri::command]
-pub fn export_providers(db: State<'_, Mutex<Database>>) -> Result<ExportData, String> {
+pub fn export_providers(db: State<'_, Arc<Mutex<Database>>>) -> Result<ExportData, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     crate::services::import_export::export_all(&db).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn import_providers(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     data: ExportData,
     options: Option<ImportOptions>,
 ) -> Result<ImportResult, String> {
@@ -22,7 +22,7 @@ pub fn import_providers(
 
 #[tauri::command]
 pub fn export_to_file(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     path: String,
     options: Option<ExportOptions>,
 ) -> Result<(), String> {
@@ -41,7 +41,7 @@ pub fn export_to_file(
 
 #[tauri::command]
 pub fn import_from_file(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     path: String,
     options: Option<ImportOptions>,
 ) -> Result<ImportResult, String> {
@@ -63,7 +63,7 @@ pub fn validate_import_data(data: serde_json::Value) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn check_electron_migration(_db: State<'_, Mutex<Database>>) -> Result<MigrationCheck, String> {
+pub fn check_electron_migration(_db: State<'_, Arc<Mutex<Database>>>) -> Result<MigrationCheck, String> {
     let electron_path = Database::get_electron_db_path();
     // Check if old DB exists and hasn't been migrated yet
     let electron_exists = electron_path.exists();
@@ -77,7 +77,7 @@ pub fn check_electron_migration(_db: State<'_, Mutex<Database>>) -> Result<Migra
 }
 
 #[tauri::command]
-pub fn migrate_from_electron(db: State<'_, Mutex<Database>>) -> Result<MigrationResult, String> {
+pub fn migrate_from_electron(db: State<'_, Arc<Mutex<Database>>>) -> Result<MigrationResult, String> {
     let electron_path = Database::get_electron_db_path();
     if !electron_path.exists() {
         return Err("Electron database not found".to_string());

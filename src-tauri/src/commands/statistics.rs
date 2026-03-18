@@ -1,12 +1,12 @@
 use crate::db::Database;
 use crate::models::{CostStatistics, DashboardCostStats, UsageStats, ModelPricing};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 #[tauri::command]
 pub fn usage_log_get_stats(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     time_range: String,
 ) -> Result<UsageStats, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
@@ -15,7 +15,7 @@ pub fn usage_log_get_stats(
 
 #[tauri::command]
 pub fn usage_log_get_recent(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     limit: Option<i64>,
 ) -> Result<Vec<crate::models::UsageLog>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
@@ -24,7 +24,7 @@ pub fn usage_log_get_recent(
 
 #[tauri::command]
 pub fn usage_log_today_quick_stats(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<serde_json::Value, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.usage_log_today_quick_stats().map_err(|e| e.to_string())
@@ -32,7 +32,7 @@ pub fn usage_log_today_quick_stats(
 
 #[tauri::command]
 pub fn request_log_get_cost_stats(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<serde_json::Value, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.request_log_get_cost_stats().map_err(|e| e.to_string())
@@ -40,7 +40,7 @@ pub fn request_log_get_cost_stats(
 
 #[tauri::command]
 pub fn request_log_get_key_costs(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.request_log_get_key_costs().map_err(|e| e.to_string())
@@ -48,7 +48,7 @@ pub fn request_log_get_key_costs(
 
 #[tauri::command]
 pub fn request_log_get_daily_trend(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     days: Option<i64>,
 ) -> Result<Vec<crate::models::DailyCostTrendItem>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
@@ -57,7 +57,7 @@ pub fn request_log_get_daily_trend(
 
 #[tauri::command]
 pub fn request_log_get_cost_statistics(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     time_range: String,
 ) -> Result<CostStatistics, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
@@ -66,7 +66,7 @@ pub fn request_log_get_cost_statistics(
 
 #[tauri::command]
 pub fn request_log_get_dashboard_stats(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<DashboardCostStats, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.request_log_get_dashboard_stats().map_err(|e| e.to_string())
@@ -74,7 +74,7 @@ pub fn request_log_get_dashboard_stats(
 
 #[tauri::command]
 pub fn model_pricing_get_all(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<HashMap<String, ModelPricing>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     let custom = get_custom_pricing(&db)?;
@@ -85,7 +85,7 @@ pub fn model_pricing_get_all(
 
 #[tauri::command]
 pub fn model_pricing_get_custom(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<HashMap<String, ModelPricing>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     get_custom_pricing(&db)
@@ -93,7 +93,7 @@ pub fn model_pricing_get_custom(
 
 #[tauri::command]
 pub fn model_pricing_update_custom(
-    db: State<'_, Mutex<Database>>,
+    db: State<'_, Arc<Mutex<Database>>>,
     pricing: HashMap<String, ModelPricing>,
 ) -> Result<(), String> {
     let db = db.lock().map_err(|e| e.to_string())?;

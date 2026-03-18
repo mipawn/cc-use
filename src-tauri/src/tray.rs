@@ -1,5 +1,5 @@
 use crate::db::Database;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 #[cfg(not(target_os = "macos"))]
 use std::sync::OnceLock;
 #[cfg(not(target_os = "macos"))]
@@ -142,7 +142,7 @@ fn build_projects_submenu(
     app: &AppHandle,
     labels: &TrayLabels,
 ) -> Result<Submenu<tauri::Wry>, tauri::Error> {
-    let db_state = app.state::<Mutex<Database>>();
+    let db_state = app.state::<Arc<Mutex<Database>>>();
     let projects = {
         let db = db_state.lock().unwrap();
         db.project_list().unwrap_or_default()
@@ -273,7 +273,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 if running {
                     let _ = crate::commands::proxy::proxy_stop().await;
                 } else {
-                    let db_state = app_handle.state::<Mutex<Database>>();
+                    let db_state = app_handle.state::<Arc<Mutex<Database>>>();
                     let _ = crate::commands::proxy::proxy_start_inner(&*db_state).await;
                 }
                 // Emit proxy status change to frontend
@@ -298,7 +298,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let project_id = id.strip_prefix("project:").unwrap().to_string();
             let app_handle = app.clone();
             std::thread::spawn(move || {
-                let db_state = app_handle.state::<Mutex<Database>>();
+                let db_state = app_handle.state::<Arc<Mutex<Database>>>();
                 let db = db_state.lock().unwrap();
                 let _ = crate::terminal::launch_terminal(&db, &project_id, None, None);
             });
@@ -336,7 +336,7 @@ pub fn refresh_tray_menu(app: &AppHandle) {
 
 /// Handle close-to-tray behavior. Returns true if the window should be hidden instead of closed.
 pub fn should_close_to_tray(app: &AppHandle) -> bool {
-    let db_state = app.state::<Mutex<Database>>();
+    let db_state = app.state::<Arc<Mutex<Database>>>();
     let db = db_state.lock().unwrap();
     let settings = db.settings_get().unwrap_or_default();
     settings.close_to_tray

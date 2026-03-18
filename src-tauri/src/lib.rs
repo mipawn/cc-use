@@ -7,7 +7,7 @@ pub mod terminal;
 pub mod tray;
 
 use db::Database;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, LogicalSize, Manager, Size};
 
 pub fn run() {
@@ -19,7 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(Mutex::new(db))
+        .manage(Arc::new(Mutex::new(db)))
         .invoke_handler(tauri::generate_handler![
             // Provider commands
             commands::providers::provider_list,
@@ -95,7 +95,7 @@ pub fn run() {
         .setup(|app| {
             // Keep legacy behavior: close button hides to tray by default unless user explicitly changed it.
             let should_init_close_to_tray = {
-                let db_state = app.state::<Mutex<Database>>();
+                let db_state = app.state::<Arc<Mutex<Database>>>();
                 let has_no_setting = match db_state.lock() {
                     Ok(db) => db.settings_get_value("closeToTray").ok().flatten().is_none(),
                     Err(_) => false,
@@ -103,7 +103,7 @@ pub fn run() {
                 has_no_setting
             };
             if should_init_close_to_tray {
-                let db_state = app.state::<Mutex<Database>>();
+                let db_state = app.state::<Arc<Mutex<Database>>>();
                 if let Ok(db) = db_state.lock() {
                     let _ = db.settings_set_value("closeToTray", "true");
                 };
@@ -111,7 +111,7 @@ pub fn run() {
 
             // Ensure dev/prod can run side-by-side without proxy port collision.
             let should_init_proxy_port = {
-                let db_state = app.state::<Mutex<Database>>();
+                let db_state = app.state::<Arc<Mutex<Database>>>();
                 let has_no_setting = match db_state.lock() {
                     Ok(db) => db.settings_get_value("proxyPort").ok().flatten().is_none(),
                     Err(_) => false,
@@ -120,7 +120,7 @@ pub fn run() {
             };
             if should_init_proxy_port {
                 let default_port = if cfg!(debug_assertions) { "22345" } else { "12345" };
-                let db_state = app.state::<Mutex<Database>>();
+                let db_state = app.state::<Arc<Mutex<Database>>>();
                 if let Ok(db) = db_state.lock() {
                     let _ = db.settings_set_value("proxyPort", default_port);
                 };
@@ -128,7 +128,7 @@ pub fn run() {
 
             // Keep legacy behavior: auto start proxy is enabled by default unless user explicitly changed it.
             let should_init_auto_start_proxy = {
-                let db_state = app.state::<Mutex<Database>>();
+                let db_state = app.state::<Arc<Mutex<Database>>>();
                 let has_no_setting = match db_state.lock() {
                     Ok(db) => db.settings_get_value("autoStartProxy").ok().flatten().is_none(),
                     Err(_) => false,
@@ -136,7 +136,7 @@ pub fn run() {
                 has_no_setting
             };
             if should_init_auto_start_proxy {
-                let db_state = app.state::<Mutex<Database>>();
+                let db_state = app.state::<Arc<Mutex<Database>>>();
                 if let Ok(db) = db_state.lock() {
                     let _ = db.settings_set_value("autoStartProxy", "true");
                 };
@@ -175,7 +175,7 @@ pub fn run() {
             // Auto-start proxy if configured
             let handle2 = handle.clone();
             tauri::async_runtime::spawn(async move {
-                let db_state = handle2.state::<Mutex<Database>>();
+                let db_state = handle2.state::<Arc<Mutex<Database>>>();
                 let should_start = {
                     let db = db_state.lock().unwrap();
                     db.settings_get()
