@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.4] - 2026-03-18
+
+### Added
+
+- 添加 dev 启动标识符
+- 供应商余额查询支持自定义 baseUrl
+
+### Fixed
+
+- 修复动态切换密钥时请求记录仍显示首次打开密钥的问题
+- 修复动态切换密钥时统计数据未正确更新的问题
+
 ## [2.0.3] - 2026-03-11
 
 ### Fixed
