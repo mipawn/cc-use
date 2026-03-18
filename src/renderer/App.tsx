@@ -184,6 +184,29 @@ function AppContent() {
           </Routes>
         </Content>
       </Layout>
+      {import.meta.env.DEV && (
+        <div
+          style={{
+            position: 'fixed',
+            right: 12,
+            bottom: 12,
+            padding: '2px 8px',
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: 'JetBrains Mono, monospace',
+            color: '#fff',
+            background: token.colorPrimary,
+            borderRadius: 4,
+            opacity: 0.75,
+            zIndex: 9999,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            letterSpacing: 0.5,
+          }}
+        >
+          DEV
+        </div>
+      )}
     </Layout>
   )
 }
