@@ -174,6 +174,7 @@ export default {
     balanceTypeCustom: 'Custom',
     balanceUrl: 'Balance URL',
     enterBalanceUrl: 'Please enter balance URL',
+    balanceUrlHint: 'Supports {baseUrl} placeholder, auto-replaced with provider Base URL',
     balancePath: 'Balance Path',
     enterBalancePath: 'Please enter balance path',
     balancePathHint: 'JSON path to extract balance value, e.g., data.balance',

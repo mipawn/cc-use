@@ -337,8 +337,9 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                                 message: t('providers.enterBalanceUrl'),
                               },
                             ]}
+                            extra={t('providers.balanceUrlHint')}
                           >
-                            <Input placeholder='https://api.example.com/balance' />
+                            <Input placeholder='{baseUrl}/api/user/balance' />
                           </Form.Item>
 
                           <Form.Item

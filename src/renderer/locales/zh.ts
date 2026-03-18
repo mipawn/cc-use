@@ -177,6 +177,7 @@ export default {
     balanceTypeCustom: '自定义',
     balanceUrl: '余额 URL',
     enterBalanceUrl: '请输入余额 URL',
+    balanceUrlHint: '支持 {baseUrl} 占位符，会自动替换为供应商的 Base URL',
     balancePath: '余额路径',
     enterBalancePath: '请输入余额路径',
     balancePathHint: '提取余额值的 JSON 路径，例如 data.balance',

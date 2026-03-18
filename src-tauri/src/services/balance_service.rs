@@ -162,7 +162,7 @@ async fn fetch_newapi_balance_via_billing_api(
 }
 
 async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, String> {
-    let url = provider
+    let raw_url = provider
         .wallet_balance_url
         .as_deref()
         .filter(|s| !s.trim().is_empty())
@@ -173,11 +173,15 @@ async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, 
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Custom balance path not configured".to_string())?;
 
+    let base_url = provider.base_url.trim_end_matches('/');
+    let url = raw_url.replace("{baseUrl}", base_url);
+
     let client = reqwest::Client::new();
-    let mut req = client.get(url).header("Content-Type", "application/json");
+    let mut req = client.get(&url).header("Content-Type", "application/json");
 
     if let Some(headers_str) = provider.wallet_balance_headers.as_deref() {
-        for (k, v) in parse_headers(headers_str)? {
+        let resolved_headers = headers_str.replace("{baseUrl}", base_url);
+        for (k, v) in parse_headers(&resolved_headers)? {
             req = req.header(k, v);
         }
     }
