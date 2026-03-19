@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.5] - 2026-03-19
+
+### Added
+
+- 密钥自定义额度查询支持 JSON 路径映射表，可映射 `remaining`/`total`/`used`/`isUnlimited`/`expireAt` 等字段，兼容非标准 API
+- 密钥编辑弹窗：费用倍率 + 额度查询配置收入折叠面板，减少表单视觉负担
+
+### Fixed
+
+- 修复 NewAPI `unlimited_quota` 字段读取：优先读 `unlimited_quota`，支持 bool/number/string 多种类型
+- 修复额度显示 `null.toFixed()` 崩溃问题
+
 ## [2.0.4] - 2026-03-18
 
 ### Added
