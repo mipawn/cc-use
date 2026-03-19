@@ -17,9 +17,11 @@ import {
   theme,
   Tooltip,
   Select,
+  Collapse,
+  Button,
 } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import { SettingOutlined, CopyOutlined, CheckOutlined } from '@ant-design/icons'
+import { SettingOutlined, CopyOutlined, CheckOutlined, WalletOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { ApiKey, Provider, ProviderType, CliConfig } from '@shared/types'
@@ -87,6 +89,7 @@ export default function KeyEditModal({
   const [usagePath, setUsagePath] = useState('')
   const [usageHeaders, setUsageHeaders] = useState('')
   const [costMultiplier, setCostMultiplier] = useState<number>(1)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -191,6 +194,11 @@ export default function KeyEditModal({
         setUsageUrl(apiKey.usageUrl || '')
         setUsagePath(apiKey.usagePath || '')
         setCostMultiplier(apiKey.costMultiplier ?? 1)
+        // Auto-expand advanced if non-default values exist
+        setShowAdvanced(
+          (apiKey.costMultiplier != null && apiKey.costMultiplier !== 1) ||
+            (apiKey.usageType != null && apiKey.usageType !== 'none'),
+        )
         // Format headers JSON for display
         if (apiKey.usageHeaders) {
           try {
@@ -207,6 +215,7 @@ export default function KeyEditModal({
         setUsagePath('')
         setUsageHeaders('')
         setCostMultiplier(1)
+        setShowAdvanced(false)
       }
       setJsonError(null)
     }
@@ -456,86 +465,141 @@ export default function KeyEditModal({
             />
           </Form.Item>
 
-          {/* Cost Multiplier */}
-          <Form.Item
-            label={t('keys.costMultiplier') || '费用倍率'}
-            extra={t('keys.costMultiplierHint') || '中转站分组倍率，默认 1 表示按官方价格计算'}
-          >
-            <InputNumber
-              value={costMultiplier}
-              onChange={(val) => setCostMultiplier(val ?? 1)}
-              min={0}
-              step={0.1}
-              precision={2}
-              style={{ width: '100%' }}
-              size='large'
-              addonAfter='x'
-            />
-          </Form.Item>
+          {/* Advanced: Cost & Usage Config - Collapsible */}
+          <Collapse
+            ghost
+            activeKey={showAdvanced ? ['advanced'] : []}
+            onChange={(keys) => setShowAdvanced(keys.includes('advanced'))}
+            className={styles.advancedCollapse}
+            items={[
+              {
+                key: 'advanced',
+                label: (
+                  <Space>
+                    <WalletOutlined />
+                    <span>{t('keys.advancedConfig') || '额度与费用'}</span>
+                  </Space>
+                ),
+                children: (
+                  <div className={styles.advancedContent}>
+                    {/* Cost Multiplier */}
+                    <Form.Item
+                      label={t('keys.costMultiplier') || '费用倍率'}
+                      extra={
+                        t('keys.costMultiplierHint') ||
+                        '中转站分组倍率，默认 1 表示按官方价格计算'
+                      }
+                    >
+                      <InputNumber
+                        value={costMultiplier}
+                        onChange={(val) => setCostMultiplier(val ?? 1)}
+                        min={0}
+                        step={0.1}
+                        precision={2}
+                        style={{ width: '100%' }}
+                        size='large'
+                        addonAfter='x'
+                      />
+                    </Form.Item>
 
-          {/* Usage/Quota Config Section */}
-          <Form.Item label={t('keys.usageConfig') || '额度查询配置'}>
-            <Select
-              value={usageType}
-              onChange={(value) => {
-                setUsageType(value)
-                // Auto-fill defaults when switching to custom
-                if (value === 'custom') {
-                  if (!usageUrl) setUsageUrl('{baseUrl}/api/usage/token/')
-                  if (!usagePath) setUsagePath('data.total_available')
-                  if (!usageHeaders) setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
-                }
-              }}
-              options={[
-                { value: 'none', label: t('keys.usageTypeNone') || '不查询' },
-                { value: 'newapi', label: t('keys.usageTypeNewapi') || 'NewAPI' },
-                { value: 'custom', label: t('keys.usageTypeCustom') || '自定义' },
-              ]}
-              style={{ width: '100%' }}
-            />
-          </Form.Item>
+                    {/* Usage/Quota Config */}
+                    <Form.Item label={t('keys.usageConfig') || '额度查询配置'}>
+                      <Select
+                        value={usageType}
+                        onChange={(value) => {
+                          setUsageType(value)
+                          if (value === 'custom') {
+                            if (!usageUrl) setUsageUrl('{baseUrl}/api/usage/token/')
+                            if (!usagePath) setUsagePath('data.total_available')
+                            if (!usageHeaders)
+                              setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
+                          }
+                        }}
+                        options={[
+                          { value: 'none', label: t('keys.usageTypeNone') || '不查询' },
+                          { value: 'newapi', label: t('keys.usageTypeNewapi') || 'NewAPI' },
+                          { value: 'custom', label: t('keys.usageTypeCustom') || '自定义' },
+                        ]}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
 
-          {usageType === 'custom' && (
-            <>
-              <Form.Item
-                label={t('keys.usageUrl') || '查询 URL'}
-                extra={
-                  t('keys.usageUrlVarHint') || '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'
-                }
-              >
-                <Input
-                  value={usageUrl}
-                  onChange={(e) => setUsageUrl(e.target.value)}
-                  placeholder='{baseUrl}/api/usage/token/'
-                />
-              </Form.Item>
-              <Form.Item
-                label={t('keys.usagePath') || 'JSON 路径'}
-                extra={t('keys.usagePathHint') || '提取额度值的 JSON 路径'}
-              >
-                <Input
-                  value={usagePath}
-                  onChange={(e) => setUsagePath(e.target.value)}
-                  placeholder='data.total_available'
-                />
-              </Form.Item>
-              <Form.Item
-                label={t('keys.usageHeaders') || '自定义 Headers'}
-                extra={
-                  t('keys.usageHeadersVarHint') ||
-                  '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'
-                }
-              >
-                <Input.TextArea
-                  value={usageHeaders}
-                  onChange={(e) => setUsageHeaders(e.target.value)}
-                  placeholder={'{\n  "Authorization": "Bearer {key}"\n}'}
-                  autoSize={{ minRows: 3, maxRows: 6 }}
-                  style={{ fontFamily: 'monospace', fontSize: 12 }}
-                />
-              </Form.Item>
-            </>
-          )}
+                    {usageType === 'custom' && (
+                      <>
+                        <Form.Item
+                          label={t('keys.usageUrl') || '查询 URL'}
+                          extra={
+                            t('keys.usageUrlVarHint') ||
+                            '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'
+                          }
+                        >
+                          <Input
+                            value={usageUrl}
+                            onChange={(e) => setUsageUrl(e.target.value)}
+                            placeholder='{baseUrl}/api/usage/token/'
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          label={
+                            <Space>
+                              <span>{t('keys.usagePath') || 'JSON 路径'}</span>
+                              <Button
+                                type='link'
+                                size='small'
+                                className={styles.templateBtn}
+                                onClick={() => {
+                                  setUsagePath(
+                                    JSON.stringify(
+                                      {
+                                        remaining: 'data.total_available',
+                                        total: 'data.total_granted',
+                                        isUnlimited: 'data.unlimited_quota',
+                                      },
+                                      null,
+                                      2,
+                                    ),
+                                  )
+                                }}
+                              >
+                                {t('keys.usagePathMapTemplate') || '映射表模板'}
+                              </Button>
+                            </Space>
+                          }
+                          extra={
+                            t('keys.usagePathMapHint') ||
+                            '支持单路径（如 data.balance）或 JSON 映射表'
+                          }
+                        >
+                          <TextArea
+                            value={usagePath}
+                            onChange={(e) => setUsagePath(e.target.value)}
+                            placeholder='data.total_available'
+                            autoSize={{ minRows: 1, maxRows: 8 }}
+                            className={styles.jsonEditor}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          label={t('keys.usageHeaders') || '自定义 Headers'}
+                          extra={
+                            t('keys.usageHeadersVarHint') ||
+                            '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'
+                          }
+                        >
+                          <Input.TextArea
+                            value={usageHeaders}
+                            onChange={(e) => setUsageHeaders(e.target.value)}
+                            placeholder={'{\n  "Authorization": "Bearer {key}"\n}'}
+                            autoSize={{ minRows: 3, maxRows: 6 }}
+                            style={{ fontFamily: 'monospace', fontSize: 12 }}
+                          />
+                        </Form.Item>
+                      </>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
 
           {/* Config Section */}
           <div className={styles.configSection}>

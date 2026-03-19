@@ -697,7 +697,7 @@ export default function Keys() {
                                   <span className={styles.statValue}>
                                     {key.cachedUsage?.isUnlimited
                                       ? '∞'
-                                      : key.cachedUsage?.remaining !== undefined
+                                      : key.cachedUsage?.remaining != null
                                         ? `$${key.cachedUsage.remaining.toFixed(2)}`
                                         : '--'}
                                   </span>

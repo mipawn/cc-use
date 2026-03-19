@@ -138,3 +138,35 @@
 [data-theme='dark'] .jsonEditor {
   background: var(--surface-base, #1e293b) !important;
 }
+
+/* Advanced Collapse */
+.advancedCollapse {
+  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+  margin: 0;
+  padding: 0;
+}
+
+.advancedCollapse :global(.ant-collapse-header) {
+  padding: 16px 0 !important;
+  font-weight: 500;
+}
+
+.advancedCollapse :global(.ant-collapse-content-box) {
+  padding: 0 0 16px 0 !important;
+}
+
+.advancedContent {
+  background: var(--surface-sunken, #f8fafc);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.templateBtn {
+  font-size: 12px;
+  padding: 0;
+  height: auto;
+}
+
+[data-theme='dark'] .advancedContent {
+  background: var(--surface-sunken, #0f172a);
+}

@@ -66,8 +66,9 @@ async fn fetch_newapi_usage(
             .or_else(|| to_number(data.get("remaining")))
             .or_else(|| to_number(data.get("available"))),
         "unit": data.get("unit").and_then(|v| v.as_str()).unwrap_or("USD"),
-        "isUnlimited": data.get("is_unlimited").and_then(|v| v.as_bool())
-            .or_else(|| data.get("isUnlimited").and_then(|v| v.as_bool()))
+        "isUnlimited": to_bool(data.get("unlimited_quota"))
+            .or(to_bool(data.get("is_unlimited")))
+            .or(to_bool(data.get("isUnlimited")))
             .unwrap_or(false),
         "expireAt": null,
     });
@@ -112,34 +113,7 @@ async fn fetch_custom_usage(provider: &Provider) -> Result<serde_json::Value, St
     }
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
 
-    let usage_value = extract_json_path(&body, path)
-        .ok_or_else(|| format!("Invalid usage data at path: {}", path))?;
-    let usage_obj = usage_value
-        .as_object()
-        .ok_or_else(|| format!("Invalid usage data at path: {}", path))?;
-
-    let mut usage = serde_json::json!({
-        "total": to_number(usage_obj.get("total")).or_else(|| to_number(usage_obj.get("total_granted"))),
-        "used": to_number(usage_obj.get("used")).or_else(|| to_number(usage_obj.get("total_used"))),
-        "remaining": to_number(usage_obj.get("remaining"))
-            .or_else(|| to_number(usage_obj.get("total_available")))
-            .or_else(|| to_number(usage_obj.get("available"))),
-        "unit": usage_obj.get("unit").and_then(|v| v.as_str()).unwrap_or("USD"),
-        "isUnlimited": usage_obj.get("is_unlimited").and_then(|v| v.as_bool())
-            .or_else(|| usage_obj.get("isUnlimited").and_then(|v| v.as_bool()))
-            .unwrap_or(false),
-        "expireAt": null,
-    });
-
-    if let Some(ts) = to_i64(usage_obj.get("expire_time")) {
-        usage["expireAt"] = Value::String(epoch_to_iso(ts));
-    } else if let Some(expire_at) = usage_obj
-        .get("expireAt")
-        .and_then(|v| v.as_str())
-        .or_else(|| usage_obj.get("expire_at").and_then(|v| v.as_str()))
-    {
-        usage["expireAt"] = Value::String(expire_at.to_string());
-    }
+    let usage = resolve_custom_path(&body, path)?;
 
     Ok(serde_json::json!({
         "usage": usage,
@@ -168,15 +142,20 @@ async fn fetch_newapi_key_usage(
     let data = json.get("data").unwrap_or(&json);
 
     let mut usage = serde_json::json!({
-        "total": to_number(data.get("total_granted")),
-        "used": to_number(data.get("total_used")),
-        "remaining": to_number(data.get("total_available")),
+        "total": to_number(data.get("total_granted")).or_else(|| to_number(data.get("total"))),
+        "used": to_number(data.get("total_used")).or_else(|| to_number(data.get("used"))),
+        "remaining": to_number(data.get("total_available"))
+            .or_else(|| to_number(data.get("remaining")))
+            .or_else(|| to_number(data.get("available"))),
         "unit": "USD",
-        "isUnlimited": data.get("unlimited_quota").and_then(|v| v.as_bool()).unwrap_or(false),
+        "isUnlimited": to_bool(data.get("unlimited_quota"))
+            .or(to_bool(data.get("is_unlimited")))
+            .or(to_bool(data.get("isUnlimited")))
+            .unwrap_or(false),
         "expireAt": null,
     });
 
-    if let Some(ts) = to_i64(data.get("expires_at")) {
+    if let Some(ts) = to_i64(data.get("expires_at")).or_else(|| to_i64(data.get("expire_time"))) {
         usage["expireAt"] = Value::String(epoch_to_iso(ts));
     }
 
@@ -225,17 +204,110 @@ async fn fetch_custom_key_usage(
     }
 
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let value = extract_json_path(&body, usage_path)
-        .ok_or_else(|| format!("No value found at path: {}", usage_path))?;
-    let remaining = to_number(Some(value))
-        .ok_or_else(|| format!("No value found at path: {}", usage_path))?;
+
+    let usage = resolve_custom_path(&body, usage_path)?;
 
     Ok(serde_json::json!({
-        "usage": {
-            "remaining": remaining,
-            "unit": "USD",
-        },
+        "usage": usage,
         "error": null,
+    }))
+}
+
+/// Resolve custom usage path — supports two formats:
+/// 1. Single path string (legacy): `"data.total_available"` → extracts as `remaining`
+/// 2. JSON path map: `{"remaining": "data.total_available", "total": "data.total_granted", ...}`
+///    Supported keys: remaining, total, used, unit, isUnlimited, expireAt
+fn resolve_custom_path(body: &Value, path: &str) -> Result<Value, String> {
+    // Try parsing as JSON map first
+    if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(path) {
+        let mut usage = serde_json::json!({
+            "unit": "USD",
+            "isUnlimited": false,
+            "expireAt": null,
+        });
+
+        for (key, json_path) in &map {
+            let val = extract_json_path(body, json_path);
+            match key.as_str() {
+                "remaining" => {
+                    if let Some(n) = to_number(val) {
+                        usage["remaining"] = serde_json::json!(n);
+                    }
+                }
+                "total" => {
+                    if let Some(n) = to_number(val) {
+                        usage["total"] = serde_json::json!(n);
+                    }
+                }
+                "used" => {
+                    if let Some(n) = to_number(val) {
+                        usage["used"] = serde_json::json!(n);
+                    }
+                }
+                "unit" => {
+                    if let Some(s) = val.and_then(|v| v.as_str()) {
+                        usage["unit"] = Value::String(s.to_string());
+                    }
+                }
+                "isUnlimited" => {
+                    if let Some(b) = to_bool(val) {
+                        usage["isUnlimited"] = serde_json::json!(b);
+                    }
+                }
+                "expireAt" => {
+                    if let Some(ts) = val.and_then(|v| v.as_i64()) {
+                        usage["expireAt"] = Value::String(epoch_to_iso(ts));
+                    } else if let Some(s) = val.and_then(|v| v.as_str()) {
+                        usage["expireAt"] = Value::String(s.to_string());
+                    }
+                }
+                _ => {} // ignore unknown keys
+            }
+        }
+
+        return Ok(usage);
+    }
+
+    // Legacy single-path mode: extract a single numeric value as remaining
+    let value = extract_json_path(body, path)
+        .ok_or_else(|| format!("No value found at path: {}", path))?;
+
+    // If the extracted value is an object, try to read structured fields from it
+    if let Some(obj) = value.as_object() {
+        let mut usage = serde_json::json!({
+            "total": to_number(obj.get("total")).or_else(|| to_number(obj.get("total_granted"))),
+            "used": to_number(obj.get("used")).or_else(|| to_number(obj.get("total_used"))),
+            "remaining": to_number(obj.get("remaining"))
+                .or_else(|| to_number(obj.get("total_available")))
+                .or_else(|| to_number(obj.get("available"))),
+            "unit": obj.get("unit").and_then(|v| v.as_str()).unwrap_or("USD"),
+            "isUnlimited": to_bool(obj.get("unlimited_quota"))
+                .or(to_bool(obj.get("is_unlimited")))
+                .or(to_bool(obj.get("isUnlimited")))
+                .unwrap_or(false),
+            "expireAt": null,
+        });
+
+        if let Some(ts) = to_i64(obj.get("expire_time")) {
+            usage["expireAt"] = Value::String(epoch_to_iso(ts));
+        } else if let Some(expire_at) = obj
+            .get("expireAt")
+            .and_then(|v| v.as_str())
+            .or_else(|| obj.get("expire_at").and_then(|v| v.as_str()))
+        {
+            usage["expireAt"] = Value::String(expire_at.to_string());
+        }
+
+        return Ok(usage);
+    }
+
+    // Scalar value — treat as remaining
+    let remaining = to_number(Some(value))
+        .ok_or_else(|| format!("No numeric value found at path: {}", path))?;
+
+    Ok(serde_json::json!({
+        "remaining": remaining,
+        "unit": "USD",
     }))
 }
 
@@ -269,6 +341,20 @@ fn to_number(v: Option<&Value>) -> Option<f64> {
     match v {
         Some(Value::Number(n)) => n.as_f64(),
         Some(Value::String(s)) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+/// Parse a JSON value as bool, handling bool / number (1=true) / string ("true")
+fn to_bool(v: Option<&Value>) -> Option<bool> {
+    match v {
+        Some(Value::Bool(b)) => Some(*b),
+        Some(Value::Number(n)) => n.as_i64().map(|i| i != 0),
+        Some(Value::String(s)) => match s.trim().to_lowercase().as_str() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        },
         _ => None,
     }
 }
