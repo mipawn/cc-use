@@ -11,11 +11,15 @@
 
 - 添加 dev 启动标识符
 - 供应商余额查询支持自定义 baseUrl
+- 密钥自定义额度查询支持 JSON 路径映射表，可映射 `remaining`/`total`/`used`/`isUnlimited`/`expireAt` 等字段，兼容非标准 API（如 codelink 的 `remainQuota`/`unlimitedQuota`）
+- 密钥编辑弹窗：费用倍率 + 额度查询配置收入折叠面板，减少表单视觉负担
 
 ### Fixed
 
 - 修复动态切换密钥时请求记录仍显示首次打开密钥的问题
 - 修复动态切换密钥时统计数据未正确更新的问题
+- 修复 NewAPI `unlimited_quota` 字段读取：优先读 `unlimited_quota`，支持 bool/number/string 多种类型
+- 修复额度显示 `null.toFixed()` 崩溃问题
 
 ## [2.0.3] - 2026-03-11
 
