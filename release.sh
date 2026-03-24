@@ -44,7 +44,7 @@ echo "  tauri.conf.json: $(grep '"version"' src-tauri/tauri.conf.json | head -1 
 echo "  Cargo.toml:      $(grep '^version' src-tauri/Cargo.toml | head -1 | xargs)"
 
 # Git operations
-git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
 git commit --allow-empty -m "release(app): v${VERSION}"
 git tag "v${VERSION}"
 git push origin main
