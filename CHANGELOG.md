@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.6] - 2026-03-24
+
+### Added
+
+- 代理服务器新增 WebSocket 代理支持，双向转发 Codex CLI 与上游 Provider 的 WebSocket 连接，消除 WebSocket 回退警告
+
+### Fixed
+
+- 修复动态切换供应商/密钥时代理仍使用旧供应商地址的竞态条件（session/provider/key 查询合并到同一个 DB 锁内）
+- 消除 Codex CLI `OPENAI_BASE_URL is deprecated` 警告，改用 `-c` flag 传递 `openai_base_url`
+
 ## [2.0.5] - 2026-03-19
 
 ### Added
