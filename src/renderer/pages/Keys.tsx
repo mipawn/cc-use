@@ -40,6 +40,7 @@ import {
   CopyOutlined,
   DollarOutlined,
   CloudDownloadOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -49,6 +50,7 @@ import ProviderModal from '../components/providers/ProviderModal'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
 import ProviderPricingModal from '../components/providers/ProviderPricingModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
+import QuickAddModal from '../components/providers/QuickAddModal'
 import type { Provider, ApiKey, ProviderType } from '@shared/types'
 import { getProviderTypeConfig, formatEnvCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -120,6 +122,7 @@ export default function Keys() {
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null)
   const [defaultProviderId, setDefaultProviderId] = useState<string | undefined>(undefined)
   const [globalConfigOpen, setGlobalConfigOpen] = useState(false)
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
 
   // Provider pricing editor
   const [pricingModalOpen, setPricingModalOpen] = useState(false)
@@ -237,6 +240,29 @@ export default function Keys() {
     setProviderModalOpen(true)
   }
 
+  const handleQuickAdd = async (data: {
+    providerName: string
+    providerBaseUrl: string
+    providerIcon: string
+    keyAlias?: string
+    keyValue: string
+    keyType: ProviderType
+  }) => {
+    const newProvider = await getApi().provider.create({
+      name: data.providerName,
+      baseUrl: data.providerBaseUrl,
+      icon: data.providerIcon,
+      type: data.keyType,
+    })
+    await getApi().apiKey.create({
+      providerId: newProvider.id,
+      alias: data.keyAlias,
+      value: data.keyValue,
+      types: [data.keyType],
+    })
+    fetchProviders()
+  }
+
   const handleEditProvider = (provider: Provider) => {
     setEditingProvider(provider)
     setProviderModalOpen(true)
@@ -301,13 +327,20 @@ export default function Keys() {
   const handleSyncPricing = async (providerId: string) => {
     setSyncingPricingIds((prev) => new Set(prev).add(providerId))
     const msgKey = `syncPricing:${providerId}`
-    message.loading({ content: t('keys.syncPricing') || '同步模型价格中...', key: msgKey, duration: 0 })
+    message.loading({
+      content: t('keys.syncPricing') || '同步模型价格中...',
+      key: msgKey,
+      duration: 0,
+    })
     try {
       const result = await getApi().provider.syncPricing(providerId)
       if (result.error) {
         message.error({ content: result.error, key: msgKey })
       } else {
-        message.success({ content: t('keys.syncPricingSuccess', { count: result.count }), key: msgKey })
+        message.success({
+          content: t('keys.syncPricingSuccess', { count: result.count }),
+          key: msgKey,
+        })
         const updated = await getApi().provider.get(providerId)
         if (updated) upsertProvider(updated)
       }
@@ -328,7 +361,10 @@ export default function Keys() {
   }
 
   const handleSaveProviderPricing = async (
-    pricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>,
+    pricing: Record<
+      string,
+      { input: number; output: number; cacheRead?: number; cacheCreation?: number }
+    >,
   ) => {
     if (!pricingProvider) return
     setSavingPricing(true)
@@ -520,6 +556,9 @@ export default function Keys() {
           <Button icon={<GlobalOutlined />} onClick={() => setGlobalConfigOpen(true)} size='large'>
             {t('globalConfig.title') || '全局配置'}
           </Button>
+          <Button icon={<ThunderboltOutlined />} onClick={() => setQuickAddOpen(true)} size='large'>
+            {t('providers.quickAdd')}
+          </Button>
           <Button
             type='primary'
             icon={<CloudServerOutlined />}
@@ -579,27 +618,40 @@ export default function Keys() {
                           ${balance.toFixed(2)}
                         </Tag>
                       )}
-                      <Tag color={Object.keys(provider.cachedModelPricing || {}).length > 0 ? 'green' : undefined}>
+                      <Tag
+                        color={
+                          Object.keys(provider.cachedModelPricing || {}).length > 0
+                            ? 'green'
+                            : undefined
+                        }
+                      >
                         {(t('keys.pricingSourceLabel') || '价格') + ': '}
                         {Object.keys(provider.cachedModelPricing || {}).length > 0
                           ? t('keys.pricingSourceProviderShort') || '供应商'
                           : t('keys.pricingSourceGlobalShort') || '全局'}
                       </Tag>
                       {provider.lastPricingSyncedAt && provider.cachedModelPricing && (
-                        <Tooltip title={`${t('keys.syncPricing')} - ${new Date(provider.lastPricingSyncedAt).toLocaleString()}`}>
+                        <Tooltip
+                          title={`${t('keys.syncPricing')} - ${new Date(provider.lastPricingSyncedAt).toLocaleString()}`}
+                        >
                           <Tag color='green'>
-                            {t('keys.pricingSynced', { count: Object.keys(provider.cachedModelPricing).length })}
+                            {t('keys.pricingSynced', {
+                              count: Object.keys(provider.cachedModelPricing).length,
+                            })}
                           </Tag>
                         </Tooltip>
                       )}
                     </div>
                     <Space size={8}>
-                      {(provider.walletBalanceType === 'newapi' || provider.usageType === 'newapi') && (
+                      {(provider.walletBalanceType === 'newapi' ||
+                        provider.usageType === 'newapi') && (
                         <Tooltip title={t('keys.syncPricing')}>
                           <Button
                             type='text'
                             size='small'
-                            icon={<CloudDownloadOutlined spin={syncingPricingIds.has(provider.id)} />}
+                            icon={
+                              <CloudDownloadOutlined spin={syncingPricingIds.has(provider.id)} />
+                            }
                             onClick={() => handleSyncPricing(provider.id)}
                             disabled={syncingPricingIds.has(provider.id)}
                           />
@@ -847,6 +899,12 @@ export default function Keys() {
           }
           fetchProviders()
         }}
+      />
+
+      <QuickAddModal
+        open={quickAddOpen}
+        onClose={() => setQuickAddOpen(false)}
+        onSave={handleQuickAdd}
       />
 
       {/* Key Edit Modal */}
