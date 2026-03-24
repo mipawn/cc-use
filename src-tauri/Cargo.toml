@@ -26,10 +26,11 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 nanoid = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 hyper = { version = "1", features = ["full"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 flate2 = "1"
 brotli = "7"
 log = "0.4"

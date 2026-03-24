@@ -58,10 +58,11 @@ pub fn build_env_for_project(
     let mut env = EnvObject::new();
 
     if cli_type == "codex" {
-        env.insert("OPENAI_BASE_URL".to_string(), format!("http://localhost:{}/v1", proxy_port));
+        // Only set API key env var; base URL is passed via -c flag to avoid
+        // the "OPENAI_BASE_URL is deprecated" warning.
         env.insert("OPENAI_API_KEY".to_string(), session_token.to_string());
 
-        // Codex CLI caches API key in ~/.codex/auth.json
+        // Write auth.json so Codex CLI credential cache uses the session token
         if let Some(home) = dirs::home_dir() {
             let codex_dir = home.join(".codex");
             let _ = std::fs::create_dir_all(&codex_dir);
@@ -146,8 +147,17 @@ pub fn launch_terminal(
         .or_else(|| get_first_available())
         .ok_or("No terminal available")?;
 
-    let cli_command = if cli_type == "codex" { "codex" } else { "claude" };
-    strategy.launch(&project.path, &env, cli_command)?;
+    let cli_command = if cli_type == "codex" {
+        // Pass openai_base_url via -c flag (highest precedence, no file writes,
+        // no "OPENAI_BASE_URL is deprecated" warning).
+        format!(
+            "codex -c 'openai_base_url=\"http://localhost:{}/v1\"'",
+            proxy_port
+        )
+    } else {
+        "claude".to_string()
+    };
+    strategy.launch(&project.path, &env, &cli_command)?;
 
     // Update last opened
     let _ = db.project_update_last_opened(project_id);

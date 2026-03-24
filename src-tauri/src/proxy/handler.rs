@@ -6,23 +6,25 @@ use crate::models::RequestLog;
 use axum::{
     body::Body,
     extract::State as AxumState,
+    extract::FromRequestParts,
+    extract::ws::{WebSocketUpgrade, WebSocket, Message as WsMessage},
     http::{Request, Response, StatusCode, HeaderValue},
     response::IntoResponse,
 };
-use futures::Stream;
+use futures::{Stream, StreamExt, SinkExt};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-/// Main proxy handler — forwards requests to the upstream provider
+/// Main proxy handler — forwards HTTP requests and WebSocket connections to the upstream provider
 pub async fn proxy_handler(
     AxumState(state): AxumState<Arc<ProxyState>>,
     req: Request<Body>,
-) -> impl IntoResponse {
+) -> Response<Body> {
     state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let start_time = std::time::Instant::now();
 
-    // Extract auth header
+    // ── Extract auth info (borrow only) ──
     let auth_header = req.headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -32,49 +34,62 @@ pub async fn proxy_handler(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let api_key_value = if !auth_header.is_empty() {
-        auth_header.strip_prefix("Bearer ").unwrap_or(auth_header)
+    let session_token = if !auth_header.is_empty() {
+        auth_header.strip_prefix("Bearer ").unwrap_or(auth_header).to_string()
     } else {
-        x_api_key
+        x_api_key.to_string()
     };
 
-    if api_key_value.is_empty() {
+    if session_token.is_empty() {
         return error_response(StatusCode::UNAUTHORIZED, "No authorization header");
     }
-
-    // Must be a session token
-    if !api_key_value.starts_with("session-") {
+    if !session_token.starts_with("session-") {
         return error_response(StatusCode::UNAUTHORIZED, "Invalid session. Please launch from CC-Use");
     }
 
-    // Resolve session from DB first, then refresh in-memory cache.
-    // This keeps long-running proxy state consistent with newly created/updated sessions.
-    let db_session = {
+    // Check for WebSocket upgrade before consuming the request
+    let is_ws_upgrade = req.headers()
+        .get("upgrade")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+
+    // Capture request path before consuming
+    let req_path = req.uri().path_and_query().map(|pq| pq.as_str().to_string()).unwrap_or_else(|| "/".to_string());
+
+    // ── Resolve session, provider, and API key atomically ──
+    let resolved = {
         let db = state.db.lock().unwrap();
-        db.proxy_session_get(api_key_value).ok().flatten()
+        db.proxy_session_get(&session_token)
+            .ok()
+            .flatten()
+            .and_then(|session| {
+                let provider = db.provider_get(&session.provider_id).ok().flatten();
+                let api_key = db.api_key_get(&session.api_key_id).ok().flatten();
+                Some((session, provider, api_key))
+            })
     };
-    let session = if let Some(s) = db_session {
+
+    let (session, provider, api_key) = if let Some((s, p, k)) = resolved {
         let mut sessions = state.sessions.lock().unwrap();
         sessions.insert(s.session_token.clone(), s.clone());
-        Some(s)
+        (s, p, k)
     } else {
-        let sessions = state.sessions.lock().unwrap();
-        sessions.get(api_key_value).cloned()
-    };
-
-    let session = match session {
-        Some(s) => s,
-        None => {
-            return error_response(StatusCode::UNAUTHORIZED, "Session not found or expired");
+        let cached = {
+            let sessions = state.sessions.lock().unwrap();
+            sessions.get(session_token.as_str()).cloned()
+        };
+        match cached {
+            Some(s) => {
+                let db = state.db.lock().unwrap();
+                let provider = db.provider_get(&s.provider_id).ok().flatten();
+                let api_key = db.api_key_get(&s.api_key_id).ok().flatten();
+                (s, provider, api_key)
+            }
+            None => {
+                return error_response(StatusCode::UNAUTHORIZED, "Session not found or expired");
+            }
         }
-    };
-
-    // Look up provider and API key
-    let (provider, api_key) = {
-        let db = state.db.lock().map_err(|_| ()).unwrap();
-        let provider = db.provider_get(&session.provider_id).ok().flatten();
-        let api_key = db.api_key_get(&session.api_key_id).ok().flatten();
-        (provider, api_key)
     };
 
     let provider = match provider {
@@ -87,7 +102,7 @@ pub async fn proxy_handler(
         None => return error_response(StatusCode::NOT_FOUND, "API key not found"),
     };
 
-    // Parse target URL
+    // ── Build upstream URL ──
     let base_url = provider.base_url.trim_end_matches('/');
     let parsed = match url::Url::parse(base_url) {
         Ok(u) => u,
@@ -96,12 +111,23 @@ pub async fn proxy_handler(
 
     let target_origin = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
     let path_prefix = if parsed.path() == "/" { "" } else { parsed.path().trim_end_matches('/') };
-
-    // Build upstream URL
-    let req_path = req.uri().path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
     let upstream_url = format!("{}{}{}", target_origin, path_prefix, req_path);
 
-    // Forward the request
+    // ── WebSocket proxy path ──
+    if is_ws_upgrade {
+        let (mut parts, _body) = req.into_parts();
+        let ws_upgrade: WebSocketUpgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
+            Ok(ws) => ws,
+            Err(_) => return error_response(StatusCode::BAD_REQUEST, "WebSocket upgrade failed"),
+        };
+        let ws_url = to_ws_url(&upstream_url);
+        let real_key = api_key.value.clone();
+        return ws_upgrade
+            .on_upgrade(move |socket| ws_relay(socket, ws_url, real_key))
+            .into_response();
+    }
+
+    // ── HTTP proxy path ──
     let method = req.method().clone();
     let mut headers = req.headers().clone();
 
@@ -130,7 +156,6 @@ pub async fn proxy_handler(
     let client = reqwest::Client::new();
     let mut req_builder = client.request(method, &upstream_url);
 
-    // Copy headers
     for (name, value) in headers.iter() {
         if let Ok(v) = value.to_str() {
             req_builder = req_builder.header(name.as_str(), v);
@@ -238,8 +263,6 @@ pub async fn proxy_handler(
 
     // Build response
     let mut response = Response::builder().status(status.as_u16());
-
-    // Copy response headers
     for (name, value) in resp_headers.iter() {
         if let Ok(v) = value.to_str() {
             response = response.header(name.as_str(), v);
@@ -256,10 +279,10 @@ pub async fn proxy_handler(
         })
 }
 
+// ── Shared helpers ──
+
 fn error_response(status: StatusCode, message: &str) -> Response<Body> {
-    let body = serde_json::json!({
-        "error": message,
-    });
+    let body = serde_json::json!({ "error": message });
     Response::builder()
         .status(status)
         .header("content-type", "application/json")
@@ -296,7 +319,8 @@ fn decompress(data: &[u8], encoding: &str) -> Vec<u8> {
     data.to_vec()
 }
 
-/// Shared context for recording usage (used by both streaming and non-streaming paths)
+// ── Usage tracking ──
+
 struct LogContext {
     db: Arc<Mutex<crate::db::Database>>,
     session_token: String,
@@ -406,4 +430,106 @@ where
             Poll::Pending => Poll::Pending,
         }
     }
+}
+
+// ── WebSocket proxy ──
+
+/// Convert an HTTP(S) URL to a WebSocket URL (https→wss, http→ws).
+fn to_ws_url(http_url: &str) -> String {
+    if http_url.starts_with("https://") {
+        format!("wss://{}", &http_url[8..])
+    } else if http_url.starts_with("http://") {
+        format!("ws://{}", &http_url[7..])
+    } else {
+        http_url.to_string()
+    }
+}
+
+/// Relay messages between a client WebSocket (from Codex CLI) and an upstream provider WebSocket.
+async fn ws_relay(mut client: WebSocket, upstream_url: String, api_key: String) {
+    use tokio_tungstenite::tungstenite;
+
+    // Build upstream WebSocket request with real API key
+    let ws_request = match tungstenite::http::Request::builder()
+        .uri(&upstream_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Host", extract_host(&upstream_url).unwrap_or_default())
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", tungstenite::handshake::client::generate_key())
+        .body(())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Failed to build upstream WS request: {}", e);
+            return;
+        }
+    };
+
+    let (mut upstream, _) = match tokio_tungstenite::connect_async(ws_request).await {
+        Ok(conn) => conn,
+        Err(e) => {
+            log::error!("Failed to connect upstream WebSocket {}: {}", upstream_url, e);
+            return;
+        }
+    };
+
+    // Bidirectional message relay
+    loop {
+        tokio::select! {
+            msg = client.recv() => {
+                match msg {
+                    Some(Ok(WsMessage::Text(t))) => {
+                        if upstream.send(tungstenite::Message::Text(t.to_string().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(WsMessage::Binary(b))) => {
+                        if upstream.send(tungstenite::Message::Binary(b.to_vec().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(WsMessage::Ping(p))) => {
+                        if upstream.send(tungstenite::Message::Ping(p.to_vec().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(WsMessage::Pong(p))) => {
+                        if upstream.send(tungstenite::Message::Pong(p.to_vec().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(WsMessage::Close(_))) | None => break,
+                    Some(Err(_)) => break,
+                }
+            }
+            msg = upstream.next() => {
+                match msg {
+                    Some(Ok(tungstenite::Message::Text(t))) => {
+                        if client.send(WsMessage::Text(t.to_string().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(tungstenite::Message::Binary(b))) => {
+                        if client.send(WsMessage::Binary(b.to_vec().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(tungstenite::Message::Ping(p))) => {
+                        if client.send(WsMessage::Ping(p.to_vec().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(tungstenite::Message::Pong(p))) => {
+                        if client.send(WsMessage::Pong(p.to_vec().into())).await.is_err() { break; }
+                    }
+                    Some(Ok(tungstenite::Message::Close(_))) | None => break,
+                    Some(Ok(_)) => {} // Frame variants, ignore
+                    Some(Err(_)) => break,
+                }
+            }
+        }
+    }
+
+    let _ = client.close().await;
+    let _ = upstream.close(None).await;
+}
+
+fn extract_host(url: &str) -> Option<String> {
+    url::Url::parse(url).ok().and_then(|u| {
+        u.host_str().map(|h| {
+            if let Some(port) = u.port() {
+                format!("{}:{}", h, port)
+            } else {
+                h.to_string()
+            }
+        })
+    })
 }
