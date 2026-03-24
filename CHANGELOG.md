@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.7] - 2026-03-24
+
+### Added
+
+- 新增快速添加功能，可在一个弹窗内同时创建供应商和首个密钥
+
+### Fixed
+
+- 修复供应商和密钥编辑时未自动去掉前后空格的问题
+
 ## [2.0.6] - 2026-03-24
 
 ### Added
