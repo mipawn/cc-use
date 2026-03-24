@@ -103,17 +103,17 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
 
       await onSave({
         id: provider?.id,
-        name: values.name,
-        baseUrl: values.baseUrl,
-        website: values.website,
-        remark: values.remark,
-        token: values.token,
+        name: values.name?.trim(),
+        baseUrl: values.baseUrl?.trim(),
+        website: values.website?.trim(),
+        remark: values.remark?.trim(),
+        token: values.token?.trim(),
         icon: iconValue || undefined,
         walletBalanceType: values.walletBalanceType,
-        walletBalanceUrl: values.walletBalanceUrl,
-        walletBalancePath: values.walletBalancePath,
-        walletBalanceHeaders: values.walletBalanceHeaders,
-        walletBalanceUserId: values.walletBalanceUserId,
+        walletBalanceUrl: values.walletBalanceUrl?.trim(),
+        walletBalancePath: values.walletBalancePath?.trim(),
+        walletBalanceHeaders: values.walletBalanceHeaders?.trim(),
+        walletBalanceUserId: values.walletBalanceUserId?.trim(),
         isActive: provider?.isActive ?? true,
       })
 

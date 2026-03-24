@@ -314,15 +314,15 @@ export default function KeyEditModal({
       await onSave({
         id: apiKey?.id,
         providerId,
-        alias: values.alias || undefined,
-        value: values.value,
+        alias: values.alias?.trim() || undefined,
+        value: values.value?.trim(),
         types: selectedTypes,
         config: Object.keys(localConfig).length > 0 ? localConfig : undefined,
         costMultiplier,
         usageType,
-        usageUrl: usageType === 'custom' ? usageUrl : undefined,
-        usagePath: usageType === 'custom' ? usagePath : undefined,
-        usageHeaders: usageType === 'custom' ? usageHeaders : undefined,
+        usageUrl: usageType === 'custom' ? usageUrl?.trim() : undefined,
+        usagePath: usageType === 'custom' ? usagePath?.trim() : undefined,
+        usageHeaders: usageType === 'custom' ? usageHeaders?.trim() : undefined,
       })
 
       message.success(
