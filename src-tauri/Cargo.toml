@@ -1,6 +1,6 @@
 [package]
 name = "cc-use"
-version = "2.0.7"
+version = "2.1.0"
 description = "Desktop configuration manager for Claude Code / Codex CLI"
 authors = ["mipawn"]
 edition = "2021"

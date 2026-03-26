@@ -5,6 +5,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] - 2026-03-26
+
+### Added
+
+- 新增会话管理页面，扫描 `~/.claude/projects/` 下所有会话文件，展示磁盘占用、消息数、首条消息等信息
+- 支持按项目、大小、时间筛选会话，支持批量删除
+- 支持按时间（30/60天前）或按数量（每项目保留N个）快捷清理
+- 智能解析 `sessions-index.json` 索引，兼容直接扫描 JSONL 文件的回退模式
+
 ## [2.0.7] - 2026-03-24
 
 ### Added
