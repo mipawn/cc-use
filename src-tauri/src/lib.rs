@@ -87,6 +87,11 @@ pub fn run() {
             // Terminal commands
             commands::terminal::terminal_launch,
             commands::terminal::terminal_launch_with_path,
+            // Session commands
+            commands::sessions::scan_sessions,
+            commands::sessions::delete_sessions,
+            commands::sessions::clean_old_sessions,
+            commands::sessions::keep_recent_sessions,
             // Icon commands
             commands::system::icon_upload,
             commands::system::icon_list,

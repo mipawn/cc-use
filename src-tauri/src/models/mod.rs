@@ -548,3 +548,18 @@ pub struct MigrationResult {
     pub request_logs: i32,
     pub usage_logs: i32,
 }
+
+// ── Claude Session ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeSession {
+    pub session_id: String,
+    pub project_path: String,
+    pub jsonl_size: u64,
+    pub dir_size: u64,
+    pub total_size: u64,
+    pub last_modified: i64,
+    pub message_count: usize,
+    pub first_message: Option<String>,
+}

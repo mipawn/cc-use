@@ -9,6 +9,7 @@ import Keys from './pages/Keys'
 import Projects from './pages/Projects'
 import Statistics from './pages/Statistics'
 import Settings from './pages/Settings'
+import Sessions from './pages/Sessions'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
@@ -179,6 +180,7 @@ function AppContent() {
             <Route path='/providers' element={<Keys />} />
             <Route path='/projects' element={<Projects />} />
             <Route path='/statistics' element={<Statistics />} />
+            <Route path='/sessions' element={<Sessions />} />
             <Route path='/settings' element={<Settings />} />
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>

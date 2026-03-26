@@ -171,6 +171,13 @@ function buildApi(): Api {
         await openUrl(url)
       },
     },
+    sessions: {
+      scanSessions: () => invoke('scan_sessions'),
+      deleteSessions: (sessionIds) =>
+        invoke('delete_sessions', { sessionIds }),
+      cleanOldSessions: (days) => invoke('clean_old_sessions', { days }),
+      keepRecentSessions: (keepCount) => invoke('keep_recent_sessions', { keepCount }),
+    },
   }
 }
 

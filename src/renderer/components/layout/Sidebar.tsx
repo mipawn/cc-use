@@ -7,6 +7,7 @@ import {
   FolderOutlined,
   BarChartOutlined,
   SettingOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons'
 
 const { Sider } = Layout
@@ -37,6 +38,11 @@ export default function Sidebar() {
       key: '/statistics',
       icon: <BarChartOutlined />,
       label: t('statistics.title') || '使用统计',
+    },
+    {
+      key: '/sessions',
+      icon: <DatabaseOutlined />,
+      label: '会话管理',
     },
     {
       key: '/settings',

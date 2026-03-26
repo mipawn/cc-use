@@ -177,4 +177,21 @@ export interface Api {
     selectFolder: () => Promise<string | null>
     openExternal: (url: string) => Promise<void>
   }
+  sessions: {
+    scanSessions: () => Promise<ClaudeSession[]>
+    deleteSessions: (sessionIds: string[]) => Promise<number>
+    cleanOldSessions: (days: number) => Promise<number>
+    keepRecentSessions: (keepCount: number) => Promise<number>
+  }
+}
+
+export interface ClaudeSession {
+  sessionId: string
+  projectPath: string
+  jsonlSize: number
+  dirSize: number
+  totalSize: number
+  lastModified: number
+  messageCount: number
+  firstMessage?: string
 }
