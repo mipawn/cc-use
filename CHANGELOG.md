@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.0] - 2026-03-27
+
+### Fixed
+
+- 修复 SSE 流式请求中 input_tokens 始终为 0、output_tokens 不准确的问题（根因：TCP chunk 分片导致 JSON 解析失败，新增跨 chunk 行缓冲拼接）
+
+### Changed
+
+- 简化费用计算系统：移除从中转站同步模型价格的功能，改为纯官方价格表 + 用户自定义价格 + 倍率计算
+- 费用统计页标注"仅供参考"，明确费用为基于官方价格的估算值
+
+### Removed
+
+- 移除供应商级模型价格同步功能（pricing_sync_service）
+- 移除供应商卡片上的"编辑模型价格"按钮（全局自定义价格仍可在统计页编辑）
+
 ## [2.1.0] - 2026-03-26
 
 ### Added
