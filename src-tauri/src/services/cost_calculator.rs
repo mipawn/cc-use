@@ -42,40 +42,30 @@ pub fn default_pricing() -> HashMap<String, ModelPricing> {
 pub fn find_pricing(
     model: &str,
     custom_pricing: &HashMap<String, ModelPricing>,
-    provider_pricing: &Option<HashMap<String, ModelPricing>>,
 ) -> Option<ModelPricing> {
     // 1. Exact match in custom pricing
     if let Some(p) = custom_pricing.get(model) {
         return Some(p.clone());
     }
 
-    // 2. Exact match in provider pricing
-    if let Some(ref pp) = provider_pricing {
-        if let Some(p) = pp.get(model) {
-            return Some(p.clone());
-        }
-    }
-
     let defaults = default_pricing();
 
-    // 3. Exact match in defaults
+    // 2. Exact match in defaults
     if let Some(p) = defaults.get(model) {
         return Some(p.clone());
     }
 
-    // 4. Prefix match (e.g., "claude-sonnet-4-20250514" → "claude-sonnet-4")
+    // 3. Prefix match (e.g., "claude-sonnet-4-20250514" → "claude-sonnet-4")
     for (key, pricing) in defaults.iter() {
         if model.starts_with(key) {
             return Some(pricing.clone());
         }
     }
 
-    // 5. Prefix match in provider pricing
-    if let Some(ref pp) = provider_pricing {
-        for (key, pricing) in pp.iter() {
-            if model.starts_with(key) {
-                return Some(pricing.clone());
-            }
+    // 4. Prefix match in custom pricing
+    for (key, pricing) in custom_pricing.iter() {
+        if model.starts_with(key) {
+            return Some(pricing.clone());
         }
     }
 
@@ -91,9 +81,8 @@ pub fn calculate_cost(
     cache_creation_tokens: i64,
     cost_multiplier: f64,
     custom_pricing: &HashMap<String, ModelPricing>,
-    provider_pricing: &Option<HashMap<String, ModelPricing>>,
 ) -> (f64, f64, f64, f64, f64) {
-    let pricing = match find_pricing(model, custom_pricing, provider_pricing) {
+    let pricing = match find_pricing(model, custom_pricing) {
         Some(p) => p,
         None => return (0.0, 0.0, 0.0, 0.0, 0.0),
     };
@@ -119,7 +108,7 @@ mod tests {
         let (input, output, _, _, total) = calculate_cost(
             "claude-sonnet-4",
             1000, 500, 0, 0, 1.0,
-            &custom, &None,
+            &custom,
         );
         // 1000/1M * 3.0 = 0.003
         assert!((input - 0.003).abs() < 1e-9);
@@ -134,7 +123,7 @@ mod tests {
         let (_, _, cache_read, cache_creation, _) = calculate_cost(
             "claude-sonnet-4",
             0, 0, 10000, 5000, 1.0,
-            &custom, &None,
+            &custom,
         );
         // 10000/1M * 0.3 = 0.003
         assert!((cache_read - 0.003).abs() < 1e-9);
@@ -148,7 +137,7 @@ mod tests {
         let (_, _, _, _, total) = calculate_cost(
             "claude-sonnet-4",
             1_000_000, 0, 0, 0, 1.5,
-            &custom, &None,
+            &custom,
         );
         // 1M/1M * 3.0 * 1.5 = 4.5
         assert!((total - 4.5).abs() < 1e-6);
@@ -157,7 +146,7 @@ mod tests {
     #[test]
     fn test_model_pricing_prefix_match() {
         let custom = HashMap::new();
-        let pricing = find_pricing("claude-sonnet-4-20250514", &custom, &None);
+        let pricing = find_pricing("claude-sonnet-4-20250514", &custom);
         assert!(pricing.is_some());
         assert!((pricing.unwrap().input - 3.0).abs() < 1e-6);
     }

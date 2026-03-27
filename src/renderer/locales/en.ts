@@ -459,7 +459,7 @@ export default {
   },
   statistics: {
     title: 'Statistics',
-    subtitle: 'View API request costs and usage',
+    subtitle: 'Estimated based on official model pricing, for reference only',
     today: 'Today',
     yesterday: 'Yesterday',
     week: 'Last 7 Days',

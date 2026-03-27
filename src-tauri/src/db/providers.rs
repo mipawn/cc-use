@@ -1,6 +1,5 @@
 use crate::db::Database;
-use crate::models::{Provider, CreateProviderInput, UpdateProviderInput, ModelPricing, UsageData};
-use std::collections::HashMap;
+use crate::models::{Provider, CreateProviderInput, UpdateProviderInput, UsageData};
 
 impl Database {
     pub fn provider_list(&self) -> Result<Vec<Provider>, rusqlite::Error> {
@@ -11,8 +10,7 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, cached_model_pricing, last_pricing_synced_at,
-                    is_active
+                    cost_multiplier, is_active
              FROM providers ORDER BY name"
         )?;
 
@@ -41,10 +39,7 @@ impl Database {
                     .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
                 last_usage_checked_at: row.get(20)?,
                 cost_multiplier: row.get(21)?,
-                cached_model_pricing: row.get::<_, Option<String>>(22)?
-                    .and_then(|s| serde_json::from_str::<HashMap<String, ModelPricing>>(&s).ok()),
-                last_pricing_synced_at: row.get(23)?,
-                is_active: row.get::<_, i32>(24)? != 0,
+                is_active: row.get::<_, i32>(22)? != 0,
             })
         })?;
 
@@ -121,7 +116,6 @@ impl Database {
         add_field!(input.cached_wallet_balance, "cached_wallet_balance");
         add_field!(input.last_balance_checked_at, "last_balance_checked_at");
         add_field!(input.last_usage_checked_at, "last_usage_checked_at");
-        add_field!(input.last_pricing_synced_at, "last_pricing_synced_at");
 
         if let Some(ref val) = input.is_active {
             sets.push("is_active = ?".to_string());
@@ -130,11 +124,6 @@ impl Database {
 
         if let Some(ref val) = input.cached_usage {
             sets.push("cached_usage = ?".to_string());
-            params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
-        }
-
-        if let Some(ref val) = input.cached_model_pricing {
-            sets.push("cached_model_pricing = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
         }
 

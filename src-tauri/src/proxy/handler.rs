@@ -201,7 +201,6 @@ pub async fn proxy_handler(
                 project_id: session.project_id.clone(),
                 request_model,
                 cost_multiplier: api_key.cost_multiplier,
-                cached_model_pricing: provider.cached_model_pricing.clone(),
                 status_code: status.as_u16(),
                 start_time,
             }),
@@ -253,7 +252,6 @@ pub async fn proxy_handler(
                 project_id: session.project_id.clone(),
                 request_model,
                 cost_multiplier: api_key.cost_multiplier,
-                cached_model_pricing: provider.cached_model_pricing.clone(),
                 status_code: status.as_u16(),
                 start_time,
             };
@@ -329,7 +327,6 @@ struct LogContext {
     project_id: Option<String>,
     request_model: Option<String>,
     cost_multiplier: f64,
-    cached_model_pricing: Option<std::collections::HashMap<String, crate::models::ModelPricing>>,
     status_code: u16,
     start_time: std::time::Instant,
 }
@@ -353,7 +350,6 @@ fn record_usage(
             usage.cache_creation_tokens,
             ctx.cost_multiplier,
             &custom_pricing,
-            &ctx.cached_model_pricing,
         );
 
     let log = RequestLog {
@@ -421,6 +417,7 @@ where
             Poll::Ready(None) => {
                 this.finished = true;
                 if let Some(ctx) = this.log_ctx.take() {
+                    this.accumulator.flush();
                     if let Some(usage) = this.accumulator.get_usage() {
                         record_usage(&ctx, &usage, this.accumulator.model.as_deref(), true);
                     }

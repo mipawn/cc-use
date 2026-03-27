@@ -64,8 +64,6 @@ pub fn run() {
             commands::balance::balance_refresh,
             commands::balance::usage_refresh,
             commands::balance::key_usage_refresh,
-            commands::balance::provider_sync_pricing,
-            commands::balance::provider_update_pricing,
             // Import/Export commands
             commands::import_export::export_providers,
             commands::import_export::import_providers,

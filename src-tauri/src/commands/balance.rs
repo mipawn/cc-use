@@ -1,6 +1,4 @@
 use crate::db::Database;
-use crate::models::ModelPricing;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -95,51 +93,4 @@ pub async fn key_usage_refresh(
     }
 
     result
-}
-
-#[tauri::command]
-pub async fn provider_sync_pricing(
-    db: State<'_, Arc<Mutex<Database>>>,
-    provider_id: String,
-) -> Result<serde_json::Value, String> {
-    let (provider, api_keys) = {
-        let db = db.lock().map_err(|e| e.to_string())?;
-        let provider = db.provider_get(&provider_id).map_err(|e| e.to_string())?
-            .ok_or_else(|| "Provider not found".to_string())?;
-        let api_keys = db.api_key_list(&provider_id).unwrap_or_default();
-        (provider, api_keys)
-    };
-
-    let result = crate::services::pricing_sync_service::sync_pricing(&provider, &api_keys).await;
-
-    // Update cached pricing in DB
-    if let Ok(ref res) = result {
-        if let Some(pricing) = res.get("pricing") {
-            let db = db.lock().map_err(|e| e.to_string())?;
-            let now = chrono::Utc::now().to_rfc3339();
-            let pricing_str = serde_json::to_string(pricing).unwrap_or_default();
-            let _ = db.conn.execute(
-                "UPDATE providers SET cached_model_pricing = ?1, last_pricing_synced_at = ?2 WHERE id = ?3",
-                rusqlite::params![pricing_str, now, provider_id],
-            );
-        }
-    }
-
-    result
-}
-
-#[tauri::command]
-pub fn provider_update_pricing(
-    db: State<'_, Arc<Mutex<Database>>>,
-    provider_id: String,
-    pricing: HashMap<String, ModelPricing>,
-) -> Result<crate::models::Provider, String> {
-    let db = db.lock().map_err(|e| e.to_string())?;
-    let pricing_str = serde_json::to_string(&pricing).map_err(|e| e.to_string())?;
-    let now = chrono::Utc::now().to_rfc3339();
-    db.conn.execute(
-        "UPDATE providers SET cached_model_pricing = ?1, last_pricing_synced_at = ?2 WHERE id = ?3",
-        rusqlite::params![pricing_str, now, provider_id],
-    ).map_err(|e| e.to_string())?;
-    db.provider_get(&provider_id).map_err(|e| e.to_string())?.ok_or_else(|| "Provider not found".to_string())
 }

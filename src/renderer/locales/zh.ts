@@ -465,7 +465,7 @@ export default {
   },
   statistics: {
     title: '费用统计',
-    subtitle: '查看 API 请求费用和使用情况',
+    subtitle: '基于官方模型价格估算，仅供参考',
     today: '今日',
     yesterday: '昨日',
     week: '近7天',

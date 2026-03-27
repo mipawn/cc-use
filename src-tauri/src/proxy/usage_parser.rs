@@ -48,13 +48,17 @@ fn parse_usage_from_json(json: &serde_json::Value) -> Option<TokenUsage> {
     None
 }
 
-/// Accumulate usage from SSE streaming chunks
+/// Accumulate usage from SSE streaming chunks.
+///
+/// Handles cross-chunk line splitting by buffering incomplete lines.
 pub struct StreamUsageAccumulator {
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub model: Option<String>,
+    /// Buffer for incomplete lines that span across TCP chunks
+    line_buffer: String,
 }
 
 impl StreamUsageAccumulator {
@@ -65,59 +69,96 @@ impl StreamUsageAccumulator {
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
             model: None,
+            line_buffer: String::new(),
         }
     }
 
     pub fn process_chunk(&mut self, chunk: &str) {
-        for line in chunk.lines() {
-            if !line.starts_with("data: ") {
-                continue;
-            }
-            let json_str = &line[6..];
-            if json_str == "[DONE]" {
-                continue;
+        // Prepend any buffered incomplete line from previous chunk
+        let data_to_process = if self.line_buffer.is_empty() {
+            chunk.to_string()
+        } else {
+            let combined = format!("{}{}", self.line_buffer, chunk);
+            self.line_buffer.clear();
+            combined
+        };
+
+        // If the chunk doesn't end with a newline, the last line is incomplete
+        let ends_with_newline = data_to_process.ends_with('\n');
+        let lines: Vec<&str> = data_to_process.lines().collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            // If this is the last line and chunk didn't end with newline,
+            // buffer it for the next chunk
+            if i == lines.len() - 1 && !ends_with_newline {
+                self.line_buffer = line.to_string();
+                break;
             }
 
-            let data: serde_json::Value = match serde_json::from_str(json_str) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
+            self.process_sse_line(line);
+        }
+    }
 
-            // Extract model
-            if let Some(msg) = data.get("message") {
-                if let Some(m) = msg.get("model").and_then(|v| v.as_str()) {
-                    self.model = Some(m.to_string());
-                }
-            }
-            if self.model.is_none() {
-                if let Some(m) = data.get("model").and_then(|v| v.as_str()) {
-                    self.model = Some(m.to_string());
-                }
-            }
+    fn process_sse_line(&mut self, line: &str) {
+        if !line.starts_with("data: ") {
+            return;
+        }
+        let json_str = &line[6..];
+        if json_str == "[DONE]" {
+            return;
+        }
 
-            // Claude message_start — input tokens
-            if data.get("type").and_then(|v| v.as_str()) == Some("message_start") {
-                if let Some(usage) = data.get("message").and_then(|m| m.get("usage")) {
-                    self.input_tokens = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                    self.cache_read_tokens = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                    self.cache_creation_tokens = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                }
-            }
+        let data: serde_json::Value = match serde_json::from_str(json_str) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
 
-            // Claude message_delta — output tokens
-            if data.get("type").and_then(|v| v.as_str()) == Some("message_delta") {
-                if let Some(usage) = data.get("usage") {
-                    self.output_tokens = usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                }
+        // Extract model
+        if let Some(msg) = data.get("message") {
+            if let Some(m) = msg.get("model").and_then(|v| v.as_str()) {
+                self.model = Some(m.to_string());
             }
+        }
+        if self.model.is_none() {
+            if let Some(m) = data.get("model").and_then(|v| v.as_str()) {
+                self.model = Some(m.to_string());
+            }
+        }
 
-            // OpenAI format — full usage in final chunk
+        let event_type = data.get("type").and_then(|v| v.as_str());
+
+        // Claude message_start — input tokens
+        if event_type == Some("message_start") {
+            if let Some(usage) = data.get("message").and_then(|m| m.get("usage")) {
+                self.input_tokens = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                self.cache_read_tokens = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                self.cache_creation_tokens = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+            }
+        }
+
+        // Claude message_delta — output tokens (final cumulative value)
+        if event_type == Some("message_delta") {
             if let Some(usage) = data.get("usage") {
-                if usage.get("prompt_tokens").is_some() {
-                    self.input_tokens = usage.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
-                    self.output_tokens = usage.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                if let Some(v) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
+                    self.output_tokens = v;
                 }
             }
+        }
+
+        // OpenAI format — full usage in final chunk
+        if let Some(usage) = data.get("usage") {
+            if usage.get("prompt_tokens").is_some() {
+                self.input_tokens = usage.get("prompt_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                self.output_tokens = usage.get("completion_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+            }
+        }
+    }
+
+    /// Flush any remaining buffered line (call when stream ends)
+    pub fn flush(&mut self) {
+        if !self.line_buffer.is_empty() {
+            let line = std::mem::take(&mut self.line_buffer);
+            self.process_sse_line(&line);
         }
     }
 
@@ -145,6 +186,7 @@ pub fn parse_usage_from_response_data(
     if is_sse {
         let mut acc = StreamUsageAccumulator::new();
         acc.process_chunk(response_text);
+        acc.flush();
         (acc.get_usage(), acc.model.clone(), true)
     } else {
         let (usage, model) = parse_usage_from_response(response_text);
@@ -190,10 +232,47 @@ mod tests {
         let chunk = "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":500,\"cache_read_input_tokens\":20}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":300}}\n\n";
         let mut acc = StreamUsageAccumulator::new();
         acc.process_chunk(chunk);
+        acc.flush();
         let u = acc.get_usage().unwrap();
         assert_eq!(u.input_tokens, 500);
         assert_eq!(u.output_tokens, 300);
         assert_eq!(u.cache_read_tokens, 20);
         assert_eq!(acc.model.unwrap(), "claude-sonnet-4");
+    }
+
+    #[test]
+    fn test_cross_chunk_splitting() {
+        // Simulate message_start JSON being split across two TCP chunks
+        let chunk1 = "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4\",\"usage\":{\"input_to";
+        let chunk2 = "kens\":500,\"cache_read_input_tokens\":20}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":300}}\n\n";
+
+        let mut acc = StreamUsageAccumulator::new();
+        acc.process_chunk(chunk1);
+        // After chunk1, input_tokens should still be 0 (line is buffered)
+        assert_eq!(acc.input_tokens, 0);
+
+        acc.process_chunk(chunk2);
+        acc.flush();
+        let u = acc.get_usage().unwrap();
+        assert_eq!(u.input_tokens, 500);
+        assert_eq!(u.output_tokens, 300);
+        assert_eq!(u.cache_read_tokens, 20);
+        assert_eq!(acc.model.unwrap(), "claude-sonnet-4");
+    }
+
+    #[test]
+    fn test_flush_incomplete_final_line() {
+        // Last line of stream doesn't end with newline
+        let chunk = "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":100}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":50}}";
+
+        let mut acc = StreamUsageAccumulator::new();
+        acc.process_chunk(chunk);
+        // The delta line should be buffered, not yet processed
+        assert_eq!(acc.output_tokens, 0);
+
+        acc.flush();
+        let u = acc.get_usage().unwrap();
+        assert_eq!(u.input_tokens, 100);
+        assert_eq!(u.output_tokens, 50);
     }
 }

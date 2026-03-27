@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ── Provider ──
 
@@ -32,9 +31,6 @@ pub struct Provider {
     pub last_usage_checked_at: Option<String>,
     // Cost
     pub cost_multiplier: Option<f64>,
-    // Pricing
-    pub cached_model_pricing: Option<HashMap<String, ModelPricing>>,
-    pub last_pricing_synced_at: Option<String>,
     pub is_active: bool,
 }
 
@@ -87,8 +83,6 @@ pub struct UpdateProviderInput {
     pub last_balance_checked_at: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
-    pub cached_model_pricing: Option<HashMap<String, ModelPricing>>,
-    pub last_pricing_synced_at: Option<String>,
 }
 
 // ── API Key ──

@@ -37,14 +37,6 @@ export interface Api {
     create: (input: CreateProviderInput) => Promise<Provider>
     update: (input: UpdateProviderInput) => Promise<Provider>
     delete: (id: string) => Promise<void>
-    syncPricing: (providerId: string) => Promise<{ count: number; error: string | null }>
-    updatePricing: (
-      providerId: string,
-      pricing: Record<
-        string,
-        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
-      >,
-    ) => Promise<Provider>
   }
   apiKey: {
     list: (providerId: string) => Promise<ApiKey[]>

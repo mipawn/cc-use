@@ -39,7 +39,6 @@ import {
   FireOutlined,
   CopyOutlined,
   DollarOutlined,
-  CloudDownloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -48,7 +47,6 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
-import ProviderPricingModal from '../components/providers/ProviderPricingModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
 import QuickAddModal from '../components/providers/QuickAddModal'
 import type { Provider, ApiKey, ProviderType } from '@shared/types'
@@ -104,7 +102,6 @@ export default function Keys() {
     providers,
     loading: providersLoading,
     fetchProviders,
-    upsertProvider,
     refreshBalance,
     deleteProvider,
   } = useProviderStore()
@@ -124,15 +121,9 @@ export default function Keys() {
   const [globalConfigOpen, setGlobalConfigOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
 
-  // Provider pricing editor
-  const [pricingModalOpen, setPricingModalOpen] = useState(false)
-  const [pricingProvider, setPricingProvider] = useState<Provider | null>(null)
-  const [savingPricing, setSavingPricing] = useState(false)
-
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
   const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
-  const [syncingPricingIds, setSyncingPricingIds] = useState<Set<string>>(new Set())
 
   // Cost stats per key (today and total)
   const [keyCostStats, setKeyCostStats] = useState<
@@ -320,65 +311,6 @@ export default function Keys() {
         next.delete(keyId)
         return next
       })
-    }
-  }
-
-  // Handle sync pricing
-  const handleSyncPricing = async (providerId: string) => {
-    setSyncingPricingIds((prev) => new Set(prev).add(providerId))
-    const msgKey = `syncPricing:${providerId}`
-    message.loading({
-      content: t('keys.syncPricing') || '同步模型价格中...',
-      key: msgKey,
-      duration: 0,
-    })
-    try {
-      const result = await getApi().provider.syncPricing(providerId)
-      if (result.error) {
-        message.error({ content: result.error, key: msgKey })
-      } else {
-        message.success({
-          content: t('keys.syncPricingSuccess', { count: result.count }),
-          key: msgKey,
-        })
-        const updated = await getApi().provider.get(providerId)
-        if (updated) upsertProvider(updated)
-      }
-    } catch {
-      message.error({ content: t('keys.syncPricingFailed'), key: msgKey })
-    } finally {
-      setSyncingPricingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(providerId)
-        return next
-      })
-    }
-  }
-
-  const handleOpenPricingEditor = (provider: Provider) => {
-    setPricingProvider(provider)
-    setPricingModalOpen(true)
-  }
-
-  const handleSaveProviderPricing = async (
-    pricing: Record<
-      string,
-      { input: number; output: number; cacheRead?: number; cacheCreation?: number }
-    >,
-  ) => {
-    if (!pricingProvider) return
-    setSavingPricing(true)
-    try {
-      const updated = await getApi().provider.updatePricing(pricingProvider.id, pricing)
-      message.success(t('keys.pricingSaveSuccess') || t('messages.success'))
-      setPricingModalOpen(false)
-      setPricingProvider(null)
-      upsertProvider(updated)
-    } catch (error) {
-      console.error('Failed to save provider pricing:', error)
-      message.error(t('keys.pricingSaveFailed') || t('messages.error'))
-    } finally {
-      setSavingPricing(false)
     }
   }
 
@@ -618,53 +550,8 @@ export default function Keys() {
                           ${balance.toFixed(2)}
                         </Tag>
                       )}
-                      <Tag
-                        color={
-                          Object.keys(provider.cachedModelPricing || {}).length > 0
-                            ? 'green'
-                            : undefined
-                        }
-                      >
-                        {(t('keys.pricingSourceLabel') || '价格') + ': '}
-                        {Object.keys(provider.cachedModelPricing || {}).length > 0
-                          ? t('keys.pricingSourceProviderShort') || '供应商'
-                          : t('keys.pricingSourceGlobalShort') || '全局'}
-                      </Tag>
-                      {provider.lastPricingSyncedAt && provider.cachedModelPricing && (
-                        <Tooltip
-                          title={`${t('keys.syncPricing')} - ${new Date(provider.lastPricingSyncedAt).toLocaleString()}`}
-                        >
-                          <Tag color='green'>
-                            {t('keys.pricingSynced', {
-                              count: Object.keys(provider.cachedModelPricing).length,
-                            })}
-                          </Tag>
-                        </Tooltip>
-                      )}
                     </div>
                     <Space size={8}>
-                      {(provider.walletBalanceType === 'newapi' ||
-                        provider.usageType === 'newapi') && (
-                        <Tooltip title={t('keys.syncPricing')}>
-                          <Button
-                            type='text'
-                            size='small'
-                            icon={
-                              <CloudDownloadOutlined spin={syncingPricingIds.has(provider.id)} />
-                            }
-                            onClick={() => handleSyncPricing(provider.id)}
-                            disabled={syncingPricingIds.has(provider.id)}
-                          />
-                        </Tooltip>
-                      )}
-                      <Tooltip title={t('keys.pricingEdit') || '编辑模型价格'}>
-                        <Button
-                          type='text'
-                          size='small'
-                          icon={<DollarOutlined />}
-                          onClick={() => handleOpenPricingEditor(provider)}
-                        />
-                      </Tooltip>
                       {provider.walletBalanceType !== 'none' && (
                         <Tooltip title={t('providers.refreshBalance')}>
                           <Button
@@ -1069,17 +956,6 @@ export default function Keys() {
           </SimpleBar>
         )}
       </Modal>
-
-      <ProviderPricingModal
-        open={pricingModalOpen}
-        provider={pricingProvider}
-        saving={savingPricing}
-        onClose={() => {
-          setPricingModalOpen(false)
-          setPricingProvider(null)
-        }}
-        onSave={handleSaveProviderPricing}
-      />
     </div>
   )
 }

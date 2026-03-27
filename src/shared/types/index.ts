@@ -145,9 +145,6 @@ export interface Provider {
   lastUsageCheckedAt: string | null
   // Cost multiplier for this provider (e.g., 1.5 means 150% of base price)
   costMultiplier?: number
-  // Cached model pricing from provider's pricing API
-  cachedModelPricing: Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }> | null
-  lastPricingSyncedAt: string | null
   isActive: boolean
 }
 
