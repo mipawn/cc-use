@@ -76,7 +76,7 @@ export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
   {
     type: 'claude',
     label: 'Claude',
-    envKeyName: 'ANTHROPIC_API_KEY',
+    envKeyName: 'ANTHROPIC_AUTH_TOKEN',
     envBaseUrlName: 'ANTHROPIC_BASE_URL',
     defaultBaseUrl: 'https://api.anthropic.com',
     cliCommand: 'claude',
@@ -275,6 +275,12 @@ export interface CliConfig {
   [key: string]: unknown // Allow additional custom fields
 }
 
+export interface TerminalLaunchPreview {
+  cliType: ProviderType
+  env: Record<string, string>
+  command: string
+}
+
 // Global settings types
 export interface GlobalSettings {
   defaultProviderType: ProviderType
@@ -471,6 +477,13 @@ export interface RecentRequestLogDisplay {
   latencyMs: number | null
   statusCode: number | null
   createdAt: string
+}
+
+export interface PaginatedRecentRequests {
+  items: RecentRequestLogDisplay[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface CostStatistics {

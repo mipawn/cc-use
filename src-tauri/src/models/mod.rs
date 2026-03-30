@@ -235,6 +235,14 @@ pub struct ProxySession {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalLaunchPreview {
+    pub cli_type: String,
+    pub env: std::collections::HashMap<String, String>,
+    pub command: String,
+}
+
 // ── Usage ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -416,6 +424,15 @@ pub struct RecentRequestLogDisplay {
     pub latency_ms: Option<i64>,
     pub status_code: Option<i32>,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaginatedRecentRequests {
+    pub items: Vec<RecentRequestLogDisplay>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

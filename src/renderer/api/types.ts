@@ -26,8 +26,10 @@ import type {
   StatsTimeRange,
   CostStatistics,
   DashboardCostStats,
+  PaginatedRecentRequests,
   MigrationCheck,
   MigrationResult,
+  TerminalLaunchPreview,
 } from '../../shared/types'
 
 export interface Api {
@@ -60,6 +62,12 @@ export interface Api {
       options?: { providerId?: string; apiKeyId?: string },
     ) => Promise<void>
     launchWithPath: (path: string) => Promise<void>
+    getLaunchPreview: (params: {
+      projectId?: string
+      providerId?: string
+      apiKeyId?: string
+      cliType: 'claude' | 'codex'
+    }) => Promise<TerminalLaunchPreview>
   }
   proxy: {
     start: () => Promise<void>
@@ -123,6 +131,11 @@ export interface Api {
     getKeyCosts: () => Promise<{ keyId: string; todayCost: number; totalCost: number }[]>
     getDailyTrend: (days?: number) => Promise<{ date: string; cost: number; requests: number }[]>
     getCostStatistics: (timeRange: StatsTimeRange) => Promise<CostStatistics>
+    getRecentPaginated: (
+      timeRange: StatsTimeRange,
+      page?: number,
+      pageSize?: number,
+    ) => Promise<PaginatedRecentRequests>
     getDashboardStats: () => Promise<DashboardCostStats>
   }
   modelPricing: {

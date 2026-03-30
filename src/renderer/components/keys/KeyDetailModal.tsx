@@ -2,8 +2,10 @@
  * KeyDetailModal - 密钥详情弹窗
  * 展示完整配置和操作选项
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal, Typography, Space, Tag, Button, Input, Divider, theme } from 'antd'
+
+import { getApi } from '../../api'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import {
   KeyOutlined,
@@ -16,7 +18,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import ConfigPreview from '../common/ConfigPreview'
 import { useApiKeyStore } from '../../stores/apiKeyStore'
-import type { Provider, ApiKey } from '@shared/types'
+import type { Provider, ApiKey, TerminalLaunchPreview } from '@shared/types'
 import styles from './KeyDetailModal.module.css'
 
 const { Text, Title } = Typography
@@ -33,7 +35,7 @@ export default function KeyDetailModal({
   open,
   apiKey,
   provider,
-  proxyPort,
+  proxyPort: _proxyPort,
   onClose,
 }: KeyDetailModalProps) {
   const { t } = useTranslation()
@@ -45,6 +47,21 @@ export default function KeyDetailModal({
   const [newAlias, setNewAlias] = useState(apiKey.alias || '')
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [preview, setPreview] = useState<TerminalLaunchPreview | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const cliType = apiKey.types[0] || 'claude'
+    getApi()
+      .terminal.getLaunchPreview({ apiKeyId: apiKey.id, cliType })
+      .then(setPreview)
+      .catch(() => setPreview(null))
+  }, [open, apiKey.id, apiKey.types])
+
+  useEffect(() => {
+    setNewAlias(apiKey.alias || '')
+  }, [apiKey.alias])
+
 
   const handleSaveAlias = async () => {
     setSaving(true)
@@ -172,14 +189,7 @@ export default function KeyDetailModal({
         <Text type='secondary' className={styles.sectionLabel}>
           {t('configPreview.envVars') || '环境变量配置'}
         </Text>
-        <ConfigPreview
-          provider={provider}
-          apiKey={apiKey}
-          proxyPort={proxyPort}
-          useProxy={true}
-          showCopy={true}
-          showMask={true}
-        />
+        <ConfigPreview provider={provider} apiKey={apiKey} preview={preview} showCopy showMask />
       </div>
     </Modal>
   )

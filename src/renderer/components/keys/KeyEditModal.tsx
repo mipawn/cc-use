@@ -1,9 +1,10 @@
 /**
  * KeyEditModal - 密钥编辑弹窗
  * 统一新增和编辑体验
- * 支持多选类型，每种类型有独立配置
+ * 支持多选类型，当前仅持久化一份局部配置
  */
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { getApi } from '../../api'
 import {
   Modal,
   Form,
@@ -24,7 +25,7 @@ import { useAppMessage } from '../../hooks/useAppMessage'
 import { SettingOutlined, CopyOutlined, CheckOutlined, WalletOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import type { ApiKey, Provider, ProviderType, CliConfig } from '@shared/types'
+import type { ApiKey, Provider, ProviderType, CliConfig, TerminalLaunchPreview } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import styles from './KeyEditModal.module.css'
 
@@ -66,24 +67,17 @@ export default function KeyEditModal({
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
 
-  // 支持的类型（多选）
   const [selectedTypes, setSelectedTypes] = useState<ProviderType[]>(['claude'])
-  // 当前编辑的配置类型
   const [activeConfigType, setActiveConfigType] = useState<ProviderType>('claude')
-
-  // 每种类型的配置
   const [claudeConfigJson, setClaudeConfigJson] = useState('{}')
   const [codexConfigJson, setCodexConfigJson] = useState('{}')
-
-  // 是否合并全局配置
   const [claudeIncludeGlobal, setClaudeIncludeGlobal] = useState(true)
   const [codexIncludeGlobal, setCodexIncludeGlobal] = useState(true)
-
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [configCopied, setConfigCopied] = useState(false)
+  const [launchPreview, setLaunchPreview] = useState<TerminalLaunchPreview | null>(null)
   const { globalSettings } = useSettingsStore()
 
-  // Usage/quota config state
   const [usageType, setUsageType] = useState<'none' | 'newapi' | 'custom'>('none')
   const [usageUrl, setUsageUrl] = useState('')
   const [usagePath, setUsagePath] = useState('')
@@ -96,7 +90,6 @@ export default function KeyEditModal({
     return pid ? providers.find((p) => p.id === pid) : null
   }, [defaultProviderId, apiKey, providers])
 
-  // 获取全局配置（稳定引用，避免 useEffect 无限触发）
   const claudeGlobalConfig = useMemo(
     () => globalSettings.claudeConfig || {},
     [globalSettings.claudeConfig],
@@ -106,7 +99,6 @@ export default function KeyEditModal({
     [globalSettings.codexConfig],
   )
 
-  // 解析当前配置
   const parseConfig = (json: string): CliConfig => {
     try {
       return JSON.parse(json) as CliConfig
@@ -115,7 +107,6 @@ export default function KeyEditModal({
     }
   }
 
-  // 计算需要保存的局部配置
   const getLocalConfigToSave = (
     configJson: string,
     globalConfig: CliConfig,
@@ -125,7 +116,6 @@ export default function KeyEditModal({
     if (!includeGlobal) {
       return currentConfig
     }
-    // 只保存与全局不同的部分
     const diff: CliConfig = {}
     for (const [key, value] of Object.entries(currentConfig)) {
       if (JSON.stringify(globalConfig[key]) !== JSON.stringify(value)) {
@@ -135,107 +125,106 @@ export default function KeyEditModal({
     return diff
   }
 
-  // 初始化
   useEffect(() => {
-    if (open) {
-      if (apiKey) {
-        // 编辑模式
-        form.setFieldsValue({
-          alias: apiKey.alias || '',
-          value: apiKey.value,
-        })
-        setSelectedTypes(apiKey.types)
-        setActiveConfigType(apiKey.types[0] || 'claude')
+    if (!open) return
 
-        // 合并全局配置和局部配置
-        if (apiKey.types.includes('claude')) {
-          const merged = { ...claudeGlobalConfig, ...(apiKey.config || {}) }
-          setClaudeConfigJson(JSON.stringify(merged, null, 2))
-          setClaudeIncludeGlobal(true)
-        } else {
-          setClaudeConfigJson('{}')
-          setClaudeIncludeGlobal(true)
-        }
-        if (apiKey.types.includes('codex')) {
-          const merged = { ...codexGlobalConfig, ...(apiKey.config || {}) }
-          setCodexConfigJson(JSON.stringify(merged, null, 2))
-          setCodexIncludeGlobal(true)
-        } else {
-          setCodexConfigJson('{}')
-          setCodexIncludeGlobal(true)
-        }
-      } else {
-        // 新增模式
-        form.resetFields()
-        form.setFieldsValue({
-          alias: '',
-          value: '',
-        })
-        setSelectedTypes(['claude'])
-        setActiveConfigType('claude')
+    if (apiKey) {
+      form.setFieldsValue({
+        alias: apiKey.alias || '',
+        value: apiKey.value,
+      })
+      setSelectedTypes(apiKey.types)
+      setActiveConfigType(apiKey.types[0] || 'claude')
 
-        // 默认显示全局配置
-        if (Object.keys(claudeGlobalConfig).length > 0) {
-          setClaudeConfigJson(JSON.stringify(claudeGlobalConfig, null, 2))
-        } else {
-          setClaudeConfigJson('{}')
-        }
-        if (Object.keys(codexGlobalConfig).length > 0) {
-          setCodexConfigJson(JSON.stringify(codexGlobalConfig, null, 2))
-        } else {
-          setCodexConfigJson('{}')
-        }
+      if (apiKey.types.includes('claude')) {
+        setClaudeConfigJson(JSON.stringify({ ...claudeGlobalConfig, ...(apiKey.config || {}) }, null, 2))
         setClaudeIncludeGlobal(true)
+      } else {
+        setClaudeConfigJson('{}')
+        setClaudeIncludeGlobal(true)
+      }
+
+      if (apiKey.types.includes('codex')) {
+        setCodexConfigJson(JSON.stringify({ ...codexGlobalConfig, ...(apiKey.config || {}) }, null, 2))
+        setCodexIncludeGlobal(true)
+      } else {
+        setCodexConfigJson('{}')
         setCodexIncludeGlobal(true)
       }
-      // Initialize usage config
-      if (apiKey) {
-        setUsageType(apiKey.usageType || 'none')
-        setUsageUrl(apiKey.usageUrl || '')
-        setUsagePath(apiKey.usagePath || '')
-        setCostMultiplier(apiKey.costMultiplier ?? 1)
-        // Auto-expand advanced if non-default values exist
-        setShowAdvanced(
-          (apiKey.costMultiplier != null && apiKey.costMultiplier !== 1) ||
-            (apiKey.usageType != null && apiKey.usageType !== 'none'),
-        )
-        // Format headers JSON for display
-        if (apiKey.usageHeaders) {
-          try {
-            setUsageHeaders(JSON.stringify(JSON.parse(apiKey.usageHeaders), null, 2))
-          } catch {
-            setUsageHeaders(apiKey.usageHeaders)
-          }
-        } else {
-          setUsageHeaders('')
+    } else {
+      form.resetFields()
+      form.setFieldsValue({ alias: '', value: '' })
+      setSelectedTypes(['claude'])
+      setActiveConfigType('claude')
+      setClaudeConfigJson(
+        Object.keys(claudeGlobalConfig).length > 0 ? JSON.stringify(claudeGlobalConfig, null, 2) : '{}',
+      )
+      setCodexConfigJson(
+        Object.keys(codexGlobalConfig).length > 0 ? JSON.stringify(codexGlobalConfig, null, 2) : '{}',
+      )
+      setClaudeIncludeGlobal(true)
+      setCodexIncludeGlobal(true)
+    }
+
+    if (apiKey) {
+      setUsageType(apiKey.usageType || 'none')
+      setUsageUrl(apiKey.usageUrl || '')
+      setUsagePath(apiKey.usagePath || '')
+      setCostMultiplier(apiKey.costMultiplier ?? 1)
+      setShowAdvanced(
+        (apiKey.costMultiplier != null && apiKey.costMultiplier !== 1) ||
+          (apiKey.usageType != null && apiKey.usageType !== 'none'),
+      )
+      if (apiKey.usageHeaders) {
+        try {
+          setUsageHeaders(JSON.stringify(JSON.parse(apiKey.usageHeaders), null, 2))
+        } catch {
+          setUsageHeaders(apiKey.usageHeaders)
         }
       } else {
-        setUsageType('none')
-        setUsageUrl('')
-        setUsagePath('')
         setUsageHeaders('')
-        setCostMultiplier(1)
-        setShowAdvanced(false)
       }
-      setJsonError(null)
+    } else {
+      setUsageType('none')
+      setUsageUrl('')
+      setUsagePath('')
+      setUsageHeaders('')
+      setCostMultiplier(1)
+      setShowAdvanced(false)
     }
+
+    setJsonError(null)
   }, [open, apiKey, form, claudeGlobalConfig, codexGlobalConfig])
 
-  // 切换类型选择
+  useEffect(() => {
+    if (!open || !apiKey?.id) {
+      setLaunchPreview(null)
+      return
+    }
+
+    const providerId = defaultProviderId || apiKey.providerId
+    getApi()
+      .terminal.getLaunchPreview({
+        providerId,
+        apiKeyId: apiKey.id,
+        cliType: activeConfigType,
+      })
+      .then(setLaunchPreview)
+      .catch(() => setLaunchPreview(null))
+  }, [open, apiKey, defaultProviderId, activeConfigType])
+
   const handleTypeChange = (type: ProviderType, checked: boolean) => {
     if (checked) {
       setSelectedTypes((prev) => [...prev, type])
-      // 切换到新选中的类型
       setActiveConfigType(type)
-      // 如果是新选中的类型，初始化其配置
-      if (type === 'claude' && claudeConfigJson === '{}') {
-        if (Object.keys(claudeGlobalConfig).length > 0) {
-          setClaudeConfigJson(JSON.stringify(claudeGlobalConfig, null, 2))
-        }
-      } else if (type === 'codex' && codexConfigJson === '{}') {
-        if (Object.keys(codexGlobalConfig).length > 0) {
-          setCodexConfigJson(JSON.stringify(codexGlobalConfig, null, 2))
-        }
+      if (type === 'claude' && claudeConfigJson === '{}' && Object.keys(claudeGlobalConfig).length > 0) {
+        setClaudeConfigJson(JSON.stringify(claudeGlobalConfig, null, 2))
+      } else if (
+        type === 'codex' &&
+        codexConfigJson === '{}' &&
+        Object.keys(codexGlobalConfig).length > 0
+      ) {
+        setCodexConfigJson(JSON.stringify(codexGlobalConfig, null, 2))
       }
     } else {
       const newTypes = selectedTypes.filter((t) => t !== type)
@@ -244,14 +233,12 @@ export default function KeyEditModal({
         return
       }
       setSelectedTypes(newTypes)
-      // 如果取消的是当前编辑的类型，切换到另一个
       if (activeConfigType === type) {
         setActiveConfigType(newTypes[0])
       }
     }
   }
 
-  // 切换合并全局配置
   const handleToggleGlobal = (type: ProviderType, checked: boolean) => {
     const globalConfig = type === 'claude' ? claudeGlobalConfig : codexGlobalConfig
     const configJson = type === 'claude' ? claudeConfigJson : codexConfigJson
@@ -261,11 +248,8 @@ export default function KeyEditModal({
     const currentConfig = parseConfig(configJson)
 
     if (checked) {
-      // 开启：合并全局配置
-      const merged = { ...globalConfig, ...currentConfig }
-      setConfigJson(JSON.stringify(merged, null, 2))
+      setConfigJson(JSON.stringify({ ...globalConfig, ...currentConfig }, null, 2))
     } else {
-      // 关闭：移除全局配置的字段
       const local: CliConfig = {}
       for (const [key, value] of Object.entries(currentConfig)) {
         if (JSON.stringify(globalConfig[key]) !== JSON.stringify(value)) {
@@ -288,27 +272,19 @@ export default function KeyEditModal({
         return
       }
 
-      // 验证 JSON
       try {
-        if (selectedTypes.includes('claude')) {
-          JSON.parse(claudeConfigJson)
-        }
-        if (selectedTypes.includes('codex')) {
-          JSON.parse(codexConfigJson)
-        }
+        if (selectedTypes.includes('claude')) JSON.parse(claudeConfigJson)
+        if (selectedTypes.includes('codex')) JSON.parse(codexConfigJson)
       } catch {
         setJsonError('JSON 格式错误')
         message.error('JSON 格式错误')
         return
       }
 
-      // 保存密钥（编辑或新增都保存为一条记录，支持多类型）
-      // 使用第一个选中类型的配置作为保存的配置
       const primaryType = selectedTypes[0]
       const configJson = primaryType === 'claude' ? claudeConfigJson : codexConfigJson
       const globalConfig = primaryType === 'claude' ? claudeGlobalConfig : codexGlobalConfig
       const includeGlobal = primaryType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
-
       const localConfig = getLocalConfigToSave(configJson, globalConfig, includeGlobal)
 
       await onSave({
@@ -325,11 +301,7 @@ export default function KeyEditModal({
         usageHeaders: usageType === 'custom' ? usageHeaders?.trim() : undefined,
       })
 
-      message.success(
-        apiKey?.id
-          ? t('apiKeys.keyUpdated') || '密钥已更新'
-          : t('apiKeys.keyAdded') || '密钥已添加',
-      )
+      message.success(apiKey?.id ? t('apiKeys.keyUpdated') || '密钥已更新' : t('apiKeys.keyAdded') || '密钥已添加')
       onClose()
     } catch (error) {
       if (error instanceof Error) {
@@ -341,53 +313,35 @@ export default function KeyEditModal({
   }
 
   const modalTitle = useMemo(() => {
-    const baseTitle = apiKey?.id
-      ? t('apiKeys.editKey') || '编辑密钥'
-      : t('apiKeys.addKey') || '添加密钥'
-    if (currentProvider) {
-      return `${baseTitle} - ${currentProvider.name}`
-    }
-    return baseTitle
+    const baseTitle = apiKey?.id ? t('apiKeys.editKey') || '编辑密钥' : t('apiKeys.addKey') || '添加密钥'
+    return currentProvider ? `${baseTitle} - ${currentProvider.name}` : baseTitle
   }, [apiKey, currentProvider, t])
 
   const currentConfigJson = activeConfigType === 'claude' ? claudeConfigJson : codexConfigJson
-  const setCurrentConfigJson =
-    activeConfigType === 'claude' ? setClaudeConfigJson : setCodexConfigJson
-  const currentIncludeGlobal =
-    activeConfigType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
+  const setCurrentConfigJson = activeConfigType === 'claude' ? setClaudeConfigJson : setCodexConfigJson
+  const currentIncludeGlobal = activeConfigType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
   const currentGlobalConfig = activeConfigType === 'claude' ? claudeGlobalConfig : codexGlobalConfig
   const hasGlobalConfig = Object.keys(currentGlobalConfig).length > 0
 
-  // 构建完整的配置预览（包含 baseUrl 和 token）
-  const getFullConfigPreview = (configJson: string, type: ProviderType): string => {
-    try {
-      const config = JSON.parse(configJson)
-      const baseUrlKey = type === 'claude' ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL'
-      const apiKeyKey = type === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+  const previewJson = useMemo(() => {
+    if (!launchPreview) return ''
+    return JSON.stringify(
+      {
+        ...launchPreview.env,
+        __command: launchPreview.command,
+      },
+      null,
+      2,
+    )
+  }, [launchPreview])
 
-      const fullConfig = {
-        [baseUrlKey]: currentProvider?.baseUrl || '',
-        [apiKeyKey]: '${API_KEY}',
-        ...config,
-      }
-      return JSON.stringify(fullConfig, null, 2)
-    } catch {
-      return configJson
-    }
-  }
-
-  const displayConfigJson = getFullConfigPreview(currentConfigJson, activeConfigType)
-
-  // 复制配置（用明文 API Key 替换占位符）
   const handleCopyConfig = async () => {
     try {
-      const apiKeyValue = form.getFieldValue('value') || ''
-      const configToCopy = displayConfigJson.replace('${API_KEY}', apiKeyValue)
-      await navigator.clipboard.writeText(configToCopy)
+      await navigator.clipboard.writeText(previewJson || currentConfigJson)
       setConfigCopied(true)
       setTimeout(() => setConfigCopied(false), 2000)
       message.success(t('common.copied') || '已复制')
-    } catch (error) {
+    } catch {
       message.error(t('messages.error') || '复制失败')
     }
   }
@@ -407,13 +361,12 @@ export default function KeyEditModal({
     >
       <SimpleBar className={styles.scrollContainer}>
         <Form form={form} layout='vertical' className={styles.form}>
-          {/* Key Type - Multi Select */}
           <Form.Item
             label={t('apiKeys.keyType') || '密钥类型'}
             required
             extra={
               selectedTypes.length > 1
-                ? t('apiKeys.multiTypeHint') || '将为每种类型创建一个密钥'
+                ? '同一把密钥只保存一份局部配置；下面切换的是不同 CLI 类型下的真实合并预览。'
                 : undefined
             }
           >
@@ -423,10 +376,7 @@ export default function KeyEditModal({
                 onChange={(e) => handleTypeChange('claude', e.target.checked)}
               >
                 <Space>
-                  <span
-                    className={styles.typeIndicator}
-                    style={{ background: token.colorPrimary }}
-                  />
+                  <span className={styles.typeIndicator} style={{ background: token.colorPrimary }} />
                   Claude Code
                 </Space>
               </Checkbox>
@@ -435,37 +385,25 @@ export default function KeyEditModal({
                 onChange={(e) => handleTypeChange('codex', e.target.checked)}
               >
                 <Space>
-                  <span
-                    className={styles.typeIndicator}
-                    style={{ background: token.colorSuccess }}
-                  />
+                  <span className={styles.typeIndicator} style={{ background: token.colorSuccess }} />
                   Codex CLI
                 </Space>
               </Checkbox>
             </Space>
           </Form.Item>
 
-          {/* Alias */}
           <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
-            <Input
-              placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'}
-              size='large'
-            />
+            <Input placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'} size='large' />
           </Form.Item>
 
-          {/* API Key Value */}
           <Form.Item
             name='value'
             label={t('apiKeys.apiKey') || 'API 密钥'}
             rules={[{ required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' }]}
           >
-            <Input.Password
-              placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
-              size='large'
-            />
+            <Input.Password placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'} size='large' />
           </Form.Item>
 
-          {/* Advanced: Cost & Usage Config - Collapsible */}
           <Collapse
             ghost
             activeKey={showAdvanced ? ['advanced'] : []}
@@ -482,13 +420,9 @@ export default function KeyEditModal({
                 ),
                 children: (
                   <div className={styles.advancedContent}>
-                    {/* Cost Multiplier */}
                     <Form.Item
                       label={t('keys.costMultiplier') || '费用倍率'}
-                      extra={
-                        t('keys.costMultiplierHint') ||
-                        '中转站分组倍率，默认 1 表示按官方价格计算'
-                      }
+                      extra={t('keys.costMultiplierHint') || '中转站分组倍率，默认 1 表示按官方价格计算'}
                     >
                       <InputNumber
                         value={costMultiplier}
@@ -502,7 +436,6 @@ export default function KeyEditModal({
                       />
                     </Form.Item>
 
-                    {/* Usage/Quota Config */}
                     <Form.Item label={t('keys.usageConfig') || '额度查询配置'}>
                       <Select
                         value={usageType}
@@ -511,8 +444,7 @@ export default function KeyEditModal({
                           if (value === 'custom') {
                             if (!usageUrl) setUsageUrl('{baseUrl}/api/usage/token/')
                             if (!usagePath) setUsagePath('data.total_available')
-                            if (!usageHeaders)
-                              setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
+                            if (!usageHeaders) setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
                           }
                         }}
                         options={[
@@ -528,10 +460,7 @@ export default function KeyEditModal({
                       <>
                         <Form.Item
                           label={t('keys.usageUrl') || '查询 URL'}
-                          extra={
-                            t('keys.usageUrlVarHint') ||
-                            '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'
-                          }
+                          extra={t('keys.usageUrlVarHint') || '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'}
                         >
                           <Input
                             value={usageUrl}
@@ -565,10 +494,7 @@ export default function KeyEditModal({
                               </Button>
                             </Space>
                           }
-                          extra={
-                            t('keys.usagePathMapHint') ||
-                            '支持单路径（如 data.balance）或 JSON 映射表'
-                          }
+                          extra={t('keys.usagePathMapHint') || '支持单路径（如 data.balance）或 JSON 映射表'}
                         >
                           <TextArea
                             value={usagePath}
@@ -580,10 +506,7 @@ export default function KeyEditModal({
                         </Form.Item>
                         <Form.Item
                           label={t('keys.usageHeaders') || '自定义 Headers'}
-                          extra={
-                            t('keys.usageHeadersVarHint') ||
-                            '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'
-                          }
+                          extra={t('keys.usageHeadersVarHint') || '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'}
                         >
                           <Input.TextArea
                             value={usageHeaders}
@@ -601,7 +524,6 @@ export default function KeyEditModal({
             ]}
           />
 
-          {/* Config Section */}
           <div className={styles.configSection}>
             <div className={styles.configHeader}>
               <Space>
@@ -619,7 +541,6 @@ export default function KeyEditModal({
               </Tooltip>
             </div>
 
-            {/* Config Type Tabs (only show if multiple types selected) */}
             {selectedTypes.length > 1 && (
               <Segmented
                 value={activeConfigType}
@@ -630,9 +551,7 @@ export default function KeyEditModal({
                     <Space>
                       <span
                         className={styles.typeIndicator}
-                        style={{
-                          background: type === 'claude' ? token.colorPrimary : token.colorSuccess,
-                        }}
+                        style={{ background: type === 'claude' ? token.colorPrimary : token.colorSuccess }}
                       />
                       {type === 'claude' ? 'Claude' : 'Codex'}
                     </Space>
@@ -643,7 +562,6 @@ export default function KeyEditModal({
               />
             )}
 
-            {/* Global Config Toggle */}
             {hasGlobalConfig && (
               <div className={styles.globalToggle}>
                 <Text type='secondary' style={{ fontSize: 12 }}>
@@ -658,22 +576,9 @@ export default function KeyEditModal({
             )}
 
             <TextArea
-              value={displayConfigJson}
+              value={currentConfigJson}
               onChange={(e) => {
-                // 解析用户输入，移除 baseUrl 和 apiKey 字段后保存
-                try {
-                  const parsed = JSON.parse(e.target.value)
-                  const baseUrlKey =
-                    activeConfigType === 'claude' ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL'
-                  const apiKeyKey =
-                    activeConfigType === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
-                  delete parsed[baseUrlKey]
-                  delete parsed[apiKeyKey]
-                  setCurrentConfigJson(JSON.stringify(parsed, null, 2))
-                } catch {
-                  // JSON 格式错误时直接保存原始值
-                  setCurrentConfigJson(e.target.value)
-                }
+                setCurrentConfigJson(e.target.value)
                 if (jsonError) setJsonError(null)
               }}
               className={`${styles.jsonEditor} ${jsonError ? styles.jsonEditorError : ''}`}
@@ -681,10 +586,30 @@ export default function KeyEditModal({
               placeholder='{}'
             />
 
+            <Text type='secondary' className={styles.errorText}>
+              {selectedTypes.length > 1
+                ? '当前只会保存一份局部配置；真实启动预览会按当前 CLI 类型叠加对应的全局配置。'
+                : '上面编辑的是局部配置；下面展示的是后端返回的真实启动预览。'}
+            </Text>
+
             {jsonError && (
               <Text type='danger' className={styles.errorText}>
                 {jsonError}
               </Text>
+            )}
+
+            {launchPreview && (
+              <>
+                <Text strong style={{ display: 'block', marginTop: 12, marginBottom: 8 }}>
+                  {t('apiKeys.configPreview') || '最终配置预览'}
+                </Text>
+                <TextArea
+                  value={previewJson}
+                  readOnly
+                  className={styles.jsonEditor}
+                  autoSize={{ minRows: 10, maxRows: 16 }}
+                />
+              </>
             )}
           </div>
         </Form>

@@ -55,6 +55,7 @@ pub fn run() {
             commands::statistics::request_log_get_key_costs,
             commands::statistics::request_log_get_daily_trend,
             commands::statistics::request_log_get_cost_statistics,
+            commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_dashboard_stats,
             commands::statistics::model_pricing_get_all,
             commands::statistics::model_pricing_get_custom,
@@ -85,6 +86,7 @@ pub fn run() {
             // Terminal commands
             commands::terminal::terminal_launch,
             commands::terminal::terminal_launch_with_path,
+            commands::terminal::terminal_get_launch_preview,
             // Session commands
             commands::sessions::scan_sessions,
             commands::sessions::delete_sessions,

@@ -1,14 +1,12 @@
 /**
  * ConfigPreview - 配置预览组件
- * 展示合并后的真实环境变量配置
+ * 展示真实启动时使用的环境变量配置
  */
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Typography, theme, Tooltip, Space } from 'antd'
 import { CopyOutlined, CheckOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import { useState } from 'react'
-import type { Provider, ApiKey } from '@shared/types'
-import { getProviderTypeConfig } from '@shared/types'
+import type { Provider, ApiKey, TerminalLaunchPreview } from '@shared/types'
 import styles from './ConfigPreview.module.css'
 
 const { Text } = Typography
@@ -16,8 +14,7 @@ const { Text } = Typography
 interface ConfigPreviewProps {
   provider?: Provider | null
   apiKey?: ApiKey | null
-  proxyPort?: number
-  useProxy?: boolean
+  preview?: TerminalLaunchPreview | null
   showCopy?: boolean
   showMask?: boolean
   compact?: boolean
@@ -30,11 +27,16 @@ interface EnvLine {
   masked?: string
 }
 
+function maskValue(key: string, value: string): string {
+  const shouldMask = /(KEY|TOKEN|AUTH)/i.test(key)
+  if (!shouldMask) return value
+  return value.length > 8 ? `${value.slice(0, 4)}${'*'.repeat(8)}${value.slice(-4)}` : '****'
+}
+
 export default function ConfigPreview({
   provider,
   apiKey,
-  proxyPort = 12345,
-  useProxy = true,
+  preview,
   showCopy = true,
   showMask = true,
   compact = false,
@@ -45,36 +47,22 @@ export default function ConfigPreview({
   const [copied, setCopied] = useState(false)
   const [masked, setMasked] = useState(true)
 
-  // Generate environment variables based on provider type
   const envLines = useMemo<EnvLine[]>(() => {
-    if (!provider) {
-      return []
-    }
+    if (!preview) return []
+    return Object.entries(preview.env)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => ({
+        key,
+        value,
+        masked: maskValue(key, value),
+      }))
+  }, [preview])
 
-    const config = getProviderTypeConfig(provider.type ?? 'claude')
-    const baseUrl = useProxy ? `http://localhost:${proxyPort}` : provider.baseUrl
-    const keyValue = apiKey?.value || 'YOUR_API_KEY'
-    const maskedKey =
-      keyValue.length > 8 ? `${keyValue.slice(0, 4)}${'*'.repeat(8)}${keyValue.slice(-4)}` : '****'
-
-    return [
-      {
-        key: config.envBaseUrlName,
-        value: baseUrl,
-      },
-      {
-        key: config.envKeyName,
-        value: keyValue,
-        masked: maskedKey,
-      },
-    ]
-  }, [provider, apiKey, useProxy, proxyPort])
-
-  // Generate full export command
   const exportCommand = useMemo(() => {
-    if (envLines.length === 0) return ''
-    return envLines.map((line) => `export ${line.key}="${line.value}"`).join('\n')
-  }, [envLines])
+    if (!preview) return ''
+    const exports = envLines.map((line) => `export ${line.key}="${line.value}"`).join('\n')
+    return [exports, preview.command].filter(Boolean).join('\n')
+  }, [envLines, preview])
 
   const handleCopy = async () => {
     if (!exportCommand) return
@@ -87,7 +75,7 @@ export default function ConfigPreview({
     }
   }
 
-  if (!provider) {
+  if (!preview) {
     return (
       <div className={`${styles.container} ${styles.empty} ${className || ''}`}>
         <Text type='secondary' className={styles.emptyText}>
@@ -99,7 +87,6 @@ export default function ConfigPreview({
 
   return (
     <div className={`${styles.container} ${compact ? styles.compact : ''} ${className || ''}`}>
-      {/* Header */}
       <div className={styles.header}>
         <Space size={8}>
           <div className={styles.indicator} style={{ background: token.colorSuccess }} />
@@ -129,7 +116,6 @@ export default function ConfigPreview({
         </Space>
       </div>
 
-      {/* Code Block */}
       <div className={styles.codeBlock}>
         {envLines.map((line) => (
           <div key={line.key} className={styles.codeLine}>
@@ -141,13 +127,15 @@ export default function ConfigPreview({
             </span>
           </div>
         ))}
+        <div className={styles.codeLine}>
+          <span className={styles.variable}>{preview.command}</span>
+        </div>
       </div>
 
-      {/* Provider Info */}
       {!compact && (
         <div className={styles.footer}>
           <Text type='secondary' className={styles.footerText}>
-            {provider.name}
+            {provider?.name || preview.cliType}
             {apiKey && (
               <>
                 <span className={styles.footerSeparator}>·</span>

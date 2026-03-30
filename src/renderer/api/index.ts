@@ -46,6 +46,7 @@ function buildApi(): Api {
     terminal: {
       launch: (projectId, options) => invoke('terminal_launch', { projectId, options }),
       launchWithPath: (path) => invoke('terminal_launch_with_path', { path }),
+      getLaunchPreview: (params) => invoke('terminal_get_launch_preview', params),
     },
     proxy: {
       start: () => invoke('proxy_start'),
@@ -114,6 +115,8 @@ function buildApi(): Api {
       getDailyTrend: (days) => invoke('request_log_get_daily_trend', { days }),
       getCostStatistics: (timeRange) =>
         invoke('request_log_get_cost_statistics', { timeRange }),
+      getRecentPaginated: (timeRange, page, pageSize) =>
+        invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
       getDashboardStats: () => invoke('request_log_get_dashboard_stats'),
     },
     modelPricing: {

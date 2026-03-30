@@ -15,7 +15,7 @@ describe('Provider Type Config', () => {
     it('should include claude config', () => {
       const claude = PROVIDER_TYPE_CONFIGS.find((c) => c.type === 'claude')
       expect(claude).toBeDefined()
-      expect(claude?.envKeyName).toBe('ANTHROPIC_API_KEY')
+      expect(claude?.envKeyName).toBe('ANTHROPIC_AUTH_TOKEN')
       expect(claude?.envBaseUrlName).toBe('ANTHROPIC_BASE_URL')
       expect(claude?.cliCommand).toBe('claude')
     })
@@ -33,7 +33,7 @@ describe('Provider Type Config', () => {
     it('should return claude config for claude type', () => {
       const config = getProviderTypeConfig('claude')
       expect(config.type).toBe('claude')
-      expect(config.envKeyName).toBe('ANTHROPIC_API_KEY')
+      expect(config.envKeyName).toBe('ANTHROPIC_AUTH_TOKEN')
     })
 
     it('should return codex config for codex type', () => {
@@ -57,7 +57,7 @@ describe('Provider Type Config', () => {
       const command = generateTerminalCommand(provider, 'sk-test-key')
 
       expect(command).toBe(
-        'ANTHROPIC_BASE_URL="https://api.anthropic.com" ANTHROPIC_API_KEY="sk-test-key" claude',
+        'ANTHROPIC_BASE_URL="https://api.anthropic.com" ANTHROPIC_AUTH_TOKEN="sk-test-key" claude',
       )
     })
 
@@ -81,7 +81,7 @@ describe('Provider Type Config', () => {
       const command = generateTerminalCommand(provider, 'sk-test-key', true, 12345)
 
       expect(command).toBe(
-        'ANTHROPIC_BASE_URL="http://localhost:12345" ANTHROPIC_API_KEY="proxy" claude',
+        'ANTHROPIC_BASE_URL="http://localhost:12345" ANTHROPIC_AUTH_TOKEN="proxy" claude',
       )
     })
 
@@ -93,7 +93,7 @@ describe('Provider Type Config', () => {
       const command = generateTerminalCommand(provider, 'sk-test-key', false, 12345, 'cmd')
 
       expect(command).toBe(
-        'set ANTHROPIC_BASE_URL=https://api.anthropic.com && set ANTHROPIC_API_KEY=sk-test-key && claude',
+        'set ANTHROPIC_BASE_URL=https://api.anthropic.com && set ANTHROPIC_AUTH_TOKEN=sk-test-key && claude',
       )
     })
 
@@ -105,7 +105,7 @@ describe('Provider Type Config', () => {
       const command = generateTerminalCommand(provider, 'sk-test-key', false, 12345, 'powershell')
 
       expect(command).toBe(
-        '$env:ANTHROPIC_BASE_URL="https://api.anthropic.com"; $env:ANTHROPIC_API_KEY="sk-test-key"; claude',
+        '$env:ANTHROPIC_BASE_URL="https://api.anthropic.com"; $env:ANTHROPIC_AUTH_TOKEN="sk-test-key"; claude',
       )
     })
 

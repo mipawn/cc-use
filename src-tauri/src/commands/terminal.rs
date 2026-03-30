@@ -10,12 +10,14 @@ pub fn terminal_launch(
 ) -> Result<(), String> {
     let db = db.lock().map_err(|e| e.to_string())?;
 
-    let override_provider_id = options.as_ref()
+    let override_provider_id = options
+        .as_ref()
         .and_then(|o| o.get("providerId"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    let override_api_key_id = options.as_ref()
+    let override_api_key_id = options
+        .as_ref()
         .and_then(|o| o.get("apiKeyId"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
@@ -35,10 +37,23 @@ pub fn terminal_launch_with_path(
 ) -> Result<(), String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     let settings = db.settings_get().map_err(|e| e.to_string())?;
+    crate::terminal::launch_terminal_path_only(&settings.default_terminal_type, &path)
+}
 
-    let strategy = crate::terminal::get_strategy(&settings.default_terminal_type)
-        .or_else(|| crate::terminal::get_first_available())
-        .ok_or("No terminal available")?;
-
-    strategy.launch(&path, &crate::terminal::EnvObject::new(), "claude")
+#[tauri::command]
+pub fn terminal_get_launch_preview(
+    db: State<'_, Arc<Mutex<Database>>>,
+    project_id: Option<String>,
+    provider_id: Option<String>,
+    api_key_id: Option<String>,
+    cli_type: String,
+) -> Result<crate::models::TerminalLaunchPreview, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    crate::terminal::get_launch_preview(
+        &db,
+        project_id.as_deref(),
+        provider_id.as_deref(),
+        api_key_id.as_deref(),
+        &cli_type,
+    )
 }
