@@ -31,7 +31,7 @@ interface QuickAddModalProps {
     providerIcon: string
     keyAlias?: string
     keyValue: string
-    keyType: ProviderType
+    keyType: ProviderType[]
   }) => Promise<void>
 }
 
@@ -77,7 +77,7 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
       width={500}
       destroyOnClose
     >
-      <Form form={form} layout='vertical' initialValues={{ keyType: 'claude' }}>
+      <Form form={form} layout='vertical' initialValues={{ keyType: ['claude'] }}>
         <Form.Item
           name='providerName'
           label={t('providers.providerName')}
@@ -121,8 +121,8 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
           </Space>
         </Form.Item>
 
-        <Form.Item name='keyAlias' label={t('apiKeys.alias')}>
-          <Input placeholder={t('apiKeys.aliasPlaceholder')} />
+        <Form.Item name='keyAlias' label={t('apiKeys.alias') || '密钥别名'} tooltip='为这个密钥起一个便于识别的名称'>
+          <Input placeholder={t('apiKeys.aliasPlaceholder') || '例如：我的主密钥'} />
         </Form.Item>
 
         <Form.Item
@@ -139,6 +139,7 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
           rules={[{ required: true, message: t('apiKeys.selectAtLeastOne') }]}
         >
           <Select
+            mode='multiple'
             options={[
               { value: 'claude', label: 'Claude Code' },
               { value: 'codex', label: 'Codex CLI' },
