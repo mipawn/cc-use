@@ -285,7 +285,9 @@ export default function KeyEditModal({
       const configJson = primaryType === 'claude' ? claudeConfigJson : codexConfigJson
       const globalConfig = primaryType === 'claude' ? claudeGlobalConfig : codexGlobalConfig
       const includeGlobal = primaryType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
-      const localConfig = getLocalConfigToSave(configJson, globalConfig, includeGlobal)
+      const localConfig = includeGlobal
+        ? getLocalConfigToSave(configJson, globalConfig, true)
+        : parseConfig(configJson)
 
       await onSave({
         id: apiKey?.id,
@@ -293,7 +295,7 @@ export default function KeyEditModal({
         alias: values.alias?.trim() || undefined,
         value: values.value?.trim(),
         types: selectedTypes,
-        config: Object.keys(localConfig).length > 0 ? localConfig : undefined,
+        config: localConfig,
         costMultiplier,
         usageType,
         usageUrl: usageType === 'custom' ? usageUrl?.trim() : undefined,
