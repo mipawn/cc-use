@@ -1,8 +1,8 @@
 use crate::db::Database;
 use crate::models::{
-    CostStatsSummary, TopKeyCostItem, TopProviderCostItem, TopProjectCostItem,
-    TopModelCostItem, DailyCostTrendItem, RecentRequestLogDisplay, CostStatistics,
-    DashboardCostStats, RequestLog,
+    CostStatistics, CostStatsSummary, DailyCostTrendItem, DashboardCostStats,
+    PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog, TopKeyCostItem,
+    TopModelCostItem, TopProjectCostItem, TopProviderCostItem,
 };
 
 impl Database {
@@ -299,7 +299,41 @@ impl Database {
         // Daily trend
         let daily_trend = self.request_log_get_daily_trend(30)?;
 
-        // Recent requests
+        Ok(CostStatistics {
+            summary,
+            top_keys,
+            top_providers,
+            top_projects,
+            top_models,
+            daily_trend,
+        })
+    }
+
+    pub fn request_log_get_recent_paginated(
+        &self,
+        time_range: &str,
+        page: i64,
+        page_size: i64,
+    ) -> Result<PaginatedRecentRequests, rusqlite::Error> {
+        let page = page.max(1);
+        let page_size = page_size.max(1).min(100);
+        let offset = (page - 1) * page_size;
+        let where_clause = self.time_range_where("r.created_at", time_range);
+
+        let total: i64 = self.conn.query_row(
+            &format!(
+                "SELECT COUNT(*)
+                 FROM request_logs r
+                 LEFT JOIN api_keys k ON r.api_key_id = k.id
+                 LEFT JOIN providers p ON r.provider_id = p.id
+                 LEFT JOIN projects pr ON r.project_id = pr.id
+                 {}",
+                if where_clause.is_empty() { "" } else { &where_clause }
+            ),
+            [],
+            |row| row.get(0),
+        )?;
+
         let mut stmt = self.conn.prepare(
             &format!(
                 "SELECT r.id, r.model, k.alias, p.name, pr.name,
@@ -309,12 +343,12 @@ impl Database {
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
-                 {} ORDER BY r.created_at DESC LIMIT 20",
+                 {} ORDER BY r.created_at DESC LIMIT ?1 OFFSET ?2",
                 if where_clause.is_empty() { "" } else { &where_clause }
             )
         )?;
-        let recent_requests: Vec<RecentRequestLogDisplay> = stmt
-            .query_map([], |row| {
+        let items: Vec<RecentRequestLogDisplay> = stmt
+            .query_map([page_size, offset], |row| {
                 Ok(RecentRequestLogDisplay {
                     id: row.get(0)?,
                     model: row.get(1)?,
@@ -332,14 +366,11 @@ impl Database {
             .filter_map(|r| r.ok())
             .collect();
 
-        Ok(CostStatistics {
-            summary,
-            top_keys,
-            top_providers,
-            top_projects,
-            top_models,
-            daily_trend,
-            recent_requests,
+        Ok(PaginatedRecentRequests {
+            items,
+            total,
+            page,
+            page_size,
         })
     }
 

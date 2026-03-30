@@ -4,6 +4,7 @@ import { getApi } from '../api'
  * 展示 API 请求费用、Top 10 排行、费用趋势、最近请求
  */
 import { useEffect, useState } from 'react'
+import type { TablePaginationConfig } from 'antd'
 import { Typography, Card, Segmented, Table, Tag, Spin, theme, Space, Statistic, Button } from 'antd'
 import {
   DollarOutlined,
@@ -19,7 +20,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import type { CostStatistics, StatsTimeRange } from '@shared/types'
+import type { CostStatistics, PaginatedRecentRequests, StatsTimeRange } from '@shared/types'
 import ModelPricingModal from '../components/common/ModelPricingModal'
 import styles from './Statistics.module.css'
 
@@ -42,6 +43,10 @@ export default function Statistics() {
   const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
   const [stats, setStats] = useState<CostStatistics | null>(null)
   const [loading, setLoading] = useState(true)
+  const [recentRequests, setRecentRequests] = useState<PaginatedRecentRequests | null>(null)
+  const [recentLoading, setRecentLoading] = useState(true)
+  const [recentPage, setRecentPage] = useState(1)
+  const [recentPageSize, setRecentPageSize] = useState(10)
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
   const [pricingModalOpen, setPricingModalOpen] = useState(false)
 
@@ -59,6 +64,30 @@ export default function Statistics() {
     }
 
     fetchStats()
+  }, [timeRange])
+
+  useEffect(() => {
+    const fetchRecentRequests = async () => {
+      setRecentLoading(true)
+      try {
+        const data = await getApi().requestLog.getRecentPaginated(
+          timeRange,
+          recentPage,
+          recentPageSize,
+        )
+        setRecentRequests(data)
+      } catch (error) {
+        console.error('Failed to fetch recent requests:', error)
+      } finally {
+        setRecentLoading(false)
+      }
+    }
+
+    fetchRecentRequests()
+  }, [timeRange, recentPage, recentPageSize])
+
+  useEffect(() => {
+    setRecentPage(1)
   }, [timeRange])
 
   const timeRangeOptions = [
@@ -189,6 +218,11 @@ export default function Statistics() {
   ]
 
   const hasData = stats && stats.summary.totalRequests > 0
+
+  const handleRecentTableChange = (pagination: TablePaginationConfig) => {
+    setRecentPage(pagination.current || 1)
+    setRecentPageSize(pagination.pageSize || 10)
+  }
 
   return (
     <div className={styles.container}>
@@ -441,11 +475,20 @@ export default function Statistics() {
                 }
               >
                 <Table
-                  dataSource={stats!.recentRequests}
+                  dataSource={recentRequests?.items || []}
                   columns={recentColumns}
                   rowKey='id'
                   size='small'
-                  pagination={{ pageSize: 10 }}
+                  loading={recentLoading}
+                  onChange={handleRecentTableChange}
+                  pagination={{
+                    current: recentRequests?.page || recentPage,
+                    pageSize: recentRequests?.pageSize || recentPageSize,
+                    total: recentRequests?.total || 0,
+                    showSizeChanger: true,
+                    pageSizeOptions: ['10', '20', '50', '100'],
+                    showTotal: (total) => `共 ${total} 条`,
+                  }}
                   scroll={{ x: 1000 }}
                 />
               </Card>

@@ -444,7 +444,6 @@ pub struct CostStatistics {
     pub top_projects: Vec<TopProjectCostItem>,
     pub top_models: Vec<TopModelCostItem>,
     pub daily_trend: Vec<DailyCostTrendItem>,
-    pub recent_requests: Vec<RecentRequestLogDisplay>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

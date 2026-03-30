@@ -1,5 +1,7 @@
 use crate::db::Database;
-use crate::models::{CostStatistics, DashboardCostStats, UsageStats, ModelPricing};
+use crate::models::{
+    CostStatistics, DashboardCostStats, ModelPricing, PaginatedRecentRequests, UsageStats,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -62,6 +64,18 @@ pub fn request_log_get_cost_statistics(
 ) -> Result<CostStatistics, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.request_log_get_cost_statistics(&time_range).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn request_log_get_recent_paginated(
+    db: State<'_, Arc<Mutex<Database>>>,
+    time_range: String,
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<PaginatedRecentRequests, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.request_log_get_recent_paginated(&time_range, page.unwrap_or(1), page_size.unwrap_or(10))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -493,7 +493,6 @@ export interface CostStatistics {
   topProjects: TopProjectCostItem[]
   topModels: TopModelCostItem[]
   dailyTrend: DailyCostTrendItem[]
-  recentRequests: RecentRequestLogDisplay[]
 }
 
 export interface DashboardCostStats {
