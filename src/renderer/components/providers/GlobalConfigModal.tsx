@@ -59,16 +59,16 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
   const handleSaveClaude = async () => {
     const config = validateJson(claudeJson)
     if (config === null) {
-      setClaudeError('JSON 格式错误')
+      setClaudeError(t('globalConfig.jsonFormatError'))
       return
     }
     setClaudeError(null)
     setClaudeSaving(true)
     try {
       await updateGlobalSettings({ claudeConfig: config })
-      message.success('Claude Code 配置已保存')
+      message.success(t('globalConfig.claudeConfigSaved'))
     } catch {
-      message.error('保存失败')
+      message.error(t('globalConfig.saveFailed'))
     } finally {
       setClaudeSaving(false)
     }
@@ -78,16 +78,16 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
   const handleSaveCodex = async () => {
     const config = validateJson(codexJson)
     if (config === null) {
-      setCodexError('JSON 格式错误')
+      setCodexError(t('globalConfig.jsonFormatError'))
       return
     }
     setCodexError(null)
     setCodexSaving(true)
     try {
       await updateGlobalSettings({ codexConfig: config })
-      message.success('Codex CLI 配置已保存')
+      message.success(t('globalConfig.codexConfigSaved'))
     } catch {
-      message.error('保存失败')
+      message.error(t('globalConfig.saveFailed'))
     } finally {
       setCodexSaving(false)
     }

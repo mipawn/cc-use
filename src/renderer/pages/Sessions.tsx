@@ -1,12 +1,16 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Card, Table, Button, Space, Tag, Modal, Input, Select, message, Popconfirm, Tooltip, Alert } from 'antd'
+import { Card, Table, Button, Space, Tag, Modal, Input, Select, Popconfirm, Tooltip, Alert } from 'antd'
 import { DeleteOutlined, CopyOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { useTranslation } from 'react-i18next'
+import { useAppMessage } from '../hooks/useAppMessage'
 import { getApi } from '../api'
 import type { ClaudeSession } from '../api/types'
 
 const { Search } = Input
 
 export default function Sessions() {
+  const { t } = useTranslation()
+  const message = useAppMessage()
   const [sessions, setSessions] = useState<ClaudeSession[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([])
@@ -21,7 +25,7 @@ export default function Sessions() {
       const data = await getApi().sessions.scanSessions()
       setSessions(data)
     } catch (error) {
-      message.error('加载会话失败')
+      message.error(t('sessions.loadFailed'))
     } finally {
       setLoading(false)
     }
@@ -60,34 +64,34 @@ export default function Sessions() {
   const handleDelete = async (sessionIds: string[]) => {
     try {
       await getApi().sessions.deleteSessions(sessionIds)
-      message.success(`已删除 ${sessionIds.length} 个会话`)
+      message.success(t('sessions.deleteSuccess', { count: sessionIds.length }))
       setSelectedRowKeys([])
       loadSessions()
     } catch (error) {
-      message.error('删除失败')
+      message.error(t('sessions.deleteFailed'))
     }
   }
 
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return
     Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除选中的 ${selectedRowKeys.length} 个会话吗？此操作将删除对应的 JSONL 文件和附件目录。`,
+      title: t('sessions.confirmDelete'),
+      content: t('sessions.confirmDeleteContent', { count: selectedRowKeys.length }),
       onOk: () => handleDelete(selectedRowKeys),
     })
   }
 
   const handleCleanOld = (days: number) => {
     Modal.confirm({
-      title: '确认清理',
-      content: `确定要删除 ${days} 天前的所有会话吗？`,
+      title: t('sessions.confirmClean'),
+      content: t('sessions.confirmCleanDays', { days }),
       onOk: async () => {
         try {
           const count = await getApi().sessions.cleanOldSessions(days)
-          message.success(`已清理 ${count} 个会话`)
+          message.success(t('sessions.cleanSuccess', { count }))
           loadSessions()
         } catch (error) {
-          message.error('清理失败')
+          message.error(t('sessions.cleanFailed'))
         }
       },
     })
@@ -95,15 +99,15 @@ export default function Sessions() {
 
   const handleKeepRecent = (count: number) => {
     Modal.confirm({
-      title: '确认清理',
-      content: `每个项目只保留最近 ${count} 个会话，删除其余的？`,
+      title: t('sessions.confirmClean'),
+      content: t('sessions.confirmKeepRecent', { count }),
       onOk: async () => {
         try {
           const deleted = await getApi().sessions.keepRecentSessions(count)
-          message.success(`已清理 ${deleted} 个会话`)
+          message.success(t('sessions.cleanSuccess', { count: deleted }))
           loadSessions()
         } catch (error) {
-          message.error('清理失败')
+          message.error(t('sessions.cleanFailed'))
         }
       },
     })
@@ -111,7 +115,7 @@ export default function Sessions() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-    message.success('已复制')
+    message.success(t('sessions.copied'))
   }
 
   const formatSize = (bytes: number) => {
@@ -123,7 +127,7 @@ export default function Sessions() {
 
   const formatTime = (timestamp: number) => {
     if (timestamp === 0) return '-'
-    return new Date(timestamp * 1000).toLocaleString('zh-CN')
+    return new Date(timestamp * 1000).toLocaleString()
   }
 
   const getProjectName = (path: string) => {
@@ -147,7 +151,7 @@ export default function Sessions() {
 
   const columns = [
     {
-      title: '项目',
+      title: t('sessions.columnProject'),
       dataIndex: 'projectPath',
       key: 'projectPath',
       width: 180,
@@ -170,18 +174,18 @@ export default function Sessions() {
       ),
     },
     {
-      title: '首条消息',
+      title: t('sessions.columnFirstMessage'),
       dataIndex: 'firstMessage',
       key: 'firstMessage',
       ellipsis: true,
       render: (text: string | undefined) => (
         <span style={{ color: text ? undefined : '#ccc', fontSize: 13 }}>
-          {text || '(无)'}
+          {text || t('sessions.noMessage')}
         </span>
       ),
     },
     {
-      title: '大小',
+      title: t('sessions.columnSize'),
       dataIndex: 'totalSize',
       key: 'totalSize',
       width: 100,
@@ -189,7 +193,7 @@ export default function Sessions() {
       render: (size: number, record: ClaudeSession) => {
         const parts: string[] = []
         if (record.jsonlSize > 0) parts.push(`JSONL: ${formatSize(record.jsonlSize)}`)
-        if (record.dirSize > 0) parts.push(`附件: ${formatSize(record.dirSize)}`)
+        if (record.dirSize > 0) parts.push(`${t('sessions.attachment')}: ${formatSize(record.dirSize)}`)
         return (
           <Tooltip title={parts.join('\n')}>
             <Tag color={size > 1024 * 1024 ? 'red' : size > 100 * 1024 ? 'orange' : 'default'}>
@@ -200,7 +204,7 @@ export default function Sessions() {
       },
     },
     {
-      title: '消息',
+      title: t('sessions.columnMessages'),
       dataIndex: 'messageCount',
       key: 'messageCount',
       width: 70,
@@ -208,7 +212,7 @@ export default function Sessions() {
       render: (count: number) => count > 0 ? count : <span style={{ color: '#ccc' }}>-</span>,
     },
     {
-      title: '最后修改',
+      title: t('sessions.columnLastModified'),
       dataIndex: 'lastModified',
       key: 'lastModified',
       width: 160,
@@ -217,13 +221,13 @@ export default function Sessions() {
       render: (time: number) => <span style={{ fontSize: 13 }}>{formatTime(time)}</span>,
     },
     {
-      title: '操作',
+      title: t('sessions.columnAction'),
       key: 'action',
       width: 60,
       render: (_: any, record: ClaudeSession) => (
         <Popconfirm
-          title="确定删除此会话？"
-          description="将删除 JSONL 文件及附件目录"
+          title={t('sessions.confirmDeleteSingle')}
+          description={t('sessions.confirmDeleteSingleDesc')}
           onConfirm={() => handleDelete([record.sessionId])}
         >
           <Button type="link" size="small" danger icon={<DeleteOutlined />} />
@@ -243,24 +247,20 @@ export default function Sessions() {
           closable
           onClose={() => setShowInfo(false)}
           style={{ marginBottom: 16 }}
-          message="关于会话管理"
+          message={t('sessions.infoTitle')}
           description={
             <div style={{ fontSize: 13, lineHeight: 1.8 }}>
               <p style={{ margin: '4px 0' }}>
-                <strong>功能范围：</strong>仅管理 Claude Code 的会话文件（<code>~/.claude/projects/</code> 下的 JSONL 及附件），
-                帮助你了解磁盘占用并清理不需要的旧会话。
+                <strong>{t('sessions.infoScopeLabel')}</strong>{t('sessions.infoScope')}
               </p>
               <p style={{ margin: '4px 0' }}>
-                <strong>不包含内容预览：</strong>会话 JSONL 格式随版本迭代差异较大（包含 file-history-snapshot、progress、tool-results、subagent 等多种类型），
-                解析复杂且显示效果不佳。如需查看会话内容，建议直接使用 <code>claude --resume</code> 命令。
+                <strong>{t('sessions.infoNoPreviewLabel')}</strong>{t('sessions.infoNoPreview')}
               </p>
               <p style={{ margin: '4px 0' }}>
-                <strong>不管理 Codex 会话：</strong>Codex 使用完全不同的存储格式（SQLite + 独立 JSONL schema），
-                且 Codex 仍在快速迭代，格式变化频繁，暂不支持。
+                <strong>{t('sessions.infoNoCodexLabel')}</strong>{t('sessions.infoNoCodex')}
               </p>
               <p style={{ margin: '4px 0' }}>
-                <strong>不修改 history.jsonl：</strong>该文件是 Claude Code CLI 正在使用的全局历史索引，
-                删除会话文件时不会改写它，避免与 CLI 产生冲突。
+                <strong>{t('sessions.infoNoHistoryLabel')}</strong>{t('sessions.infoNoHistory')}
               </p>
             </div>
           }
@@ -270,8 +270,8 @@ export default function Sessions() {
       <Card
         title={
           <Space>
-            会话管理
-            <Tag color="blue">{filteredSessions.length} 个会话</Tag>
+            {t('sessions.title')}
+            <Tag color="blue">{t('sessions.sessionCount', { count: filteredSessions.length })}</Tag>
             <Tag color="orange">{formatSize(totalSize)}</Tag>
             <Button
               type="text"
@@ -283,10 +283,10 @@ export default function Sessions() {
         }
         extra={
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={loadSessions} loading={loading}>刷新</Button>
-            <Button onClick={() => handleKeepRecent(10)}>每项目保留10个</Button>
-            <Button onClick={() => handleCleanOld(30)}>清理30天前</Button>
-            <Button onClick={() => handleCleanOld(60)}>清理60天前</Button>
+            <Button icon={<ReloadOutlined />} onClick={loadSessions} loading={loading}>{t('sessions.refresh')}</Button>
+            <Button onClick={() => handleKeepRecent(10)}>{t('sessions.keepPerProject', { count: 10 })}</Button>
+            <Button onClick={() => handleCleanOld(30)}>{t('sessions.cleanOlderThan', { days: 30 })}</Button>
+            <Button onClick={() => handleCleanOld(60)}>{t('sessions.cleanOlderThan', { days: 60 })}</Button>
           </Space>
         }
         style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
@@ -294,7 +294,7 @@ export default function Sessions() {
       >
         <Space style={{ marginBottom: 16 }} wrap>
           <Search
-            placeholder="搜索项目、会话ID或消息内容"
+            placeholder={t('sessions.searchPlaceholder')}
             style={{ width: 280 }}
             onChange={e => setSearchText(e.target.value)}
             allowClear
@@ -304,7 +304,7 @@ export default function Sessions() {
             value={sizeFilter}
             onChange={setSizeFilter}
             options={[
-              { label: '全部大小', value: 'all' },
+              { label: t('sessions.allSizes'), value: 'all' },
               { label: '> 100 KB', value: '0.1' },
               { label: '> 1 MB', value: '1' },
               { label: '> 5 MB', value: '5' },
@@ -315,10 +315,10 @@ export default function Sessions() {
             value={timeFilter}
             onChange={setTimeFilter}
             options={[
-              { label: '全部时间', value: 'all' },
-              { label: '7天前', value: '7' },
-              { label: '30天前', value: '30' },
-              { label: '60天前', value: '60' },
+              { label: t('sessions.allTimes'), value: 'all' },
+              { label: t('sessions.daysAgo', { days: 7 }), value: '7' },
+              { label: t('sessions.daysAgo', { days: 30 }), value: '30' },
+              { label: t('sessions.daysAgo', { days: 60 }), value: '60' },
             ]}
           />
           {selectedRowKeys.length > 0 && (
@@ -327,7 +327,7 @@ export default function Sessions() {
               icon={<DeleteOutlined />}
               onClick={handleBatchDelete}
             >
-              删除选中 ({selectedRowKeys.length})
+              {t('sessions.deleteSelected', { count: selectedRowKeys.length })}
             </Button>
           )}
         </Space>
@@ -346,7 +346,7 @@ export default function Sessions() {
           pagination={{
             pageSize: 50,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条`,
+            showTotal: (total) => t('sessions.total', { total }),
           }}
         />
       </Card>
