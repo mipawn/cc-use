@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.3.1] - 2026-03-31
+
+### Fixed
+
+- 修复快速添加供应商无效的问题
+
 ## [2.3.0] - 2026-03-30
 
 ### Added
