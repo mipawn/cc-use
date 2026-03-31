@@ -5,6 +5,29 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.3.2] - 2026-03-31
+
+### Fixed
+
+- 同步 pnpm-lock.yaml，移除残留的 autoprefixer 条目（修复 CI frozen-lockfile 构建失败）
+- 消除 Rust 生产代码中所有危险的 `.unwrap()` 调用，防止 Mutex 中毒导致 proxy 崩溃
+- `HeaderValue::from_str().unwrap()` 改为安全处理，避免非 ASCII API key 导致 panic
+- DB 写入后 re-fetch 使用 proper error 替代 `.unwrap()`
+- 消除静默吞错误：proxy 用量记录、终端启动日志、导入导出操作失败改为日志记录或用户提示
+- 设置加载/保存失败时显示用户提示（之前仅 console.error）
+- Keys.tsx `as any` 类型断言改为类型安全的展开
+
+### Changed
+
+- `provider_get()` 从全表扫描改为直接 `WHERE id = ?1` 查询
+- 提取 `row_to_project`/`row_to_provider`/`row_to_api_key` 辅助函数，消除 DB 层重复映射代码
+- `add_field!` 宏统一定义在 `db/mod.rs`，移除三处重复定义
+- 删除未使用的 `SessionManager` 和 `parse_session_token` 死代码
+- tokio features 从 `"full"` 精简为实际使用的 5 个 feature
+- 移除未使用的 `autoprefixer` 依赖
+- Sessions.tsx 全部硬编码中文字符串改为 i18n，支持中英双语
+- GlobalConfigModal.tsx 硬编码中文改为 i18n
+
 ## [2.3.1] - 2026-03-31
 
 ### Fixed
