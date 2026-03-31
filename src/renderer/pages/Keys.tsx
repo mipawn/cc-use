@@ -775,9 +775,9 @@ export default function Keys() {
         }}
         onSave={async (input) => {
           if (input.id) {
-            await getApi().provider.update(input as any)
+            await getApi().provider.update({ ...input, id: input.id })
           } else {
-            await getApi().provider.create(input as any)
+            await getApi().provider.create(input)
           }
           fetchProviders()
         }}
