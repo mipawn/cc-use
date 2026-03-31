@@ -395,7 +395,9 @@ fn record_usage(
     };
 
     if let Ok(db) = ctx.db.lock() {
-        let _ = db.request_log_create(&log);
+        if let Err(e) = db.request_log_create(&log) {
+            log::error!("Failed to record usage log: {}", e);
+        }
     } else {
         log::error!("Failed to lock database for usage recording");
     }

@@ -1,5 +1,6 @@
 import { getApi } from '../api'
 import { create } from 'zustand'
+import { message } from 'antd'
 import i18n from '../locales'
 import type { GlobalSettings, TerminalType } from '@shared/types'
 
@@ -81,6 +82,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ globalSettings: settings })
     } catch (error) {
       console.error('Failed to fetch global settings:', error)
+      message.error(i18n.t('settings.fetchFailed'))
     }
   },
 
@@ -90,6 +92,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ globalSettings: settings })
     } catch (error) {
       console.error('Failed to update global settings:', error)
+      message.error(i18n.t('settings.updateFailed'))
     }
   },
 }))

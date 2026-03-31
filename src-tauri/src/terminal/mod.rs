@@ -261,7 +261,9 @@ pub fn launch_terminal(
         .ok_or("No terminal available")?;
     launch_with_preview(strategy.as_ref(), &project_path, &preview)?;
 
-    let _ = db.project_update_last_opened(project_id);
+    if let Err(e) = db.project_update_last_opened(project_id) {
+        log::error!("Failed to update project last_opened_at: {}", e);
+    }
 
     let provider = db.provider_get(&provider_id).ok().flatten();
     let api_key = db.api_key_get(&api_key_id).ok().flatten();
@@ -277,7 +279,9 @@ pub fn launch_terminal(
         launched_at: chrono::Utc::now().to_rfc3339(),
         duration: None,
     };
-    let _ = db.usage_log_create(&usage_log);
+    if let Err(e) = db.usage_log_create(&usage_log) {
+        log::error!("Failed to create usage log: {}", e);
+    }
 
     Ok(())
 }

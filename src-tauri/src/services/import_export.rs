@@ -88,7 +88,10 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
         // Delete existing if overwriting
         if let Some(existing_provider) = exists {
             if options.overwrite {
-                let _ = db.provider_delete(&existing_provider.id);
+                if let Err(e) = db.provider_delete(&existing_provider.id) {
+                    errors.push(format!("Failed to delete existing provider {}: {}", ep.name, e));
+                    continue;
+                }
             }
         }
 
@@ -173,7 +176,7 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {
-                        let _ = db.api_key_create(&CreateApiKeyInput {
+                        if let Err(e) = db.api_key_create(&CreateApiKeyInput {
                             provider_id: provider.id.clone(),
                             alias: ek.alias.clone(),
                             value: ek.value.clone(),
@@ -186,7 +189,9 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
                             usage_url: None,
                             usage_path: None,
                             usage_headers: None,
-                        });
+                        }) {
+                            errors.push(format!("Failed to import key for {}: {}", ep.name, e));
+                        }
                     }
                     imported += 1;
                 }

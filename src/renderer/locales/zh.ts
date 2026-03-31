@@ -63,6 +63,8 @@ export default {
     selectDefaultKey: '选择默认密钥',
     defaultTerminal: '默认终端',
     defaultTerminalDesc: '打开项目时使用的终端应用',
+    fetchFailed: '加载设置失败',
+    updateFailed: '保存设置失败',
     about: '关于',
     version: '版本',
     checkUpdate: '检查更新',

@@ -60,6 +60,8 @@ export default {
     proxyStopWarning: 'Usage tracking will be disabled when proxy is stopped',
     defaultTerminal: 'Default Terminal',
     defaultTerminalDesc: 'Terminal app to use when opening projects',
+    fetchFailed: 'Failed to load settings',
+    updateFailed: 'Failed to save settings',
     about: 'About',
     version: 'Version',
     checkUpdate: 'Check for Updates',
