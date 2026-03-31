@@ -47,8 +47,51 @@ impl Database {
     }
 
     pub fn provider_get(&self, id: &str) -> Result<Option<Provider>, rusqlite::Error> {
-        let providers = self.provider_list()?;
-        Ok(providers.into_iter().find(|p| p.id == id))
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, base_url, type, website, remark, token, icon,
+                    wallet_balance_type, wallet_balance_url, wallet_balance_path,
+                    wallet_balance_headers, wallet_balance_user_id,
+                    cached_wallet_balance, last_balance_checked_at,
+                    usage_type, usage_url, usage_path, usage_headers,
+                    cached_usage, last_usage_checked_at,
+                    cost_multiplier, is_active
+             FROM providers WHERE id = ?1"
+        )?;
+
+        let mut rows = stmt.query_map([id], |row| {
+            Ok(Provider {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                base_url: row.get(2)?,
+                provider_type: row.get(3)?,
+                website: row.get(4)?,
+                remark: row.get(5)?,
+                token: row.get(6)?,
+                icon: row.get(7)?,
+                wallet_balance_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "none".to_string()),
+                wallet_balance_url: row.get(9)?,
+                wallet_balance_path: row.get(10)?,
+                wallet_balance_headers: row.get(11)?,
+                wallet_balance_user_id: row.get(12)?,
+                cached_wallet_balance: row.get(13)?,
+                last_balance_checked_at: row.get(14)?,
+                usage_type: row.get::<_, Option<String>>(15)?.unwrap_or_else(|| "none".to_string()),
+                usage_url: row.get(16)?,
+                usage_path: row.get(17)?,
+                usage_headers: row.get(18)?,
+                cached_usage: row.get::<_, Option<String>>(19)?
+                    .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
+                last_usage_checked_at: row.get(20)?,
+                cost_multiplier: row.get(21)?,
+                is_active: row.get::<_, i32>(22)? != 0,
+            })
+        })?;
+
+        match rows.next() {
+            Some(Ok(p)) => Ok(Some(p)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
     }
 
     pub fn provider_create(&self, input: &CreateProviderInput) -> Result<Provider, rusqlite::Error> {
@@ -205,6 +248,38 @@ mod tests {
             usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
         });
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_provider_get_nonexistent() {
+        let db = Database::new_in_memory().unwrap();
+        let result = db.provider_get("nonexistent-id").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_provider_get_direct_query() {
+        let db = Database::new_in_memory().unwrap();
+        // Create multiple providers
+        for i in 0..5 {
+            db.provider_create(&CreateProviderInput {
+                name: format!("Provider {}", i),
+                base_url: format!("https://api{}.test.com", i),
+                provider_type: None, website: None, remark: None, token: None, icon: None,
+                wallet_balance_type: None, wallet_balance_url: None, wallet_balance_path: None,
+                wallet_balance_headers: None, wallet_balance_user_id: None,
+                usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
+            }).unwrap();
+        }
+
+        let all = db.provider_list().unwrap();
+        assert_eq!(all.len(), 5);
+
+        // provider_get should find the specific one without loading all
+        let target = &all[2];
+        let fetched = db.provider_get(&target.id).unwrap().unwrap();
+        assert_eq!(fetched.id, target.id);
+        assert_eq!(fetched.name, target.name);
     }
 
     #[test]
