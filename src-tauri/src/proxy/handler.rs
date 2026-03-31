@@ -20,7 +20,7 @@ use std::task::{Context, Poll};
 pub async fn proxy_handler(
     AxumState(state): AxumState<Arc<ProxyState>>,
     req: Request<Body>,
-) -> Response<Body> {
+) -> Result<Response<Body>, Response<Body>> {
     state.request_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let start_time = std::time::Instant::now();
 
@@ -41,10 +41,10 @@ pub async fn proxy_handler(
     };
 
     if session_token.is_empty() {
-        return error_response(StatusCode::UNAUTHORIZED, "No authorization header");
+        return Err(error_response(StatusCode::UNAUTHORIZED, "No authorization header"));
     }
     if !session_token.starts_with("session-") {
-        return error_response(StatusCode::UNAUTHORIZED, "Invalid session. Please launch from CC-Use");
+        return Err(error_response(StatusCode::UNAUTHORIZED, "Invalid session. Please launch from CC-Use"));
     }
 
     // Check for WebSocket upgrade before consuming the request
@@ -59,7 +59,7 @@ pub async fn proxy_handler(
 
     // ── Resolve session, provider, and API key atomically ──
     let resolved = {
-        let db = state.db.lock().unwrap();
+        let db = lock_or_error(&state.db, "Database lock failed")?;
         db.proxy_session_get(&session_token)
             .ok()
             .flatten()
@@ -71,42 +71,42 @@ pub async fn proxy_handler(
     };
 
     let (session, provider, api_key) = if let Some((s, p, k)) = resolved {
-        let mut sessions = state.sessions.lock().unwrap();
+        let mut sessions = lock_or_error(&state.sessions, "Session lock failed")?;
         sessions.insert(s.session_token.clone(), s.clone());
         (s, p, k)
     } else {
         let cached = {
-            let sessions = state.sessions.lock().unwrap();
+            let sessions = lock_or_error(&state.sessions, "Session lock failed")?;
             sessions.get(session_token.as_str()).cloned()
         };
         match cached {
             Some(s) => {
-                let db = state.db.lock().unwrap();
+                let db = lock_or_error(&state.db, "Database lock failed")?;
                 let provider = db.provider_get(&s.provider_id).ok().flatten();
                 let api_key = db.api_key_get(&s.api_key_id).ok().flatten();
                 (s, provider, api_key)
             }
             None => {
-                return error_response(StatusCode::UNAUTHORIZED, "Session not found or expired");
+                return Err(error_response(StatusCode::UNAUTHORIZED, "Session not found or expired"));
             }
         }
     };
 
     let provider = match provider {
         Some(p) => p,
-        None => return error_response(StatusCode::NOT_FOUND, "Provider not found"),
+        None => return Err(error_response(StatusCode::NOT_FOUND, "Provider not found")),
     };
 
     let api_key = match api_key {
         Some(k) => k,
-        None => return error_response(StatusCode::NOT_FOUND, "API key not found"),
+        None => return Err(error_response(StatusCode::NOT_FOUND, "API key not found")),
     };
 
     // ── Build upstream URL ──
     let base_url = provider.base_url.trim_end_matches('/');
     let parsed = match url::Url::parse(base_url) {
         Ok(u) => u,
-        Err(_) => return error_response(StatusCode::BAD_GATEWAY, "Invalid provider base URL"),
+        Err(_) => return Err(error_response(StatusCode::BAD_GATEWAY, "Invalid provider base URL")),
     };
 
     let target_origin = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
@@ -118,13 +118,13 @@ pub async fn proxy_handler(
         let (mut parts, _body) = req.into_parts();
         let ws_upgrade: WebSocketUpgrade = match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
             Ok(ws) => ws,
-            Err(_) => return error_response(StatusCode::BAD_REQUEST, "WebSocket upgrade failed"),
+            Err(_) => return Err(error_response(StatusCode::BAD_REQUEST, "WebSocket upgrade failed")),
         };
         let ws_url = to_ws_url(&upstream_url);
         let real_key = api_key.value.clone();
-        return ws_upgrade
+        return Ok(ws_upgrade
             .on_upgrade(move |socket| ws_relay(socket, ws_url, real_key))
-            .into_response();
+            .into_response());
     }
 
     // ── HTTP proxy path ──
@@ -133,8 +133,14 @@ pub async fn proxy_handler(
 
     // Replace auth headers with real API key
     let bearer = format!("Bearer {}", api_key.value);
-    headers.insert("authorization", HeaderValue::from_str(&bearer).unwrap());
-    headers.insert("x-api-key", HeaderValue::from_str(&api_key.value).unwrap());
+    match HeaderValue::from_str(&bearer) {
+        Ok(v) => { headers.insert("authorization", v); }
+        Err(_) => return Err(error_response(StatusCode::BAD_REQUEST, "API key contains invalid characters")),
+    }
+    match HeaderValue::from_str(&api_key.value) {
+        Ok(v) => { headers.insert("x-api-key", v); }
+        Err(_) => return Err(error_response(StatusCode::BAD_REQUEST, "API key contains invalid characters")),
+    }
 
     // Remove host header (reqwest will set it)
     headers.remove("host");
@@ -145,7 +151,7 @@ pub async fn proxy_handler(
 
     let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
         Ok(b) => b,
-        Err(_) => return error_response(StatusCode::BAD_REQUEST, "Failed to read request body"),
+        Err(_) => return Err(error_response(StatusCode::BAD_REQUEST, "Failed to read request body")),
     };
 
     // Parse request model from body
@@ -169,8 +175,10 @@ pub async fn proxy_handler(
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
         Err(e) => {
-            *state.last_error.lock().unwrap() = Some(e.to_string());
-            return error_response(StatusCode::BAD_GATEWAY, &format!("Upstream error: {}", e));
+            if let Ok(mut last_err) = state.last_error.lock() {
+                *last_err = Some(e.to_string());
+            }
+            return Err(error_response(StatusCode::BAD_GATEWAY, &format!("Upstream error: {}", e)));
         }
     };
 
@@ -214,20 +222,20 @@ pub async fn proxy_handler(
             }
         }
 
-        return response
+        return Ok(response
             .body(Body::from_stream(tracking_stream))
             .unwrap_or_else(|_| {
                 Response::builder()
                     .status(500)
                     .body(Body::from("Internal error"))
                     .unwrap()
-            });
+            }));
     }
 
     let resp_bytes = match upstream_resp.bytes().await {
         Ok(b) => b,
         Err(e) => {
-            return error_response(StatusCode::BAD_GATEWAY, &format!("Failed to read response: {}", e));
+            return Err(error_response(StatusCode::BAD_GATEWAY, &format!("Failed to read response: {}", e)));
         }
     };
 
@@ -267,25 +275,33 @@ pub async fn proxy_handler(
         }
     }
 
-    response
+    Ok(response
         .body(Body::from(resp_bytes.to_vec()))
         .unwrap_or_else(|_| {
             Response::builder()
                 .status(500)
                 .body(Body::from("Internal error"))
                 .unwrap()
-        })
+        }))
 }
 
 // ── Shared helpers ──
 
+/// Try to lock a Mutex, returning an error HTTP response on poisoned mutex.
+fn lock_or_error<'a, T>(mutex: &'a Mutex<T>, msg: &str) -> Result<std::sync::MutexGuard<'a, T>, Response<Body>> {
+    mutex.lock().map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, msg))
+}
+
 fn error_response(status: StatusCode, message: &str) -> Response<Body> {
     let body = serde_json::json!({ "error": message });
+    let json = serde_json::to_string(&body).unwrap_or_else(|_| r#"{"error":"internal error"}"#.to_string());
     Response::builder()
         .status(status)
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&body).unwrap()))
-        .unwrap()
+        .body(Body::from(json))
+        .unwrap_or_else(|_| {
+            Response::new(Body::from(r#"{"error":"internal error"}"#))
+        })
 }
 
 fn decompress(data: &[u8], encoding: &str) -> Vec<u8> {
@@ -378,8 +394,11 @@ fn record_usage(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    let db = ctx.db.lock().unwrap();
-    let _ = db.request_log_create(&log);
+    if let Ok(db) = ctx.db.lock() {
+        let _ = db.request_log_create(&log);
+    } else {
+        log::error!("Failed to lock database for usage recording");
+    }
 }
 
 /// Stream wrapper that intercepts SSE chunks for usage tracking,
@@ -529,4 +548,36 @@ fn extract_host(url: &str) -> Option<String> {
             }
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_response_does_not_panic() {
+        let resp = error_response(StatusCode::BAD_REQUEST, "test error");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_error_response_contains_json_body() {
+        let resp = error_response(StatusCode::NOT_FOUND, "not found");
+        assert_eq!(
+            resp.headers().get("content-type").unwrap().to_str().unwrap(),
+            "application/json"
+        );
+    }
+
+    #[test]
+    fn test_error_response_various_status_codes() {
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+        ] {
+            let resp = error_response(status, "msg");
+            assert_eq!(resp.status(), status);
+        }
+    }
 }

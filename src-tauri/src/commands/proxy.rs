@@ -75,7 +75,7 @@ pub async fn proxy_start_inner(
         .map_err(|e| format!("Failed to bind port {}: {}", port, e))?;
 
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
-    *get_shutdown_lock().lock().unwrap() = Some(shutdown_tx);
+    *get_shutdown_lock().lock().map_err(|e| e.to_string())? = Some(shutdown_tx);
     PROXY_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
 
     tokio::spawn(async move {
@@ -94,7 +94,7 @@ pub async fn proxy_start_inner(
 #[tauri::command]
 pub async fn proxy_stop() -> Result<(), String> {
     let should_sleep = {
-        let mut lock = get_shutdown_lock().lock().unwrap();
+        let mut lock = get_shutdown_lock().lock().map_err(|e| e.to_string())?;
         if let Some(tx) = lock.take() {
             let _ = tx.send(true);
             true

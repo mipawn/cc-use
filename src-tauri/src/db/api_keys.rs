@@ -116,7 +116,7 @@ impl Database {
             ],
         )?;
 
-        self.api_key_get(&id).map(|k| k.unwrap())
+        self.api_key_get(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn api_key_update(&self, input: &UpdateApiKeyInput) -> Result<ApiKey, rusqlite::Error> {
@@ -168,7 +168,7 @@ impl Database {
         }
 
         if sets.is_empty() {
-            return self.api_key_get(&input.id).map(|k| k.unwrap());
+            return self.api_key_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);
         }
 
         let sql = format!("UPDATE api_keys SET {} WHERE id = ?", sets.join(", "));
@@ -177,7 +177,7 @@ impl Database {
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         self.conn.execute(&sql, param_refs.as_slice())?;
 
-        self.api_key_get(&input.id).map(|k| k.unwrap())
+        self.api_key_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn api_key_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
@@ -263,5 +263,46 @@ mod tests {
         let mut stmt = db.conn.prepare("SELECT COUNT(*) FROM api_keys").unwrap();
         let count: i32 = stmt.query_row([], |row| row.get(0)).unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_api_key_create_returns_proper_result() {
+        let db = Database::new_in_memory().unwrap();
+        let provider_id = create_test_provider(&db);
+        let result = db.api_key_create(&CreateApiKeyInput {
+            provider_id,
+            alias: Some("Test".to_string()),
+            value: "sk-test-456".to_string(),
+            types: None, priority: None, is_active: None, config: None,
+            cost_multiplier: None, usage_type: None, usage_url: None,
+            usage_path: None, usage_headers: None,
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_api_key_update_no_changes() {
+        use crate::models::UpdateApiKeyInput;
+        let db = Database::new_in_memory().unwrap();
+        let provider_id = create_test_provider(&db);
+        let key = db.api_key_create(&CreateApiKeyInput {
+            provider_id,
+            alias: Some("Test".to_string()),
+            value: "sk-test-789".to_string(),
+            types: None, priority: None, is_active: None, config: None,
+            cost_multiplier: None, usage_type: None, usage_url: None,
+            usage_path: None, usage_headers: None,
+        }).unwrap();
+
+        let result = db.api_key_update(&UpdateApiKeyInput {
+            id: key.id.clone(),
+            alias: None, value: None, types: None, priority: None,
+            is_exhausted: None, is_active: None, config: None,
+            cost_multiplier: None, usage_type: None, usage_url: None,
+            usage_path: None, usage_headers: None,
+            cached_usage: None, last_usage_checked_at: None,
+        });
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().value, "sk-test-789");
     }
 }

@@ -65,7 +65,7 @@ fn get_labels() -> &'static TrayLabels {
 fn should_handle_click() -> bool {
     let now = Instant::now();
     let lock = LAST_TRAY_CLICK.get_or_init(|| Mutex::new(None));
-    let mut last = lock.lock().unwrap();
+    let mut last = lock.lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(prev) = *last {
         if now.duration_since(prev) < Duration::from_millis(220) {
@@ -143,9 +143,13 @@ fn build_projects_submenu(
     labels: &TrayLabels,
 ) -> Result<Submenu<tauri::Wry>, tauri::Error> {
     let db_state = app.state::<Arc<Mutex<Database>>>();
+    let db_arc = db_state.inner().clone();
     let projects = {
-        let db = db_state.lock().unwrap();
-        db.project_list().unwrap_or_default()
+        if let Ok(db) = db_arc.lock() {
+            db.project_list().unwrap_or_default()
+        } else {
+            Vec::new()
+        }
     };
 
     let recent: Vec<_> = projects
@@ -299,8 +303,12 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let app_handle = app.clone();
             std::thread::spawn(move || {
                 let db_state = app_handle.state::<Arc<Mutex<Database>>>();
-                let db = db_state.lock().unwrap();
-                let _ = crate::terminal::launch_terminal(&db, &project_id, None, None);
+                let db_arc = db_state.inner().clone();
+                drop(db_state);
+                let lock_result = db_arc.lock();
+                if let Ok(db) = lock_result {
+                    let _ = crate::terminal::launch_terminal(&db, &project_id, None, None);
+                }
             });
         }
         _ => {}
@@ -337,7 +345,13 @@ pub fn refresh_tray_menu(app: &AppHandle) {
 /// Handle close-to-tray behavior. Returns true if the window should be hidden instead of closed.
 pub fn should_close_to_tray(app: &AppHandle) -> bool {
     let db_state = app.state::<Arc<Mutex<Database>>>();
-    let db = db_state.lock().unwrap();
-    let settings = db.settings_get().unwrap_or_default();
-    settings.close_to_tray
+    let db_arc = db_state.inner().clone();
+    drop(db_state);
+    let result = if let Ok(db) = db_arc.lock() {
+        let settings = db.settings_get().unwrap_or_default();
+        settings.close_to_tray
+    } else {
+        true // Default to close-to-tray on lock failure
+    };
+    result
 }

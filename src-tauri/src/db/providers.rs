@@ -79,7 +79,7 @@ impl Database {
             ],
         )?;
 
-        self.provider_get(&id).map(|p| p.unwrap())
+        self.provider_get(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn provider_update(&self, input: &UpdateProviderInput) -> Result<Provider, rusqlite::Error> {
@@ -128,7 +128,7 @@ impl Database {
         }
 
         if sets.is_empty() {
-            return self.provider_get(&input.id).map(|p| p.unwrap());
+            return self.provider_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);
         }
 
         let sql = format!("UPDATE providers SET {} WHERE id = ?", sets.join(", "));
@@ -137,7 +137,7 @@ impl Database {
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         self.conn.execute(&sql, param_refs.as_slice())?;
 
-        self.provider_get(&input.id).map(|p| p.unwrap())
+        self.provider_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn provider_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
@@ -191,5 +191,47 @@ mod tests {
         db.provider_delete(&provider.id).unwrap();
         let providers = db.provider_list().unwrap();
         assert_eq!(providers.len(), 0);
+    }
+
+    #[test]
+    fn test_provider_create_returns_proper_result() {
+        let db = Database::new_in_memory().unwrap();
+        let result = db.provider_create(&CreateProviderInput {
+            name: "Test".to_string(),
+            base_url: "https://api.test.com".to_string(),
+            provider_type: None, website: None, remark: None, token: None, icon: None,
+            wallet_balance_type: None, wallet_balance_url: None, wallet_balance_path: None,
+            wallet_balance_headers: None, wallet_balance_user_id: None,
+            usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
+        });
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_provider_update_no_changes() {
+        use crate::models::UpdateProviderInput;
+        let db = Database::new_in_memory().unwrap();
+        let provider = db.provider_create(&CreateProviderInput {
+            name: "Test".to_string(),
+            base_url: "https://api.test.com".to_string(),
+            provider_type: None, website: None, remark: None, token: None, icon: None,
+            wallet_balance_type: None, wallet_balance_url: None, wallet_balance_path: None,
+            wallet_balance_headers: None, wallet_balance_user_id: None,
+            usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
+        }).unwrap();
+
+        let result = db.provider_update(&UpdateProviderInput {
+            id: provider.id.clone(),
+            name: None, base_url: None, provider_type: None, website: None,
+            remark: None, token: None, icon: None,
+            wallet_balance_type: None, wallet_balance_url: None, wallet_balance_path: None,
+            wallet_balance_headers: None, wallet_balance_user_id: None,
+            cached_wallet_balance: None, last_balance_checked_at: None,
+            usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
+            cached_usage: None, last_usage_checked_at: None,
+            cost_multiplier: None, is_active: None,
+        });
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name, "Test");
     }
 }

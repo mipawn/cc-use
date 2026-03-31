@@ -15,22 +15,22 @@ impl SessionManager {
     }
 
     pub fn restore(&self, sessions: Vec<ProxySession>) {
-        let mut map = self.sessions.lock().unwrap();
+        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         for s in sessions {
             map.insert(s.session_token.clone(), s);
         }
     }
 
     pub fn get(&self, token: &str) -> Option<ProxySession> {
-        self.sessions.lock().unwrap().get(token).cloned()
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(token).cloned()
     }
 
     pub fn create(&self, session: ProxySession) {
-        self.sessions.lock().unwrap().insert(session.session_token.clone(), session);
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(session.session_token.clone(), session);
     }
 
     pub fn update_key(&self, token: &str, api_key_id: &str) -> bool {
-        let mut map = self.sessions.lock().unwrap();
+        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(s) = map.get_mut(token) {
             s.api_key_id = api_key_id.to_string();
             true
@@ -40,15 +40,15 @@ impl SessionManager {
     }
 
     pub fn delete(&self, token: &str) -> bool {
-        self.sessions.lock().unwrap().remove(token).is_some()
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).remove(token).is_some()
     }
 
     pub fn list(&self) -> Vec<ProxySession> {
-        self.sessions.lock().unwrap().values().cloned().collect()
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
     }
 
     pub fn count(&self) -> usize {
-        self.sessions.lock().unwrap().len()
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 }
 

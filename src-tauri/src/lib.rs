@@ -183,10 +183,13 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let db_state = handle2.state::<Arc<Mutex<Database>>>();
                 let should_start = {
-                    let db = db_state.lock().unwrap();
-                    db.settings_get()
-                        .map(|s| s.auto_start_proxy)
-                        .unwrap_or(false)
+                    if let Ok(db) = db_state.lock() {
+                        db.settings_get()
+                            .map(|s| s.auto_start_proxy)
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    }
                 };
                 if should_start {
                     let _ = commands::proxy::proxy_start_inner(&*db_state).await;
