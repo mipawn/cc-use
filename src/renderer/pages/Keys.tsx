@@ -52,6 +52,7 @@ import QuickAddModal from '../components/providers/QuickAddModal'
 import type { Provider, ApiKey, ProviderType } from '@shared/types'
 import { getProviderTypeConfig, formatEnvCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
+import { buildQuickAddPayload } from './keysQuickAdd'
 import styles from './Keys.module.css'
 
 // Import provider type icons
@@ -237,19 +238,13 @@ export default function Keys() {
     providerIcon: string
     keyAlias?: string
     keyValue: string
-    keyType: ProviderType
+    keyType: ProviderType[]
   }) => {
-    const newProvider = await getApi().provider.create({
-      name: data.providerName,
-      baseUrl: data.providerBaseUrl,
-      icon: data.providerIcon,
-      type: data.keyType,
-    })
+    const payload = buildQuickAddPayload(data)
+    const newProvider = await getApi().provider.create(payload.provider)
     await getApi().apiKey.create({
       providerId: newProvider.id,
-      alias: data.keyAlias,
-      value: data.keyValue,
-      types: [data.keyType],
+      ...payload.apiKey,
     })
     fetchProviders()
   }

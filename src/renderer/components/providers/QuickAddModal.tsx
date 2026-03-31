@@ -61,6 +61,8 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
     } catch (error) {
       if (error instanceof Error) {
         message.error(error.message)
+      } else {
+        message.error(t('messages.error') || '操作失败')
       }
     } finally {
       setLoading(false)
