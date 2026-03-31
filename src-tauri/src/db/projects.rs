@@ -1,6 +1,20 @@
 use crate::db::Database;
 use crate::models::{Project, CreateProjectInput, UpdateProjectInput};
 
+fn row_to_project(row: &rusqlite::Row) -> Result<Project, rusqlite::Error> {
+    Ok(Project {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        path: row.get(2)?,
+        remark: row.get(3)?,
+        provider_id: row.get(4)?,
+        api_key_id: row.get(5)?,
+        cli_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "claude".to_string()),
+        terminal_type: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "iterm2".to_string()),
+        last_opened_at: row.get(8)?,
+    })
+}
+
 impl Database {
     pub fn project_list(&self) -> Result<Vec<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
@@ -8,20 +22,7 @@ impl Database {
              FROM projects ORDER BY last_opened_at DESC NULLS LAST"
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(Project {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                remark: row.get(3)?,
-                provider_id: row.get(4)?,
-                api_key_id: row.get(5)?,
-                cli_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "claude".to_string()),
-                terminal_type: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "iterm2".to_string()),
-                last_opened_at: row.get(8)?,
-            })
-        })?;
-
+        let rows = stmt.query_map([], row_to_project)?;
         rows.collect()
     }
 
@@ -31,19 +32,7 @@ impl Database {
              FROM projects WHERE id = ?1"
         )?;
 
-        let mut rows = stmt.query_map([id], |row| {
-            Ok(Project {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                remark: row.get(3)?,
-                provider_id: row.get(4)?,
-                api_key_id: row.get(5)?,
-                cli_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "claude".to_string()),
-                terminal_type: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "iterm2".to_string()),
-                last_opened_at: row.get(8)?,
-            })
-        })?;
+        let mut rows = stmt.query_map([id], row_to_project)?;
 
         match rows.next() {
             Some(Ok(p)) => Ok(Some(p)),
@@ -58,19 +47,7 @@ impl Database {
              FROM projects WHERE path = ?1"
         )?;
 
-        let mut rows = stmt.query_map([path], |row| {
-            Ok(Project {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                remark: row.get(3)?,
-                provider_id: row.get(4)?,
-                api_key_id: row.get(5)?,
-                cli_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "claude".to_string()),
-                terminal_type: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "iterm2".to_string()),
-                last_opened_at: row.get(8)?,
-            })
-        })?;
+        let mut rows = stmt.query_map([path], row_to_project)?;
 
         match rows.next() {
             Some(Ok(p)) => Ok(Some(p)),
@@ -103,21 +80,12 @@ impl Database {
         let mut sets = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
-        macro_rules! add_field {
-            ($field:expr, $col:expr) => {
-                if let Some(ref val) = $field {
-                    sets.push(format!("{} = ?", $col));
-                    params.push(Box::new(val.clone()));
-                }
-            };
-        }
-
-        add_field!(input.name, "name");
-        add_field!(input.remark, "remark");
-        add_field!(input.provider_id, "provider_id");
-        add_field!(input.api_key_id, "api_key_id");
-        add_field!(input.cli_type, "cli_type");
-        add_field!(input.terminal_type, "terminal_type");
+        add_field!(input.name, "name", sets, params);
+        add_field!(input.remark, "remark", sets, params);
+        add_field!(input.provider_id, "provider_id", sets, params);
+        add_field!(input.api_key_id, "api_key_id", sets, params);
+        add_field!(input.cli_type, "cli_type", sets, params);
+        add_field!(input.terminal_type, "terminal_type", sets, params);
 
         if sets.is_empty() {
             return self.project_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);

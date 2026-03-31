@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, atomic::AtomicU64};
 
 pub mod handler;
-pub mod session_manager;
 pub mod usage_parser;
 pub mod key_selector;
 

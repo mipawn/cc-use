@@ -1,3 +1,15 @@
+/// Shared macro for building dynamic UPDATE queries.
+/// Pushes `"$col = ?"` into `$sets` and boxes the value into `$params`
+/// when the Option field is Some.
+macro_rules! add_field {
+    ($field:expr, $col:expr, $sets:expr, $params:expr) => {
+        if let Some(ref val) = $field {
+            $sets.push(format!("{} = ?", $col));
+            $params.push(Box::new(val.clone()));
+        }
+    };
+}
+
 pub mod providers;
 pub mod api_keys;
 pub mod projects;

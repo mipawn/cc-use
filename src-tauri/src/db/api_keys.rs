@@ -1,6 +1,36 @@
 use crate::db::Database;
 use crate::models::{ApiKey, CreateApiKeyInput, UpdateApiKeyInput, UsageData};
 
+fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
+    let types_str: Option<String> = row.get(4)?;
+    let types: Vec<String> = types_str
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| vec!["claude".to_string()]);
+
+    let config_str: Option<String> = row.get(8)?;
+    let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
+
+    Ok(ApiKey {
+        id: row.get(0)?,
+        provider_id: row.get(1)?,
+        alias: row.get(2)?,
+        value: row.get(3)?,
+        types,
+        priority: row.get(5)?,
+        is_exhausted: row.get::<_, i32>(6)? != 0,
+        is_active: row.get::<_, i32>(7)? != 0,
+        config,
+        usage_type: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "none".to_string()),
+        usage_url: row.get(10)?,
+        usage_path: row.get(11)?,
+        usage_headers: row.get(12)?,
+        cached_usage: row.get::<_, Option<String>>(13)?
+            .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
+        last_usage_checked_at: row.get(14)?,
+        cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
+    })
+}
+
 impl Database {
     pub fn api_key_list(&self, provider_id: &str) -> Result<Vec<ApiKey>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
@@ -10,36 +40,7 @@ impl Database {
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC"
         )?;
 
-        let rows = stmt.query_map([provider_id], |row| {
-            let types_str: Option<String> = row.get(4)?;
-            let types: Vec<String> = types_str
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_else(|| vec!["claude".to_string()]);
-
-            let config_str: Option<String> = row.get(8)?;
-            let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
-
-            Ok(ApiKey {
-                id: row.get(0)?,
-                provider_id: row.get(1)?,
-                alias: row.get(2)?,
-                value: row.get(3)?,
-                types,
-                priority: row.get(5)?,
-                is_exhausted: row.get::<_, i32>(6)? != 0,
-                is_active: row.get::<_, i32>(7)? != 0,
-                config,
-                usage_type: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "none".to_string()),
-                usage_url: row.get(10)?,
-                usage_path: row.get(11)?,
-                usage_headers: row.get(12)?,
-                cached_usage: row.get::<_, Option<String>>(13)?
-                    .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
-                last_usage_checked_at: row.get(14)?,
-                cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
-            })
-        })?;
-
+        let rows = stmt.query_map([provider_id], row_to_api_key)?;
         rows.collect()
     }
 
@@ -51,35 +52,7 @@ impl Database {
              FROM api_keys WHERE id = ?1"
         )?;
 
-        let mut rows = stmt.query_map([id], |row| {
-            let types_str: Option<String> = row.get(4)?;
-            let types: Vec<String> = types_str
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_else(|| vec!["claude".to_string()]);
-
-            let config_str: Option<String> = row.get(8)?;
-            let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
-
-            Ok(ApiKey {
-                id: row.get(0)?,
-                provider_id: row.get(1)?,
-                alias: row.get(2)?,
-                value: row.get(3)?,
-                types,
-                priority: row.get(5)?,
-                is_exhausted: row.get::<_, i32>(6)? != 0,
-                is_active: row.get::<_, i32>(7)? != 0,
-                config,
-                usage_type: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "none".to_string()),
-                usage_url: row.get(10)?,
-                usage_path: row.get(11)?,
-                usage_headers: row.get(12)?,
-                cached_usage: row.get::<_, Option<String>>(13)?
-                    .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
-                last_usage_checked_at: row.get(14)?,
-                cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
-            })
-        })?;
+        let mut rows = stmt.query_map([id], row_to_api_key)?;
 
         match rows.next() {
             Some(Ok(key)) => Ok(Some(key)),
@@ -123,24 +96,15 @@ impl Database {
         let mut sets = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
-        macro_rules! add_field {
-            ($field:expr, $col:expr) => {
-                if let Some(ref val) = $field {
-                    sets.push(format!("{} = ?", $col));
-                    params.push(Box::new(val.clone()));
-                }
-            };
-        }
-
-        add_field!(input.alias, "alias");
-        add_field!(input.value, "value");
-        add_field!(input.priority, "priority");
-        add_field!(input.cost_multiplier, "cost_multiplier");
-        add_field!(input.usage_type, "usage_type");
-        add_field!(input.usage_url, "usage_url");
-        add_field!(input.usage_path, "usage_path");
-        add_field!(input.usage_headers, "usage_headers");
-        add_field!(input.last_usage_checked_at, "last_usage_checked_at");
+        add_field!(input.alias, "alias", sets, params);
+        add_field!(input.value, "value", sets, params);
+        add_field!(input.priority, "priority", sets, params);
+        add_field!(input.cost_multiplier, "cost_multiplier", sets, params);
+        add_field!(input.usage_type, "usage_type", sets, params);
+        add_field!(input.usage_url, "usage_url", sets, params);
+        add_field!(input.usage_path, "usage_path", sets, params);
+        add_field!(input.usage_headers, "usage_headers", sets, params);
+        add_field!(input.last_usage_checked_at, "last_usage_checked_at", sets, params);
 
         if let Some(ref types) = input.types {
             sets.push("types = ?".to_string());

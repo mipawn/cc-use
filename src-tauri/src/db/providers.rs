@@ -1,6 +1,35 @@
 use crate::db::Database;
 use crate::models::{Provider, CreateProviderInput, UpdateProviderInput, UsageData};
 
+fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
+    Ok(Provider {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        base_url: row.get(2)?,
+        provider_type: row.get(3)?,
+        website: row.get(4)?,
+        remark: row.get(5)?,
+        token: row.get(6)?,
+        icon: row.get(7)?,
+        wallet_balance_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "none".to_string()),
+        wallet_balance_url: row.get(9)?,
+        wallet_balance_path: row.get(10)?,
+        wallet_balance_headers: row.get(11)?,
+        wallet_balance_user_id: row.get(12)?,
+        cached_wallet_balance: row.get(13)?,
+        last_balance_checked_at: row.get(14)?,
+        usage_type: row.get::<_, Option<String>>(15)?.unwrap_or_else(|| "none".to_string()),
+        usage_url: row.get(16)?,
+        usage_path: row.get(17)?,
+        usage_headers: row.get(18)?,
+        cached_usage: row.get::<_, Option<String>>(19)?
+            .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
+        last_usage_checked_at: row.get(20)?,
+        cost_multiplier: row.get(21)?,
+        is_active: row.get::<_, i32>(22)? != 0,
+    })
+}
+
 impl Database {
     pub fn provider_list(&self) -> Result<Vec<Provider>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
@@ -14,35 +43,7 @@ impl Database {
              FROM providers ORDER BY name"
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(Provider {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                base_url: row.get(2)?,
-                provider_type: row.get(3)?,
-                website: row.get(4)?,
-                remark: row.get(5)?,
-                token: row.get(6)?,
-                icon: row.get(7)?,
-                wallet_balance_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "none".to_string()),
-                wallet_balance_url: row.get(9)?,
-                wallet_balance_path: row.get(10)?,
-                wallet_balance_headers: row.get(11)?,
-                wallet_balance_user_id: row.get(12)?,
-                cached_wallet_balance: row.get(13)?,
-                last_balance_checked_at: row.get(14)?,
-                usage_type: row.get::<_, Option<String>>(15)?.unwrap_or_else(|| "none".to_string()),
-                usage_url: row.get(16)?,
-                usage_path: row.get(17)?,
-                usage_headers: row.get(18)?,
-                cached_usage: row.get::<_, Option<String>>(19)?
-                    .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
-                last_usage_checked_at: row.get(20)?,
-                cost_multiplier: row.get(21)?,
-                is_active: row.get::<_, i32>(22)? != 0,
-            })
-        })?;
-
+        let rows = stmt.query_map([], row_to_provider)?;
         rows.collect()
     }
 
@@ -58,34 +59,7 @@ impl Database {
              FROM providers WHERE id = ?1"
         )?;
 
-        let mut rows = stmt.query_map([id], |row| {
-            Ok(Provider {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                base_url: row.get(2)?,
-                provider_type: row.get(3)?,
-                website: row.get(4)?,
-                remark: row.get(5)?,
-                token: row.get(6)?,
-                icon: row.get(7)?,
-                wallet_balance_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "none".to_string()),
-                wallet_balance_url: row.get(9)?,
-                wallet_balance_path: row.get(10)?,
-                wallet_balance_headers: row.get(11)?,
-                wallet_balance_user_id: row.get(12)?,
-                cached_wallet_balance: row.get(13)?,
-                last_balance_checked_at: row.get(14)?,
-                usage_type: row.get::<_, Option<String>>(15)?.unwrap_or_else(|| "none".to_string()),
-                usage_url: row.get(16)?,
-                usage_path: row.get(17)?,
-                usage_headers: row.get(18)?,
-                cached_usage: row.get::<_, Option<String>>(19)?
-                    .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
-                last_usage_checked_at: row.get(20)?,
-                cost_multiplier: row.get(21)?,
-                is_active: row.get::<_, i32>(22)? != 0,
-            })
-        })?;
+        let mut rows = stmt.query_map([id], row_to_provider)?;
 
         match rows.next() {
             Some(Ok(p)) => Ok(Some(p)),
@@ -130,35 +104,26 @@ impl Database {
         let mut sets = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
-        macro_rules! add_field {
-            ($field:expr, $col:expr) => {
-                if let Some(ref val) = $field {
-                    sets.push(format!("{} = ?", $col));
-                    params.push(Box::new(val.clone()));
-                }
-            };
-        }
-
-        add_field!(input.name, "name");
-        add_field!(input.base_url, "base_url");
-        add_field!(input.provider_type, "type");
-        add_field!(input.website, "website");
-        add_field!(input.remark, "remark");
-        add_field!(input.token, "token");
-        add_field!(input.icon, "icon");
-        add_field!(input.wallet_balance_type, "wallet_balance_type");
-        add_field!(input.wallet_balance_url, "wallet_balance_url");
-        add_field!(input.wallet_balance_path, "wallet_balance_path");
-        add_field!(input.wallet_balance_headers, "wallet_balance_headers");
-        add_field!(input.wallet_balance_user_id, "wallet_balance_user_id");
-        add_field!(input.usage_type, "usage_type");
-        add_field!(input.usage_url, "usage_url");
-        add_field!(input.usage_path, "usage_path");
-        add_field!(input.usage_headers, "usage_headers");
-        add_field!(input.cost_multiplier, "cost_multiplier");
-        add_field!(input.cached_wallet_balance, "cached_wallet_balance");
-        add_field!(input.last_balance_checked_at, "last_balance_checked_at");
-        add_field!(input.last_usage_checked_at, "last_usage_checked_at");
+        add_field!(input.name, "name", sets, params);
+        add_field!(input.base_url, "base_url", sets, params);
+        add_field!(input.provider_type, "type", sets, params);
+        add_field!(input.website, "website", sets, params);
+        add_field!(input.remark, "remark", sets, params);
+        add_field!(input.token, "token", sets, params);
+        add_field!(input.icon, "icon", sets, params);
+        add_field!(input.wallet_balance_type, "wallet_balance_type", sets, params);
+        add_field!(input.wallet_balance_url, "wallet_balance_url", sets, params);
+        add_field!(input.wallet_balance_path, "wallet_balance_path", sets, params);
+        add_field!(input.wallet_balance_headers, "wallet_balance_headers", sets, params);
+        add_field!(input.wallet_balance_user_id, "wallet_balance_user_id", sets, params);
+        add_field!(input.usage_type, "usage_type", sets, params);
+        add_field!(input.usage_url, "usage_url", sets, params);
+        add_field!(input.usage_path, "usage_path", sets, params);
+        add_field!(input.usage_headers, "usage_headers", sets, params);
+        add_field!(input.cost_multiplier, "cost_multiplier", sets, params);
+        add_field!(input.cached_wallet_balance, "cached_wallet_balance", sets, params);
+        add_field!(input.last_balance_checked_at, "last_balance_checked_at", sets, params);
+        add_field!(input.last_usage_checked_at, "last_usage_checked_at", sets, params);
 
         if let Some(ref val) = input.is_active {
             sets.push("is_active = ?".to_string());
