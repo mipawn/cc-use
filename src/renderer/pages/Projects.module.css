@@ -163,6 +163,159 @@
   gap: 8px;
 }
 
+/* Key Switch Dropdown */
+.keySwitchDropdown {
+  min-width: 260px;
+}
+
+.keySwitchMenu {
+  padding: 8px !important;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-group) {
+  margin-bottom: 0;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-group-title) {
+  padding: 4px 8px 10px !important;
+  margin: 0 0 6px !important;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-group-list) {
+  margin: 0 !important;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item),
+.keySwitchMenu :global(.ant-dropdown-menu-item-group-list .ant-dropdown-menu-item) {
+  margin: 0 0 2px !important;
+  padding: 11px 12px !important;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0 !important;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-group-list .ant-dropdown-menu-item:last-child) {
+  margin-bottom: 0 !important;
+  border-bottom: none;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-group-list .ant-dropdown-menu-item:first-child) {
+  margin-top: 2px !important;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-group-list .ant-dropdown-menu-item + .ant-dropdown-menu-item) {
+  margin-top: 2px !important;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-divider) {
+  margin: 12px 8px !important;
+  background: var(--border-default) !important;
+}
+
+[data-theme='dark'] .keySwitchMenu :global(.ant-dropdown-menu-item-divider) {
+  background: var(--border-strong) !important;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item:hover),
+.keySwitchMenu :global(.ant-dropdown-menu-item-active) {
+  background: rgba(59, 130, 246, 0.08) !important;
+}
+
+.keySwitchMenu :global(.ant-dropdown-menu-item-disabled) {
+  opacity: 1;
+  color: inherit !important;
+}
+
+.keySwitchGroupLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.keySwitchGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.keySwitchGroupIcon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.keySwitchGroupName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+}
+
+.keySwitchGroupCount {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--ant-color-text-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.keySwitchMenuItemContent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.keySwitchMenuItemName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.keySwitchMenuItemNameCurrent {
+  font-weight: 600;
+  color: var(--color-accent-primary);
+}
+
+.keySwitchMenuItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.keySwitchMenuItemTypes {
+  display: inline-flex;
+  align-items: center;
+}
+
+.keySwitchMenuItemCurrent {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.04) 100%) !important;
+  box-shadow: inset 2px 0 0 var(--color-accent-primary);
+}
+
+.keySwitchCurrentBadge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.keySwitchCurrentBadge :global(.ant-badge-status-text) {
+  font-size: 11px;
+  font-weight: 600;
+}
+
 /* Incompatible Warning */
 .incompatibleWarning {
   display: flex;

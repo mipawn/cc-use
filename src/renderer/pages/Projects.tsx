@@ -19,6 +19,7 @@ import {
   Dropdown,
   Segmented,
   Badge,
+  type MenuProps,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
 import {
@@ -295,43 +296,69 @@ export default function Projects() {
   }
 
   // Build key switch menu items for a project
-  const getKeySwitchMenuItems = (project: Project) => {
-    const items: any[] = []
+  const getKeySwitchMenuItems = (project: Project): NonNullable<MenuProps['items']> => {
+    const items: NonNullable<MenuProps['items']> = []
 
     providers.forEach((provider) => {
       const providerKeys = apiKeysByProvider[provider.id] || []
       if (providerKeys.length === 0) return
 
+      if (items.length > 0) {
+        items.push({
+          type: 'divider',
+          key: `divider-${provider.id}`,
+        })
+      }
+
       items.push({
         type: 'group',
+        key: `group-${provider.id}`,
         label: (
-          <Space size={6}>
-            <img
-              src={getProviderIconSrc(provider)}
-              alt={provider.name}
-              style={{ width: 14, height: 14, borderRadius: 2 }}
-            />
-            <span>{provider.name}</span>
-          </Space>
+          <div className={styles.keySwitchGroupLabel}>
+            <div className={styles.keySwitchGroupTitle}>
+              <img
+                src={getProviderIconSrc(provider)}
+                alt={provider.name}
+                className={styles.keySwitchGroupIcon}
+              />
+              <span className={styles.keySwitchGroupName}>{provider.name}</span>
+            </div>
+            <span className={styles.keySwitchGroupCount}>{providerKeys.length}</span>
+          </div>
         ),
-        children: providerKeys.map((key) => ({
-          key: `${provider.id}:${key.id}`,
-          label: (
-            <Space size={6}>
-              <span>{key.alias || `Key ${key.priority + 1}`}</span>
-              <Space size={2}>
-                {key.types.map((type) => (
-                  <CliTypeIcon key={type} type={type} size={12} />
-                ))}
-              </Space>
-              {project.apiKeyId === key.id && (
-                <Badge status='success' text={t('common.current')} style={{ fontSize: 11 }} />
-              )}
-            </Space>
-          ),
-          disabled: project.apiKeyId === key.id,
-          onClick: () => handleSwitchKey(project, provider.id, key.id),
-        })),
+        children: providerKeys.map((key) => {
+          const isCurrent = project.apiKeyId === key.id
+
+          return {
+            key: `${provider.id}:${key.id}`,
+            label: (
+              <div className={styles.keySwitchMenuItemContent}>
+                <span
+                  className={`${styles.keySwitchMenuItemName} ${isCurrent ? styles.keySwitchMenuItemNameCurrent : ''}`}
+                >
+                  {key.alias || `Key ${key.priority + 1}`}
+                </span>
+                <div className={styles.keySwitchMenuItemMeta}>
+                  <Space size={2} className={styles.keySwitchMenuItemTypes}>
+                    {key.types.map((type) => (
+                      <CliTypeIcon key={type} type={type} size={12} />
+                    ))}
+                  </Space>
+                  {isCurrent && (
+                    <Badge
+                      status='success'
+                      text={t('common.current')}
+                      className={styles.keySwitchCurrentBadge}
+                    />
+                  )}
+                </div>
+              </div>
+            ),
+            className: isCurrent ? styles.keySwitchMenuItemCurrent : undefined,
+            disabled: isCurrent,
+            onClick: () => handleSwitchKey(project, provider.id, key.id),
+          }
+        }),
       })
     })
 
@@ -550,9 +577,15 @@ export default function Projects() {
                             </Space>
                           </div>
                           <Dropdown
+                            classNames={{ root: styles.keySwitchDropdown }}
                             menu={{
                               items: getKeySwitchMenuItems(project),
-                              style: { maxHeight: 300, overflow: 'auto' },
+                              classNames: {
+                                root: styles.keySwitchMenu,
+                              },
+                              styles: {
+                                root: { maxHeight: 320, overflow: 'auto' },
+                              },
                             }}
                             trigger={['click']}
                             placement='bottomRight'
