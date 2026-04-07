@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- 同步 pnpm-lock.yaml，移除残留的 autoprefixer 条目（修复 CI frozen-lockfile 构建失败）
 - 消除 Rust 生产代码中所有危险的 `.unwrap()` 调用，防止 Mutex 中毒导致 proxy 崩溃
 - `HeaderValue::from_str().unwrap()` 改为安全处理，避免非 ASCII API key 导致 panic
 - DB 写入后 re-fetch 使用 proper error 替代 `.unwrap()`
