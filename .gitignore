@@ -27,7 +27,10 @@ npm-debug.log*
 .env.local
 
 # Development docs
-docs/
+docs/*
+!docs/internal/
+docs/internal/*
+!docs/internal/.gitkeep
 
 .playwright-mcp/
 
