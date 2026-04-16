@@ -285,7 +285,6 @@ export interface TerminalLaunchPreview {
 export interface GlobalSettings {
   defaultProviderType: ProviderType
   proxyPort: number
-  autoStartProxy: boolean
   defaultTerminalType: TerminalType
   closeToTray: boolean
   claudeConfig?: CliConfig
@@ -381,6 +380,35 @@ export interface ProxySession {
   apiKeyId: string
   projectId: string | null
   createdAt: string
+}
+
+export type ManagedInstanceStatus = 'launching' | 'running' | 'stale' | 'stopped' | 'failed'
+
+export interface ManagedInstance {
+  id: string
+  sessionToken: string
+  projectId: string | null
+  providerId: string | null
+  apiKeyId: string | null
+  cliType: ProviderType
+  terminalType: TerminalType
+  projectPath: string
+  shellPid: number | null
+  processPid: number | null
+  status: ManagedInstanceStatus | string
+  assignmentSource: string | null
+  lastSeenAt: string
+  launchedAt: string
+  stoppedAt: string | null
+  stopReason: string | null
+  exitCode: number | null
+}
+
+export interface UpdateManagedInstanceAssignmentInput {
+  id: string
+  providerId: string
+  apiKeyId: string
+  assignmentSource?: string
 }
 
 // Usage log types for statistics

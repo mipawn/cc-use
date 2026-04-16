@@ -1,0 +1,23 @@
+[package]
+name = "cc-use-daemon"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cc-use-daemon"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+cc_use_lib = { path = "../../src-tauri", package = "cc-use", default-features = false }
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
+nanoid = "0.4"
+libc = "0.2"
+
+[dev-dependencies]
+tower = "0.5"
+tempfile = "3"

@@ -102,7 +102,7 @@ The proxy uses session tokens instead of real API keys, enabling:
 - Automatic logging of token usage and cost for every request
 - Hot-switching keys without restarting the terminal
 
-## Building from Source
+## Building from Source & Testing
 
 ```bash
 # Install dependencies
@@ -117,8 +117,11 @@ pnpm build
 # Development build (for testing)
 pnpm build:dev
 
+# Frontend tests (compat entrypoint)
+pnpm test
+
 # Rust tests
-cd src-tauri && cargo test
+cargo test --workspace
 
 # Type check
 pnpm typecheck
@@ -129,6 +132,8 @@ pnpm lint
 # Format code
 pnpm format
 ```
+
+For the fuller test index and explicit entrypoints such as `pnpm test:web`, `pnpm test:rust`, and `pnpm test:all`, see [docs/testing/README.md](./docs/testing/README.md).
 
 ## Tech Stack
 

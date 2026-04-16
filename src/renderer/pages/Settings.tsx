@@ -1,9 +1,9 @@
 import { getApi } from '../api'
 /**
  * Settings - 简化的设置页面
- * 只保留：语言、主题、代理端口、默认终端、代理开关
+ * 只保留：语言、主题、代理端口、默认终端、代理状态（只读+重启）
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Typography,
   Card,
@@ -23,6 +23,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { useSettingsStore, ThemeMode } from '../stores/settingsStore'
+import { useServiceStatus } from '../hooks/useServiceStatus'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -118,12 +119,8 @@ export default function Settings() {
     updateGlobalSettings,
   } = useSettingsStore()
 
-  // Proxy status
-  const [proxyStatus, setProxyStatus] = useState<{ isRunning: boolean; port: number }>({
-    isRunning: false,
-    port: 12345,
-  })
-  const [proxyLoading, setProxyLoading] = useState(false)
+  // Service status (shared hook)
+  const { status: proxyStatus, loading: proxyLoading, restart: restartService } = useServiceStatus()
 
   // Version & update
   const [appVersion, setAppVersion] = useState('')
@@ -148,74 +145,10 @@ export default function Settings() {
   ])
   const [backupModalOpen, setBackupModalOpen] = useState(false)
 
-  // Fetch proxy status
-  const fetchProxyStatus = useCallback(async () => {
-    try {
-      const status = await getApi().proxy.status()
-      setProxyStatus(status)
-    } catch (error) {
-      console.error('Failed to fetch proxy status:', error)
-    }
-  }, [])
-
   useEffect(() => {
     fetchGlobalSettings()
-    fetchProxyStatus()
     getApi().app.getVersion().then(setAppVersion)
-
-    const unsubscribe = getApi().proxy.onStatusChanged((data) => {
-      setProxyStatus({ isRunning: data.isRunning, port: data.port })
-      if (data.source === 'tray') {
-        if (data.isRunning) {
-          message.success(t('projects.proxyStarted'))
-        } else {
-          message.info(t('projects.proxyStopped'))
-        }
-      }
-    })
-
-    return () => {
-      unsubscribe()
-    }
-  }, [fetchGlobalSettings, fetchProxyStatus, t])
-
-  // Toggle proxy
-  const handleToggleProxy = async (checked: boolean) => {
-    if (proxyLoading) return
-
-    // If turning off, show confirmation
-    if (!checked) {
-      Modal.confirm({
-        title: t('settings.proxyStopConfirm') || '确认关闭代理？',
-        content: t('settings.proxyStopWarning') || '关闭后，无法记录使用量',
-        okText: t('common.confirm') || '确认',
-        cancelText: t('common.cancel') || '取消',
-        onOk: async () => {
-          setProxyLoading(true)
-          try {
-            await getApi().proxy.stop()
-            await fetchProxyStatus()
-          } catch (error) {
-            console.error('Failed to stop proxy:', error)
-          } finally {
-            setProxyLoading(false)
-          }
-        },
-      })
-      return
-    }
-
-    // Turn on proxy
-    setProxyLoading(true)
-    try {
-      await getApi().proxy.start()
-      await fetchProxyStatus()
-    } catch (error) {
-      console.error('Failed to start proxy:', error)
-    } finally {
-      setProxyLoading(false)
-    }
-  }
+  }, [fetchGlobalSettings])
 
   const languageOptions = [
     { value: 'en', label: 'English' },
@@ -462,11 +395,14 @@ export default function Settings() {
                     </Text>
                   </div>
                 </Space>
-                <Switch
-                  checked={proxyStatus.isRunning}
-                  onChange={handleToggleProxy}
+                <Button
+                  size='small'
+                  icon={<SyncOutlined />}
+                  onClick={restartService}
                   loading={proxyLoading}
-                />
+                >
+                  {t('settings.proxyRestart')}
+                </Button>
               </div>
             </Card>
 

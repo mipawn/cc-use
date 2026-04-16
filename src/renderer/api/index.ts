@@ -49,8 +49,7 @@ function buildApi(): Api {
       getLaunchPreview: (params) => invoke('terminal_get_launch_preview', params),
     },
     proxy: {
-      start: () => invoke('proxy_start'),
-      stop: () => invoke('proxy_stop'),
+      restart: () => invoke('proxy_restart'),
       status: () => invoke('proxy_status'),
       onStatusChanged: (callback) => {
         let unlisten: UnlistenFn | null = null
@@ -113,8 +112,7 @@ function buildApi(): Api {
       getCostStats: () => invoke('request_log_get_cost_stats'),
       getKeyCosts: () => invoke('request_log_get_key_costs'),
       getDailyTrend: (days) => invoke('request_log_get_daily_trend', { days }),
-      getCostStatistics: (timeRange) =>
-        invoke('request_log_get_cost_statistics', { timeRange }),
+      getCostStatistics: (timeRange) => invoke('request_log_get_cost_statistics', { timeRange }),
       getRecentPaginated: (timeRange, page, pageSize) =>
         invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
       getDashboardStats: () => invoke('request_log_get_dashboard_stats'),
@@ -173,10 +171,15 @@ function buildApi(): Api {
     },
     sessions: {
       scanSessions: () => invoke('scan_sessions'),
-      deleteSessions: (sessionIds) =>
-        invoke('delete_sessions', { sessionIds }),
+      deleteSessions: (sessionIds) => invoke('delete_sessions', { sessionIds }),
       cleanOldSessions: (days) => invoke('clean_old_sessions', { days }),
       keepRecentSessions: (keepCount) => invoke('keep_recent_sessions', { keepCount }),
+    },
+    managedInstances: {
+      list: () => invoke('managed_instance_list'),
+      get: (id) => invoke('managed_instance_get', { id }),
+      updateAssignment: (input) => invoke('managed_instance_update_assignment', { input }),
+      cleanup: () => invoke('managed_instance_cleanup'),
     },
   }
 }

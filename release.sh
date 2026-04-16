@@ -35,8 +35,8 @@ sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" src-tauri/tauri.c
 export VERSION
 perl -0777 -i -pe 's/(^\[package\][\s\S]*?^version\s*=\s*")[^"]*(")/${1}$ENV{VERSION}${2}/m' src-tauri/Cargo.toml
 
-# Update Cargo.lock
-cd src-tauri && cargo generate-lockfile 2>/dev/null && cd ..
+# Update Cargo.lock from workspace root
+cargo generate-lockfile 2>/dev/null
 
 echo "已更新版本号:"
 echo "  package.json:    $(grep '"version"' package.json | head -1 | xargs)"
@@ -44,7 +44,7 @@ echo "  tauri.conf.json: $(grep '"version"' src-tauri/tauri.conf.json | head -1 
 echo "  Cargo.toml:      $(grep '^version' src-tauri/Cargo.toml | head -1 | xargs)"
 
 # Git operations
-git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml Cargo.lock CHANGELOG.md
 git commit --allow-empty -m "release(app): v${VERSION}"
 git tag "v${VERSION}"
 git push origin main

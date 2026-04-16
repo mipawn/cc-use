@@ -24,6 +24,7 @@ import {
   Divider,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
+import { useServiceStatus } from '../hooks/useServiceStatus'
 import {
   PlusOutlined,
   KeyOutlined,
@@ -346,28 +347,20 @@ export default function Keys() {
     provider: Provider
     key: ApiKey
   } | null>(null)
-  const [proxyStatus, setProxyStatus] = useState<{
-    isRunning: boolean
-    port: number
-  }>({ isRunning: false, port: 12345 })
+  const { status: proxyStatus } = useServiceStatus()
   const [proxySessionToken, setProxySessionToken] = useState<string | null>(null)
 
   const handleCopyCommand = async (provider: Provider, key: ApiKey) => {
-    // Fetch current proxy status
     try {
-      const status = await getApi().proxy.status()
-      setProxyStatus(status)
-
-      // If proxy is running, create a session for this key
-      if (status.isRunning) {
+      // If daemon is running, create a session for this key
+      if (proxyStatus.isRunning) {
         const session = await getApi().session.create(provider.id, key.id)
         setProxySessionToken(session.sessionToken)
       } else {
         setProxySessionToken(null)
       }
     } catch (error) {
-      console.error('Failed to get proxy status:', error)
-      setProxyStatus({ isRunning: false, port: 12345 })
+      console.error('Failed to prepare copy command:', error)
       setProxySessionToken(null)
     }
 

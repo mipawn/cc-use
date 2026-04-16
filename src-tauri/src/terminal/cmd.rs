@@ -4,14 +4,23 @@ use std::process::Command;
 pub struct CmdStrategy;
 
 impl TerminalStrategy for CmdStrategy {
-    fn name(&self) -> &str { "CMD" }
+    fn name(&self) -> &str {
+        "CMD"
+    }
 
     fn is_available(&self) -> bool {
         cfg!(target_os = "windows")
     }
 
-    fn launch(&self, path: &str, env: &EnvObject, cli_command: &str) -> Result<(), String> {
-        let env_sets: String = env.iter()
+    fn launch(
+        &self,
+        path: &str,
+        env: &EnvObject,
+        cli_command: &str,
+        _instance_label: Option<&str>,
+    ) -> Result<(), String> {
+        let env_sets: String = env
+            .iter()
             .map(|(k, v)| format!("set {}={}", k, v))
             .collect::<Vec<_>>()
             .join(" && ");

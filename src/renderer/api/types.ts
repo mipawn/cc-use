@@ -21,6 +21,9 @@ import type {
   ImportOptions,
   ImportResult,
   ProxySession,
+  ProxyStatus,
+  ManagedInstance,
+  UpdateManagedInstanceAssignmentInput,
   UsageStats,
   UsageLog,
   StatsTimeRange,
@@ -70,9 +73,8 @@ export interface Api {
     }) => Promise<TerminalLaunchPreview>
   }
   proxy: {
-    start: () => Promise<void>
-    stop: () => Promise<void>
-    status: () => Promise<{ isRunning: boolean; port: number }>
+    restart: () => Promise<void>
+    status: () => Promise<ProxyStatus>
     onStatusChanged: (
       callback: (data: { isRunning: boolean; port: number; source?: string }) => void,
     ) => () => void
@@ -140,16 +142,10 @@ export interface Api {
   }
   modelPricing: {
     getAll: () => Promise<
-      Record<
-        string,
-        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
-      >
+      Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>
     >
     getCustom: () => Promise<
-      Record<
-        string,
-        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
-      >
+      Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>
     >
     updateCustom: (
       pricing: Record<
@@ -158,10 +154,7 @@ export interface Api {
       >,
     ) => Promise<void>
     getDefault: () => Promise<
-      Record<
-        string,
-        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
-      >
+      Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>
     >
   }
   app: {
@@ -187,6 +180,12 @@ export interface Api {
     deleteSessions: (sessionIds: string[]) => Promise<number>
     cleanOldSessions: (days: number) => Promise<number>
     keepRecentSessions: (keepCount: number) => Promise<number>
+  }
+  managedInstances: {
+    list: () => Promise<ManagedInstance[]>
+    get: (id: string) => Promise<ManagedInstance | null>
+    updateAssignment: (input: UpdateManagedInstanceAssignmentInput) => Promise<ManagedInstance>
+    cleanup: () => Promise<number>
   }
 }
 

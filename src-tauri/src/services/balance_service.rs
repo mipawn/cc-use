@@ -36,7 +36,8 @@ async fn fetch_newapi_balance(
             .as_deref()
             .filter(|s| !s.trim().is_empty()),
     ) {
-        if let Some(result) = fetch_newapi_balance_via_user_api(&client, base_url, token, user_id).await?
+        if let Some(result) =
+            fetch_newapi_balance_via_user_api(&client, base_url, token, user_id).await?
         {
             return Ok(result);
         }
@@ -194,8 +195,8 @@ async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, 
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     let raw = extract_json_path(&body, path)
         .ok_or_else(|| format!("Invalid balance value at path: {}", path))?;
-    let balance = to_number(Some(raw))
-        .ok_or_else(|| format!("Invalid balance value at path: {}", path))?;
+    let balance =
+        to_number(Some(raw)).ok_or_else(|| format!("Invalid balance value at path: {}", path))?;
 
     Ok(serde_json::json!({
         "balance": balance,
@@ -212,8 +213,8 @@ fn parse_headers(raw: &str) -> Result<Vec<(String, String)>, String> {
         return Ok(Vec::new());
     }
 
-    let value: serde_json::Value = serde_json::from_str(trimmed)
-        .map_err(|_| "Invalid headers JSON format".to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|_| "Invalid headers JSON format".to_string())?;
     let obj = value
         .as_object()
         .ok_or_else(|| "Invalid headers JSON format".to_string())?;

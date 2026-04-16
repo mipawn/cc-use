@@ -1,4 +1,6 @@
 pub mod commands;
+pub mod shared_runtime;
+pub mod daemon_client;
 pub mod db;
 pub mod models;
 pub mod proxy;
@@ -74,8 +76,7 @@ pub fn run() {
             commands::import_export::check_electron_migration,
             commands::import_export::migrate_from_electron,
             // Proxy commands
-            commands::proxy::proxy_start,
-            commands::proxy::proxy_stop,
+            commands::proxy::proxy_restart,
             commands::proxy::proxy_status,
             commands::proxy::session_create,
             commands::proxy::session_get,
@@ -92,6 +93,11 @@ pub fn run() {
             commands::sessions::delete_sessions,
             commands::sessions::clean_old_sessions,
             commands::sessions::keep_recent_sessions,
+            // Managed instance commands
+            commands::managed_instances::managed_instance_list,
+            commands::managed_instances::managed_instance_get,
+            commands::managed_instances::managed_instance_update_assignment,
+            commands::managed_instances::managed_instance_cleanup,
             // Icon commands
             commands::system::icon_upload,
             commands::system::icon_list,
@@ -103,7 +109,11 @@ pub fn run() {
             let should_init_close_to_tray = {
                 let db_state = app.state::<Arc<Mutex<Database>>>();
                 let has_no_setting = match db_state.lock() {
-                    Ok(db) => db.settings_get_value("closeToTray").ok().flatten().is_none(),
+                    Ok(db) => db
+                        .settings_get_value("closeToTray")
+                        .ok()
+                        .flatten()
+                        .is_none(),
                     Err(_) => false,
                 };
                 has_no_setting
@@ -125,26 +135,14 @@ pub fn run() {
                 has_no_setting
             };
             if should_init_proxy_port {
-                let default_port = if cfg!(debug_assertions) { "22345" } else { "12345" };
+                let default_port = if cfg!(debug_assertions) {
+                    "22345"
+                } else {
+                    "12345"
+                };
                 let db_state = app.state::<Arc<Mutex<Database>>>();
                 if let Ok(db) = db_state.lock() {
                     let _ = db.settings_set_value("proxyPort", default_port);
-                };
-            }
-
-            // Keep legacy behavior: auto start proxy is enabled by default unless user explicitly changed it.
-            let should_init_auto_start_proxy = {
-                let db_state = app.state::<Arc<Mutex<Database>>>();
-                let has_no_setting = match db_state.lock() {
-                    Ok(db) => db.settings_get_value("autoStartProxy").ok().flatten().is_none(),
-                    Err(_) => false,
-                };
-                has_no_setting
-            };
-            if should_init_auto_start_proxy {
-                let db_state = app.state::<Arc<Mutex<Database>>>();
-                if let Ok(db) = db_state.lock() {
-                    let _ = db.settings_set_value("autoStartProxy", "true");
                 };
             }
 
@@ -178,23 +176,53 @@ pub fn run() {
                 }
             }
 
-            // Auto-start proxy if configured
+            // Ensure daemon is running — always, no toggle
             let handle2 = handle.clone();
             tauri::async_runtime::spawn(async move {
                 let db_state = handle2.state::<Arc<Mutex<Database>>>();
-                let should_start = {
+
+                // Clean up stale sessions (older than 30 days)
+                if let Ok(db) = db_state.lock() {
+                    let _ = db.proxy_session_cleanup_stale(30);
+                }
+
+                // Version-based restart: if app version changed, restart daemon
+                let current_version = env!("CARGO_PKG_VERSION").to_string();
+                let last_version = {
                     if let Ok(db) = db_state.lock() {
-                        db.settings_get()
-                            .map(|s| s.auto_start_proxy)
-                            .unwrap_or(false)
+                        db.settings_get_value("lastDaemonVersion")
+                            .ok()
+                            .flatten()
                     } else {
-                        false
+                        None
                     }
                 };
-                if should_start {
+
+                let version_changed = last_version.as_deref() != Some(&current_version);
+                let already_running = commands::proxy::is_proxy_running(&*db_state);
+
+                if already_running && version_changed {
+                    // Version upgrade: restart daemon
+                    log::info!(
+                        "App version changed ({} -> {}), restarting daemon",
+                        last_version.as_deref().unwrap_or("unknown"),
+                        current_version,
+                    );
+                    let _ = commands::proxy::proxy_restart_inner(&*db_state).await;
+                } else if !already_running {
+                    // Not running: start daemon
+                    log::info!("Daemon not running, starting");
                     let _ = commands::proxy::proxy_start_inner(&*db_state).await;
-                    tray::refresh_tray_menu(&handle2);
                 }
+
+                // Persist current version
+                if version_changed {
+                    if let Ok(db) = db_state.lock() {
+                        let _ = db.settings_set_value("lastDaemonVersion", &current_version);
+                    }
+                }
+
+                tray::refresh_tray_menu(&handle2);
             });
 
             // Handle close-to-tray: intercept window close event

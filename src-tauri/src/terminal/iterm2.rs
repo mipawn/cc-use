@@ -4,7 +4,9 @@ use std::process::Command;
 pub struct ITerm2Strategy;
 
 impl TerminalStrategy for ITerm2Strategy {
-    fn name(&self) -> &str { "iTerm2" }
+    fn name(&self) -> &str {
+        "iTerm2"
+    }
 
     fn is_available(&self) -> bool {
         #[cfg(target_os = "macos")]
@@ -16,15 +18,25 @@ impl TerminalStrategy for ITerm2Strategy {
                 .unwrap_or(false)
         }
         #[cfg(not(target_os = "macos"))]
-        { false }
+        {
+            false
+        }
     }
 
-    fn launch(&self, path: &str, env: &EnvObject, cli_command: &str) -> Result<(), String> {
+    fn launch(
+        &self,
+        path: &str,
+        env: &EnvObject,
+        cli_command: &str,
+        _instance_label: Option<&str>,
+    ) -> Result<(), String> {
         let escaped_path = path.replace('\'', "'\\''");
         let env_inline = build_env_inline(env);
 
-        let full_command = format!("cd '{}' && clear && {} {}", escaped_path, env_inline, cli_command);
-        // Escape for AppleScript string: backslash and double quote need escaping
+        let full_command = format!(
+            "cd '{}' && clear && {} {}",
+            escaped_path, env_inline, cli_command
+        );
         let escaped_command = full_command.replace('\\', "\\\\").replace('"', "\\\"");
 
         let script = format!(
@@ -45,9 +57,7 @@ impl TerminalStrategy for ITerm2Strategy {
 fn build_env_inline(env: &EnvObject) -> String {
     env.iter()
         .map(|(k, v)| {
-            // Escape single quotes in the value for shell
             let escaped_value = v.replace('\'', "'\\''");
-            // Use single quotes to avoid issues with special characters
             format!("{}='{}'", k, escaped_value)
         })
         .collect::<Vec<_>>()

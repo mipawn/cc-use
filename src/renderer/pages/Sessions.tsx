@@ -8,6 +8,10 @@ import type { ClaudeSession } from '../api/types'
 
 const { Search } = Input
 
+function buildSessionShortCode(sessionId: string) {
+  return sessionId.slice(-8)
+}
+
 export default function Sessions() {
   const { t } = useTranslation()
   const message = useAppMessage()
@@ -161,7 +165,7 @@ export default function Sessions() {
         value: path,
       })),
       onFilter: (value: any, record: ClaudeSession) => record.projectPath === value,
-      render: (path: string) => (
+      render: (path: string, record: ClaudeSession) => (
         <Tooltip title={path}>
           <span
             style={{ cursor: 'pointer' }}
@@ -170,6 +174,9 @@ export default function Sessions() {
             {getProjectName(path)}
             {' '}<CopyOutlined style={{ fontSize: 11, color: '#999' }} />
           </span>
+          <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+            {buildSessionShortCode(record.sessionId)}
+          </div>
         </Tooltip>
       ),
     },

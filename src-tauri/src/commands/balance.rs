@@ -9,7 +9,9 @@ pub async fn balance_refresh(
 ) -> Result<serde_json::Value, String> {
     let (provider, api_keys) = {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let provider = db.provider_get(&provider_id).map_err(|e| e.to_string())?
+        let provider = db
+            .provider_get(&provider_id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "Provider not found".to_string())?;
         let api_keys = db.api_key_list(&provider_id).unwrap_or_default();
         (provider, api_keys)
@@ -39,7 +41,9 @@ pub async fn usage_refresh(
 ) -> Result<serde_json::Value, String> {
     let (provider, api_keys) = {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let provider = db.provider_get(&provider_id).map_err(|e| e.to_string())?
+        let provider = db
+            .provider_get(&provider_id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "Provider not found".to_string())?;
         let api_keys = db.api_key_list(&provider_id).unwrap_or_default();
         (provider, api_keys)
@@ -70,9 +74,13 @@ pub async fn key_usage_refresh(
 ) -> Result<serde_json::Value, String> {
     let (key, provider_base_url) = {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let key = db.api_key_get(&key_id).map_err(|e| e.to_string())?
+        let key = db
+            .api_key_get(&key_id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "API key not found".to_string())?;
-        let provider = db.provider_get(&key.provider_id).map_err(|e| e.to_string())?
+        let provider = db
+            .provider_get(&key.provider_id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| "Provider not found".to_string())?;
         (key, provider.base_url)
     };

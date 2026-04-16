@@ -3,7 +3,7 @@ import { getApi } from '../api'
  * Dashboard - 简化的仪表盘
  * 费用统计卡片 + 趋势图 + Top 3 + 最近项目
  */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { Typography, Card, theme, Empty } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
 import {
@@ -81,16 +81,6 @@ export default function Dashboard() {
     }
   }, [providers, fetchAllApiKeys])
 
-  // Check if proxy is running
-  const isProxyRunning = useCallback(async (): Promise<boolean> => {
-    try {
-      const status = await getApi().proxy.status()
-      return status.isRunning
-    } catch {
-      return false
-    }
-  }, [])
-
   // Handle drop event (kept for potential future use)
   // @ts-expect-error - kept for future use when DropZone is added back
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -118,12 +108,6 @@ export default function Dashboard() {
 
   // Launch project with its bound key
   const launchProject = async (project: Project) => {
-    const running = await isProxyRunning()
-    if (!running) {
-      message.warning(t('projects.proxyNotRunning'))
-      return
-    }
-
     try {
       await getApi().terminal.launch(project.id)
       message.success(`${t('projects.opened')} ${project.name}`)
@@ -148,13 +132,6 @@ export default function Dashboard() {
       })
 
       if (providerId && apiKeyId) {
-        // Check proxy before launching
-        const running = await isProxyRunning()
-        if (!running) {
-          message.warning(t('projects.proxyNotRunning'))
-          return
-        }
-
         await getApi().terminal.launch(project.id)
         message.success(`${t('newProject.createdAndOpened')} ${name}`)
       } else {

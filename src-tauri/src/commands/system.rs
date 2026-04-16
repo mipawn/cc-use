@@ -28,16 +28,18 @@ pub async fn icon_upload(buffer: Vec<u8>, filename: String) -> Result<String, St
 
 #[tauri::command]
 pub fn icon_list() -> Result<serde_json::Value, String> {
-    let preset = vec!["claude", "codex", "gemini", "zhipu", "minimax", "xiaomi", "deepseek", "custom"];
+    let preset = vec![
+        "claude", "codex", "gemini", "zhipu", "minimax", "xiaomi", "deepseek", "custom",
+    ];
 
     let icons_dir = get_icons_dir().unwrap_or_default();
     let uploaded: Vec<String> = if icons_dir.exists() {
         std::fs::read_dir(&icons_dir)
             .map_err(|e| e.to_string())?
             .filter_map(|entry| {
-                entry.ok().and_then(|e| {
-                    e.file_name().to_str().map(|s| s.to_string())
-                })
+                entry
+                    .ok()
+                    .and_then(|e| e.file_name().to_str().map(|s| s.to_string()))
             })
             .collect()
     } else {

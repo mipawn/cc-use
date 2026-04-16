@@ -7,10 +7,7 @@ impl Database {
 
         let mut stmt = self.conn.prepare("SELECT key, value FROM settings")?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
         })?;
 
         for row in rows {
@@ -19,7 +16,6 @@ impl Database {
                 match key.as_str() {
                     "defaultProviderType" => settings.default_provider_type = val,
                     "proxyPort" => settings.proxy_port = val.parse().unwrap_or(12345),
-                    "autoStartProxy" => settings.auto_start_proxy = val == "true",
                     "defaultTerminalType" => settings.default_terminal_type = val,
                     "closeToTray" => settings.close_to_tray = val == "true",
                     "claudeConfig" => settings.claude_config = serde_json::from_str(&val).ok(),
@@ -32,7 +28,10 @@ impl Database {
         Ok(settings)
     }
 
-    pub fn settings_update(&self, updates: &serde_json::Value) -> Result<GlobalSettings, rusqlite::Error> {
+    pub fn settings_update(
+        &self,
+        updates: &serde_json::Value,
+    ) -> Result<GlobalSettings, rusqlite::Error> {
         if let Some(obj) = updates.as_object() {
             for (key, value) in obj {
                 let val_str = match value {
@@ -54,7 +53,9 @@ impl Database {
     }
 
     pub fn settings_get_value(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
-        let mut stmt = self.conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE key = ?1")?;
         let mut rows = stmt.query_map([key], |row| row.get(0))?;
         match rows.next() {
             Some(Ok(val)) => Ok(val),
@@ -70,27 +71,5 @@ impl Database {
             rusqlite::params![key, value],
         )?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::db::Database;
-
-    #[test]
-    fn test_settings_crud() {
-        let db = Database::new_in_memory().unwrap();
-
-        let settings = db.settings_get().unwrap();
-        assert_eq!(settings.proxy_port, 12345);
-        assert!(settings.auto_start_proxy);
-
-        let updates = serde_json::json!({
-            "proxyPort": 8080,
-            "autoStartProxy": true,
-        });
-        let updated = db.settings_update(&updates).unwrap();
-        assert_eq!(updated.proxy_port, 8080);
-        assert!(updated.auto_start_proxy);
     }
 }

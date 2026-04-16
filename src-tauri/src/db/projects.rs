@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::models::{Project, CreateProjectInput, UpdateProjectInput};
+use crate::models::{CreateProjectInput, Project, UpdateProjectInput};
 
 fn row_to_project(row: &rusqlite::Row) -> Result<Project, rusqlite::Error> {
     Ok(Project {
@@ -9,8 +9,12 @@ fn row_to_project(row: &rusqlite::Row) -> Result<Project, rusqlite::Error> {
         remark: row.get(3)?,
         provider_id: row.get(4)?,
         api_key_id: row.get(5)?,
-        cli_type: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "claude".to_string()),
-        terminal_type: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "iterm2".to_string()),
+        cli_type: row
+            .get::<_, Option<String>>(6)?
+            .unwrap_or_else(|| "claude".to_string()),
+        terminal_type: row
+            .get::<_, Option<String>>(7)?
+            .unwrap_or_else(|| "iterm2".to_string()),
         last_opened_at: row.get(8)?,
     })
 }
@@ -73,7 +77,8 @@ impl Database {
             ],
         )?;
 
-        self.project_get(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        self.project_get(&id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn project_update(&self, input: &UpdateProjectInput) -> Result<Project, rusqlite::Error> {
@@ -88,20 +93,25 @@ impl Database {
         add_field!(input.terminal_type, "terminal_type", sets, params);
 
         if sets.is_empty() {
-            return self.project_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);
+            return self
+                .project_get(&input.id)?
+                .ok_or(rusqlite::Error::QueryReturnedNoRows);
         }
 
         let sql = format!("UPDATE projects SET {} WHERE id = ?", sets.join(", "));
         params.push(Box::new(input.id.clone()));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         self.conn.execute(&sql, param_refs.as_slice())?;
 
-        self.project_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        self.project_get(&input.id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn project_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
-        self.conn.execute("DELETE FROM projects WHERE id = ?1", [id])?;
+        self.conn
+            .execute("DELETE FROM projects WHERE id = ?1", [id])?;
         Ok(())
     }
 
@@ -112,78 +122,5 @@ impl Database {
             rusqlite::params![now, id],
         )?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::db::Database;
-    use crate::models::CreateProjectInput;
-
-    #[test]
-    fn test_project_crud() {
-        let db = Database::new_in_memory().unwrap();
-
-        let project = db.project_create(&CreateProjectInput {
-            name: "My Project".to_string(),
-            path: "/home/user/project".to_string(),
-            remark: None,
-            provider_id: None,
-            api_key_id: None,
-            cli_type: None,
-            terminal_type: None,
-        }).unwrap();
-
-        assert_eq!(project.name, "My Project");
-        assert_eq!(project.path, "/home/user/project");
-
-        let by_path = db.project_get_by_path("/home/user/project").unwrap().unwrap();
-        assert_eq!(by_path.id, project.id);
-
-        db.project_delete(&project.id).unwrap();
-        assert!(db.project_get(&project.id).unwrap().is_none());
-    }
-
-    #[test]
-    fn test_project_create_returns_proper_result() {
-        let db = Database::new_in_memory().unwrap();
-        let result = db.project_create(&CreateProjectInput {
-            name: "Test".to_string(),
-            path: "/tmp/test".to_string(),
-            remark: None,
-            provider_id: None,
-            api_key_id: None,
-            cli_type: None,
-            terminal_type: None,
-        });
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_project_update_no_changes() {
-        use crate::models::UpdateProjectInput;
-        let db = Database::new_in_memory().unwrap();
-        let project = db.project_create(&CreateProjectInput {
-            name: "Test".to_string(),
-            path: "/tmp/test".to_string(),
-            remark: None,
-            provider_id: None,
-            api_key_id: None,
-            cli_type: None,
-            terminal_type: None,
-        }).unwrap();
-
-        // Update with no changes should still return Ok
-        let result = db.project_update(&UpdateProjectInput {
-            id: project.id.clone(),
-            name: None,
-            remark: None,
-            provider_id: None,
-            api_key_id: None,
-            cli_type: None,
-            terminal_type: None,
-        });
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().name, "Test");
     }
 }

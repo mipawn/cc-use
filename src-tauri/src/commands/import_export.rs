@@ -1,5 +1,7 @@
 use crate::db::Database;
-use crate::models::{ExportData, ExportOptions, ImportOptions, ImportResult, MigrationCheck, MigrationResult};
+use crate::models::{
+    ExportData, ExportOptions, ImportOptions, ImportResult, MigrationCheck, MigrationResult,
+};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -32,8 +34,8 @@ pub fn export_to_file(
 
     let db = db.lock().map_err(|e| e.to_string())?;
     let opts = options.unwrap_or_default();
-    let data = crate::services::import_export::export_selected(&db, &opts)
-        .map_err(|e| e.to_string())?;
+    let data =
+        crate::services::import_export::export_selected(&db, &opts).map_err(|e| e.to_string())?;
     let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())
@@ -63,7 +65,9 @@ pub fn validate_import_data(data: serde_json::Value) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn check_electron_migration(_db: State<'_, Arc<Mutex<Database>>>) -> Result<MigrationCheck, String> {
+pub fn check_electron_migration(
+    _db: State<'_, Arc<Mutex<Database>>>,
+) -> Result<MigrationCheck, String> {
     let electron_path = Database::get_electron_db_path();
     // Check if old DB exists and hasn't been migrated yet
     let electron_exists = electron_path.exists();
@@ -77,7 +81,9 @@ pub fn check_electron_migration(_db: State<'_, Arc<Mutex<Database>>>) -> Result<
 }
 
 #[tauri::command]
-pub fn migrate_from_electron(db: State<'_, Arc<Mutex<Database>>>) -> Result<MigrationResult, String> {
+pub fn migrate_from_electron(
+    db: State<'_, Arc<Mutex<Database>>>,
+) -> Result<MigrationResult, String> {
     let electron_path = Database::get_electron_db_path();
     if !electron_path.exists() {
         return Err("Electron database not found".to_string());
@@ -119,11 +125,7 @@ pub fn migrate_from_electron(db: State<'_, Arc<Mutex<Database>>>) -> Result<Migr
     })
 }
 
-fn migrate_table(
-    old_db: &Database,
-    new_db: &Database,
-    table_name: &str,
-) -> Result<(), String> {
+fn migrate_table(old_db: &Database, new_db: &Database, table_name: &str) -> Result<(), String> {
     // Get all column names from the new DB schema
     let columns: Vec<String> = new_db
         .conn
@@ -158,7 +160,10 @@ fn migrate_table(
         .collect();
 
     // Insert into new DB
-    let placeholders = (0..columns.len()).map(|_| "?").collect::<Vec<_>>().join(", ");
+    let placeholders = (0..columns.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
     let insert_sql = format!(
         "INSERT OR REPLACE INTO {} ({}) VALUES ({})",
         table_name, column_list, placeholders
@@ -167,10 +172,7 @@ fn migrate_table(
     for row_values in rows {
         new_db
             .conn
-            .execute(
-                &insert_sql,
-                rusqlite::params_from_iter(row_values.iter()),
-            )
+            .execute(&insert_sql, rusqlite::params_from_iter(row_values.iter()))
             .map_err(|e| format!("Failed to insert into {}: {}", table_name, e))?;
     }
 

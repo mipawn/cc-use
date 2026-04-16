@@ -16,7 +16,13 @@
     "format:check": "prettier . --check",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:web": "pnpm test",
+    "test:web:watch": "pnpm test:watch",
+    "test:web:coverage": "pnpm test:coverage",
+    "test:rust": "cargo test --workspace",
+    "test:all": "pnpm test:rust && pnpm test:web",
+    "dev:daemon": "cargo build -p cc-use-daemon && ./target/debug/cc-use-daemon stop; ./target/debug/cc-use-daemon start && echo 'daemon restarted'"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^2.0.3",
@@ -59,6 +65,7 @@
     "eslint-plugin-react": "^7.37.3",
     "eslint-plugin-react-hooks": "^5.1.0",
     "globals": "^15.14.0",
+    "jsdom": "^29.0.2",
     "png-to-ico": "^2.1.8",
     "postcss": "^8.5.6",
     "prettier": "^3.4.2",

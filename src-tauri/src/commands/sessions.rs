@@ -41,9 +41,7 @@ pub async fn scan_sessions() -> Result<Vec<ClaudeSession>, String> {
                 if !index_sessions.is_empty() {
                     sessions.extend(index_sessions);
                     // Also collect orphan files not in index
-                    if let Ok(orphans) =
-                        scan_orphan_files(&project_dir, &slug, Some(&index_path))
-                    {
+                    if let Ok(orphans) = scan_orphan_files(&project_dir, &slug, Some(&index_path)) {
                         sessions.extend(orphans);
                     }
                     continue;
@@ -363,14 +361,16 @@ fn slug_to_path(slug: &str) -> String {
     // Detect Windows-style slug: first part is a single lowercase letter (drive letter)
     // e.g., slug "-c-Users-john-project" → parts ["c", "Users", "john", "project"]
     // Normalized Windows path was "/c/Users/john/project"
-    let mut path = if cfg!(windows) && parts[0].len() == 1 && parts[0].chars().all(|c| c.is_ascii_lowercase()) {
-        // Reconstruct Windows drive path: "c" → "C:\"
-        let drive = parts[0].to_uppercase();
-        i = 1;
-        std::path::PathBuf::from(format!("{}:\\", drive))
-    } else {
-        std::path::PathBuf::from("/")
-    };
+    let mut path =
+        if cfg!(windows) && parts[0].len() == 1 && parts[0].chars().all(|c| c.is_ascii_lowercase())
+        {
+            // Reconstruct Windows drive path: "c" → "C:\"
+            let drive = parts[0].to_uppercase();
+            i = 1;
+            std::path::PathBuf::from(format!("{}:\\", drive))
+        } else {
+            std::path::PathBuf::from("/")
+        };
 
     while i < parts.len() {
         let mut found = false;

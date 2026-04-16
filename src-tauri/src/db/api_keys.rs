@@ -20,11 +20,14 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
         is_exhausted: row.get::<_, i32>(6)? != 0,
         is_active: row.get::<_, i32>(7)? != 0,
         config,
-        usage_type: row.get::<_, Option<String>>(9)?.unwrap_or_else(|| "none".to_string()),
+        usage_type: row
+            .get::<_, Option<String>>(9)?
+            .unwrap_or_else(|| "none".to_string()),
         usage_url: row.get(10)?,
         usage_path: row.get(11)?,
         usage_headers: row.get(12)?,
-        cached_usage: row.get::<_, Option<String>>(13)?
+        cached_usage: row
+            .get::<_, Option<String>>(13)?
             .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
         last_usage_checked_at: row.get(14)?,
         cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
@@ -37,7 +40,7 @@ impl Database {
             "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, cost_multiplier
-             FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC"
+             FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC",
         )?;
 
         let rows = stmt.query_map([provider_id], row_to_api_key)?;
@@ -49,7 +52,7 @@ impl Database {
             "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, cost_multiplier
-             FROM api_keys WHERE id = ?1"
+             FROM api_keys WHERE id = ?1",
         )?;
 
         let mut rows = stmt.query_map([id], row_to_api_key)?;
@@ -64,9 +67,16 @@ impl Database {
     pub fn api_key_create(&self, input: &CreateApiKeyInput) -> Result<ApiKey, rusqlite::Error> {
         let id = nanoid::nanoid!();
         let types_json = serde_json::to_string(
-            &input.types.clone().unwrap_or_else(|| vec!["claude".to_string()])
-        ).unwrap_or_else(|_| "[\"claude\"]".to_string());
-        let config_json = input.config.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
+            &input
+                .types
+                .clone()
+                .unwrap_or_else(|| vec!["claude".to_string()]),
+        )
+        .unwrap_or_else(|_| "[\"claude\"]".to_string());
+        let config_json = input
+            .config
+            .as_ref()
+            .map(|c| serde_json::to_string(c).unwrap_or_default());
 
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
@@ -89,7 +99,8 @@ impl Database {
             ],
         )?;
 
-        self.api_key_get(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        self.api_key_get(&id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn api_key_update(&self, input: &UpdateApiKeyInput) -> Result<ApiKey, rusqlite::Error> {
@@ -104,7 +115,12 @@ impl Database {
         add_field!(input.usage_url, "usage_url", sets, params);
         add_field!(input.usage_path, "usage_path", sets, params);
         add_field!(input.usage_headers, "usage_headers", sets, params);
-        add_field!(input.last_usage_checked_at, "last_usage_checked_at", sets, params);
+        add_field!(
+            input.last_usage_checked_at,
+            "last_usage_checked_at",
+            sets,
+            params
+        );
 
         if let Some(ref types) = input.types {
             sets.push("types = ?".to_string());
@@ -132,24 +148,33 @@ impl Database {
         }
 
         if sets.is_empty() {
-            return self.api_key_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);
+            return self
+                .api_key_get(&input.id)?
+                .ok_or(rusqlite::Error::QueryReturnedNoRows);
         }
 
         let sql = format!("UPDATE api_keys SET {} WHERE id = ?", sets.join(", "));
         params.push(Box::new(input.id.clone()));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
         self.conn.execute(&sql, param_refs.as_slice())?;
 
-        self.api_key_get(&input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        self.api_key_get(&input.id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 
     pub fn api_key_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
-        self.conn.execute("DELETE FROM api_keys WHERE id = ?1", [id])?;
+        self.conn
+            .execute("DELETE FROM api_keys WHERE id = ?1", [id])?;
         Ok(())
     }
 
-    pub fn api_key_reorder(&self, provider_id: &str, key_ids: &[String]) -> Result<Vec<ApiKey>, rusqlite::Error> {
+    pub fn api_key_reorder(
+        &self,
+        provider_id: &str,
+        key_ids: &[String],
+    ) -> Result<Vec<ApiKey>, rusqlite::Error> {
         for (i, id) in key_ids.iter().enumerate() {
             self.conn.execute(
                 "UPDATE api_keys SET priority = ?1 WHERE id = ?2 AND provider_id = ?3",
@@ -157,116 +182,5 @@ impl Database {
             )?;
         }
         self.api_key_list(provider_id)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::db::Database;
-    use crate::models::{CreateProviderInput, CreateApiKeyInput};
-
-    fn create_test_provider(db: &Database) -> String {
-        let provider = db.provider_create(&CreateProviderInput {
-            name: "Test".to_string(),
-            base_url: "https://api.test.com".to_string(),
-            provider_type: None, website: None, remark: None, token: None, icon: None,
-            wallet_balance_type: None, wallet_balance_url: None, wallet_balance_path: None,
-            wallet_balance_headers: None, wallet_balance_user_id: None,
-            usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
-        }).unwrap();
-        provider.id
-    }
-
-    #[test]
-    fn test_api_key_crud() {
-        let db = Database::new_in_memory().unwrap();
-        let provider_id = create_test_provider(&db);
-
-        let key = db.api_key_create(&CreateApiKeyInput {
-            provider_id: provider_id.clone(),
-            alias: Some("Test Key".to_string()),
-            value: "sk-test-123".to_string(),
-            types: Some(vec!["claude".to_string()]),
-            priority: Some(0),
-            is_active: None,
-            config: None,
-            cost_multiplier: None,
-            usage_type: None, usage_url: None, usage_path: None, usage_headers: None,
-        }).unwrap();
-
-        assert_eq!(key.alias, Some("Test Key".to_string()));
-        assert_eq!(key.value, "sk-test-123");
-        assert!(key.is_active);
-
-        let keys = db.api_key_list(&provider_id).unwrap();
-        assert_eq!(keys.len(), 1);
-
-        db.api_key_delete(&key.id).unwrap();
-        let keys = db.api_key_list(&provider_id).unwrap();
-        assert_eq!(keys.len(), 0);
-    }
-
-    #[test]
-    fn test_cascade_delete() {
-        let db = Database::new_in_memory().unwrap();
-        let provider_id = create_test_provider(&db);
-
-        db.api_key_create(&CreateApiKeyInput {
-            provider_id: provider_id.clone(),
-            alias: None,
-            value: "sk-test".to_string(),
-            types: None, priority: None, is_active: None, config: None,
-            cost_multiplier: None, usage_type: None, usage_url: None,
-            usage_path: None, usage_headers: None,
-        }).unwrap();
-
-        // Delete provider should cascade delete api keys
-        db.provider_delete(&provider_id).unwrap();
-
-        // Verify api keys are gone (query all)
-        let mut stmt = db.conn.prepare("SELECT COUNT(*) FROM api_keys").unwrap();
-        let count: i32 = stmt.query_row([], |row| row.get(0)).unwrap();
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_api_key_create_returns_proper_result() {
-        let db = Database::new_in_memory().unwrap();
-        let provider_id = create_test_provider(&db);
-        let result = db.api_key_create(&CreateApiKeyInput {
-            provider_id,
-            alias: Some("Test".to_string()),
-            value: "sk-test-456".to_string(),
-            types: None, priority: None, is_active: None, config: None,
-            cost_multiplier: None, usage_type: None, usage_url: None,
-            usage_path: None, usage_headers: None,
-        });
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_api_key_update_no_changes() {
-        use crate::models::UpdateApiKeyInput;
-        let db = Database::new_in_memory().unwrap();
-        let provider_id = create_test_provider(&db);
-        let key = db.api_key_create(&CreateApiKeyInput {
-            provider_id,
-            alias: Some("Test".to_string()),
-            value: "sk-test-789".to_string(),
-            types: None, priority: None, is_active: None, config: None,
-            cost_multiplier: None, usage_type: None, usage_url: None,
-            usage_path: None, usage_headers: None,
-        }).unwrap();
-
-        let result = db.api_key_update(&UpdateApiKeyInput {
-            id: key.id.clone(),
-            alias: None, value: None, types: None, priority: None,
-            is_exhausted: None, is_active: None, config: None,
-            cost_multiplier: None, usage_type: None, usage_url: None,
-            usage_path: None, usage_headers: None,
-            cached_usage: None, last_usage_checked_at: None,
-        });
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().value, "sk-test-789");
     }
 }

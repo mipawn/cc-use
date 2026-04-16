@@ -1,7 +1,7 @@
 use crate::db::Database;
 use crate::models::{
-    CreateApiKeyInput, CreateProviderInput, ExportApiKey, ExportData, ExportProvider,
-    ExportOptions, ImportOptions, ImportResult,
+    CreateApiKeyInput, CreateProviderInput, ExportApiKey, ExportData, ExportOptions,
+    ExportProvider, ImportOptions, ImportResult,
 };
 
 pub fn export_all(db: &Database) -> Result<ExportData, String> {
@@ -12,40 +12,42 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
     let mut export_providers = Vec::new();
 
     if options.include_providers {
-    let providers = db.provider_list().map_err(|e| e.to_string())?;
-    for provider in providers {
-        let keys = db.api_key_list(&provider.id).map_err(|e| e.to_string())?;
-        let export_keys: Vec<ExportApiKey> = keys
-            .into_iter()
-            .map(|k| ExportApiKey {
-                id: k.id,
-                alias: k.alias,
-                value: k.value,
-                types: Some(k.types),
-                priority: k.priority,
-                cost_multiplier: Some(k.cost_multiplier),
-            })
-            .collect();
+        let providers = db.provider_list().map_err(|e| e.to_string())?;
+        for provider in providers {
+            let keys = db.api_key_list(&provider.id).map_err(|e| e.to_string())?;
+            let export_keys: Vec<ExportApiKey> = keys
+                .into_iter()
+                .map(|k| ExportApiKey {
+                    id: k.id,
+                    alias: k.alias,
+                    value: k.value,
+                    types: Some(k.types),
+                    priority: k.priority,
+                    cost_multiplier: Some(k.cost_multiplier),
+                })
+                .collect();
 
-        export_providers.push(ExportProvider {
-            id: provider.id,
-            name: provider.name,
-            provider_type: provider.provider_type.unwrap_or_else(|| "claude".to_string()),
-            base_url: provider.base_url,
-            website: provider.website,
-            remark: provider.remark,
-            icon: provider.icon,
-            wallet_balance_type: Some(provider.wallet_balance_type),
-            wallet_balance_url: provider.wallet_balance_url,
-            wallet_balance_path: provider.wallet_balance_path,
-            wallet_balance_headers: provider.wallet_balance_headers,
-            usage_type: Some(provider.usage_type),
-            usage_url: provider.usage_url,
-            usage_path: provider.usage_path,
-            usage_headers: provider.usage_headers,
-            api_keys: export_keys,
-        });
-    }
+            export_providers.push(ExportProvider {
+                id: provider.id,
+                name: provider.name,
+                provider_type: provider
+                    .provider_type
+                    .unwrap_or_else(|| "claude".to_string()),
+                base_url: provider.base_url,
+                website: provider.website,
+                remark: provider.remark,
+                icon: provider.icon,
+                wallet_balance_type: Some(provider.wallet_balance_type),
+                wallet_balance_url: provider.wallet_balance_url,
+                wallet_balance_path: provider.wallet_balance_path,
+                wallet_balance_headers: provider.wallet_balance_headers,
+                usage_type: Some(provider.usage_type),
+                usage_url: provider.usage_url,
+                usage_path: provider.usage_path,
+                usage_headers: provider.usage_headers,
+                api_keys: export_keys,
+            });
+        }
     }
 
     let usage_logs = if options.include_usage_logs {
@@ -68,7 +70,11 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
     })
 }
 
-pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> Result<ImportResult, String> {
+pub fn import_all(
+    db: &Database,
+    data: &ExportData,
+    options: &ImportOptions,
+) -> Result<ImportResult, String> {
     let mut imported = 0;
     let mut skipped = 0;
     let mut errors = Vec::new();
@@ -89,7 +95,10 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
         if let Some(existing_provider) = exists {
             if options.overwrite {
                 if let Err(e) = db.provider_delete(&existing_provider.id) {
-                    errors.push(format!("Failed to delete existing provider {}: {}", ep.name, e));
+                    errors.push(format!(
+                        "Failed to delete existing provider {}: {}",
+                        ep.name, e
+                    ));
                     continue;
                 }
             }
@@ -131,7 +140,9 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
                     continue;
                 }
                 let types_json = serde_json::to_string(
-                    &ek.types.clone().unwrap_or_else(|| vec!["claude".to_string()]),
+                    &ek.types
+                        .clone()
+                        .unwrap_or_else(|| vec!["claude".to_string()]),
                 )
                 .unwrap_or_else(|_| "[\"claude\"]".to_string());
 
@@ -204,7 +215,11 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
     // disable foreign key checks while inserting logs that reference project_id.
     // Only import logs if present (old exports default to empty lists).
     if data.usage_logs.is_empty() && data.request_logs.is_empty() {
-        return Ok(ImportResult { imported, skipped, errors });
+        return Ok(ImportResult {
+            imported,
+            skipped,
+            errors,
+        });
     }
 
     let disable_fk_and_begin = db
@@ -236,7 +251,11 @@ pub fn import_all(db: &Database, data: &ExportData, options: &ImportOptions) -> 
         errors.push("Failed to start log import transaction".to_string());
     }
 
-    Ok(ImportResult { imported, skipped, errors })
+    Ok(ImportResult {
+        imported,
+        skipped,
+        errors,
+    })
 }
 
 pub fn validate(data: &serde_json::Value) -> bool {

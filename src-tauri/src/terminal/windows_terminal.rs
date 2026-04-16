@@ -4,7 +4,9 @@ use std::process::Command;
 pub struct WindowsTerminalStrategy;
 
 impl TerminalStrategy for WindowsTerminalStrategy {
-    fn name(&self) -> &str { "Windows Terminal" }
+    fn name(&self) -> &str {
+        "Windows Terminal"
+    }
 
     fn is_available(&self) -> bool {
         #[cfg(target_os = "windows")]
@@ -16,11 +18,20 @@ impl TerminalStrategy for WindowsTerminalStrategy {
                 .unwrap_or(false)
         }
         #[cfg(not(target_os = "windows"))]
-        { false }
+        {
+            false
+        }
     }
 
-    fn launch(&self, path: &str, env: &EnvObject, cli_command: &str) -> Result<(), String> {
-        let env_sets: String = env.iter()
+    fn launch(
+        &self,
+        path: &str,
+        env: &EnvObject,
+        cli_command: &str,
+        _instance_label: Option<&str>,
+    ) -> Result<(), String> {
+        let env_sets: String = env
+            .iter()
             .map(|(k, v)| format!("$env:{}=\"{}\"", k, v))
             .collect::<Vec<_>>()
             .join("; ");

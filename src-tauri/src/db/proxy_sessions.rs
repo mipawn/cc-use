@@ -20,7 +20,7 @@ impl Database {
     pub fn proxy_session_get(&self, token: &str) -> Result<Option<ProxySession>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT session_token, provider_id, api_key_id, project_id, created_at
-             FROM proxy_sessions WHERE session_token = ?1"
+             FROM proxy_sessions WHERE session_token = ?1",
         )?;
 
         let mut rows = stmt.query_map([token], |row| {
@@ -40,10 +40,29 @@ impl Database {
         }
     }
 
-    pub fn proxy_session_update_key(&self, token: &str, api_key_id: &str) -> Result<bool, rusqlite::Error> {
+    pub fn proxy_session_update_key(
+        &self,
+        token: &str,
+        api_key_id: &str,
+    ) -> Result<bool, rusqlite::Error> {
         let changed = self.conn.execute(
             "UPDATE proxy_sessions SET api_key_id = ?1 WHERE session_token = ?2",
             rusqlite::params![api_key_id, token],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn proxy_session_update_provider_key(
+        &self,
+        token: &str,
+        provider_id: &str,
+        api_key_id: &str,
+    ) -> Result<bool, rusqlite::Error> {
+        let changed = self.conn.execute(
+            "UPDATE proxy_sessions
+             SET provider_id = ?1, api_key_id = ?2
+             WHERE session_token = ?3",
+            rusqlite::params![provider_id, api_key_id, token],
         )?;
         Ok(changed > 0)
     }
@@ -59,7 +78,7 @@ impl Database {
     pub fn proxy_session_list(&self) -> Result<Vec<ProxySession>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT session_token, provider_id, api_key_id, project_id, created_at
-             FROM proxy_sessions ORDER BY created_at DESC"
+             FROM proxy_sessions ORDER BY created_at DESC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -86,5 +105,17 @@ impl Database {
             rusqlite::params![provider_id, api_key_id, project_id],
         )?;
         Ok(())
+    }
+
+    /// Remove sessions older than the given number of days.
+    /// Returns the number of deleted rows.
+    pub fn proxy_session_cleanup_stale(&self, max_age_days: i64) -> Result<i64, rusqlite::Error> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+        let cutoff_str = cutoff.to_rfc3339();
+        let deleted = self.conn.execute(
+            "DELETE FROM proxy_sessions WHERE created_at < ?1",
+            [&cutoff_str],
+        )?;
+        Ok(deleted as i64)
     }
 }

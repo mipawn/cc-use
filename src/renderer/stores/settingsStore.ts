@@ -38,7 +38,6 @@ const getDefaultTerminalType = (): TerminalType => {
 const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   defaultProviderType: 'claude',
   proxyPort: 12345,
-  autoStartProxy: true,
   defaultTerminalType: getDefaultTerminalType(),
   closeToTray: true,
 }

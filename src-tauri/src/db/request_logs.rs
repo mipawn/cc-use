@@ -1,8 +1,8 @@
 use crate::db::Database;
 use crate::models::{
     CostStatistics, CostStatsSummary, DailyCostTrendItem, DashboardCostStats,
-    PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog, TopKeyCostItem,
-    TopModelCostItem, TopProjectCostItem, TopProviderCostItem,
+    PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog, TopKeyCostItem, TopModelCostItem,
+    TopProjectCostItem, TopProviderCostItem,
 };
 
 impl Database {
@@ -152,16 +152,17 @@ impl Database {
         rows.collect()
     }
 
-    pub fn request_log_get_daily_trend(&self, days: i64) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
-        let mut stmt = self.conn.prepare(
-            &format!(
-                "SELECT DATE(created_at) as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
+    pub fn request_log_get_daily_trend(
+        &self,
+        days: i64,
+    ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT DATE(created_at) as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
                  FROM request_logs
                  WHERE created_at >= DATE('now', 'localtime', '-{} days')
                  GROUP BY d ORDER BY d ASC",
-                days
-            )
-        )?;
+            days
+        ))?;
 
         let rows = stmt.query_map([], |row| {
             Ok(DailyCostTrendItem {
@@ -174,7 +175,10 @@ impl Database {
         rows.collect()
     }
 
-    pub fn request_log_get_cost_statistics(&self, time_range: &str) -> Result<CostStatistics, rusqlite::Error> {
+    pub fn request_log_get_cost_statistics(
+        &self,
+        time_range: &str,
+    ) -> Result<CostStatistics, rusqlite::Error> {
         let where_clause = self.time_range_where("created_at", time_range);
 
         // Summary
@@ -201,17 +205,19 @@ impl Database {
         )?;
 
         // Top keys
-        let mut stmt = self.conn.prepare(
-            &format!(
-                "SELECT r.api_key_id, COALESCE(k.alias, ''), COALESCE(p.name, ''),
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT r.api_key_id, COALESCE(k.alias, ''), COALESCE(p.name, ''),
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
                  {} GROUP BY r.api_key_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
-                if where_clause.is_empty() { "" } else { &where_clause }
-            )
-        )?;
+            if where_clause.is_empty() {
+                ""
+            } else {
+                &where_clause
+            }
+        ))?;
         let top_keys: Vec<TopKeyCostItem> = stmt
             .query_map([], |row| {
                 Ok(TopKeyCostItem {
@@ -227,16 +233,18 @@ impl Database {
             .collect();
 
         // Top providers
-        let mut stmt = self.conn.prepare(
-            &format!(
-                "SELECT r.provider_id, COALESCE(p.name, ''),
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT r.provider_id, COALESCE(p.name, ''),
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN providers p ON r.provider_id = p.id
                  {} GROUP BY r.provider_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
-                if where_clause.is_empty() { "" } else { &where_clause }
-            )
-        )?;
+            if where_clause.is_empty() {
+                ""
+            } else {
+                &where_clause
+            }
+        ))?;
         let top_providers: Vec<TopProviderCostItem> = stmt
             .query_map([], |row| {
                 Ok(TopProviderCostItem {
@@ -251,16 +259,18 @@ impl Database {
             .collect();
 
         // Top projects
-        let mut stmt = self.conn.prepare(
-            &format!(
-                "SELECT r.project_id, COALESCE(pr.name, 'Unknown'),
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT r.project_id, COALESCE(pr.name, 'Unknown'),
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  {} GROUP BY r.project_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
-                if where_clause.is_empty() { "" } else { &where_clause }
-            )
-        )?;
+            if where_clause.is_empty() {
+                ""
+            } else {
+                &where_clause
+            }
+        ))?;
         let top_projects: Vec<TopProjectCostItem> = stmt
             .query_map([], |row| {
                 Ok(TopProjectCostItem {
@@ -275,15 +285,13 @@ impl Database {
             .collect();
 
         // Top models
-        let mut stmt = self.conn.prepare(
-            &format!(
-                "SELECT COALESCE(model, 'unknown'), SUM(total_cost_usd), COUNT(*),
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT COALESCE(model, 'unknown'), SUM(total_cost_usd), COUNT(*),
                         SUM(input_tokens + output_tokens)
                  FROM request_logs
                  {} GROUP BY model ORDER BY SUM(total_cost_usd) DESC LIMIT 10",
-                where_clause
-            )
-        )?;
+            where_clause
+        ))?;
         let top_models: Vec<TopModelCostItem> = stmt
             .query_map([], |row| {
                 Ok(TopModelCostItem {
@@ -328,15 +336,18 @@ impl Database {
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  {}",
-                if where_clause.is_empty() { "" } else { &where_clause }
+                if where_clause.is_empty() {
+                    ""
+                } else {
+                    &where_clause
+                }
             ),
             [],
             |row| row.get(0),
         )?;
 
-        let mut stmt = self.conn.prepare(
-            &format!(
-                "SELECT r.id, r.model, k.alias, p.name, pr.name,
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT r.id, r.model, k.alias, p.name, pr.name,
                         r.total_cost_usd, r.input_tokens, r.output_tokens,
                         r.latency_ms, r.status_code, r.created_at
                  FROM request_logs r
@@ -344,9 +355,12 @@ impl Database {
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  {} ORDER BY r.created_at DESC LIMIT ?1 OFFSET ?2",
-                if where_clause.is_empty() { "" } else { &where_clause }
-            )
-        )?;
+            if where_clause.is_empty() {
+                ""
+            } else {
+                &where_clause
+            }
+        ))?;
         let items: Vec<RecentRequestLogDisplay> = stmt
             .query_map([page_size, offset], |row| {
                 Ok(RecentRequestLogDisplay {
@@ -410,7 +424,7 @@ impl Database {
              FROM request_logs r
              LEFT JOIN api_keys k ON r.api_key_id = k.id
              LEFT JOIN providers p ON r.provider_id = p.id
-             GROUP BY r.api_key_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5"
+             GROUP BY r.api_key_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5",
         )?;
         let top_keys: Vec<TopKeyCostItem> = stmt
             .query_map([], |row| {
@@ -432,7 +446,7 @@ impl Database {
                     SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
              FROM request_logs r
              LEFT JOIN projects pr ON r.project_id = pr.id
-             GROUP BY r.project_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5"
+             GROUP BY r.project_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5",
         )?;
         let top_projects: Vec<TopProjectCostItem> = stmt
             .query_map([], |row| {

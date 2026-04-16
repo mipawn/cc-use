@@ -1,7 +1,6 @@
 import { getApi } from '../api'
 /**
  * Projects - 项目管理页面（卡片布局）
- * 完整的增删改查 + 代理服务控制
  */
 import { useEffect, useState } from 'react'
 import {
@@ -13,7 +12,6 @@ import {
   Modal,
   Form,
   Input,
-  Switch,
   Tooltip,
   Popconfirm,
   Dropdown,
@@ -103,28 +101,9 @@ export default function Projects() {
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [form] = Form.useForm()
 
-  // Proxy state
-  const [proxyRunning, setProxyRunning] = useState(false)
-  const [proxyLoading, setProxyLoading] = useState(false)
-
   useEffect(() => {
     fetchProjects()
     fetchProviders()
-    checkProxyStatus()
-
-    const unsubscribe = getApi().proxy.onStatusChanged((data) => {
-      setProxyRunning(data.isRunning)
-      if (data.source === 'tray') {
-        if (data.isRunning) {
-          message.success(t('projects.proxyStarted'))
-        } else {
-          message.info(t('projects.proxyStopped'))
-        }
-      }
-    })
-    return () => {
-      unsubscribe()
-    }
   }, [fetchProjects, fetchProviders])
 
   useEffect(() => {
@@ -132,56 +111,6 @@ export default function Projects() {
       fetchAllApiKeys(providers.map((p) => p.id))
     }
   }, [providers, fetchAllApiKeys])
-
-  // Check proxy status
-  const checkProxyStatus = async () => {
-    try {
-      const status = await getApi().proxy.status()
-      setProxyRunning(status.isRunning)
-    } catch (error) {
-      console.error('Failed to check proxy status:', error)
-    }
-  }
-
-  // Toggle proxy
-  const handleProxyToggle = async (checked: boolean) => {
-    if (proxyLoading) return
-
-    // If turning off, show confirmation
-    if (!checked) {
-      Modal.confirm({
-        title: t('settings.proxyStopConfirm') || '确认关闭代理？',
-        content: t('settings.proxyStopWarning') || '关闭后，无法记录使用量',
-        okText: t('common.confirm') || '确认',
-        cancelText: t('common.cancel') || '取消',
-        onOk: async () => {
-          setProxyLoading(true)
-          try {
-            await getApi().proxy.stop()
-            setProxyRunning(false)
-            message.success(t('projects.proxyStopped'))
-          } catch (error) {
-            message.error(t('projects.proxyError'))
-          } finally {
-            setProxyLoading(false)
-          }
-        },
-      })
-      return
-    }
-
-    // Turn on proxy
-    setProxyLoading(true)
-    try {
-      await getApi().proxy.start()
-      setProxyRunning(true)
-      message.success(t('projects.proxyStarted'))
-    } catch (error) {
-      message.error(t('projects.proxyError'))
-    } finally {
-      setProxyLoading(false)
-    }
-  }
 
   const getProvider = (providerId: string | null) => {
     if (!providerId) return null
@@ -229,11 +158,6 @@ export default function Projects() {
     const apiKey = getApiKey(project.apiKeyId)
     if (!isKeyCompatible(project, apiKey)) {
       message.warning(t('projects.keyNotCompatible'))
-      return
-    }
-
-    if (!proxyRunning) {
-      message.warning(t('projects.proxyNotRunning'))
       return
     }
 
@@ -286,9 +210,6 @@ export default function Projects() {
         providerId,
         apiKeyId: keyId,
       })
-      // Also update any active proxy session for this project
-      // so usage stats are recorded against the new key
-      await getApi().session.updateByProject(project.id, providerId, keyId)
       message.success(t('projects.keySwitched'))
     } catch (error) {
       message.error(t('messages.error'))
@@ -382,10 +303,6 @@ export default function Projects() {
           apiKeyId,
           cliType: values.cliType as ProviderType,
         })
-        // Sync active proxy session so usage stats track the new key
-        if (providerId && apiKeyId) {
-          await getApi().session.updateByProject(editingProject.id, providerId, apiKeyId)
-        }
         message.success(t('projects.projectUpdated'))
       } else {
         // Create new project
@@ -447,30 +364,6 @@ export default function Projects() {
           <Text type='secondary'>{t('projects.subtitle')}</Text>
         </div>
         <Space size='middle' align='center'>
-          {/* Proxy Status */}
-          <Tooltip title={proxyRunning ? t('projects.proxyRunning') : t('projects.proxyStopped')}>
-            <div
-              className={styles.proxyStatus}
-              style={{
-                background: proxyRunning ? token.colorSuccessBg : token.colorBgContainerDisabled,
-                borderColor: proxyRunning ? token.colorSuccessBorder : token.colorBorder,
-              }}
-            >
-              <span
-                className={styles.proxyDot}
-                style={{
-                  background: proxyRunning ? token.colorSuccess : token.colorTextQuaternary,
-                }}
-              />
-              <Text style={{ fontSize: 12 }}>{t('projects.proxy')}</Text>
-              <Switch
-                checked={proxyRunning}
-                onChange={handleProxyToggle}
-                loading={proxyLoading}
-                size='small'
-              />
-            </div>
-          </Tooltip>
           <Button type='primary' icon={<PlusOutlined />} onClick={handleAdd}>
             {t('projects.addProject')}
           </Button>

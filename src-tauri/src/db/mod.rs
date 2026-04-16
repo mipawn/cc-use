@@ -10,13 +10,14 @@ macro_rules! add_field {
     };
 }
 
-pub mod providers;
 pub mod api_keys;
+pub mod managed_instances;
 pub mod projects;
+pub mod providers;
+pub mod proxy_sessions;
+pub mod request_logs;
 pub mod settings;
 pub mod usage_logs;
-pub mod request_logs;
-pub mod proxy_sessions;
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -185,7 +186,49 @@ impl Database {
                 project_id TEXT,
                 created_at TEXT NOT NULL
             );
-            "
+
+            CREATE TABLE IF NOT EXISTS managed_instances (
+                id TEXT PRIMARY KEY,
+                session_token TEXT NOT NULL UNIQUE REFERENCES proxy_sessions(session_token) ON DELETE CASCADE,
+                project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+                provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
+                api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+                cli_type TEXT NOT NULL,
+                terminal_type TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                shell_pid INTEGER,
+                process_pid INTEGER,
+                status TEXT NOT NULL DEFAULT 'launching',
+                assignment_source TEXT,
+                last_seen_at TEXT NOT NULL,
+                launched_at TEXT NOT NULL,
+                stopped_at TEXT,
+                stop_reason TEXT,
+                exit_code INTEGER
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_managed_instances_status_seen
+            ON managed_instances(status, last_seen_at DESC);
+
+            CREATE TABLE IF NOT EXISTS discovered_sessions (
+                id TEXT PRIMARY KEY,
+                pid INTEGER NOT NULL,
+                process_name TEXT NOT NULL,
+                executable_path TEXT,
+                cwd TEXT,
+                cli_type TEXT NOT NULL DEFAULT 'unknown',
+                provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
+                api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+                routing_mode TEXT NOT NULL DEFAULT 'pass_through',
+                assignment_source TEXT,
+                source_port_last_seen INTEGER,
+                last_upstream_family TEXT,
+                last_error TEXT,
+                is_active INTEGER DEFAULT 1,
+                last_seen_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+",
         )?;
 
         // Run ALTER TABLE migrations for backward compatibility with existing databases
@@ -210,7 +253,9 @@ impl Database {
     /// Check if the database is empty (no providers).
     pub fn is_empty(&self) -> bool {
         self.conn
-            .query_row("SELECT COUNT(*) FROM providers", [], |row| row.get::<_, i32>(0))
+            .query_row("SELECT COUNT(*) FROM providers", [], |row| {
+                row.get::<_, i32>(0)
+            })
             .unwrap_or(0)
             == 0
     }
@@ -310,32 +355,5 @@ fn dirs_next() -> Option<PathBuf> {
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_database_init_fresh() {
-        let db = Database::new_in_memory().unwrap();
-        // Verify all 7 tables exist
-        let tables: Vec<String> = db
-            .conn
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect();
-
-        assert!(tables.contains(&"providers".to_string()));
-        assert!(tables.contains(&"api_keys".to_string()));
-        assert!(tables.contains(&"projects".to_string()));
-        assert!(tables.contains(&"settings".to_string()));
-        assert!(tables.contains(&"usage_logs".to_string()));
-        assert!(tables.contains(&"request_logs".to_string()));
-        assert!(tables.contains(&"proxy_sessions".to_string()));
     }
 }

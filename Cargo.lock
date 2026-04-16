@@ -570,6 +570,7 @@ dependencies = [
  "flate2",
  "futures",
  "hyper",
+ "libc",
  "log",
  "nanoid",
  "open",
@@ -588,9 +589,27 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
+ "toml 0.8.2",
  "tower",
  "tower-http",
  "url",
+]
+
+[[package]]
+name = "cc-use-daemon"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "cc-use",
+ "chrono",
+ "dirs",
+ "libc",
+ "nanoid",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
 ]
 
 [[package]]

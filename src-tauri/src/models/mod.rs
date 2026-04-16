@@ -193,7 +193,6 @@ pub struct UpdateProjectInput {
 pub struct GlobalSettings {
     pub default_provider_type: String,
     pub proxy_port: i32,
-    pub auto_start_proxy: bool,
     pub default_terminal_type: String,
     pub close_to_tray: bool,
     pub claude_config: Option<serde_json::Value>,
@@ -205,7 +204,6 @@ impl Default for GlobalSettings {
         Self {
             default_provider_type: "claude".to_string(),
             proxy_port: 12345,
-            auto_start_proxy: true,
             default_terminal_type: "iterm2".to_string(),
             close_to_tray: true,
             claude_config: None,
@@ -241,6 +239,55 @@ pub struct TerminalLaunchPreview {
     pub cli_type: String,
     pub env: std::collections::HashMap<String, String>,
     pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedInstance {
+    pub id: String,
+    pub session_token: String,
+    pub project_id: Option<String>,
+    pub provider_id: Option<String>,
+    pub api_key_id: Option<String>,
+    pub cli_type: String,
+    pub terminal_type: String,
+    pub project_path: String,
+    pub shell_pid: Option<i32>,
+    pub process_pid: Option<i32>,
+    pub status: String,
+    pub assignment_source: Option<String>,
+    pub last_seen_at: String,
+    pub launched_at: String,
+    pub stopped_at: Option<String>,
+    pub stop_reason: Option<String>,
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateManagedInstanceAssignmentInput {
+    pub id: String,
+    pub provider_id: String,
+    pub api_key_id: String,
+    pub assignment_source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedInstanceHeartbeatInput {
+    pub instance_id: String,
+    pub shell_pid: Option<i32>,
+    pub process_pid: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedInstanceStopInput {
+    pub instance_id: String,
+    pub shell_pid: Option<i32>,
+    pub process_pid: Option<i32>,
+    pub stop_reason: Option<String>,
+    pub exit_code: Option<i32>,
 }
 
 // ── Usage ──

@@ -33,6 +33,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 flate2 = "1"
 brotli = "7"
+toml = "0.8"
 log = "0.4"
 env_logger = "0.11"
 thiserror = "2"
@@ -41,6 +42,7 @@ open = "5"
 url = "2"
 futures = "0.3"
 sys-locale = "0.3"
+libc = "0.2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

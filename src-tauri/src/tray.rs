@@ -1,15 +1,15 @@
 use crate::db::Database;
-use std::sync::{Arc, Mutex};
 #[cfg(not(target_os = "macos"))]
 use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 #[cfg(not(target_os = "macos"))]
 use std::time::{Duration, Instant};
-use tauri::{
-    AppHandle, Emitter, Manager,
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
-};
 #[cfg(not(target_os = "macos"))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    AppHandle, Emitter, Manager,
+};
 
 /// Tray menu labels for i18n
 struct TrayLabels {
@@ -18,8 +18,7 @@ struct TrayLabels {
     quit: &'static str,
     proxy_running: &'static str,
     proxy_stopped: &'static str,
-    start_proxy: &'static str,
-    stop_proxy: &'static str,
+    restart_proxy: &'static str,
     recent_projects: &'static str,
     no_recent_projects: &'static str,
 }
@@ -30,8 +29,7 @@ const ZH_LABELS: TrayLabels = TrayLabels {
     quit: "退出",
     proxy_running: "代理: ● 运行中",
     proxy_stopped: "代理: ○ 已停止",
-    start_proxy: "启动代理",
-    stop_proxy: "停止代理",
+    restart_proxy: "重启代理",
     recent_projects: "最近项目",
     no_recent_projects: "暂无最近项目",
 };
@@ -42,8 +40,7 @@ const EN_LABELS: TrayLabels = TrayLabels {
     quit: "Quit",
     proxy_running: "Proxy: ● Running",
     proxy_stopped: "Proxy: ○ Stopped",
-    start_proxy: "Start Proxy",
-    stop_proxy: "Stop Proxy",
+    restart_proxy: "Restart Proxy",
     recent_projects: "Recent Projects",
     no_recent_projects: "No Recent Projects",
 };
@@ -95,21 +92,19 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
 
     let sep1 = PredefinedMenuItem::separator(app)?;
 
-    // Proxy status
-    let proxy_running = crate::commands::proxy::is_proxy_running();
+    let db_state = app.state::<Arc<Mutex<Database>>>();
+    let db_arc = db_state.inner().clone();
+    let proxy_running = crate::commands::proxy::is_proxy_running(&db_arc);
     let status_label = if proxy_running {
         labels.proxy_running
     } else {
         labels.proxy_stopped
     };
-    let proxy_status_item = MenuItem::with_id(app, "proxy_status", status_label, false, None::<&str>)?;
+    let proxy_status_item =
+        MenuItem::with_id(app, "proxy_status", status_label, false, None::<&str>)?;
 
-    let proxy_toggle_label = if proxy_running {
-        labels.stop_proxy
-    } else {
-        labels.start_proxy
-    };
-    let proxy_toggle_item = MenuItem::with_id(app, "toggle_proxy", proxy_toggle_label, true, None::<&str>)?;
+    let proxy_restart_item =
+        MenuItem::with_id(app, "restart_proxy", labels.restart_proxy, true, None::<&str>)?;
 
     let sep2 = PredefinedMenuItem::separator(app)?;
 
@@ -127,7 +122,7 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
             &toggle_item,
             &sep1,
             &proxy_status_item,
-            &proxy_toggle_item,
+            &proxy_restart_item,
             &sep2,
             &projects_submenu,
             &sep3,
@@ -270,18 +265,18 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             toggle_window(app);
             refresh_tray_menu(app);
         }
-        "toggle_proxy" => {
+        "restart_proxy" => {
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
-                let running = crate::commands::proxy::is_proxy_running();
-                if running {
-                    let _ = crate::commands::proxy::proxy_stop().await;
-                } else {
-                    let db_state = app_handle.state::<Arc<Mutex<Database>>>();
-                    let _ = crate::commands::proxy::proxy_start_inner(&*db_state).await;
-                }
+                let db_state = app_handle.state::<Arc<Mutex<Database>>>();
+                let _ =
+                    crate::commands::proxy::proxy_restart_inner(&db_state.inner().clone()).await;
                 // Emit proxy status change to frontend
-                let status = crate::commands::proxy::proxy_status().unwrap_or(crate::models::ProxyStatus {
+                let status = {
+                    let db_state = app_handle.state::<Arc<Mutex<Database>>>();
+                    crate::commands::proxy::proxy_status_inner(&db_state.inner().clone())
+                }
+                .unwrap_or(crate::models::ProxyStatus {
                     is_running: false,
                     port: 12345,
                     request_count: 0,
@@ -293,8 +288,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         }
         "quit" => {
             // Stop proxy before quitting
-            tauri::async_runtime::spawn(async {
-                let _ = crate::commands::proxy::proxy_stop().await;
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let db_state = app_handle.state::<Arc<Mutex<Database>>>();
+                let _ = crate::commands::proxy::proxy_stop_inner(&db_state.inner().clone()).await;
             });
             std::process::exit(0);
         }

@@ -8,6 +8,7 @@ import {
   BarChartOutlined,
   SettingOutlined,
   DatabaseOutlined,
+  DeploymentUnitOutlined,
 } from '@ant-design/icons'
 
 const { Sider } = Layout
@@ -43,6 +44,11 @@ export default function Sidebar() {
       key: '/sessions',
       icon: <DatabaseOutlined />,
       label: '会话管理',
+    },
+    {
+      key: '/instances',
+      icon: <DeploymentUnitOutlined />,
+      label: t('instances.title'),
     },
     {
       key: '/settings',

@@ -43,7 +43,10 @@ async fn fetch_newapi_usage(
         .or_else(|| pick_first_available_key(fallback_api_keys))
         .ok_or_else(|| "No available token for usage query".to_string())?;
 
-    let url = format!("{}/api/usage/token", provider.base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/usage/token",
+        provider.base_url.trim_end_matches('/')
+    );
     let resp = reqwest::Client::new()
         .get(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -53,7 +56,11 @@ async fn fetch_newapi_usage(
         .map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}: {}", resp.status().as_u16(), resp.status()));
+        return Err(format!(
+            "HTTP {}: {}",
+            resp.status().as_u16(),
+            resp.status()
+        ));
     }
 
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
@@ -109,7 +116,11 @@ async fn fetch_custom_usage(provider: &Provider) -> Result<serde_json::Value, St
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}: {}", resp.status().as_u16(), resp.status()));
+        return Err(format!(
+            "HTTP {}: {}",
+            resp.status().as_u16(),
+            resp.status()
+        ));
     }
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
 
@@ -125,7 +136,10 @@ async fn fetch_newapi_key_usage(
     provider_base_url: &str,
     key_value: &str,
 ) -> Result<serde_json::Value, String> {
-    let url = format!("{}/api/usage/token/", provider_base_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/usage/token/",
+        provider_base_url.trim_end_matches('/')
+    );
     let resp = reqwest::Client::new()
         .get(&url)
         .header("Authorization", format!("Bearer {}", key_value))
@@ -135,7 +149,11 @@ async fn fetch_newapi_key_usage(
         .map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}: {}", resp.status().as_u16(), resp.status()));
+        return Err(format!(
+            "HTTP {}: {}",
+            resp.status().as_u16(),
+            resp.status()
+        ));
     }
 
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
@@ -200,7 +218,11 @@ async fn fetch_custom_key_usage(
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}: {}", resp.status().as_u16(), resp.status()));
+        return Err(format!(
+            "HTTP {}: {}",
+            resp.status().as_u16(),
+            resp.status()
+        ));
     }
 
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
@@ -269,8 +291,8 @@ fn resolve_custom_path(body: &Value, path: &str) -> Result<Value, String> {
     }
 
     // Legacy single-path mode: extract a single numeric value as remaining
-    let value = extract_json_path(body, path)
-        .ok_or_else(|| format!("No value found at path: {}", path))?;
+    let value =
+        extract_json_path(body, path).ok_or_else(|| format!("No value found at path: {}", path))?;
 
     // If the extracted value is an object, try to read structured fields from it
     if let Some(obj) = value.as_object() {
@@ -325,8 +347,8 @@ fn parse_headers(raw: &str) -> Result<Vec<(String, String)>, String> {
         return Ok(Vec::new());
     }
 
-    let value: serde_json::Value = serde_json::from_str(trimmed)
-        .map_err(|_| "Invalid headers JSON format".to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|_| "Invalid headers JSON format".to_string())?;
     let obj = value
         .as_object()
         .ok_or_else(|| "Invalid headers JSON format".to_string())?;

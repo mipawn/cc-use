@@ -10,6 +10,7 @@ import Projects from './pages/Projects'
 import Statistics from './pages/Statistics'
 import Settings from './pages/Settings'
 import Sessions from './pages/Sessions'
+import Instances from './pages/Instances'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
@@ -168,6 +169,7 @@ function AppContent() {
             padding: 24,
             overflow: 'hidden',
             height: 'calc(100vh - 36px)',
+            minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
           }}
@@ -181,6 +183,7 @@ function AppContent() {
             <Route path='/projects' element={<Projects />} />
             <Route path='/statistics' element={<Statistics />} />
             <Route path='/sessions' element={<Sessions />} />
+            <Route path='/instances' element={<Instances />} />
             <Route path='/settings' element={<Settings />} />
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>
