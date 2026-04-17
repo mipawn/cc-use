@@ -5,6 +5,63 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.0.0] - 2026-04-17
+
+### 🎉 重大重构 - 独立 Daemon 架构
+
+代理不再是 app 内嵌子进程，而是抽离为独立常驻进程 `cc-use-daemon`。app 仅作 control plane，daemon 作 data plane，彼此通过 management token 通信。实例身份在启动时显式确定（wrapper + session token），取代事后推断的 PID/观测路径。
+
+### ⚠️ 破坏性变更
+
+- **正式放弃 Windows 平台支持**：自 3.0 起不再打包 Windows 产物（仅发布 macOS 的 `dmg` / `app`），后续版本也不再提供 Windows 构建，停留在 2.x 的 Windows 版本不会再收到更新
+- **Windows 终端支持全量移除**：`cmd` / `powershell` / `wt` 三种 `TerminalType` 已删除，仅保留 `iterm2` / `terminal`（`isWindowsTerminal`、Windows 版 `formatEnvCommand` 分支一并清理）
+- **移除「代理自动启动」开关**：`GlobalSettings.autoStartProxy` 删除，daemon 由应用托管，设置页代理开关改为「状态只读 + 重启」
+- **代理术语改名为 daemon 服务**：README、托盘菜单、设置页文案统一
+- **旧代理实验能力全部下线**：`config injection` / PID observation / discovered sessions / 全局代理开关均删除，daemon 只管理从 app 启动的 managed instance
+- 项目页修改密钥不再广播到所有运行中 session，改为仅更新「下次启动默认值」；当前运行实例的热切换统一收敛到「实例」页
+
+### ✨ Added
+
+- **`cc-use-daemon` 独立进程**：新 crate `crates/cc-use-daemon`，含 launchd 管理、management API、runtime 启停、stale sweeper
+- **Managed Instance 生命周期模型**：新增 `managed_instances` 表，状态机 `launching / running / stale / stopped / failed`，字段含 `session_token / shell_pid / process_pid / last_seen_at / stop_reason / exit_code`
+- **Wrapper 脚本机制**：终端启动改为执行临时 wrapper，自动注入实例专属环境变量、持续上报 heartbeat、`EXIT/HUP/INT/TERM` 主动 stop 上报
+- **Instances 页面**：展示 managed instances 列表、实时状态、实例级密钥热切换
+- **`shared_runtime` 模块**：拆出 `launch_preview` / `project_session` / `management_token` / `route_plan` / `session_token` / `upstream_routing`，app 与 daemon 共享纯逻辑
+- **`daemon_client`**：app 侧封装，统一走 management token 访问 daemon
+- **Sidebar 新增实例入口**；`useServiceStatus` hook 统一服务状态订阅
+- **项目卡片密钥切换菜单重做**：按供应商分组、分隔线、计数 badge、当前项高亮
+- **新增 `sub2api` 预设供应商图标**
+- **`AppErrorBoundary` 错误边界**，避免单点异常炸掉整个渲染树
+- **测试基建全面扩充**：
+  - Rust 集成测试：`db_api_keys` / `db_projects` / `db_providers` / `db_proxy_sessions` / `db_settings` / `managed_instances_db` / `cost_calculator` / `daemon_client` / `database_bootstrap` / `launch_preview` / `management_token` / `project_session` / `proxy_handler_auth` / `route_plan` / `session_token` / `terminal_launch_preview` / `usage_parser`，以及 daemon crate 的 `management_api` 测试
+  - 前端测试：`Instances.test.tsx`、`AppErrorBoundary.component.test.tsx`、`api/index.contract.test.ts`、`scripts/smoke.test.ts`
+  - 新增脚本入口：`pnpm test:web` / `pnpm test:rust` / `pnpm test:all`，Rust 测试改为 `cargo test --workspace`
+
+### Changed
+
+- Cargo workspace 重构：`Cargo.lock` 从 `src-tauri/` 上提至仓库根，新增 workspace 成员 `crates/cc-use-daemon`
+- `proxy/handler.rs` 路由层大改：收敛为「显式 session routing + pass-through」两类，移除事后推断
+- `cost_calculator` / `usage_parser` / `balance_service` / `import_export` / `usage_service` 全面重构，逻辑上抽出可测试单元
+- DB 层继续抽取 `row_to_*` 辅助函数，`api_keys` / `projects` / `providers` / `proxy_sessions` / `request_logs` / `settings` / `usage_logs` 模块化精简
+- 终端启动链路 (`terminal/mod.rs`) 全面重写，对接 wrapper + managed instance
+- 托盘菜单文案 / 能力随 daemon 术语调整，并精简平台分支
+- CI (`build-test.yml`) 构建矩阵与脚本同步更新
+- `release.sh` 与打包流程适配新 workspace 结构
+
+### Removed
+
+- Windows NSIS 打包配置与 `tauri.windows.conf.json`
+- `src-tauri/src/terminal/windows_terminal.rs`、`src-tauri/src/terminal/cmd.rs`
+- 旧代理实验路径相关代码：`config injection`、PID observation、discovered sessions、全局代理自动启动等设置项
+- `shared/types` 下已失效的单元测试（随 `TerminalType` 收敛）
+
+### Fixed
+
+- 动态切换密钥在代理侧的竞态路径：路由依赖显式 session token 而非事后 PID 猜测，彻底消除「换 key 后首个请求走旧 key」
+- 启动链路失败可观测性：新增 `failed` 状态，不再把启动失败当作「运行中」
+
+---
+
 ## [2.3.2] - 2026-03-31
 
 ### Fixed
