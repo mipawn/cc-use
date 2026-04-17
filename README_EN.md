@@ -4,11 +4,11 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 
 [中文文档](./README.md)
 
-> **🎉 2.0 Major Update**: Completely rewritten from Electron to Tauri + Rust! Core advantage: **More reliable auto-update mechanism**
+> **🎉 3.0 Major Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time. See [CHANGELOG](./CHANGELOG.md).
 >
-> **Migrating from 1.x?** Data migrates automatically → [Migration Guide](./guides/MIGRATION_EN.md)
+> **⚠️ Platform change**: Starting from 3.0, **only macOS is supported** — Windows builds are no longer published, and Windows-specific code is no longer maintained.
 >
-> **Migrating from 0.x (cc-switch)?** See [Migrating from cc-switch](./guides/MIGRATION_FROM_CC_SWITCH_EN.md)
+> **Historical migrations**: [From 1.x](./guides/MIGRATION_EN.md) · [From 0.x (cc-switch)](./guides/MIGRATION_FROM_CC_SWITCH_EN.md)
 
 ## Screenshots
 
@@ -20,33 +20,32 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 | :----------------------------------------------: | :-------------------------------------: |
 | ![Project Management](./screenshots/project.png) | ![Statistics](./screenshots/statis.png) |
 
-|                Settings                 |
-| :-------------------------------------: |
-| ![Settings](./screenshots/settings.png) |
+|                Settings                 |                Instances                |
+| :-------------------------------------: | :-------------------------------------: |
+| ![Settings](./screenshots/settings.png) | ![Instances](./screenshots/instance.png) |
 
 ## Features
 
 - **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can support both Claude Code and Codex CLI, with balance/usage queries (NewAPI / custom endpoints) and quick key duplication
 - **Project Management** - Create projects bound to a provider, key, and CLI type; quickly switch bindings directly on the project card
 - **One-Click Launch** - Click a project to launch a terminal with environment variables auto-injected, dropping you straight into CLI
-- **Local Proxy** - Built-in proxy server that relays requests via session tokens, enabling cost tracking and hot-switching
-- **Cost Tracking** - In proxy mode, automatically logs token usage and cost for every API request
+- **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, transparently relaying requests and enabling cost tracking and hot-switching
+- **Instance Management** - The Instances page shows every managed instance launched from the app, with a state machine covering `launching / running / stale / stopped / failed` and per-instance key hot-switching
+- **Cost Tracking** - Automatically logs token usage and cost for every API request
 - **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/project/model with request history
-- **System Tray** - Minimize to tray on close, keeping the proxy running; tray menu supports proxy control and quick-launching recent projects
+- **System Tray** - Minimize to tray on close while the daemon keeps running; tray menu supports service control and quick-launching recent projects
 - **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
 - **CLI Config Management** - Global and per-key CLI configuration (JSON), automatically merged and injected at launch
 - **Internationalization** - Chinese and English UI
 - **Dark Mode** - Light/dark theme switching
-- **Code Quality** - Integrated ESLint + Prettier for consistent code style
 
 ## Installation
 
-Download the installer for your platform from [Releases](https://github.com/mipawn/cc-use/releases):
+Download the macOS installer from [Releases](https://github.com/mipawn/cc-use/releases):
 
-| Platform | Format                 |
-| -------- | ---------------------- |
-| macOS    | `.dmg`                 |
-| Windows  | `.exe` (NSIS) / `.msi` |
+| Platform | Format |
+| -------- | ------ |
+| macOS    | `.dmg` |
 
 ## Usage
 
@@ -69,38 +68,35 @@ After creation, you can quickly switch the bound key or CLI type directly on the
 
 ### 3. Launch Terminal
 
-On the Projects page or from the Dashboard's recent projects, click the open button to launch a terminal. The app will auto-start the proxy and inject environment variables:
+On the Projects page or from the Dashboard's recent projects, click the open button to launch a terminal. The app injects environment variables via the local daemon and creates a managed instance for this launch:
 
 - **Claude Code**: Sets `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`
 - **Codex CLI**: Sets `OPENAI_BASE_URL` + `OPENAI_API_KEY`
 
-### 4. Proxy Control
+### 4. Daemon Service
 
-Toggle the local proxy on the Projects page or Settings page. With proxy enabled:
+The local daemon service is launched with the app and stays resident — terminals always go through it:
 
-- Requests are relayed through the local proxy using session tokens instead of real API keys
+- Requests use session tokens instead of real API keys
 - Token usage and cost are automatically logged for every request
-- Hot-switching keys without restarting the terminal
+- Hot-switch keys without restarting the terminal (Projects page edits the *next launch* default; Instances page edits the *currently running* instance)
 
-Disabling the proxy will stop usage tracking.
+Check service status and port on the Settings page; click "Restart Service" if anything goes wrong.
 
 ## How It Works
 
-CC Use supports two modes:
-
-**Direct mode** - The terminal connects to the API provider directly with the real API key.
-
-**Proxy mode** - With the local proxy enabled, requests are relayed through it:
+On startup, the app spawns a standalone `cc-use-daemon` process as the local gateway. When launching a terminal from a project, the app generates a session token and injects it via a temporary wrapper script:
 
 ```
-CLI → localhost:12345 (proxy) → actual API provider
+CLI → localhost:12345 (daemon) → actual API provider
 ```
 
-The proxy uses session tokens instead of real API keys, enabling:
+The daemon handles four things:
 
-- Real API keys are never exposed to the terminal environment
-- Automatic logging of token usage and cost for every request
-- Hot-switching keys without restarting the terminal
+- Routes to the right provider/key via session token, so real API keys never reach the terminal environment
+- Automatically logs token usage and cost for every request
+- Supports hot-switching keys without restarting the terminal
+- Tracks the lifecycle of every managed instance via wrapper heartbeat and stop reporting
 
 ## Building from Source & Testing
 
@@ -133,8 +129,6 @@ pnpm lint
 pnpm format
 ```
 
-For the fuller test index and explicit entrypoints such as `pnpm test:web`, `pnpm test:rust`, and `pnpm test:all`, see [docs/testing/README.md](./docs/testing/README.md).
-
 ## Tech Stack
 
 - **Framework**: Tauri 2.x + Vite
@@ -143,15 +137,14 @@ For the fuller test index and explicit entrypoints such as `pnpm test:web`, `pnp
 - **UI**: Ant Design 6 + Tailwind CSS 4
 - **State**: Zustand
 - **Database**: SQLite (rusqlite)
-- **Proxy**: Axum + Hyper
+- **Daemon**: standalone `cc-use-daemon` process (Axum + Hyper)
 - **i18n**: i18next + sys-locale
 
 ## Supported Platforms
 
 - macOS (Apple Silicon / Intel)
-- Windows (x64)
 
-> ⚠️ **Note**: The Windows build has not been thoroughly tested yet and may have compatibility issues. If you encounter any problems, please open an [Issue](https://github.com/mipawn/cc-use/issues).
+> ⚠️ **Note**: Starting from 3.0, Windows builds are no longer published and Windows-specific code is no longer maintained. Windows users should stay on 2.3.x, which will not receive further updates.
 
 ## License
 
