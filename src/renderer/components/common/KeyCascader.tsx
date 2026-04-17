@@ -1,9 +1,9 @@
 /**
- * KeyCascader - 级联选择器组件
- * Provider → Key 两级结构，清晰展示层级关系
+ * KeyCascader - 树选择器组件
+ * Provider → Key 两级结构，默认展开所有节点
  */
 import { useMemo } from 'react'
-import { Cascader, Space, Tag, Typography, theme } from 'antd'
+import { TreeSelect, Space, Tag, Typography, theme } from 'antd'
 import { KeyOutlined, CloudServerOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import type { Provider, ApiKey } from '@shared/types'
@@ -24,16 +24,15 @@ interface KeyCascaderProps {
   style?: React.CSSProperties
   showKeyCount?: boolean
   showProviderIcon?: boolean
-  expandTrigger?: 'click' | 'hover'
 }
 
-interface CascaderOption {
+interface TreeDataNode {
+  title: React.ReactNode
+  label?: React.ReactNode
   value: string
-  label: React.ReactNode
-  disabled?: boolean
-  children?: CascaderOption[]
-  provider?: Provider
-  apiKey?: ApiKey
+  selectable?: boolean
+  searchText?: string
+  children?: TreeDataNode[]
 }
 
 export default function KeyCascader({
@@ -49,13 +48,11 @@ export default function KeyCascader({
   style,
   showKeyCount = true,
   showProviderIcon = true,
-  expandTrigger = 'click',
 }: KeyCascaderProps) {
   const { t } = useTranslation()
   const { token } = theme.useToken()
 
-  // Build cascader options: Provider → Keys
-  const options = useMemo<CascaderOption[]>(() => {
+  const treeData = useMemo<TreeDataNode[]>(() => {
     return providers
       .filter((p) => p.isActive)
       .map((provider) => {
@@ -65,8 +62,7 @@ export default function KeyCascader({
         const hasKeys = providerKeys.length > 0
 
         return {
-          value: provider.id,
-          label: (
+          title: (
             <Space size={8} className={styles.providerLabel}>
               {showProviderIcon && (
                 <CloudServerOutlined style={{ color: token.colorTextSecondary }} />
@@ -79,11 +75,11 @@ export default function KeyCascader({
               )}
             </Space>
           ),
-          disabled: !hasKeys,
-          provider,
+          value: `provider-${provider.id}`,
+          selectable: false,
+          searchText: provider.name,
           children: providerKeys.map((key) => ({
-            value: key.id,
-            label: (
+            title: (
               <Space size={6} className={styles.keyLabel}>
                 <KeyOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />
                 <span className={styles.keyAlias}>{key.alias || `Key ${key.priority + 1}`}</span>
@@ -95,85 +91,60 @@ export default function KeyCascader({
                 )}
               </Space>
             ),
-            apiKey: key,
+            label: (
+              <Space size={4} className={styles.selectedDisplay}>
+                <Text type='secondary' className={styles.selectedProvider}>
+                  {provider.name}
+                </Text>
+                <span className={styles.separator}>/</span>
+                <Text className={styles.selectedKey}>
+                  {key.alias || `Key ${key.priority + 1}`}
+                </Text>
+              </Space>
+            ),
+            value: key.id,
+            searchText: `${provider.name} ${key.alias || ''} ${key.value}`,
           })),
         }
       })
   }, [providers, apiKeys, showKeyCount, showProviderIcon, token, t])
 
-  // Display render for selected value
-  const displayRender = (labels: React.ReactNode[]) => {
-    if (labels.length === 2) {
-      // Find the actual provider and key for display
-      const providerId = value?.[0]
-      const keyId = value?.[1]
-      const provider = providers.find((p) => p.id === providerId)
-      const key = apiKeys.find((k) => k.id === keyId)
+  const treeSelectValue = useMemo(() => {
+    if (!value) return undefined
+    return value[1]
+  }, [value])
 
-      if (provider && key) {
-        return (
-          <Space size={4} className={styles.selectedDisplay}>
-            <Text type='secondary' className={styles.selectedProvider}>
-              {provider.name}
-            </Text>
-            <span className={styles.separator}>/</span>
-            <Text className={styles.selectedKey}>{key.alias || `Key ${key.priority + 1}`}</Text>
-          </Space>
-        )
-      }
-    }
-    return labels.join(' / ')
-  }
-
-  const handleChange = (selectedValue: (string | number)[]) => {
-    if (!selectedValue || selectedValue.length === 0) {
+  const handleChange = (keyId: string | undefined) => {
+    if (!keyId) {
       onChange?.(null)
       return
     }
-
-    if (selectedValue.length === 2) {
-      const [providerId, keyId] = selectedValue as [string, string]
-      const provider = providers.find((p) => p.id === providerId)
-      const apiKey = apiKeys.find((k) => k.id === keyId)
-      onChange?.([providerId, keyId], provider, apiKey)
+    const apiKey = apiKeys.find((k) => k.id === keyId)
+    if (apiKey) {
+      const provider = providers.find((p) => p.id === apiKey.providerId)
+      onChange?.([apiKey.providerId, keyId], provider, apiKey)
     }
   }
 
   return (
-    <Cascader
-      options={options}
-      value={value || undefined}
+    <TreeSelect
+      treeData={treeData}
+      value={treeSelectValue}
       onChange={handleChange}
-      displayRender={displayRender}
+      treeNodeLabelProp='label'
       placeholder={placeholder || t('keyCascader.placeholder') || '选择供应商 / 密钥'}
       size={size}
       allowClear={allowClear}
       disabled={disabled}
-      expandTrigger={expandTrigger}
-      className={`${styles.cascader} ${className || ''}`}
-      style={style}
-      popupClassName={styles.cascaderPopup}
-      showSearch={{
-        filter: (inputValue, path) => {
-          return path.some((option) => {
-            const opt = option as CascaderOption
-            const provider = opt.provider
-            const apiKey = opt.apiKey
-            const searchText = inputValue.toLowerCase()
-
-            if (provider) {
-              return provider.name.toLowerCase().includes(searchText)
-            }
-            if (apiKey) {
-              return (
-                apiKey.alias?.toLowerCase().includes(searchText) ||
-                apiKey.value.toLowerCase().includes(searchText)
-              )
-            }
-            return false
-          })
-        },
+      treeDefaultExpandAll
+      showSearch
+      filterTreeNode={(input, node) => {
+        const searchText = (node as TreeDataNode).searchText || ''
+        return searchText.toLowerCase().includes(input.toLowerCase())
       }}
+      className={`${styles.treeSelect} ${className || ''}`}
+      style={style}
+      popupClassName={styles.treeSelectPopup}
       notFoundContent={
         <div className={styles.emptyState}>
           <KeyOutlined style={{ fontSize: 24, color: token.colorTextQuaternary }} />

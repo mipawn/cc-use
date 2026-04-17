@@ -176,7 +176,7 @@ export default function ModelPricingModal({ open, onClose }: Props) {
       setCustomPricing({ ...editedCustom })
       setHasChanges(false)
       message.success(t('messages.success'))
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     } finally {
       setSaving(false)

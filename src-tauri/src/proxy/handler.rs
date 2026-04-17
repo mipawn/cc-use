@@ -23,7 +23,6 @@ use std::task::{Context, Poll};
 
 struct RouteExecution {
     upstream_url: String,
-    upstream_family: UpstreamFamily,
     real_api_key: Option<String>,
     log_ctx: Option<ResolvedSessionContext>,
 }
@@ -35,6 +34,10 @@ struct ResolvedSessionContext {
     api_key_id: String,
     project_id: Option<String>,
     cost_multiplier: f64,
+    // Snapshot names
+    key_alias: Option<String>,
+    provider_name: Option<String>,
+    project_name: Option<String>,
 }
 
 /// Main proxy handler — forwards HTTP requests and WebSocket connections to the upstream provider
@@ -212,6 +215,9 @@ pub async fn proxy_handler(
                 cost_multiplier: ctx.cost_multiplier,
                 status_code: status.as_u16(),
                 start_time,
+                key_alias: ctx.key_alias.clone(),
+                provider_name: ctx.provider_name.clone(),
+                project_name: ctx.project_name.clone(),
             }),
             finished: false,
         };
@@ -260,6 +266,9 @@ pub async fn proxy_handler(
                 cost_multiplier: ctx.cost_multiplier,
                 status_code: status.as_u16(),
                 start_time,
+                key_alias: ctx.key_alias.clone(),
+                provider_name: ctx.provider_name.clone(),
+                project_name: ctx.project_name.clone(),
             };
             record_usage(&log_ctx, u, model.as_deref(), is_streaming);
         }
@@ -293,9 +302,13 @@ fn build_route_execution(
         RoutePlan::ExplicitSession { session_token } => {
             let (session, provider, api_key) =
                 resolve_session_resources(db, state, &session_token)?;
+            let project_name = session
+                .project_id
+                .as_deref()
+                .and_then(|pid| db.project_get(pid).ok().flatten())
+                .map(|p| p.name);
             Ok(RouteExecution {
                 upstream_url: build_provider_upstream_url(&provider.base_url, req_path)?,
-                upstream_family,
                 real_api_key: Some(api_key.value.clone()),
                 log_ctx: Some(ResolvedSessionContext {
                     session_token: session.session_token,
@@ -303,12 +316,14 @@ fn build_route_execution(
                     api_key_id: session.api_key_id,
                     project_id: session.project_id,
                     cost_multiplier: api_key.cost_multiplier,
+                    key_alias: api_key.alias.clone(),
+                    provider_name: Some(provider.name.clone()),
+                    project_name,
                 }),
             })
         }
         RoutePlan::PassThrough => Ok(RouteExecution {
             upstream_url: build_official_upstream_url(upstream_family, req_path)?,
-            upstream_family,
             real_api_key: None,
             log_ctx: None,
         }),
@@ -455,6 +470,10 @@ struct LogContext {
     cost_multiplier: f64,
     status_code: u16,
     start_time: std::time::Instant,
+    // Snapshot names for request_logs persistence
+    key_alias: Option<String>,
+    provider_name: Option<String>,
+    project_name: Option<String>,
 }
 
 fn record_usage(
@@ -502,6 +521,9 @@ fn record_usage(
         error_message: None,
         is_streaming,
         created_at: chrono::Utc::now().to_rfc3339(),
+        key_alias: ctx.key_alias.clone(),
+        provider_name: ctx.provider_name.clone(),
+        project_name: ctx.project_name.clone(),
     };
 
     if let Ok(db) = ctx.db.lock() {

@@ -30,8 +30,6 @@ const resolveTheme = (mode: ThemeMode): 'light' | 'dark' => {
 }
 
 const getDefaultTerminalType = (): TerminalType => {
-  const platform = navigator.userAgent.toLowerCase()
-  if (platform.includes('win')) return 'cmd'
   return 'iterm2'
 }
 

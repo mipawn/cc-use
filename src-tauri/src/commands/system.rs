@@ -61,11 +61,7 @@ fn get_icons_dir() -> Result<PathBuf, String> {
 
     #[cfg(target_os = "macos")]
     let base = dirs::data_dir().ok_or("Cannot find data dir")?;
-    #[cfg(target_os = "windows")]
-    let base = dirs::data_dir().ok_or("Cannot find data dir")?;
-    #[cfg(target_os = "linux")]
-    let base = dirs::data_dir().ok_or("Cannot find data dir")?;
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(target_os = "macos"))]
     let base = PathBuf::from(".");
 
     Ok(base.join(dir_name).join("icons"))

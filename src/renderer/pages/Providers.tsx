@@ -54,7 +54,7 @@ export default function Providers() {
     try {
       await deleteProvider(id)
       message.success(t('providers.providerDeleted'))
-    } catch (error) {
+    } catch {
       message.error(t('providers.deleteProviderFailed'))
     }
   }
@@ -70,7 +70,7 @@ export default function Providers() {
       } else {
         message.success(`${t('providers.usageRemaining')}: $${result.balance?.toFixed(2)}`)
       }
-    } catch (error) {
+    } catch {
       message.error(t('providers.refreshBalanceFailed'))
     } finally {
       setRefreshingIds((prev) => {

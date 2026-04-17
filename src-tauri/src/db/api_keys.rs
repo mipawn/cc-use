@@ -165,6 +165,12 @@ impl Database {
     }
 
     pub fn api_key_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
+        // Backfill snapshot column before deletion so request_logs retain the display name
+        self.conn.execute(
+            "UPDATE request_logs SET key_alias = (SELECT alias FROM api_keys WHERE id = ?1)
+             WHERE api_key_id = ?1 AND key_alias IS NULL",
+            [id],
+        )?;
         self.conn
             .execute("DELETE FROM api_keys WHERE id = ?1", [id])?;
         Ok(())

@@ -8,47 +8,26 @@ export type PresetIcon =
   | 'minimax'
   | 'xiaomi'
   | 'deepseek'
+  | 'sub2api'
   | 'custom'
 
 // Terminal types
-export type TerminalType = 'iterm2' | 'terminal' | 'wt' | 'powershell' | 'cmd'
+export type TerminalType = 'iterm2' | 'terminal'
 
 // Terminal type display labels
 export const TERMINAL_TYPE_LABELS: Record<TerminalType, string> = {
   iterm2: 'iTerm2',
   terminal: 'Terminal (macOS)',
-  wt: 'Windows Terminal',
-  powershell: 'PowerShell',
-  cmd: 'CMD',
 }
 
-// Check if a terminal type uses Windows-style commands
-export function isWindowsTerminal(terminalType: TerminalType): boolean {
-  return terminalType === 'cmd' || terminalType === 'powershell' || terminalType === 'wt'
-}
-
-// Format inline env vars + command for the given terminal type
+// Format inline env vars + command (unix format)
 export function formatEnvCommand(
   envVars: Record<string, string>,
   command: string,
-  terminalType: TerminalType,
 ): string {
   const entries = Object.entries(envVars)
-  switch (terminalType) {
-    case 'cmd': {
-      const sets = entries.map(([k, v]) => `set ${k}=${v}`)
-      return [...sets, command].join(' && ')
-    }
-    case 'powershell':
-    case 'wt': {
-      const sets = entries.map(([k, v]) => `$env:${k}="${v}"`)
-      return [...sets, command].join('; ')
-    }
-    default: {
-      const inline = entries.map(([k, v]) => `${k}="${v}"`).join(' ')
-      return `${inline} ${command}`
-    }
-  }
+  const inline = entries.map(([k, v]) => `${k}="${v}"`).join(' ')
+  return `${inline} ${command}`
 }
 
 // Usage data structure (from NewAPI or custom API)
@@ -106,7 +85,6 @@ export function generateTerminalCommand(
   apiKey: string,
   useProxy: boolean = false,
   proxyPort: number = 12345,
-  terminalType: TerminalType = 'iterm2',
 ): string {
   const config = getProviderTypeConfig(provider.type)
   const baseUrl = useProxy ? `http://localhost:${proxyPort}` : provider.baseUrl
@@ -116,7 +94,7 @@ export function generateTerminalCommand(
     [config.envBaseUrlName]: baseUrl,
     [config.envKeyName]: key,
   }
-  return formatEnvCommand(envVars, config.cliCommand, terminalType)
+  return formatEnvCommand(envVars, config.cliCommand)
 }
 
 export interface Provider {
@@ -352,6 +330,10 @@ export interface RequestLog {
   errorMessage: string | null
   isStreaming: boolean
   createdAt: string
+  // Snapshot columns — preserve display names after entity deletion
+  keyAlias?: string | null
+  providerName?: string | null
+  projectName?: string | null
 }
 
 // Export options

@@ -14,7 +14,8 @@ impl Database {
                     input_cost_usd, output_cost_usd, cache_read_cost_usd,
                     cache_creation_cost_usd, total_cost_usd, cost_multiplier,
                     latency_ms, first_token_ms, status_code, error_message,
-                    is_streaming, created_at
+                    is_streaming, created_at,
+                    key_alias, provider_name, project_name
              FROM request_logs ORDER BY created_at ASC",
         )?;
 
@@ -44,6 +45,9 @@ impl Database {
                 error_message: row.get(20)?,
                 is_streaming: is_streaming != 0,
                 created_at: row.get(22)?,
+                key_alias: row.get(23)?,
+                provider_name: row.get(24)?,
+                project_name: row.get(25)?,
             })
         })?;
 
@@ -56,8 +60,9 @@ impl Database {
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
                 cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
                 cache_creation_cost_usd, total_cost_usd, cost_multiplier, latency_ms,
-                first_token_ms, status_code, error_message, is_streaming, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                first_token_ms, status_code, error_message, is_streaming, created_at,
+                key_alias, provider_name, project_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             rusqlite::params![
                 log.id, log.provider_id, log.api_key_id, log.project_id, log.session_id,
                 log.model, log.request_model, log.input_tokens, log.output_tokens,
@@ -66,6 +71,7 @@ impl Database {
                 log.cache_creation_cost_usd, log.total_cost_usd, log.cost_multiplier,
                 log.latency_ms, log.first_token_ms, log.status_code, log.error_message,
                 if log.is_streaming { 1i32 } else { 0i32 }, log.created_at,
+                log.key_alias, log.provider_name, log.project_name,
             ],
         )?;
         Ok(())
@@ -77,8 +83,9 @@ impl Database {
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
                 cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
                 cache_creation_cost_usd, total_cost_usd, cost_multiplier, latency_ms,
-                first_token_ms, status_code, error_message, is_streaming, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                first_token_ms, status_code, error_message, is_streaming, created_at,
+                key_alias, provider_name, project_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             rusqlite::params![
                 log.id,
                 log.provider_id,
@@ -103,6 +110,9 @@ impl Database {
                 log.error_message,
                 if log.is_streaming { 1i32 } else { 0i32 },
                 log.created_at,
+                log.key_alias,
+                log.provider_name,
+                log.project_name,
             ],
         )?;
         Ok(())
@@ -206,7 +216,7 @@ impl Database {
 
         // Top keys
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.api_key_id, COALESCE(k.alias, ''), COALESCE(p.name, ''),
+            "SELECT r.api_key_id, COALESCE(r.key_alias, k.alias, ''), COALESCE(r.provider_name, p.name, ''),
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
@@ -234,7 +244,7 @@ impl Database {
 
         // Top providers
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.provider_id, COALESCE(p.name, ''),
+            "SELECT r.provider_id, COALESCE(r.provider_name, p.name, ''),
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN providers p ON r.provider_id = p.id
@@ -260,7 +270,7 @@ impl Database {
 
         // Top projects
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.project_id, COALESCE(pr.name, 'Unknown'),
+            "SELECT r.project_id, COALESCE(r.project_name, pr.name, 'Unknown'),
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN projects pr ON r.project_id = pr.id
@@ -347,7 +357,7 @@ impl Database {
         )?;
 
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.id, r.model, k.alias, p.name, pr.name,
+            "SELECT r.id, r.model, COALESCE(r.key_alias, k.alias), COALESCE(r.provider_name, p.name), COALESCE(r.project_name, pr.name),
                         r.total_cost_usd, r.input_tokens, r.output_tokens,
                         r.latency_ms, r.status_code, r.created_at
                  FROM request_logs r
@@ -419,7 +429,7 @@ impl Database {
 
         // Top keys (all time, limit 5)
         let mut stmt = self.conn.prepare(
-            "SELECT r.api_key_id, COALESCE(k.alias, ''), COALESCE(p.name, ''),
+            "SELECT r.api_key_id, COALESCE(r.key_alias, k.alias, ''), COALESCE(r.provider_name, p.name, ''),
                     SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
              FROM request_logs r
              LEFT JOIN api_keys k ON r.api_key_id = k.id
@@ -442,7 +452,7 @@ impl Database {
 
         // Top projects (all time, limit 5)
         let mut stmt = self.conn.prepare(
-            "SELECT r.project_id, COALESCE(pr.name, 'Unknown'),
+            "SELECT r.project_id, COALESCE(r.project_name, pr.name, 'Unknown'),
                     SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
              FROM request_logs r
              LEFT JOIN projects pr ON r.project_id = pr.id

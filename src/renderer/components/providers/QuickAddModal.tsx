@@ -11,6 +11,7 @@ import minimaxIcon from '../../assets/provider-icons/minimax.svg'
 import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
 import siliconflowIcon from '../../assets/provider-icons/siliconflow.svg'
 import newapiIcon from '../../assets/provider-icons/newapi.svg'
+import sub2apiIcon from '../../assets/provider-icons/sub2api.png'
 
 const PRESET_ICONS = [
   { key: 'claude', icon: claudeIcon, label: 'Claude' },
@@ -20,6 +21,7 @@ const PRESET_ICONS = [
   { key: 'minimax', icon: minimaxIcon, label: 'MiniMax' },
   { key: 'siliconflow', icon: siliconflowIcon, label: '硅基流动' },
   { key: 'newapi', icon: newapiIcon, label: 'NewAPI' },
+  { key: 'sub2api', icon: sub2apiIcon, label: 'Sub2API' },
 ]
 
 interface QuickAddModalProps {

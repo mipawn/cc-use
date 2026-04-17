@@ -2,11 +2,12 @@ use cc_use_lib::shared_runtime::resolve_launch_preview_from_configs;
 use serde_json::json;
 
 #[test]
-fn resolve_launch_preview_merges_global_key_and_runtime_for_claude() {
+fn resolve_launch_preview_merges_global_and_key_config_for_claude() {
     let preview = resolve_launch_preview_from_configs(
         "claude",
         Some(&json!({
             "ANTHROPIC_MODEL": "global-model",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "global-sonnet",
             "API_TIMEOUT_MS": "1000"
         })),
         Some(&json!({
@@ -17,14 +18,22 @@ fn resolve_launch_preview_merges_global_key_and_runtime_for_claude() {
         12345,
     );
 
+    // Key-level overrides win over global
     assert_eq!(
         preview.env.get("ANTHROPIC_MODEL"),
         Some(&"key-model".to_string())
     );
+    // Global-only values survive
+    assert_eq!(
+        preview.env.get("ANTHROPIC_DEFAULT_SONNET_MODEL"),
+        Some(&"global-sonnet".to_string())
+    );
+    // Key-only additions survive
     assert_eq!(
         preview.env.get("ANTHROPIC_DEFAULT_OPUS_MODEL"),
         Some(&"gpt-5.4".to_string())
     );
+    // User-provided API_TIMEOUT_MS overrides runtime default
     assert_eq!(preview.env.get("API_TIMEOUT_MS"), Some(&"1000".to_string()));
     assert_eq!(
         preview.env.get("ANTHROPIC_BASE_URL"),
@@ -54,14 +63,17 @@ fn resolve_launch_preview_overrides_codex_runtime_fields() {
         22345,
     );
 
+    // Key-level model override wins
     assert_eq!(
         preview.env.get("OPENAI_MODEL"),
         Some(&"key-model".to_string())
     );
+    // Runtime session token overrides any key-level / global OPENAI_API_KEY
     assert_eq!(
         preview.env.get("OPENAI_API_KEY"),
         Some(&"session-codex".to_string())
     );
+    // Runtime proxy URL overrides any upstream OPENAI_BASE_URL
     assert_eq!(
         preview.env.get("OPENAI_BASE_URL"),
         Some(&"http://localhost:22345/v1".to_string())
@@ -72,7 +84,7 @@ fn resolve_launch_preview_overrides_codex_runtime_fields() {
 }
 
 #[test]
-fn resolve_launch_preview_overlay_null_unsets_inherited_env_and_stringifies_values() {
+fn resolve_launch_preview_key_config_null_unsets_and_stringifies_values() {
     let preview = resolve_launch_preview_from_configs(
         "claude",
         Some(&json!({
@@ -92,11 +104,18 @@ fn resolve_launch_preview_overlay_null_unsets_inherited_env_and_stringifies_valu
         12345,
     );
 
+    // ANTHROPIC_API_KEY is unset by the null overlay (and also removed by runtime)
     assert_eq!(preview.env.get("ANTHROPIC_API_KEY"), None);
+    // Key-level overrides of primitives
     assert_eq!(preview.env.get("FEATURE_FLAG"), Some(&"false".to_string()));
     assert_eq!(preview.env.get("RETRY_COUNT"), Some(&"5".to_string()));
     assert_eq!(
         preview.env.get("JSON_VALUE"),
         Some(&"{\"mode\":\"relaxed\"}".to_string())
+    );
+    // Global-only value flows through
+    assert_eq!(
+        preview.env.get("ANTHROPIC_MODEL"),
+        Some(&"global-model".to_string())
     );
 }

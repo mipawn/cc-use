@@ -85,30 +85,6 @@ describe('Provider Type Config', () => {
       )
     })
 
-    it('should generate Windows CMD command when terminal type is cmd', () => {
-      const provider = {
-        type: 'claude' as ProviderType,
-        baseUrl: 'https://api.anthropic.com',
-      }
-      const command = generateTerminalCommand(provider, 'sk-test-key', false, 12345, 'cmd')
-
-      expect(command).toBe(
-        'set ANTHROPIC_BASE_URL=https://api.anthropic.com && set ANTHROPIC_AUTH_TOKEN=sk-test-key && claude',
-      )
-    })
-
-    it('should generate PowerShell command when terminal type is powershell', () => {
-      const provider = {
-        type: 'claude' as ProviderType,
-        baseUrl: 'https://api.anthropic.com',
-      }
-      const command = generateTerminalCommand(provider, 'sk-test-key', false, 12345, 'powershell')
-
-      expect(command).toBe(
-        '$env:ANTHROPIC_BASE_URL="https://api.anthropic.com"; $env:ANTHROPIC_AUTH_TOKEN="sk-test-key"; claude',
-      )
-    })
-
     it('should use custom proxy port when specified', () => {
       const provider = {
         type: 'claude' as ProviderType,

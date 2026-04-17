@@ -1,20 +1,20 @@
-/* KeyCascader - Industrial Precision Style */
+/* KeyCascader - TreeSelect Style */
 
-.cascader {
+.treeSelect {
   width: 100%;
 }
 
-.cascader :global(.ant-select-selector) {
+.treeSelect :global(.ant-select-selector) {
   border-radius: var(--radius-ant) !important;
   border-color: var(--border-default) !important;
   transition: all 0.2s ease;
 }
 
-.cascader:hover :global(.ant-select-selector) {
+.treeSelect:hover :global(.ant-select-selector) {
   border-color: var(--color-accent-primary) !important;
 }
 
-.cascader :global(.ant-select-focused .ant-select-selector) {
+.treeSelect :global(.ant-select-focused .ant-select-selector) {
   border-color: var(--color-accent-primary) !important;
   box-shadow: 0 0 0 2px var(--color-accent-glow) !important;
 }
@@ -74,36 +74,33 @@
 }
 
 /* Popup Styles */
-.cascaderPopup {
+.treeSelectPopup {
   border-radius: var(--radius-ant-lg) !important;
   box-shadow: var(--shadow-lg) !important;
   overflow: hidden;
 }
 
-.cascaderPopup :global(.ant-cascader-menu) {
-  min-width: 180px;
-  max-height: 280px;
-  border-right: 1px solid var(--border-subtle);
+.treeSelectPopup :global(.ant-select-tree) {
+  padding: 4px;
 }
 
-.cascaderPopup :global(.ant-cascader-menu:last-child) {
-  border-right: none;
-}
-
-.cascaderPopup :global(.ant-cascader-menu-item) {
-  padding: 8px 12px;
+.treeSelectPopup :global(.ant-select-tree-treenode) {
+  padding: 4px 8px;
   border-radius: var(--radius-sm);
-  margin: 2px 4px;
   transition: all 0.15s ease;
 }
 
-.cascaderPopup :global(.ant-cascader-menu-item:hover) {
+.treeSelectPopup :global(.ant-select-tree-treenode:hover) {
   background: var(--color-accent-glow);
 }
 
-.cascaderPopup :global(.ant-cascader-menu-item-active) {
+.treeSelectPopup :global(.ant-select-tree-treenode-selected) {
   background: var(--color-accent-glow) !important;
   font-weight: 500;
+}
+
+.treeSelectPopup :global(.ant-select-tree-node-content-wrapper) {
+  padding: 2px 4px;
 }
 
 /* Empty State */

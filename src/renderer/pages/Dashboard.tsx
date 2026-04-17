@@ -101,7 +101,7 @@ export default function Dashboard() {
         setDroppedPath(path)
         setModalOpen(true)
       }
-    } catch (error) {
+    } catch {
       message.error(t('messages.processFolderFailed'))
     }
   }
@@ -112,7 +112,7 @@ export default function Dashboard() {
       await getApi().terminal.launch(project.id)
       message.success(`${t('projects.opened')} ${project.name}`)
       fetchProjects()
-    } catch (error) {
+    } catch {
       message.error(t('projects.openFailed'))
     }
   }
@@ -123,22 +123,18 @@ export default function Dashboard() {
     providerId: string | undefined,
     apiKeyId: string | undefined,
   ) => {
-    try {
-      const project = await createProject({
-        name,
-        path: droppedPath,
-        providerId,
-        apiKeyId,
-      })
+    const project = await createProject({
+      name,
+      path: droppedPath,
+      providerId,
+      apiKeyId,
+    })
 
-      if (providerId && apiKeyId) {
-        await getApi().terminal.launch(project.id)
-        message.success(`${t('newProject.createdAndOpened')} ${name}`)
-      } else {
-        message.success(t('projects.projectCreated') || '项目创建成功')
-      }
-    } catch (error) {
-      throw error
+    if (providerId && apiKeyId) {
+      await getApi().terminal.launch(project.id)
+      message.success(`${t('newProject.createdAndOpened')} ${name}`)
+    } else {
+      message.success(t('projects.projectCreated') || '项目创建成功')
     }
   }
 
@@ -155,7 +151,7 @@ export default function Dashboard() {
     try {
       await deleteProject(id)
       message.success(t('messages.projectRemoved'))
-    } catch (error) {
+    } catch {
       message.error(t('messages.removeProjectFailed'))
     }
   }

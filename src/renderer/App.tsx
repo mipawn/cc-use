@@ -159,6 +159,17 @@ function AppContent() {
   // Initialize global message reference for non-component code
   setGlobalMessage(message)
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'r') {
+        e.preventDefault()
+        window.location.reload()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   return (
     <Layout className='min-h-screen'>
       <Sidebar />

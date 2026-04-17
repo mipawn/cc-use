@@ -63,9 +63,7 @@ impl Database {
         let electron_dir_name = "cc-use";
         #[cfg(target_os = "macos")]
         let base = dirs::data_dir().map(|p| p.join(electron_dir_name));
-        #[cfg(target_os = "windows")]
-        let base = dirs::data_dir().map(|p| p.join(electron_dir_name));
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(target_os = "macos"))]
         let base: Option<PathBuf> = None;
 
         base.unwrap_or_else(|| PathBuf::from("."))
@@ -320,6 +318,10 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
             "ALTER TABLE projects ADD COLUMN remark TEXT",
             "ALTER TABLE projects ADD COLUMN cli_type TEXT DEFAULT 'claude'",
+            // Snapshot columns on request_logs — preserve display names after entity deletion
+            "ALTER TABLE request_logs ADD COLUMN key_alias TEXT",
+            "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",
+            "ALTER TABLE request_logs ADD COLUMN project_name TEXT",
         ];
 
         for stmt in &alter_statements {
@@ -344,15 +346,7 @@ fn dirs_next() -> Option<PathBuf> {
     {
         dirs::data_dir().map(|p| p.join(dir_name))
     }
-    #[cfg(target_os = "windows")]
-    {
-        dirs::data_dir().map(|p| p.join(dir_name))
-    }
-    #[cfg(target_os = "linux")]
-    {
-        dirs::data_dir().map(|p| p.join(dir_name))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(target_os = "macos"))]
     {
         None
     }

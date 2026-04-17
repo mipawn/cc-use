@@ -8,13 +8,13 @@ fn settings_crud() {
 
     let settings = fixture.db.settings_get().unwrap();
     assert_eq!(settings.proxy_port, 12345);
-    assert!(settings.auto_start_proxy);
+    assert!(settings.close_to_tray);
 
     let updates = serde_json::json!({
       "proxyPort": 8080,
-      "autoStartProxy": true
+      "closeToTray": false
     });
     let updated = fixture.db.settings_update(&updates).unwrap();
     assert_eq!(updated.proxy_port, 8080);
-    assert!(updated.auto_start_proxy);
+    assert!(!updated.close_to_tray);
 }

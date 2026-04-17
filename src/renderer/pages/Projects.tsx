@@ -41,6 +41,7 @@ import minimaxIcon from '../assets/provider-icons/minimax.svg'
 import deepseekIcon from '../assets/provider-icons/deepseek.svg'
 import siliconflowIcon from '../assets/provider-icons/siliconflow.svg'
 import newapiIcon from '../assets/provider-icons/newapi.svg'
+import sub2apiIcon from '../assets/provider-icons/sub2api.png'
 
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../stores/projectStore'
@@ -64,6 +65,7 @@ const PRESET_ICON_MAP: Record<string, string> = {
   deepseek: deepseekIcon,
   siliconflow: siliconflowIcon,
   newapi: newapiIcon,
+  sub2api: sub2apiIcon,
 }
 
 // Get provider icon src
@@ -165,7 +167,7 @@ export default function Projects() {
       await getApi().terminal.launch(project.id)
       message.success(`${t('projects.opened')} ${project.name}`)
       fetchProjects()
-    } catch (error) {
+    } catch {
       message.error(t('projects.openFailed'))
     }
   }
@@ -197,7 +199,7 @@ export default function Projects() {
         id: project.id,
         cliType,
       })
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }
@@ -211,7 +213,7 @@ export default function Projects() {
         apiKeyId: keyId,
       })
       message.success(t('projects.keySwitched'))
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }
@@ -221,6 +223,7 @@ export default function Projects() {
     const items: NonNullable<MenuProps['items']> = []
 
     providers.forEach((provider) => {
+      if (!provider.isActive) return
       const providerKeys = apiKeysByProvider[provider.id] || []
       if (providerKeys.length === 0) return
 
@@ -331,7 +334,7 @@ export default function Projects() {
     try {
       await deleteProject(id)
       message.success(t('projects.projectDeleted'))
-    } catch (error) {
+    } catch {
       message.error(t('projects.deleteProjectFailed'))
     }
   }
@@ -348,7 +351,7 @@ export default function Projects() {
           form.setFieldValue('name', folderName)
         }
       }
-    } catch (error) {
+    } catch {
       message.error(t('projects.selectFolderFailed'))
     }
   }

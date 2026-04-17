@@ -105,7 +105,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
       setNewKeyValue('')
       setNewKeyAlias('')
       message.success(t('apiKeys.keyAdded'))
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     } finally {
       setAdding(false)
@@ -115,7 +115,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
   const handleUpdateAlias = async (id: string, alias: string) => {
     try {
       await updateApiKey({ id, alias })
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }
@@ -123,7 +123,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
   const handleToggleExhausted = async (id: string, isExhausted: boolean) => {
     try {
       await updateApiKey({ id, isExhausted })
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }
@@ -132,7 +132,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
     try {
       await deleteApiKey(providerId, id)
       message.success(t('apiKeys.keyDeleted'))
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }
@@ -150,7 +150,7 @@ export default function ApiKeyList({ providerId }: ApiKeyListProps) {
         providerId,
         newOrder.map((k) => k.id),
       )
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }

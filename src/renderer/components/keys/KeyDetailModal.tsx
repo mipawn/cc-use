@@ -27,7 +27,6 @@ interface KeyDetailModalProps {
   open: boolean
   apiKey: ApiKey
   provider: Provider | null
-  proxyPort: number
   onClose: () => void
 }
 
@@ -35,7 +34,6 @@ export default function KeyDetailModal({
   open,
   apiKey,
   provider,
-  proxyPort: _proxyPort,
   onClose,
 }: KeyDetailModalProps) {
   const { t } = useTranslation()
@@ -69,7 +67,7 @@ export default function KeyDetailModal({
       await updateApiKey({ id: apiKey.id, alias: newAlias || undefined })
       setEditingAlias(false)
       message.success(t('messages.success'))
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     } finally {
       setSaving(false)
@@ -82,7 +80,7 @@ export default function KeyDetailModal({
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
       message.success(t('common.copied') || '已复制')
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }

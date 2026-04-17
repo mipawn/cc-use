@@ -357,6 +357,10 @@ pub struct RequestLog {
     pub error_message: Option<String>,
     pub is_streaming: bool,
     pub created_at: String,
+    // Snapshot columns — preserve display names after entity deletion
+    pub key_alias: Option<String>,
+    pub provider_name: Option<String>,
+    pub project_name: Option<String>,
 }
 
 // ── Statistics ──

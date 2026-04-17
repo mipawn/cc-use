@@ -7,10 +7,8 @@ use crate::shared_runtime::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-pub mod cmd;
 pub mod iterm2;
 pub mod mac_terminal;
-pub mod windows_terminal;
 
 const MANAGED_INSTANCE_HEARTBEAT_INTERVAL_SECS: u64 = 5;
 
@@ -59,8 +57,6 @@ pub fn get_strategy(terminal_type: &str) -> Option<Box<dyn TerminalStrategy>> {
     let strategy: Box<dyn TerminalStrategy> = match terminal_type {
         "iterm2" => Box::new(iterm2::ITerm2Strategy),
         "terminal" => Box::new(mac_terminal::MacTerminalStrategy),
-        "wt" => Box::new(windows_terminal::WindowsTerminalStrategy),
-        "cmd" => Box::new(cmd::CmdStrategy),
         _ => return None,
     };
 
@@ -76,8 +72,6 @@ pub fn get_first_available() -> Option<Box<dyn TerminalStrategy>> {
     let strategies: Vec<Box<dyn TerminalStrategy>> = vec![
         Box::new(iterm2::ITerm2Strategy),
         Box::new(mac_terminal::MacTerminalStrategy),
-        Box::new(windows_terminal::WindowsTerminalStrategy),
-        Box::new(cmd::CmdStrategy),
     ];
 
     strategies.into_iter().find(|s| s.is_available())

@@ -340,8 +340,6 @@ fn read_first_user_message(path: &PathBuf) -> Option<String> {
 ///
 /// Slug encoding rule (from Claude Code source):
 ///   path.replace(/[^a-zA-Z0-9]/g, "-")
-/// On Windows, paths are first normalized: C:\Users\x → /c/Users/x
-/// So Windows slug looks like: -c-Users-john-project
 ///
 /// Since encoding is lossy (hyphens, underscores, spaces, dots all become `-`),
 /// we use greedy filesystem probing to recover the real path.
@@ -357,20 +355,7 @@ fn slug_to_path(slug: &str) -> String {
     }
 
     let mut i = 0;
-
-    // Detect Windows-style slug: first part is a single lowercase letter (drive letter)
-    // e.g., slug "-c-Users-john-project" → parts ["c", "Users", "john", "project"]
-    // Normalized Windows path was "/c/Users/john/project"
-    let mut path =
-        if cfg!(windows) && parts[0].len() == 1 && parts[0].chars().all(|c| c.is_ascii_lowercase())
-        {
-            // Reconstruct Windows drive path: "c" → "C:\"
-            let drive = parts[0].to_uppercase();
-            i = 1;
-            std::path::PathBuf::from(format!("{}:\\", drive))
-        } else {
-            std::path::PathBuf::from("/")
-        };
+    let mut path = std::path::PathBuf::from("/");
 
     while i < parts.len() {
         let mut found = false;

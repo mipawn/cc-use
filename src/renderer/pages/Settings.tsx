@@ -287,8 +287,6 @@ export default function Settings() {
   const terminalOptions = [
     { value: 'iterm2', label: 'iTerm2' },
     { value: 'terminal', label: 'Terminal (macOS)' },
-    { value: 'wt', label: 'Windows Terminal' },
-    { value: 'cmd', label: 'cmd' },
   ]
 
   return (

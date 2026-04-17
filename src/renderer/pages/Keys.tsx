@@ -64,6 +64,7 @@ import minimaxIcon from '../assets/provider-icons/minimax.svg'
 import deepseekIcon from '../assets/provider-icons/deepseek.svg'
 import siliconflowIcon from '../assets/provider-icons/siliconflow.svg'
 import newapiIcon from '../assets/provider-icons/newapi.svg'
+import sub2apiIcon from '../assets/provider-icons/sub2api.png'
 
 const { Title, Text } = Typography
 
@@ -83,6 +84,7 @@ const PRESET_ICON_MAP: Record<string, string> = {
   deepseek: deepseekIcon,
   siliconflow: siliconflowIcon,
   newapi: newapiIcon,
+  sub2api: sub2apiIcon,
 }
 
 // Get provider icon src
@@ -106,6 +108,7 @@ export default function Keys() {
     fetchProviders,
     refreshBalance,
     deleteProvider,
+    updateProvider,
   } = useProviderStore()
   const { apiKeys, fetchAllApiKeys, getAllApiKeys, updateApiKey, deleteApiKey } = useApiKeyStore()
   const { globalSettings } = useSettingsStore()
@@ -267,6 +270,14 @@ export default function Keys() {
     }
   }
 
+  const handleToggleProvider = async (provider: Provider, active: boolean) => {
+    try {
+      await updateProvider({ id: provider.id, isActive: active })
+    } catch {
+      message.error(t('providers.updateProviderFailed') || t('messages.error'))
+    }
+  }
+
   const handleRefreshBalance = async (id: string) => {
     setRefreshingIds((prev) => new Set(prev).add(id))
     try {
@@ -401,7 +412,7 @@ export default function Keys() {
       }
     }
 
-    return formatEnvCommand(envVars, config.cliCommand, terminalType)
+    return formatEnvCommand(envVars, config.cliCommand)
   }
 
   // Handle edit key
@@ -474,7 +485,7 @@ export default function Keys() {
         </div>
         <Space>
           <Button icon={<GlobalOutlined />} onClick={() => setGlobalConfigOpen(true)} size='large'>
-            {t('globalConfig.title') || '全局配置'}
+            {t('globalConfig.title')}
           </Button>
           <Button icon={<ThunderboltOutlined />} onClick={() => setQuickAddOpen(true)} size='large'>
             {t('providers.quickAdd')}
@@ -540,6 +551,13 @@ export default function Keys() {
                       )}
                     </div>
                     <Space size={8}>
+                      <Tooltip title={provider.isActive ? t('common.active') : t('common.inactive')}>
+                        <Switch
+                          size='small'
+                          checked={provider.isActive}
+                          onChange={(checked) => handleToggleProvider(provider, checked)}
+                        />
+                      </Tooltip>
                       {provider.walletBalanceType !== 'none' && (
                         <Tooltip title={t('providers.refreshBalance')}>
                           <Button

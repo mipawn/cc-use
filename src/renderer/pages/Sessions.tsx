@@ -28,7 +28,7 @@ export default function Sessions() {
     try {
       const data = await getApi().sessions.scanSessions()
       setSessions(data)
-    } catch (error) {
+    } catch {
       message.error(t('sessions.loadFailed'))
     } finally {
       setLoading(false)
@@ -37,6 +37,7 @@ export default function Sessions() {
 
   useEffect(() => {
     loadSessions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const filteredSessions = useMemo(() => {
@@ -71,7 +72,7 @@ export default function Sessions() {
       message.success(t('sessions.deleteSuccess', { count: sessionIds.length }))
       setSelectedRowKeys([])
       loadSessions()
-    } catch (error) {
+    } catch {
       message.error(t('sessions.deleteFailed'))
     }
   }
@@ -94,7 +95,7 @@ export default function Sessions() {
           const count = await getApi().sessions.cleanOldSessions(days)
           message.success(t('sessions.cleanSuccess', { count }))
           loadSessions()
-        } catch (error) {
+        } catch {
           message.error(t('sessions.cleanFailed'))
         }
       },
@@ -110,7 +111,7 @@ export default function Sessions() {
           const deleted = await getApi().sessions.keepRecentSessions(count)
           message.success(t('sessions.cleanSuccess', { count: deleted }))
           loadSessions()
-        } catch (error) {
+        } catch {
           message.error(t('sessions.cleanFailed'))
         }
       },

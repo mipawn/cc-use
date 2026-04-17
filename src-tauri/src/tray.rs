@@ -1,11 +1,5 @@
 use crate::db::Database;
-#[cfg(not(target_os = "macos"))]
-use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
-#[cfg(not(target_os = "macos"))]
-use std::time::{Duration, Instant};
-#[cfg(not(target_os = "macos"))]
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager,
@@ -45,10 +39,6 @@ const EN_LABELS: TrayLabels = TrayLabels {
     no_recent_projects: "No Recent Projects",
 };
 
-#[cfg(not(target_os = "macos"))]
-// Ignore duplicate tray click events fired too close together
-static LAST_TRAY_CLICK: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
-
 fn get_labels() -> &'static TrayLabels {
     let locale = sys_locale::get_locale().unwrap_or_default();
     if locale.starts_with("zh") {
@@ -56,22 +46,6 @@ fn get_labels() -> &'static TrayLabels {
     } else {
         &EN_LABELS
     }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn should_handle_click() -> bool {
-    let now = Instant::now();
-    let lock = LAST_TRAY_CLICK.get_or_init(|| Mutex::new(None));
-    let mut last = lock.lock().unwrap_or_else(|e| e.into_inner());
-
-    if let Some(prev) = *last {
-        if now.duration_since(prev) < Duration::from_millis(220) {
-            return false;
-        }
-    }
-
-    *last = Some(now);
-    true
 }
 
 fn is_window_visible(app: &AppHandle) -> bool {
@@ -216,8 +190,6 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     tray.set_tooltip(Some("CC Use"))?;
     #[cfg(target_os = "macos")]
     let _ = tray.set_show_menu_on_left_click(true);
-    #[cfg(not(target_os = "macos"))]
-    let _ = tray.set_show_menu_on_left_click(false);
 
     // Handle menu events
     let app_handle = app.clone();
@@ -225,29 +197,6 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         let id = event.id().as_ref();
         handle_menu_event(&app_handle, id);
     });
-
-    // Handle tray icon click on Windows/Linux: left click toggles window.
-    #[cfg(not(target_os = "macos"))]
-    {
-        let app_handle = app.clone();
-        tray.on_tray_icon_event(move |_tray, event| {
-            if let TrayIconEvent::Click {
-                button,
-                button_state,
-                ..
-            } = event
-            {
-                if button == MouseButton::Left
-                    && (button_state == MouseButtonState::Up
-                        || button_state == MouseButtonState::Down)
-                    && should_handle_click()
-                {
-                    toggle_window(&app_handle);
-                    refresh_tray_menu(&app_handle);
-                }
-            }
-        });
-    }
 
     // Periodic refresh every 30s
     let app_handle = app.clone();

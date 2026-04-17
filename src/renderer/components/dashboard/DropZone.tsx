@@ -65,7 +65,7 @@ export default function DropZone({ onDrop, disabled = false, hint }: DropZonePro
 
       onDrop(path)
     },
-    [onDrop, t],
+    [onDrop, t, message],
   )
 
   const handleClick = async () => {

@@ -63,10 +63,13 @@ pub fn resolve_launch_preview_from_configs(
     session_token: &str,
     proxy_port: i32,
 ) -> TerminalLaunchPreview {
-    let merged_config = merge_json_objects(global_config, api_key_config);
+    // global_config = defaults shared across all keys of this CLI type;
+    // api_key_config = per-key overrides. Both are injected as env vars at
+    // launch time so the CLI's own settings files stay untouched.
+    let merged = merge_json_objects(global_config, api_key_config);
     let mut env = EnvObject::new();
 
-    for (key, value) in merged_config.iter() {
+    for (key, value) in merged.iter() {
         if let Some(env_value) = json_value_to_env_string(value) {
             env.insert(key.clone(), env_value);
         } else {

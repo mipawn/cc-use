@@ -1,7 +1,7 @@
 /**
- * GlobalConfigModal - 全局配置弹窗
- * 用于配置 Claude Code / Codex CLI 的全局参数
- * 每个 tab 独立保存
+ * GlobalConfigModal - 默认启动参数
+ * 编辑 Claude Code / Codex CLI 启动时作为默认环境变量注入的 JSON。
+ * 只保存在应用数据库，不会写入 ~/.claude 等 CLI 自己的配置文件。
  */
 import { useState, useEffect } from 'react'
 import { Modal, Typography, Input, Segmented, Space, Button, theme } from 'antd'
@@ -37,16 +37,13 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
 
   useEffect(() => {
     if (open) {
-      const claudeConfig = globalSettings.claudeConfig || {}
-      const codexConfig = globalSettings.codexConfig || {}
-      setClaudeJson(JSON.stringify(claudeConfig, null, 2) || '{}')
-      setCodexJson(JSON.stringify(codexConfig, null, 2) || '{}')
+      setClaudeJson(JSON.stringify(globalSettings.claudeConfig || {}, null, 2))
+      setCodexJson(JSON.stringify(globalSettings.codexConfig || {}, null, 2))
       setClaudeError(null)
       setCodexError(null)
     }
   }, [open, globalSettings])
 
-  // 验证 JSON
   const validateJson = (json: string): CliConfig | null => {
     try {
       return JSON.parse(json) as CliConfig
@@ -55,7 +52,6 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
     }
   }
 
-  // 保存 Claude 配置
   const handleSaveClaude = async () => {
     const config = validateJson(claudeJson)
     if (config === null) {
@@ -74,7 +70,6 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
     }
   }
 
-  // 保存 Codex 配置
   const handleSaveCodex = async () => {
     const config = validateJson(codexJson)
     if (config === null) {
@@ -111,7 +106,7 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
 
   return (
     <Modal
-      title={t('globalConfig.title') || '全局配置'}
+      title={t('globalConfig.title')}
       open={open}
       onCancel={onClose}
       footer={null}
@@ -122,11 +117,9 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
       <SimpleBar style={{ maxHeight: 'calc(80vh - 160px)' }}>
         <div className={styles.content}>
           <Text type='secondary' className={styles.subtitle}>
-            {t('globalConfig.subtitle') ||
-              '配置 CLI 工具的默认参数，将应用于所有使用对应类型的密钥'}
+            {t('globalConfig.subtitle')}
           </Text>
 
-          {/* Type Selector */}
           <Segmented
             value={activeType}
             onChange={(value) => setActiveType(value as ProviderType)}
@@ -160,7 +153,6 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
             className={styles.typeSegmented}
           />
 
-          {/* Claude Config */}
           {activeType === 'claude' && (
             <div className={styles.editorSection}>
               <TextArea
@@ -177,7 +169,7 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
               )}
               <div className={styles.editorFooter}>
                 <Text type='secondary' className={styles.editorHint}>
-                  {t('globalConfig.jsonConfigHint') || '配置将应用于所有 Claude Code 类型的密钥'}
+                  {t('globalConfig.jsonConfigHint')}
                 </Text>
                 <Button
                   type='primary'
@@ -185,13 +177,12 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
                   loading={claudeSaving}
                   onClick={handleSaveClaude}
                 >
-                  {t('common.save') || '保存'}
+                  {t('common.save')}
                 </Button>
               </div>
             </div>
           )}
 
-          {/* Codex Config */}
           {activeType === 'codex' && (
             <div className={styles.editorSection}>
               <TextArea
@@ -208,7 +199,7 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
               )}
               <div className={styles.editorFooter}>
                 <Text type='secondary' className={styles.editorHint}>
-                  {t('globalConfig.jsonConfigHint') || '配置将应用于所有 Codex CLI 类型的密钥'}
+                  {t('globalConfig.jsonConfigHint')}
                 </Text>
                 <Button
                   type='primary'
@@ -216,7 +207,7 @@ export default function GlobalConfigModal({ open, onClose }: GlobalConfigModalPr
                   loading={codexSaving}
                   onClick={handleSaveCodex}
                 >
-                  {t('common.save') || '保存'}
+                  {t('common.save')}
                 </Button>
               </div>
             </div>

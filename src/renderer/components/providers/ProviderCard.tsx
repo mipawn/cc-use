@@ -23,6 +23,7 @@ import minimaxIcon from '../../assets/provider-icons/minimax.svg'
 import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
 import siliconflowIcon from '../../assets/provider-icons/siliconflow.svg'
 import newapiIcon from '../../assets/provider-icons/newapi.svg'
+import sub2apiIcon from '../../assets/provider-icons/sub2api.png'
 
 const { Text, Title } = Typography
 
@@ -35,6 +36,7 @@ const PRESET_ICON_MAP: Record<string, string> = {
   deepseek: deepseekIcon,
   siliconflow: siliconflowIcon,
   newapi: newapiIcon,
+  sub2api: sub2apiIcon,
 }
 
 interface ProviderCardProps {
@@ -65,9 +67,6 @@ export default function ProviderCard({
     const command = generateTerminalCommand(
       { type: provider.type ?? 'claude', baseUrl: provider.baseUrl },
       apiKey,
-      false,
-      12345,
-      terminalType,
     )
     try {
       await navigator.clipboard.writeText(command)

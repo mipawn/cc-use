@@ -15,6 +15,7 @@ import minimaxIcon from '../../assets/provider-icons/minimax.svg'
 import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
 import siliconflowIcon from '../../assets/provider-icons/siliconflow.svg'
 import newapiIcon from '../../assets/provider-icons/newapi.svg'
+import sub2apiIcon from '../../assets/provider-icons/sub2api.png'
 
 const { Text } = Typography
 const { TextArea } = Input
@@ -27,6 +28,7 @@ const PRESET_ICONS: { key: string; icon: string; label: string }[] = [
   { key: 'minimax', icon: minimaxIcon, label: 'MiniMax' },
   { key: 'siliconflow', icon: siliconflowIcon, label: '硅基流动' },
   { key: 'newapi', icon: newapiIcon, label: 'NewAPI' },
+  { key: 'sub2api', icon: sub2apiIcon, label: 'Sub2API' },
 ]
 
 const PRESET_ICON_MAP: Record<string, string> = Object.fromEntries(
@@ -134,7 +136,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
       const path = await getApi().icon.upload(buffer, file.name)
       setCustomIconPath(path)
       setSelectedIcon('custom')
-    } catch (error) {
+    } catch {
       message.error(t('messages.error'))
     }
   }

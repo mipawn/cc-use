@@ -110,6 +110,12 @@ impl Database {
     }
 
     pub fn project_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
+        // Backfill snapshot column before deletion so request_logs retain the display name
+        self.conn.execute(
+            "UPDATE request_logs SET project_name = (SELECT name FROM projects WHERE id = ?1)
+             WHERE project_id = ?1 AND project_name IS NULL",
+            [id],
+        )?;
         self.conn
             .execute("DELETE FROM projects WHERE id = ?1", [id])?;
         Ok(())

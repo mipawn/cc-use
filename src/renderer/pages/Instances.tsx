@@ -69,6 +69,7 @@ export default function Instances() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const providerMap = useMemo(
@@ -79,6 +80,8 @@ export default function Instances() {
   const treeData = useMemo(() => {
     const grouped = new Map<string, ApiKey[]>()
     for (const key of apiKeys) {
+      const provider = providerMap.get(key.providerId)
+      if (!provider?.isActive) continue
       const list = grouped.get(key.providerId) || []
       list.push(key)
       grouped.set(key.providerId, list)
