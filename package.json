@@ -7,6 +7,7 @@
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "tauri build",
     "build:dev": "tauri build --debug --config src-tauri/tauri.dev.conf.json",
+    "prepare:daemon": "node scripts/prepare-daemon.mjs",
     "generate:icons": "node scripts/generate-icons.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

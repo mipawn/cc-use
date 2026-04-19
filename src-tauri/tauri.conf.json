@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "pnpm vite --clearScreen false",
-    "beforeBuildCommand": "pnpm vite build"
+    "beforeDevCommand": "node scripts/prepare-daemon.mjs && pnpm vite --clearScreen false",
+    "beforeBuildCommand": "node scripts/prepare-daemon.mjs && pnpm vite build"
   },
   "app": {
     "withGlobalTauri": true,
@@ -58,6 +58,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "externalBin": ["binaries/cc-use-daemon"],
     "resources": [
       "icons/dock.png",
       "icons/tray.png",
