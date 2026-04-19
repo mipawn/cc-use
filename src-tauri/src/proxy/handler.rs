@@ -65,8 +65,12 @@ pub async fn proxy_handler(
         .path_and_query()
         .map(|pq| pq.as_str().to_string())
         .unwrap_or_else(|| "/".to_string());
-    let upstream_family = infer_upstream_family_from_path(&req_path)
-        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "Unsupported proxy path"))?;
+    // NB: path-based family inference only matters for PassThrough (i.e.
+    // when we're forwarding to official anthropic/openai on the user's
+    // behalf). Session-routed requests carry their provider via the
+    // session token, so we must not reject them here just because the
+    // CLI uses the vanilla `/v1/messages` path (without any /claude or
+    // /openai/v1 prefix). Defer the inference to the PassThrough branch.
     let request_auth = classify_request_auth(
         if auth_header.is_empty() {
             None
@@ -83,7 +87,7 @@ pub async fn proxy_handler(
     let route_execution = {
         let db = lock_or_error(&state.db, "Database lock failed")?;
         let route_plan = decide_route_plan(&request_auth);
-        build_route_execution(&db, &state, &req_path, upstream_family, route_plan)?
+        build_route_execution(&db, &state, &req_path, route_plan)?
     };
 
     let is_ws_upgrade = req
@@ -295,7 +299,6 @@ fn build_route_execution(
     db: &Database,
     state: &Arc<ProxyState>,
     req_path: &str,
-    upstream_family: UpstreamFamily,
     route_plan: RoutePlan,
 ) -> Result<RouteExecution, Response<Body>> {
     match route_plan {
@@ -322,11 +325,18 @@ fn build_route_execution(
                 }),
             })
         }
-        RoutePlan::PassThrough => Ok(RouteExecution {
-            upstream_url: build_official_upstream_url(upstream_family, req_path)?,
-            real_api_key: None,
-            log_ctx: None,
-        }),
+        RoutePlan::PassThrough => {
+            // Only in PassThrough do we need to guess the upstream from the
+            // path, because there's no session pointing at a concrete provider.
+            let upstream_family = infer_upstream_family_from_path(req_path).ok_or_else(|| {
+                error_response(StatusCode::NOT_FOUND, "Unsupported proxy path")
+            })?;
+            Ok(RouteExecution {
+                upstream_url: build_official_upstream_url(upstream_family, req_path)?,
+                real_api_key: None,
+                log_ctx: None,
+            })
+        }
         RoutePlan::RejectMissingAuth => Err(error_response(
             StatusCode::UNAUTHORIZED,
             "No authorization header",
