@@ -11,6 +11,7 @@ import Statistics from './pages/Statistics'
 import Settings from './pages/Settings'
 import Sessions from './pages/Sessions'
 import Instances from './pages/Instances'
+import Console from './pages/Console'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
@@ -195,6 +196,7 @@ function AppContent() {
             <Route path='/statistics' element={<Statistics />} />
             <Route path='/sessions' element={<Sessions />} />
             <Route path='/instances' element={<Instances />} />
+            <Route path='/console' element={<Console />} />
             <Route path='/settings' element={<Settings />} />
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>

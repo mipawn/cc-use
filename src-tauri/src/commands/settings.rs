@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::models::GlobalSettings;
+use crate::services::console_bridge::ConsoleBridgeHandle;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -12,6 +13,7 @@ pub fn settings_get(db: State<'_, Arc<Mutex<Database>>>) -> Result<GlobalSetting
 #[tauri::command]
 pub async fn settings_update(
     db: State<'_, Arc<Mutex<Database>>>,
+    bridge: State<'_, ConsoleBridgeHandle>,
     updates: serde_json::Value,
 ) -> Result<GlobalSettings, String> {
     // Snapshot the old port before writing so we can detect a change.
@@ -39,6 +41,10 @@ pub async fn settings_update(
                 e
             );
         }
+        // Kick the console bridge so it drops its stale connection to the
+        // old-port daemon and picks up the new port on reconnect. Without
+        // this the Console page stays dark for up to BACKOFF_MAX seconds.
+        bridge.restart();
     }
 
     Ok(new_settings)

@@ -54,6 +54,10 @@ pub fn management_routes() -> Router<DaemonState> {
             "/_management/instances/stop",
             post(management_instance_stop),
         )
+        .route(
+            "/_management/console/stream",
+            get(crate::console_stream::console_stream),
+        )
 }
 
 pub fn resolve_management_token() -> Result<String, String> {

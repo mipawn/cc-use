@@ -64,6 +64,19 @@ function buildApi(): Api {
         }
       },
     },
+    console: {
+      onEvent: (callback) => {
+        let unlisten: UnlistenFn | null = null
+        listen<import('../../shared/types').ConsoleEvent>('proxy:consoleEvent', callback).then(
+          (fn) => {
+            unlisten = fn
+          },
+        )
+        return () => {
+          unlisten?.()
+        }
+      },
+    },
     balance: {
       refresh: (providerId) => invoke('balance_refresh', { providerId }),
     },

@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
+use crate::proxy::console::ConsoleEvent;
 use crate::proxy::usage_parser;
 use crate::proxy::ProxyState;
 use crate::services::cost_calculator;
@@ -40,6 +41,76 @@ struct ResolvedSessionContext {
     project_name: Option<String>,
 }
 
+/// Bundles everything each exit point needs to emit a `ConsoleEvent`.
+/// Grouped so handler / build_route_execution / resolve_session_resources
+/// can share the same reject / upstream_error / ok emitters without dragging
+/// 4 extra parameters through every helper signature.
+struct EmitCtx<'a> {
+    state: &'a ProxyState,
+    method: &'a str,
+    path: &'a str,
+    start_time: std::time::Instant,
+}
+
+impl<'a> EmitCtx<'a> {
+    fn elapsed_ms(&self) -> u64 {
+        self.start_time.elapsed().as_millis() as u64
+    }
+
+    fn reject(&self, reason: &str) {
+        self.state
+            .emit_console(ConsoleEvent::rejected(self.method, self.path, self.elapsed_ms(), reason));
+    }
+
+    fn upstream_error(
+        &self,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        error: &str,
+    ) {
+        self.state.emit_console(ConsoleEvent::upstream_error(
+            self.method,
+            self.path,
+            self.elapsed_ms(),
+            upstream,
+            provider,
+            key_alias,
+            error,
+        ));
+    }
+
+    fn ok(
+        &self,
+        status: u16,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        is_streaming: bool,
+    ) {
+        self.state.emit_console(ConsoleEvent::ok(
+            self.method,
+            self.path,
+            status,
+            self.elapsed_ms(),
+            upstream,
+            provider,
+            key_alias,
+            is_streaming,
+        ));
+    }
+
+    fn ws_upgraded(&self, upstream: &str, provider: Option<&str>, key_alias: Option<&str>) {
+        self.state.emit_console(ConsoleEvent::ws_upgraded(
+            self.path,
+            self.elapsed_ms(),
+            upstream,
+            provider,
+            key_alias,
+        ));
+    }
+}
+
 /// Main proxy handler — forwards HTTP requests and WebSocket connections to the upstream provider
 pub async fn proxy_handler(
     AxumState(state): AxumState<Arc<ProxyState>>,
@@ -49,6 +120,8 @@ pub async fn proxy_handler(
         .request_count
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let start_time = std::time::Instant::now();
+
+    let method_str = req.method().as_str().to_string();
 
     let auth_header = req
         .headers()
@@ -84,10 +157,29 @@ pub async fn proxy_handler(
         },
     );
 
+    let emit = EmitCtx {
+        state: &state,
+        method: &method_str,
+        path: &req_path,
+        start_time,
+    };
+
     let route_execution = {
-        let db = lock_or_error(&state.db, "Database lock failed")?;
+        let db = match state.db.lock() {
+            Ok(db) => db,
+            Err(_) => {
+                emit.reject("Database lock failed");
+                return Err(error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database lock failed",
+                ));
+            }
+        };
         let route_plan = decide_route_plan(&request_auth);
-        build_route_execution(&db, &state, &req_path, route_plan)?
+        match build_route_execution(&db, &state, &req_path, route_plan, &emit) {
+            Ok(re) => re,
+            Err(resp) => return Err(resp),
+        }
     };
 
     let is_ws_upgrade = req
@@ -103,13 +195,25 @@ pub async fn proxy_handler(
             match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
                 Ok(ws) => ws,
                 Err(_) => {
+                    emit.reject("WebSocket upgrade failed");
                     return Err(error_response(
                         StatusCode::BAD_REQUEST,
                         "WebSocket upgrade failed",
-                    ))
+                    ));
                 }
             };
         let ws_url = to_ws_url(&route_execution.upstream_url);
+        emit.ws_upgraded(
+            &route_execution.upstream_url,
+            route_execution
+                .log_ctx
+                .as_ref()
+                .and_then(|c| c.provider_name.as_deref()),
+            route_execution
+                .log_ctx
+                .as_ref()
+                .and_then(|c| c.key_alias.as_deref()),
+        );
         return Ok(ws_upgrade
             .on_upgrade(move |socket| ws_relay(socket, ws_url, route_execution.real_api_key))
             .into_response());
@@ -125,10 +229,11 @@ pub async fn proxy_handler(
                 headers.insert("authorization", v);
             }
             Err(_) => {
+                emit.reject("API key contains invalid characters");
                 return Err(error_response(
                     StatusCode::BAD_REQUEST,
                     "API key contains invalid characters",
-                ))
+                ));
             }
         }
         match HeaderValue::from_str(real_api_key) {
@@ -136,10 +241,11 @@ pub async fn proxy_handler(
                 headers.insert("x-api-key", v);
             }
             Err(_) => {
+                emit.reject("API key contains invalid characters");
                 return Err(error_response(
                     StatusCode::BAD_REQUEST,
                     "API key contains invalid characters",
-                ))
+                ));
             }
         }
     }
@@ -150,10 +256,11 @@ pub async fn proxy_handler(
     let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
         Ok(b) => b,
         Err(_) => {
+            emit.reject("Failed to read request body");
             return Err(error_response(
                 StatusCode::BAD_REQUEST,
                 "Failed to read request body",
-            ))
+            ));
         }
     };
 
@@ -178,15 +285,31 @@ pub async fn proxy_handler(
         req_builder = req_builder.body(body_bytes.to_vec());
     }
 
+    let provider_snapshot = route_execution
+        .log_ctx
+        .as_ref()
+        .and_then(|c| c.provider_name.clone());
+    let key_snapshot = route_execution
+        .log_ctx
+        .as_ref()
+        .and_then(|c| c.key_alias.clone());
+
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
         Err(e) => {
+            let err_text = e.to_string();
             if let Ok(mut last_err) = state.last_error.lock() {
-                *last_err = Some(e.to_string());
+                *last_err = Some(err_text.clone());
             }
+            emit.upstream_error(
+                &route_execution.upstream_url,
+                provider_snapshot.as_deref(),
+                key_snapshot.as_deref(),
+                &err_text,
+            );
             return Err(error_response(
                 StatusCode::BAD_GATEWAY,
-                &format!("Upstream error: {}", e),
+                &format!("Upstream error: {}", err_text),
             ));
         }
     };
@@ -223,6 +346,16 @@ pub async fn proxy_handler(
                 provider_name: ctx.provider_name.clone(),
                 project_name: ctx.project_name.clone(),
             }),
+            console_ctx: Some(StreamConsoleCtx {
+                state: state.clone(),
+                method: method_str.clone(),
+                path: req_path.clone(),
+                upstream_url: route_execution.upstream_url.clone(),
+                start_time,
+                status: status.as_u16(),
+                provider_name: provider_snapshot.clone(),
+                key_alias: key_snapshot.clone(),
+            }),
             finished: false,
         };
 
@@ -246,10 +379,17 @@ pub async fn proxy_handler(
     let resp_bytes = match upstream_resp.bytes().await {
         Ok(b) => b,
         Err(e) => {
+            let err_text = e.to_string();
+            emit.upstream_error(
+                &route_execution.upstream_url,
+                provider_snapshot.as_deref(),
+                key_snapshot.as_deref(),
+                &err_text,
+            );
             return Err(error_response(
                 StatusCode::BAD_GATEWAY,
-                &format!("Failed to read response: {}", e),
-            ))
+                &format!("Failed to read response: {}", err_text),
+            ));
         }
     };
 
@@ -278,6 +418,14 @@ pub async fn proxy_handler(
         }
     }
 
+    emit.ok(
+        status.as_u16(),
+        &route_execution.upstream_url,
+        provider_snapshot.as_deref(),
+        key_snapshot.as_deref(),
+        false,
+    );
+
     let mut response = Response::builder().status(status.as_u16());
     for (name, value) in &resp_headers {
         if let Ok(v) = value.to_str() {
@@ -300,18 +448,20 @@ fn build_route_execution(
     state: &Arc<ProxyState>,
     req_path: &str,
     route_plan: RoutePlan,
+    emit: &EmitCtx,
 ) -> Result<RouteExecution, Response<Body>> {
     match route_plan {
         RoutePlan::ExplicitSession { session_token } => {
             let (session, provider, api_key) =
-                resolve_session_resources(db, state, &session_token)?;
+                resolve_session_resources(db, state, &session_token, emit)?;
             let project_name = session
                 .project_id
                 .as_deref()
                 .and_then(|pid| db.project_get(pid).ok().flatten())
                 .map(|p| p.name);
+            let upstream_url = build_provider_upstream_url(&provider.base_url, req_path, emit)?;
             Ok(RouteExecution {
-                upstream_url: build_provider_upstream_url(&provider.base_url, req_path)?,
+                upstream_url,
                 real_api_key: Some(api_key.value.clone()),
                 log_ctx: Some(ResolvedSessionContext {
                     session_token: session.session_token,
@@ -328,19 +478,26 @@ fn build_route_execution(
         RoutePlan::PassThrough => {
             // Only in PassThrough do we need to guess the upstream from the
             // path, because there's no session pointing at a concrete provider.
-            let upstream_family = infer_upstream_family_from_path(req_path).ok_or_else(|| {
-                error_response(StatusCode::NOT_FOUND, "Unsupported proxy path")
-            })?;
+            let upstream_family = match infer_upstream_family_from_path(req_path) {
+                Some(f) => f,
+                None => {
+                    let reason = "Unsupported proxy path";
+                    emit.reject(reason);
+                    return Err(error_response(StatusCode::NOT_FOUND, reason));
+                }
+            };
+            let upstream_url = build_official_upstream_url(upstream_family, req_path);
             Ok(RouteExecution {
-                upstream_url: build_official_upstream_url(upstream_family, req_path)?,
+                upstream_url,
                 real_api_key: None,
                 log_ctx: None,
             })
         }
-        RoutePlan::RejectMissingAuth => Err(error_response(
-            StatusCode::UNAUTHORIZED,
-            "No authorization header",
-        )),
+        RoutePlan::RejectMissingAuth => {
+            let reason = "No authorization header";
+            emit.reject(reason);
+            Err(error_response(StatusCode::UNAUTHORIZED, reason))
+        }
     }
 }
 
@@ -348,6 +505,7 @@ fn resolve_session_resources(
     db: &Database,
     state: &Arc<ProxyState>,
     session_token: &str,
+    emit: &EmitCtx,
 ) -> Result<(ProxySession, Provider, ApiKey), Response<Body>> {
     let resolved = db
         .proxy_session_get(session_token)
@@ -360,12 +518,30 @@ fn resolve_session_resources(
         });
 
     let (session, provider, api_key) = if let Some((s, p, k)) = resolved {
-        let mut sessions = lock_or_error(&state.sessions, "Session lock failed")?;
+        let mut sessions = match state.sessions.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                emit.reject("Session lock failed");
+                return Err(error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Session lock failed",
+                ));
+            }
+        };
         sessions.insert(s.session_token.clone(), s.clone());
         (s, p, k)
     } else {
         let cached = {
-            let sessions = lock_or_error(&state.sessions, "Session lock failed")?;
+            let sessions = match state.sessions.lock() {
+                Ok(g) => g,
+                Err(_) => {
+                    emit.reject("Session lock failed");
+                    return Err(error_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Session lock failed",
+                    ));
+                }
+            };
             sessions.get(session_token).cloned()
         };
         match cached {
@@ -375,24 +551,45 @@ fn resolve_session_resources(
                 (s, provider, api_key)
             }
             None => {
-                return Err(error_response(
-                    StatusCode::UNAUTHORIZED,
-                    "Session not found or expired",
-                ))
+                let reason = "Session not found or expired";
+                emit.reject(reason);
+                return Err(error_response(StatusCode::UNAUTHORIZED, reason));
             }
         }
     };
 
-    let provider =
-        provider.ok_or_else(|| error_response(StatusCode::NOT_FOUND, "Provider not found"))?;
-    let api_key =
-        api_key.ok_or_else(|| error_response(StatusCode::NOT_FOUND, "API key not found"))?;
+    let provider = match provider {
+        Some(p) => p,
+        None => {
+            let reason = "Provider not found";
+            emit.reject(reason);
+            return Err(error_response(StatusCode::NOT_FOUND, reason));
+        }
+    };
+    let api_key = match api_key {
+        Some(k) => k,
+        None => {
+            let reason = "API key not found";
+            emit.reject(reason);
+            return Err(error_response(StatusCode::NOT_FOUND, reason));
+        }
+    };
     Ok((session, provider, api_key))
 }
 
-fn build_provider_upstream_url(base_url: &str, req_path: &str) -> Result<String, Response<Body>> {
-    let parsed = url::Url::parse(base_url)
-        .map_err(|_| error_response(StatusCode::BAD_GATEWAY, "Invalid provider base URL"))?;
+fn build_provider_upstream_url(
+    base_url: &str,
+    req_path: &str,
+    emit: &EmitCtx,
+) -> Result<String, Response<Body>> {
+    let parsed = match url::Url::parse(base_url) {
+        Ok(p) => p,
+        Err(_) => {
+            let reason = "Invalid provider base URL";
+            emit.reject(reason);
+            return Err(error_response(StatusCode::BAD_GATEWAY, reason));
+        }
+    };
     let target_origin = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
     let path_prefix = if parsed.path() == "/" {
         ""
@@ -402,32 +599,19 @@ fn build_provider_upstream_url(base_url: &str, req_path: &str) -> Result<String,
     Ok(format!("{}{}{}", target_origin, path_prefix, req_path))
 }
 
-fn build_official_upstream_url(
-    upstream_family: UpstreamFamily,
-    req_path: &str,
-) -> Result<String, Response<Body>> {
+fn build_official_upstream_url(upstream_family: UpstreamFamily, req_path: &str) -> String {
     match upstream_family {
-        UpstreamFamily::Anthropic => Ok(format!(
+        UpstreamFamily::Anthropic => format!(
             "{}{}",
             upstream_family.official_base_url(),
             req_path.strip_prefix("/claude").unwrap_or(req_path)
-        )),
-        UpstreamFamily::OpenAi => Ok(format!(
+        ),
+        UpstreamFamily::OpenAi => format!(
             "{}{}",
             upstream_family.official_base_url(),
             req_path.strip_prefix("/openai/v1").unwrap_or(req_path)
-        )),
+        ),
     }
-}
-
-/// Try to lock a Mutex, returning an error HTTP response on poisoned mutex.
-fn lock_or_error<'a, T>(
-    mutex: &'a Mutex<T>,
-    msg: &str,
-) -> Result<std::sync::MutexGuard<'a, T>, Response<Body>> {
-    mutex
-        .lock()
-        .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, msg))
 }
 
 pub fn error_response(status: StatusCode, message: &str) -> Response<Body> {
@@ -484,6 +668,20 @@ struct LogContext {
     key_alias: Option<String>,
     provider_name: Option<String>,
     project_name: Option<String>,
+}
+
+/// Mirrors what the streaming-response success emitter needs. Kept separate
+/// from `LogContext` because PassThrough responses (no session) still need to
+/// emit a console event even though there's nothing to record in `request_logs`.
+struct StreamConsoleCtx {
+    state: Arc<ProxyState>,
+    method: String,
+    path: String,
+    upstream_url: String,
+    start_time: std::time::Instant,
+    status: u16,
+    provider_name: Option<String>,
+    key_alias: Option<String>,
 }
 
 fn record_usage(
@@ -549,6 +747,7 @@ struct UsageTrackingStream<S> {
     inner: S,
     accumulator: usage_parser::StreamUsageAccumulator,
     log_ctx: Option<LogContext>,
+    console_ctx: Option<StreamConsoleCtx>,
     finished: bool,
 }
 
@@ -580,6 +779,18 @@ where
                     if let Some(usage) = this.accumulator.get_usage() {
                         record_usage(&ctx, &usage, this.accumulator.model.as_deref(), true);
                     }
+                }
+                if let Some(ctx) = this.console_ctx.take() {
+                    ctx.state.emit_console(ConsoleEvent::ok(
+                        &ctx.method,
+                        &ctx.path,
+                        ctx.status,
+                        ctx.start_time.elapsed().as_millis() as u64,
+                        &ctx.upstream_url,
+                        ctx.provider_name.as_deref(),
+                        ctx.key_alias.as_deref(),
+                        true,
+                    ));
                 }
                 Poll::Ready(None)
             }

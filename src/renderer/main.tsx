@@ -6,8 +6,14 @@ import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
 import App from './App'
 import { useSettingsStore } from './stores/settingsStore'
+import { installRendererConsoleTap } from './api/consoleBus'
 import './locales'
 import './styles/global.css'
+
+// Install the console tap as early as possible so every `console.*` call
+// from React / stores / app bootstrap is already funneled into the Console
+// page's event stream by the time the user opens it.
+installRendererConsoleTap()
 
 function Root() {
   const { language, resolvedTheme, initSettings } = useSettingsStore()

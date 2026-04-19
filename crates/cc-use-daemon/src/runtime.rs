@@ -48,6 +48,12 @@ pub async fn run_foreground() -> Result<(), String> {
             .map_err(|e| format!("Failed to load settings: {}", e))?
     };
     let proxy_state = build_proxy_state(db.clone())?;
+    // Install the logger AFTER proxy_state exists so it has a live Sender
+    // to broadcast into. Any `log::info!` from here on is observable by the
+    // Console page once a subscriber connects.
+    crate::console_logger::install(proxy_state.console_tx.clone());
+    log::info!("daemon booted; binding 127.0.0.1:{}", settings.proxy_port);
+
     let state = build_daemon_state(db.clone(), proxy_state)?;
     spawn_managed_instance_sweeper(db);
 

@@ -100,6 +100,13 @@ export default {
     importFailed: 'Import failed',
     importErrors: 'Import completed with errors',
   },
+  console: {
+    title: 'Live Console',
+    subtitle: 'Watch proxy requests and runtime logs in real time. Not persisted.',
+    bufferInfo: '{{count}} / {{max}} entries',
+    emptyHint: 'Waiting for events… trigger a CLI request, or fire any daemon/app/renderer log',
+    clear: 'Clear',
+  },
   instances: {
     title: 'Instances',
     subtitle: 'Review managed CLI instances and hot-switch keys per running instance',

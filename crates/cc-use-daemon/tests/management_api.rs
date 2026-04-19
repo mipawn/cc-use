@@ -231,3 +231,63 @@ async fn stop_marks_managed_instance_as_stopped() {
     assert_eq!(instance.stop_reason, Some("process_exit".to_string()));
     assert_eq!(instance.exit_code, Some(0));
 }
+
+/// The console SSE endpoint must require the same management token auth
+/// as the other `/_management/*` routes — nobody on localhost should be
+/// able to tap the live proxy traffic without proving they're us.
+#[tokio::test]
+async fn console_stream_rejects_without_token() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .uri("/_management/console/stream")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn console_stream_rejects_with_wrong_token() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .uri("/_management/console/stream")
+                .header("x-cc-use-management-token", "wrong-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn console_stream_accepts_with_token_and_returns_sse_content_type() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .uri("/_management/console/stream")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.starts_with("text/event-stream"),
+        "expected text/event-stream content-type, got {:?}",
+        content_type
+    );
+}

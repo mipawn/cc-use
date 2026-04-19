@@ -22,6 +22,7 @@ import type {
   ImportResult,
   ProxySession,
   ProxyStatus,
+  ConsoleEvent,
   ManagedInstance,
   UpdateManagedInstanceAssignmentInput,
   UsageStats,
@@ -78,6 +79,12 @@ export interface Api {
     onStatusChanged: (
       callback: (data: { isRunning: boolean; port: number; source?: string }) => void,
     ) => () => void
+  }
+  console: {
+    /// Subscribe to the realtime console stream. Emits proxy request events,
+    /// daemon/app Rust log records, and renderer `console.*` calls through a
+    /// single channel. Returns an unlisten fn.
+    onEvent: (callback: (event: ConsoleEvent) => void) => () => void
   }
   balance: {
     refresh: (providerId: string) => Promise<{

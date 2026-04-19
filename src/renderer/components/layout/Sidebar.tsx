@@ -9,6 +9,7 @@ import {
   SettingOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
+  MonitorOutlined,
 } from '@ant-design/icons'
 
 const { Sider } = Layout
@@ -49,6 +50,11 @@ export default function Sidebar() {
       key: '/instances',
       icon: <DeploymentUnitOutlined />,
       label: t('instances.title'),
+    },
+    {
+      key: '/console',
+      icon: <MonitorOutlined />,
+      label: t('console.title'),
     },
     {
       key: '/settings',

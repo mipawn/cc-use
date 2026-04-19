@@ -244,6 +244,54 @@ export interface ProxyStatus {
   lastError: string | null
 }
 
+/// Realtime console event — a discriminated union carried over one transport.
+/// Mirrors the Rust `proxy::console::ConsoleEvent` tagged serde enum.
+/// - `category: "request"` — a proxy request crossing the handler
+/// - `category: "log"` — a log record from Rust `log::*` in daemon/app or a
+///   renderer `console.*` call (captured by rendererConsoleTap)
+///
+/// Not persisted. When the Console page is closed, in-flight events are
+/// dropped and history does not replay on reopen.
+export type ConsoleEvent = ConsoleRequestEvent | ConsoleLogEvent
+
+export interface ConsoleRequestEvent {
+  category: 'request'
+  /// UTC timestamp formatted `YYYY-MM-DD HH:MM:SS` (seconds resolution).
+  timestamp: string
+  /// HTTP method, or "WS" for websocket upgrades.
+  method: string
+  /// Incoming request path + query as seen by the proxy.
+  path: string
+  /// Upstream response status; null for pre-dispatch rejections.
+  status: number | null
+  /// Wall-clock latency from handler entry to emission.
+  latencyMs: number | null
+  /// Final upstream URL we forwarded to; null for rejection / passthrough miss.
+  upstream: string | null
+  /// Provider display name; null for passthrough or rejection.
+  provider: string | null
+  /// API key alias; null for passthrough or rejection.
+  keyAlias: string | null
+  /// Classification tag.
+  kind: 'ok' | 'upstream_error' | 'rejected' | 'ws' | string
+  /// Optional human-readable note (error text, "streaming", ...).
+  message: string | null
+}
+
+export interface ConsoleLogEvent {
+  category: 'log'
+  /// UTC timestamp `YYYY-MM-DD HH:MM:SS`.
+  timestamp: string
+  /// Severity.
+  level: 'error' | 'warn' | 'info' | 'debug' | 'trace' | string
+  /// Where the log came from.
+  source: 'daemon' | 'app' | 'renderer' | string
+  /// Log target / module path; null if unknown (renderer console).
+  target: string | null
+  /// Log message body.
+  message: string
+}
+
 // CLI configuration for Claude Code or Codex
 export interface CliConfig {
   model?: string

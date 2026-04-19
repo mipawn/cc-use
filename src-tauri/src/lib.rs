@@ -148,6 +148,32 @@ pub fn run() {
 
             let handle = app.handle().clone();
 
+            // Install the app-side log adapter as early as possible in setup
+            // so every `log::*` from subsequent bootstrap work (bridge spawn,
+            // daemon start, tray setup) is already observable on the Console
+            // page once the user opens it.
+            services::app_logger::install(handle.clone());
+            log::info!(
+                "app booted; version {}, mode {}",
+                env!("CARGO_PKG_VERSION"),
+                if cfg!(debug_assertions) { "dev" } else { "prod" }
+            );
+
+            // Start the realtime console SSE bridge to the daemon. Must happen
+            // before the daemon-start spawn below so the bridge is already up
+            // and waiting when the daemon first binds. `.manage()` stores the
+            // handle so `console_stream_restart` and `settings_update` can
+            // force a reconnect later.
+            {
+                let db_state = handle.state::<Arc<Mutex<Database>>>();
+                let db_for_bridge: Arc<Mutex<Database>> = (*db_state).clone();
+                let bridge_handle = services::console_bridge::spawn_console_bridge(
+                    handle.clone(),
+                    db_for_bridge,
+                );
+                handle.manage(bridge_handle);
+            }
+
             // Keep legacy startup geometry: fixed default size + minimum size + centered.
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_size(Size::Logical(LogicalSize::new(1200.0, 800.0)));

@@ -1,3 +1,5 @@
+mod console_logger;
+mod console_stream;
 mod launchd;
 mod management;
 mod runtime;

@@ -92,11 +92,13 @@ pub fn create_project(
 }
 
 pub fn build_proxy_state(db: Database) -> Arc<ProxyState> {
+    let (console_tx, _rx) = tokio::sync::broadcast::channel(256);
     Arc::new(ProxyState {
         db: Arc::new(Mutex::new(db)),
         sessions: Arc::new(Mutex::new(HashMap::new())),
         request_count: Arc::new(AtomicU64::new(0)),
         last_error: Arc::new(Mutex::new(None)),
+        console_tx,
     })
 }
 
