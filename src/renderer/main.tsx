@@ -7,6 +7,7 @@ import enUS from 'antd/locale/en_US'
 import App from './App'
 import { useSettingsStore } from './stores/settingsStore'
 import { installRendererConsoleTap } from './api/consoleBus'
+import { installConsoleStore } from './api/consoleStore'
 import './locales'
 import './styles/global.css'
 
@@ -14,6 +15,9 @@ import './styles/global.css'
 // from React / stores / app bootstrap is already funneled into the Console
 // page's event stream by the time the user opens it.
 installRendererConsoleTap()
+// Process-long buffer: events start accumulating immediately, survive
+// navigation away from the Console page, and only reset on full app reload.
+installConsoleStore()
 
 function Root() {
   const { language, resolvedTheme, initSettings } = useSettingsStore()

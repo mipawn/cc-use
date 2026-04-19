@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import { Button, Space, Typography, theme } from 'antd'
 import { ClearOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -7,12 +7,12 @@ import type {
   ConsoleLogEvent,
   ConsoleRequestEvent,
 } from '../../shared/types'
-import { getApi } from '../api'
-import { subscribeRendererConsole } from '../api/consoleBus'
-
-/// How many lines we retain. 500 feels like "scrollable recent history"
-/// without making the DOM painful.
-const BUFFER_LIMIT = 500
+import {
+  CONSOLE_BUFFER_LIMIT,
+  clearConsoleEvents,
+  getConsoleEvents,
+  subscribeConsoleStore,
+} from '../api/consoleStore'
 
 /// Terminal palette (VS Code Dark+ inspired). Intentionally not tied to
 /// AntD tokens — the console should read like a real terminal regardless
@@ -207,31 +207,12 @@ function EventLine({ event }: { event: ConsoleEvent }) {
 export default function Console() {
   const { t } = useTranslation()
   const { token } = theme.useToken()
-  const [events, setEvents] = useState<ConsoleEvent[]>([])
+  const events = useSyncExternalStore(subscribeConsoleStore, getConsoleEvents)
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   // Track whether the user is "parked" at the bottom; if they've scrolled
   // up to read history, we stop auto-scrolling so new events don't yank them.
   const stickBottomRef = useRef(true)
-
-  const push = (event: ConsoleEvent) => {
-    setEvents((prev) => {
-      const next = prev.concat(event)
-      return next.length > BUFFER_LIMIT ? next.slice(next.length - BUFFER_LIMIT) : next
-    })
-  }
-
-  useEffect(() => {
-    // Two sources feed the same buffer: Tauri event channel carries daemon
-    // (forwarded via SSE bridge) + app-local Rust logs + proxy requests;
-    // the renderer bus carries in-process `console.*` calls.
-    const unlistenTauri = getApi().console.onEvent(push)
-    const unlistenBus = subscribeRendererConsole(push)
-    return () => {
-      unlistenTauri()
-      unlistenBus()
-    }
-  }, [])
 
   useLayoutEffect(() => {
     if (stickBottomRef.current && scrollerRef.current) {
@@ -260,11 +241,11 @@ export default function Console() {
         </Space>
         <Space>
           <Typography.Text type='secondary' style={{ fontSize: 12 }}>
-            {t('console.bufferInfo', { count: events.length, max: BUFFER_LIMIT })}
+            {t('console.bufferInfo', { count: events.length, max: CONSOLE_BUFFER_LIMIT })}
           </Typography.Text>
           <Button
             icon={<ClearOutlined />}
-            onClick={() => setEvents([])}
+            onClick={clearConsoleEvents}
             disabled={!events.length}
           >
             {t('console.clear')}

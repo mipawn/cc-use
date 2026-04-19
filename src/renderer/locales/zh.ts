@@ -101,8 +101,8 @@ export default {
     importErrors: '导入有部分失败',
   },
   console: {
-    title: '实时控制台',
-    subtitle: '实时查看代理请求与运行日志；不保存历史',
+    title: '控制台',
+    subtitle: '实时查看代理请求与运行日志；重启应用前会一直保留',
     bufferInfo: '{{count}} / {{max}} 条',
     emptyHint: '等待事件… 发起一次 CLI 请求，或触发 daemon/app/renderer 日志即可看到',
     clear: '清空',
