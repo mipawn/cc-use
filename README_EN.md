@@ -83,6 +83,34 @@ The local daemon service is launched with the app and stays resident — termina
 
 Check service status and port on the Settings page; click "Restart Service" if anything goes wrong.
 
+### 5. Identify the Current Instance · Claude Code Status Line
+
+When launching a terminal, cc-use injects a handful of environment variables so you can tell which managed instance the current window belongs to:
+
+| Variable                  | Purpose                                                                |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `CC_USE_INSTANCE_ID`      | Instance UUID — matches a row on the Instances page                    |
+| `CC_USE_INSTANCE_LABEL`   | Short code (last 8 chars of the session token), ideal for the statusbar |
+| `CC_USE_PROXY_PORT`       | Local daemon port                                                      |
+| `CC_USE_MANAGEMENT_TOKEN` | Management token — **do not display**; used only by wrapper ↔ daemon   |
+
+When running multiple windows, surface `CC_USE_INSTANCE_LABEL` via the Claude Code [statusLine](https://docs.claude.com/en/docs/claude-code/statusline) so you can tell at a glance which instance a window is bound to.
+
+**The author personally uses [claude-hud](https://github.com/jarrodwatts/claude-hud)** — its `--extra-cmd` option appends `CC_USE_INSTANCE_LABEL` to the rendered status line as `{"label":"..."}` JSON. Reference `~/.claude/settings.json`:
+
+```jsonc
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'"
+  }
+}
+```
+
+Install steps: inside Claude Code, run `/plugin marketplace add jarrodwatts/claude-hud` → `/plugin install claude-hud` → `/claude-hud:setup`, then extend the generated `statusLine.command` with `--extra-cmd` as shown above.
+
+Don't want claude-hud? Any command that reads `$CC_USE_INSTANCE_LABEL` and prints a single line works as a `statusLine`.
+
 ## How It Works
 
 On startup, the app spawns a standalone `cc-use-daemon` process as the local gateway. When launching a terminal from a project, the app generates a session token and injects it via a temporary wrapper script:

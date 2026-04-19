@@ -83,6 +83,34 @@
 
 在「设置」页面可以查看服务运行状态和端口，异常时点击「重启服务」。
 
+### 5. 识别当前实例 · Claude Code Status Line
+
+启动终端时，cc-use 会给子进程注入一组环境变量，用来识别当前窗口对应的 managed instance：
+
+| 变量                      | 说明                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| `CC_USE_INSTANCE_ID`      | 实例 UUID，对应「实例」页中的一条记录                 |
+| `CC_USE_INSTANCE_LABEL`   | 短码（session token 后 8 位），适合展示在状态栏       |
+| `CC_USE_PROXY_PORT`       | 本地 daemon 端口                                      |
+| `CC_USE_MANAGEMENT_TOKEN` | 管理 token，**不要展示**，仅供 wrapper 与 daemon 通信 |
+
+多开窗口时，推荐把 `CC_USE_INSTANCE_LABEL` 挂到 Claude Code 的 [statusLine](https://docs.claude.com/en/docs/claude-code/statusline) 上，一眼区分当前窗口跑的是哪条实例。
+
+**作者本人使用 [claude-hud](https://github.com/jarrodwatts/claude-hud)**：通过它的 `--extra-cmd` 选项把 `CC_USE_INSTANCE_LABEL` 以 `{"label":"..."}` JSON 的形式塞进 claude-hud 渲染的状态栏。参考 `~/.claude/settings.json`：
+
+```jsonc
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'"
+  }
+}
+```
+
+安装步骤：在 Claude Code 中执行 `/plugin marketplace add jarrodwatts/claude-hud` → `/plugin install claude-hud` → `/claude-hud:setup`，然后把生成的 `statusLine.command` 按上面的样子补上 `--extra-cmd`。
+
+不用 claude-hud 也可以：任何能读取 `$CC_USE_INSTANCE_LABEL` 并输出一行文本的命令，都能作为 `statusLine` 使用。
+
 ## 工作原理
 
 应用启动时会自动拉起独立的 `cc-use-daemon` 进程作为本地网关。从项目页启动终端时，app 会生成 session token 并通过临时 wrapper 脚本注入：

@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.1.0] - 2026-04-19
+
+### ✨ Added
+
+- **实时控制台**：新增独立控制台页面，把代理请求和 daemon / app / renderer 日志聚合成单一事件流；事件缓冲挂在模块级，切页面不会清空
+- **标题栏状态 pill**：窗口顶栏常驻显示 daemon 服务状态
+- **设置页代理端口热修改**：修改端口后自动重启 daemon，无需手动干预
+- **Claude Code Status Line 集成说明**：README 补充如何把 `CC_USE_INSTANCE_LABEL` 展示到 statusLine（作者本人使用 [claude-hud](https://github.com/jarrodwatts/claude-hud)），方便多开窗口时识别当前 managed instance
+
+### Changed
+
+- 设置页卡片重组：原「代理端口」与「本地服务」两张卡片合并为单张
+- daemon 二进制随 app bundle 一起打包，安装后开箱即用
+
+### Fixed
+
+- 修复 dev / prod 两套 daemon 共存时的 `ConnectionRefused` 启动失败闭环
+
+---
+
 ## [3.0.0] - 2026-04-17
 
 ### 🎉 重大重构 - 独立 Daemon 架构
