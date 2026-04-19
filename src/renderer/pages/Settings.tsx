@@ -30,7 +30,6 @@ import type { Components } from 'react-markdown'
 import {
   GlobalOutlined,
   BgColorsOutlined,
-  ApiOutlined,
   CodeOutlined,
   CloudServerOutlined,
   InfoCircleOutlined,
@@ -363,7 +362,7 @@ export default function Settings() {
               {t('settings.globalConfig')}
             </Title>
 
-            {/* Proxy Status */}
+            {/* Local Proxy Service — merged status + port + restart in one row */}
             <Card className={styles.settingCard} variant='outlined'>
               <div className={styles.settingRow}>
                 <Space>
@@ -374,33 +373,36 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <Space>
-                      <Text strong>{t('settings.proxyStatus')}</Text>
-                      <Tag color={proxyStatus.isRunning ? 'success' : 'default'}>
-                        {proxyStatus.isRunning
-                          ? t('dashboard.proxyRunning') || '运行中'
-                          : t('dashboard.proxyStopped') || '已停止'}
-                      </Tag>
-                      {proxyStatus.isRunning && (
-                        <Text type='secondary' style={{ fontSize: 12 }}>
-                          :{proxyStatus.port}
-                        </Text>
-                      )}
-                    </Space>
+                    <Text strong>{t('settings.proxyStatus')}</Text>
                     <br />
                     <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.proxyStatusDesc')}
                     </Text>
                   </div>
                 </Space>
-                <Button
-                  size='small'
-                  icon={<SyncOutlined />}
-                  onClick={restartService}
-                  loading={proxyLoading}
-                >
-                  {t('settings.proxyRestart')}
-                </Button>
+                <Space>
+                  <Tag color={proxyStatus.isRunning ? 'success' : 'default'}>
+                    {proxyStatus.isRunning
+                      ? t('dashboard.proxyRunning') || '运行中'
+                      : t('dashboard.proxyStopped') || '已停止'}
+                  </Tag>
+                  <InputNumber
+                    value={globalSettings.proxyPort}
+                    onChange={(value) => value && updateGlobalSettings({ proxyPort: value })}
+                    min={1024}
+                    max={65535}
+                    prefix=':'
+                    style={{ width: 110 }}
+                  />
+                  <Button
+                    size='small'
+                    icon={<SyncOutlined />}
+                    onClick={restartService}
+                    loading={proxyLoading}
+                  >
+                    {t('settings.proxyRestart')}
+                  </Button>
+                </Space>
               </div>
             </Card>
 
@@ -451,34 +453,6 @@ export default function Settings() {
                   value={globalSettings.defaultTerminalType}
                   onChange={(value) => updateGlobalSettings({ defaultTerminalType: value })}
                   options={terminalOptions}
-                  style={{ width: 160 }}
-                />
-              </div>
-            </Card>
-
-            {/* Proxy Port */}
-            <Card className={styles.settingCard} variant='outlined'>
-              <div className={styles.settingRow}>
-                <Space>
-                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
-                    <ApiOutlined
-                      className={styles.settingIcon}
-                      style={{ color: token.colorText }}
-                    />
-                  </div>
-                  <div>
-                    <Text strong>{t('settings.proxyPort')}</Text>
-                    <br />
-                    <Text type='secondary' className={styles.settingDesc}>
-                      {t('settings.proxyPortDesc')}
-                    </Text>
-                  </div>
-                </Space>
-                <InputNumber
-                  value={globalSettings.proxyPort}
-                  onChange={(value) => value && updateGlobalSettings({ proxyPort: value })}
-                  min={1024}
-                  max={65535}
                   style={{ width: 160 }}
                 />
               </div>

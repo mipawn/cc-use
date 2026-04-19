@@ -53,8 +53,8 @@ export default {
     closeToTray: 'Close to Tray',
     closeToTrayDesc:
       'Minimize to system tray when closing window, the local daemon service keeps running',
-    proxyStatus: 'Local Service',
-    proxyStatusDesc: 'Local daemon service status',
+    proxyStatus: 'Local Proxy Service',
+    proxyStatusDesc: 'Port changes take effect via auto-restart',
     proxyRestart: 'Restart',
     defaultTerminal: 'Default Terminal',
     defaultTerminalDesc: 'Terminal app to use when opening projects',
