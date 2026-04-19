@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { theme } from 'antd'
 import { MinusOutlined, BorderOutlined, CloseOutlined } from '@ant-design/icons'
+import ServiceStatusPill from './ServiceStatusPill'
 
 export default function TitleBar() {
   const [platform, setPlatform] = useState<string>('')
@@ -38,15 +39,19 @@ export default function TitleBar() {
         height: 36,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: isWindows ? 'flex-end' : 'center',
+        justifyContent: 'flex-end',
         position: 'relative',
         flexShrink: 0,
-        // macOS: leave space for traffic lights
+        // macOS: leave space for traffic lights on the left
         paddingLeft: isWindows ? 0 : 80,
+        paddingRight: isWindows ? 0 : 12,
+        gap: 8,
         userSelect: 'none',
         WebkitUserSelect: 'none',
       }}
     >
+      <ServiceStatusPill />
+
       {isWindows && (
         <div style={{ display: 'flex', height: '100%' }}>
           <button
