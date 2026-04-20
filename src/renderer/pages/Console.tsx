@@ -113,11 +113,29 @@ function padStart(s: string, n: number): string {
   return s.length >= n ? s : ' '.repeat(n - s.length) + s
 }
 
+function parseUtcTimestamp(ts: string): Date | null {
+  const match = ts.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/)
+  if (!match) return null
+
+  const [, year, month, day, hour, minute, second] = match
+  return new Date(
+    Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)),
+  )
+}
+
 function formatTime(ts: string): string {
-  // Event timestamps are "YYYY-MM-DD HH:MM:SS"; the console is live so we
-  // only surface the time-of-day — keeps the line short and readable.
-  const idx = ts.indexOf(' ')
-  return idx === -1 ? ts : ts.slice(idx + 1)
+  // Event timestamps are transported as UTC `YYYY-MM-DD HH:MM:SS`; render them
+  // in the machine's local timezone while keeping the line compact.
+  const date = parseUtcTimestamp(ts)
+  if (!date) {
+    const idx = ts.indexOf(' ')
+    return idx === -1 ? ts : ts.slice(idx + 1)
+  }
+
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mm = String(date.getMinutes()).padStart(2, '0')
+  const ss = String(date.getSeconds()).padStart(2, '0')
+  return `${hh}:${mm}:${ss}`
 }
 
 function formatStatus(s: number | null, kind: string): string {
