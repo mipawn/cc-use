@@ -55,8 +55,7 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.icns"
     ],
     "externalBin": ["binaries/cc-use-daemon"],
     "resources": [
@@ -65,9 +64,7 @@
       "icons/tray@2x.png",
       "icons/trayTemplate.png",
       "icons/trayTemplate@2x.png",
-      "icons/tray.ico",
-      "icons/icon.png",
-      "icons/icon.ico"
+      "icons/icon.png"
     ],
     "macOS": {
       "minimumSystemVersion": "10.15"

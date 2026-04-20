@@ -3,25 +3,22 @@
 /* eslint-env node */
 
 /**
- * Icon generation script for CC Use
+ * Icon generation script for CC Use (macOS only)
  *
- * Tray icons (macOS / Windows / Linux use the same visual style):
+ * Tray icon style:
  *   Mostly-white rounded-rect background with the original icon area cut out
  *   to transparency ("white plate + transparent glyph").
  *
  * Output (written into src-tauri/icons/):
- *   - tray.png       (22x22)   macOS/Linux tray base
+ *   - tray.png       (22x22)   macOS tray base
  *   - tray.rgba      (22x22)   macOS runtime override (include_bytes)
  *   - tray@2x.rgba   (44x44)   macOS Retina runtime override (include_bytes)
  *   - tray@2x.png    (44x44)   macOS Retina representation
- *   - tray.ico                  Windows tray (16/20/24/32)
- *   - icon.ico                  Windows app icon (from dock.png)
  *
  * Usage: pnpm generate:icons
  */
 
 import sharp from 'sharp'
-import pngToIco from 'png-to-ico'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -126,104 +123,6 @@ async function trayCutoutWhite(sourceBuffer, size) {
     .toBuffer()
 }
 
-async function renderTrimmedCentered(sourceBuffer, size, paddingRatio) {
-  const padding = Math.max(0, Math.round(size * paddingRatio))
-  const inner = Math.max(1, size - padding * 2)
-
-  let pipeline = sharp(sourceBuffer).ensureAlpha()
-  try {
-    // Remove transparent margins so the icon looks larger on Windows taskbar.
-    pipeline = pipeline.trim()
-  } catch {
-    // ignore
-  }
-
-  const icon = await pipeline
-    .resize(inner, inner, {
-      fit: 'contain',
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png()
-    .toBuffer()
-
-  return sharp({
-    create: {
-      width: size,
-      height: size,
-      channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    },
-  })
-    .composite([{ input: icon, left: padding, top: padding }])
-    .png()
-    .toBuffer()
-}
-
-async function trayColorWindows(sourceBuffer, size) {
-  // Windows tray icons are commonly colored. Add a subtle shadow for contrast.
-  // Smaller padding => bigger perceived glyph.
-  const paddingRatio = 0.06
-  const padding = Math.max(1, Math.round(size * paddingRatio))
-  const inner = Math.max(1, size - padding * 2)
-
-  let pipeline = sharp(sourceBuffer).ensureAlpha()
-  try {
-    pipeline = pipeline.trim()
-  } catch {
-    // ignore
-  }
-
-  const iconPng = await pipeline
-    .resize(inner, inner, {
-      fit: 'contain',
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .png()
-    .toBuffer()
-
-  const { data, info } = await sharp(iconPng)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3]
-    data[i + 0] = 0
-    data[i + 1] = 0
-    data[i + 2] = 0
-    data[i + 3] = Math.round(a * 0.35)
-  }
-
-  const shadowPng = await sharp(data, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .blur(0.9)
-    .png()
-    .toBuffer()
-
-  const shadowOffsetY = Math.max(1, Math.round(size * 0.04))
-
-  return sharp({
-    create: {
-      width: size,
-      height: size,
-      channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    },
-  })
-    .composite([
-      { input: shadowPng, left: padding, top: padding + shadowOffsetY },
-      { input: iconPng, left: padding, top: padding },
-    ])
-    .png()
-    .toBuffer()
-}
-
-function writeTempPng(buffer, label) {
-  const p = path.join(iconsDir, `_tmp_${label}.png`)
-  fs.writeFileSync(p, buffer)
-  return p
-}
-
 function writeRgbaFromPng(pngBuffer, outPath) {
   return sharp(pngBuffer).ensureAlpha().raw().toBuffer().then((raw) => {
     fs.writeFileSync(outPath, raw)
@@ -234,7 +133,6 @@ function writeRgbaFromPng(pngBuffer, outPath) {
 
 async function main() {
   const iconSrcPath = path.join(iconsDir, 'icon.png')
-  const dockSrcPath = path.join(iconsDir, 'dock.png')
 
   if (!fs.existsSync(iconSrcPath)) {
     globalThis.console.error('Error: src-tauri/icons/icon.png not found.')
@@ -242,16 +140,12 @@ async function main() {
   }
 
   const iconSrc = fs.readFileSync(iconSrcPath)
-  const hasDock = fs.existsSync(dockSrcPath)
-  const dockSrc = hasDock ? fs.readFileSync(dockSrcPath) : null
   globalThis.console.log('Source icons loaded\n')
 
-  const tempFiles = []
-
-  // ── 1. Tray icons (white plate + transparent cutout) ─────
+  // ── Tray icons (white plate + transparent cutout) ─────
   globalThis.console.log('Tray icons (white plate + transparent cutout):')
 
-  // macOS/Linux tray base + Retina
+  // macOS tray base + Retina
   // macOS menu bar items size is derived from the image width; keep it small.
   const tray22 = await trayCutoutWhite(iconSrc, 22)
   fs.writeFileSync(path.join(iconsDir, 'tray.png'), tray22)
@@ -265,56 +159,9 @@ async function main() {
   globalThis.console.log('  tray@2x.png (44x44)')
   globalThis.console.log('  tray@2x.rgba (44x44 raw)')
 
-  // Windows tray: tray.ico (16/20/24/32)
-  const trayTempFiles = []
-  for (const s of [16, 20, 24, 32]) {
-    const buf = await trayColorWindows(iconSrc, s)
-    trayTempFiles.push(writeTempPng(buf, `tray_${s}`))
-    globalThis.console.log(`  tray ${s}x${s} (colored)`)
-  }
-  const trayIcoBuffer = await pngToIco(trayTempFiles)
-  fs.writeFileSync(path.join(iconsDir, 'tray.ico'), trayIcoBuffer)
-  globalThis.console.log('  -> src-tauri/icons/tray.ico\n')
-
-  // ── 2. Windows app icon (icon.ico) ────────────────────────
-  //    From dock.png so Windows shortcuts match macOS dock icon.
-  globalThis.console.log('Windows app icon (icon.ico):')
-  const appSizes = [16, 24, 32, 48, 64, 128, 256]
-
-  if (dockSrc) {
-    for (const s of appSizes) {
-      const buf = await renderTrimmedCentered(dockSrc, s, 0.04)
-      tempFiles.push(writeTempPng(buf, `app_${s}`))
-      globalThis.console.log(`  ${s}x${s} (from dock.png)`)
-    }
-  } else {
-    // Fallback: just resize icon.png
-    for (const s of appSizes) {
-      const buf = await renderTrimmedCentered(iconSrc, s, 0.04)
-      tempFiles.push(writeTempPng(buf, `app_${s}`))
-      globalThis.console.log(`  ${s}x${s} (from icon.png)`)
-    }
-  }
-
-  const icoBuffer = await pngToIco(tempFiles)
-  fs.writeFileSync(path.join(iconsDir, 'icon.ico'), icoBuffer)
-  globalThis.console.log('  -> src-tauri/icons/icon.ico\n')
-
-  // ── Cleanup ───────────────────────────────────────────────
-  ;[...tempFiles, ...trayTempFiles].forEach((f) => {
-    try {
-      fs.unlinkSync(f)
-    } catch {
-      /* ignore */
-    }
-  })
-
-  globalThis.console.log('Done!')
+  globalThis.console.log('\nDone!')
   globalThis.console.log('  macOS dock:  src-tauri/icons/icon.icns (unchanged)')
   globalThis.console.log('  macOS tray:  src-tauri/icons/tray.png (+ tray.rgba / tray@2x.rgba runtime)')
-  globalThis.console.log('  Win app:     src-tauri/icons/icon.ico (from dock.png)')
-  globalThis.console.log('  Win tray:    src-tauri/icons/tray.ico')
-  globalThis.console.log('  Linux tray:  src-tauri/icons/tray.png')
   globalThis.console.log('  Style:       white plate + transparent glyph')
 }
 

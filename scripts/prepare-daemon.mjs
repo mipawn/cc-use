@@ -64,9 +64,8 @@ if (!hostTriple) {
 const targetTriple =
   readFlag('target') || process.env.TAURI_ENV_TARGET_TRIPLE || hostTriple;
 
-const binaryExt = process.platform === 'win32' ? '.exe' : '';
-const binaryName = `cc-use-daemon${binaryExt}`;
-const stagedName = `cc-use-daemon-${targetTriple}${binaryExt}`;
+const binaryName = 'cc-use-daemon';
+const stagedName = `cc-use-daemon-${targetTriple}`;
 
 const destDir = join(workspaceRoot, 'src-tauri', 'binaries');
 const destPath = join(destDir, stagedName);
