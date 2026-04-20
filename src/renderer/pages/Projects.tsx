@@ -293,6 +293,7 @@ export default function Projects() {
   const handleSave = async () => {
     try {
       const values = await form.validateFields()
+      const remark = values.remark?.trim()
 
       if (editingProject) {
         // Update existing project
@@ -301,7 +302,7 @@ export default function Projects() {
         await updateProject({
           id: editingProject.id,
           name: values.name,
-          remark: values.remark,
+          remark,
           providerId,
           apiKeyId,
           cliType: values.cliType as ProviderType,
@@ -312,7 +313,7 @@ export default function Projects() {
         await createProject({
           name: values.name,
           path: values.path,
-          remark: values.remark,
+          remark,
           providerId: values.key?.[0],
           apiKeyId: values.key?.[1],
           cliType: values.cliType as ProviderType,
@@ -401,6 +402,7 @@ export default function Projects() {
                 const cliType = project.cliType || 'claude'
                 const keyCompatible = isKeyCompatible(project, apiKey)
                 const canOpen = hasKey && keyCompatible
+                const remark = project.remark?.trim()
 
                 return (
                   <Card key={project.id} className={styles.projectCard} variant='outlined'>
@@ -446,11 +448,9 @@ export default function Projects() {
                     </div>
 
                     {/* Remark */}
-                    {project.remark && (
-                      <Text type='secondary' className={styles.projectRemark}>
-                        {t('projects.remark')}：{project.remark}
-                      </Text>
-                    )}
+                    <Text type='secondary' className={styles.projectRemark} italic={!remark}>
+                      {t('projects.remark')}：{remark || t('common.none')}
+                    </Text>
 
                     {/* Key Binding Section */}
                     <div className={styles.keyBinding}>

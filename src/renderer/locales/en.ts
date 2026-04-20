@@ -27,6 +27,7 @@ export default {
     hoursAgo: 'hours ago',
     daysAgo: 'days ago',
     current: 'Current',
+    none: 'None',
     copy: 'Copy',
     copied: 'Copied',
     refresh: 'Refresh',

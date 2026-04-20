@@ -33,6 +33,7 @@ export default {
     hoursAgo: '小时前',
     daysAgo: '天前',
     current: '当前',
+    none: '无',
   },
   settings: {
     title: '设置',
