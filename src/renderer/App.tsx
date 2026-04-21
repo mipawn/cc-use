@@ -39,7 +39,7 @@ function UpdateBanner() {
         .then((result) => {
           if (result.available) setUpdateInfo(result)
         })
-        .catch(() => {})
+        .catch((e) => console.error('Update check failed:', e))
     }, 5000)
 
     const onVisibilityChange = () => {
@@ -52,7 +52,7 @@ function UpdateBanner() {
             .then((result) => {
               if (result.available) setUpdateInfo(result)
             })
-            .catch(() => {})
+            .catch((e) => console.error('Update check failed:', e))
         }
       }
     }
