@@ -212,7 +212,6 @@ export default function Projects() {
         providerId,
         apiKeyId: keyId,
       })
-      message.success(t('projects.keySwitched'))
     } catch {
       message.error(t('messages.error'))
     }
@@ -448,7 +447,7 @@ export default function Projects() {
                     </div>
 
                     {/* Remark */}
-                    <Text type='secondary' className={styles.projectRemark} italic={!remark}>
+                    <Text type='secondary' className={styles.projectRemark}>
                       {t('projects.remark')}：{remark || t('common.none')}
                     </Text>
 

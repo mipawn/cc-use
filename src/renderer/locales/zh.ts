@@ -296,7 +296,6 @@ export default {
     useDefaultKey: '使用默认密钥',
     openWithKey: '选择密钥启动',
     switchKey: '切换',
-    keySwitched: '密钥已切换',
     configureNow: '立即配置',
     configureFirst: '请先配置 API 密钥',
     editProject: '编辑项目',

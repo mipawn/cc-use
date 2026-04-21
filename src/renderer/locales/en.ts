@@ -298,7 +298,6 @@ export default {
     editProject: 'Edit Project',
     openWithKey: 'Open with Key',
     switchKey: 'Switch',
-    keySwitched: 'Key switched',
     configureNow: 'Configure Now',
     configureFirst: 'Please configure API key first',
     boundKey: 'Bound Key',
