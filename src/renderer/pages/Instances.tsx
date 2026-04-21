@@ -72,10 +72,7 @@ export default function Instances() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const providerMap = useMemo(
-    () => new Map(providers.map((p) => [p.id, p])),
-    [providers],
-  )
+  const providerMap = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers])
 
   const treeData = useMemo(() => {
     const grouped = new Map<string, ApiKey[]>()
@@ -94,7 +91,8 @@ export default function Instances() {
         value: `provider-${providerId}`,
         selectable: false,
         children: keys.map((key) => ({
-          title: `${key.alias || key.id} · ${key.types.join('/')}`,
+          title: key.alias || key.id,
+          label: `${provider?.name || providerId} · ${key.alias || key.id}`,
           value: key.id,
         })),
       }
@@ -166,7 +164,11 @@ export default function Instances() {
         const instanceLabel = buildInstanceShortCode(record.sessionToken || record.id)
         return (
           <div>
-            <Text strong ellipsis={{ tooltip: path }} style={{ display: 'block', maxWidth: '100%' }}>
+            <Text
+              strong
+              ellipsis={{ tooltip: path }}
+              style={{ display: 'block', maxWidth: '100%' }}
+            >
               {getProjectName(path)}
             </Text>
             <Text type='secondary' style={{ fontSize: 11 }}>
@@ -203,6 +205,7 @@ export default function Instances() {
           style={{ width: '100%' }}
           onChange={(value: string) => handleAssignmentChange(record, value)}
           treeNodeFilterProp='title'
+          treeNodeLabelProp='label'
         />
       ),
     },
@@ -214,7 +217,10 @@ export default function Instances() {
       render: (value: string) => {
         const formattedValue = formatHeartbeat(value)
         return (
-          <Text ellipsis={{ tooltip: formattedValue }} style={{ display: 'block', maxWidth: '100%' }}>
+          <Text
+            ellipsis={{ tooltip: formattedValue }}
+            style={{ display: 'block', maxWidth: '100%' }}
+          >
             {formattedValue}
           </Text>
         )
@@ -223,7 +229,9 @@ export default function Instances() {
   ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}
+    >
       <div>
         <Title level={3} className='m-0! mb-1!'>
           {t('instances.title')}
@@ -247,8 +255,22 @@ export default function Instances() {
             </Button>
           </Space>
         }
-        style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-        styles={{ body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+        styles={{
+          body: {
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          },
+        }}
       >
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <Table
