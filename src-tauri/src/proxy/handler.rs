@@ -693,7 +693,15 @@ fn record_usage(
     let latency_ms = ctx.start_time.elapsed().as_millis() as i64;
     let model_name = model.unwrap_or("unknown");
 
-    let custom_pricing = std::collections::HashMap::new();
+    let custom_pricing = {
+        let db = ctx.db.lock().unwrap();
+        match db.settings_get_value("customModelPricing") {
+            Ok(Some(json)) => {
+                serde_json::from_str(&json).unwrap_or_default()
+            }
+            _ => std::collections::HashMap::new(),
+        }
+    };
     let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
         cost_calculator::calculate_cost(
             model_name,

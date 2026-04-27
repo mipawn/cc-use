@@ -146,3 +146,11 @@ fn get_custom_pricing(db: &Database) -> Result<HashMap<String, ModelPricing>, St
         None => Ok(HashMap::new()),
     }
 }
+
+#[tauri::command]
+pub fn request_log_repair_costs(
+    db: State<'_, Arc<Mutex<Database>>>,
+) -> Result<i64, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.request_log_repair_costs().map_err(|e| e.to_string())
+}

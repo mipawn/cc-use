@@ -64,6 +64,7 @@ pub fn run() {
             commands::statistics::model_pricing_get_custom,
             commands::statistics::model_pricing_update_custom,
             commands::statistics::model_pricing_get_default,
+            commands::statistics::request_log_repair_costs,
             // Balance commands
             commands::balance::balance_refresh,
             commands::balance::usage_refresh,

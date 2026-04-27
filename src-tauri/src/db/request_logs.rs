@@ -505,4 +505,78 @@ impl Database {
             top_projects,
         })
     }
+
+    /// Recalculate and update costs for all request_logs using current default + custom pricing.
+    /// Returns the count of rows updated.
+    pub fn request_log_repair_costs(&self) -> Result<i64, rusqlite::Error> {
+        let custom_pricing: std::collections::HashMap<
+            String,
+            crate::models::ModelPricing,
+        > = self
+            .settings_get_value("customModelPricing")
+            .ok()
+            .flatten()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default();
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, model, input_tokens, output_tokens, cache_read_tokens,
+                    cache_creation_tokens, cost_multiplier
+             FROM request_logs WHERE model IS NOT NULL",
+        )?;
+
+        let rows: Vec<(
+            String,
+            String,
+            i64,
+            i64,
+            i64,
+            i64,
+            f64,
+        )> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut updated = 0i64;
+        for (id, model, input, output, cache_read, cache_creation, multiplier) in rows {
+            let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
+                crate::services::cost_calculator::calculate_cost(
+                    &model,
+                    input,
+                    output,
+                    cache_read,
+                    cache_creation,
+                    multiplier,
+                    &custom_pricing,
+                );
+
+            self.conn.execute(
+                "UPDATE request_logs SET input_cost_usd = ?1, output_cost_usd = ?2,
+                        cache_read_cost_usd = ?3, cache_creation_cost_usd = ?4,
+                        total_cost_usd = ?5 WHERE id = ?6",
+                rusqlite::params![
+                    input_cost,
+                    output_cost,
+                    cache_read_cost,
+                    cache_creation_cost,
+                    total_cost,
+                    id,
+                ],
+            )?;
+            updated += 1;
+        }
+
+        Ok(updated)
+    }
 }

@@ -164,6 +164,24 @@ pub fn default_pricing() -> HashMap<String, ModelPricing> {
 
     // DeepSeek models
     m.insert(
+        "deepseek-v4-pro".to_string(),
+        ModelPricing {
+            input: 2.0,
+            output: 4.0,
+            cache_read: Some(0.02),
+            cache_creation: None,
+        },
+    );
+    m.insert(
+        "deepseek-v4-flash".to_string(),
+        ModelPricing {
+            input: 1.0,
+            output: 2.0,
+            cache_read: Some(0.02),
+            cache_creation: Some(0.02),
+        },
+    );
+    m.insert(
         "deepseek-chat".to_string(),
         ModelPricing {
             input: 0.27,

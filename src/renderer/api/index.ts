@@ -131,6 +131,7 @@ function buildApi(): Api {
       getDashboardStats: () => invoke('request_log_get_dashboard_stats'),
       getMonthlyTrend: (year: number, month: number) =>
         invoke('request_log_get_monthly_trend', { year, month }),
+      repairCosts: () => invoke('request_log_repair_costs'),
     },
     modelPricing: {
       getAll: () => invoke('model_pricing_get_all'),
