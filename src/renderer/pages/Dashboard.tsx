@@ -1,28 +1,25 @@
-import { getApi } from '../api'
-/**
- * Dashboard - 简化的仪表盘
- * 费用统计卡片 + 趋势图 + Top 3 + 最近项目
- */
-import { useEffect, useState } from 'react'
-import { Typography, Card, theme, Empty } from 'antd'
-import { useAppMessage } from '../hooks/useAppMessage'
+import { useEffect, useMemo, useState } from 'react'
+import { Typography, Card, theme, Segmented, Popover } from 'antd'
 import {
   ThunderboltOutlined,
   DollarOutlined,
   WalletOutlined,
   DatabaseOutlined,
+  CalendarOutlined,
+  BgColorsOutlined,
+  LeftOutlined,
+  RightOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import RecentProjects from '../components/dashboard/RecentProjects'
-import NewProjectModal from '../components/dashboard/NewProjectModal'
-import { useProjectStore } from '../stores/projectStore'
-import { useProviderStore } from '../stores/providerStore'
-import { useApiKeyStore } from '../stores/apiKeyStore'
-import type { Project, DashboardCostStats } from '@shared/types'
+import { getApi } from '../api'
+import MonthCalendar from '../components/dashboard/MonthCalendar'
+import type { DashboardCostStats } from '@shared/types'
 import styles from './Dashboard.module.css'
 
 const { Title, Text } = Typography
+
+type CalendarView = 'calendar' | 'heatmap'
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -30,41 +27,33 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-function toLocalDateKey(d: Date): string {
-  // YYYY-MM-DD in local time (stable across locales)
-  const offsetMs = d.getTimezoneOffset() * 60_000
-  return new Date(d.getTime() - offsetMs).toISOString().slice(0, 10)
+function getInitialCalendarView(): CalendarView {
+  const savedView = localStorage.getItem('dashboardTrendView')
+  if (savedView === 'heatmap' || savedView === 'bar') return 'heatmap'
+  return 'calendar'
+}
+
+function getMonthLabel(year: number, month: number, language: string): string {
+  return new Intl.DateTimeFormat(language.startsWith('zh') ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: 'long',
+  }).format(new Date(year, month - 1, 1))
 }
 
 export default function Dashboard() {
-  const message = useAppMessage()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { token } = theme.useToken()
-  const { projects, fetchProjects, createProject, deleteProject, getProjectByPath } =
-    useProjectStore()
-  const { providers, fetchProviders } = useProviderStore()
-  const { fetchAllApiKeys, getAllApiKeys } = useApiKeyStore()
 
-  // Modal states
-  const [modalOpen, setModalOpen] = useState(false)
-  const [droppedPath, setDroppedPath] = useState('')
-
-  // Dashboard cost stats
+  const currentYear = new Date().getFullYear()
   const [dashStats, setDashStats] = useState<DashboardCostStats | null>(null)
-
-  // Hover state for trend bars
-  const [hoveredBar, setHoveredBar] = useState<number | null>(null)
-
-  // Get all API keys across all providers
-  const allApiKeys = getAllApiKeys()
+  const [calendarView, setCalendarView] = useState<CalendarView>(getInitialCalendarView)
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear())
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth() + 1)
 
   useEffect(() => {
-    fetchProjects()
-    fetchProviders()
-    fetchDashboardStats()
-  }, [fetchProjects, fetchProviders])
+    void fetchDashboardStats()
+  }, [])
 
-  // Fetch dashboard cost statistics
   const fetchDashboardStats = async () => {
     try {
       const stats = await getApi().requestLog.getDashboardStats()
@@ -74,116 +63,83 @@ export default function Dashboard() {
     }
   }
 
-  // Fetch API keys for all providers
-  useEffect(() => {
-    if (providers.length > 0) {
-      fetchAllApiKeys(providers.map((p) => p.id))
-    }
-  }, [providers, fetchAllApiKeys])
-
-  // Handle drop event (kept for potential future use)
-  // @ts-expect-error - kept for future use when DropZone is added back
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleDrop = async (path: string) => {
-    try {
-      const existingProject = await getProjectByPath(path)
-
-      if (existingProject) {
-        // Project exists - launch it
-        if (existingProject.providerId && existingProject.apiKeyId) {
-          await launchProject(existingProject)
-        } else {
-          // No bound key - prompt to configure in Projects page
-          message.info(t('dashboard.configureKeyFirst') || '请先在项目页面配置 API 密钥')
-        }
-      } else {
-        // Project doesn't exist, show modal
-        setDroppedPath(path)
-        setModalOpen(true)
-      }
-    } catch {
-      message.error(t('messages.processFolderFailed'))
-    }
+  const handleCalendarViewChange = (value: string | number) => {
+    const nextView = value === 'heatmap' ? 'heatmap' : 'calendar'
+    setCalendarView(nextView)
+    localStorage.setItem('dashboardTrendView', nextView)
   }
 
-  // Launch project with its bound key
-  const launchProject = async (project: Project) => {
-    try {
-      await getApi().terminal.launch(project.id)
-      message.success(`${t('projects.opened')} ${project.name}`)
-      fetchProjects()
-    } catch {
-      message.error(t('projects.openFailed'))
+  const calPrev = () => {
+    if (calMonth === 1) {
+      setCalYear((year) => year - 1)
+      setCalMonth(12)
+      return
     }
+    setCalMonth((month) => month - 1)
   }
 
-  // Handle create new project
-  const handleCreateProject = async (
-    name: string,
-    providerId: string | undefined,
-    apiKeyId: string | undefined,
-  ) => {
-    const project = await createProject({
-      name,
-      path: droppedPath,
-      providerId,
-      apiKeyId,
-    })
-
-    if (providerId && apiKeyId) {
-      await getApi().terminal.launch(project.id)
-      message.success(`${t('newProject.createdAndOpened')} ${name}`)
-    } else {
-      message.success(t('projects.projectCreated') || '项目创建成功')
+  const calNext = () => {
+    if (calMonth === 12) {
+      setCalYear((year) => year + 1)
+      setCalMonth(1)
+      return
     }
+    setCalMonth((month) => month + 1)
   }
 
-  // Handle open from recent projects
-  const handleOpenProject = async (project: Project) => {
-    if (project.providerId && project.apiKeyId) {
-      await launchProject(project)
-    } else {
-      message.info(t('dashboard.configureKeyFirst') || '请先在项目页面配置 API 密钥')
-    }
+  const calCanGoNext =
+    calYear < currentYear ||
+    (calYear === currentYear && calMonth < new Date().getMonth() + 1)
+
+  const [yearPickerOpen, setYearPickerOpen] = useState(false)
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false)
+  const [pickerYear, setPickerYear] = useState(calYear)
+
+  const calYearPrev = () => {
+    setCalYear((y) => y - 1)
+    setCalMonth(12)
   }
 
-  const handleDeleteProject = async (id: string) => {
-    try {
-      await deleteProject(id)
-      message.success(t('messages.projectRemoved'))
-    } catch {
-      message.error(t('messages.removeProjectFailed'))
-    }
+  const calYearNext = () => {
+    setCalYear((y) => y + 1)
+    setCalMonth(12)
   }
 
-  // Build 7-day trend data (fill missing days)
-  const buildWeeklyTrend = () => {
-    if (!dashStats) return []
-    const trendMap = new Map(dashStats.weeklyTrend.map((d) => [d.date, d]))
-    const days: { date: string; cost: number; requests: number; label: string }[] = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      const dateStr = toLocalDateKey(d)
-      const item = trendMap.get(dateStr)
-      days.push({
-        date: dateStr,
-        cost: item?.cost || 0,
-        requests: item?.requests || 0,
-        label: `${d.getMonth() + 1}/${d.getDate()}`,
-      })
-    }
-    return days
+  const heatmapLabel = String(calYear)
+
+  const handleYearSelect = (selectedYear: number) => {
+    setCalYear(selectedYear)
+    setCalMonth(12)
+    setYearPickerOpen(false)
   }
 
-  const weeklyTrend = buildWeeklyTrend()
-  const maxCost = Math.max(...weeklyTrend.map((d) => d.cost), 0.0001)
+  const handleMonthSelect = (selectedYear: number, selectedMonth: number) => {
+    setCalYear(selectedYear)
+    setCalMonth(selectedMonth)
+    setMonthPickerOpen(false)
+  }
 
+  const openMonthPicker = () => {
+    setPickerYear(calYear)
+    setMonthPickerOpen(true)
+  }
+
+  const yearList = Array.from({ length: 6 }, (_, i) => currentYear - i)
+  const monthNames = i18n.language.startsWith('zh')
+    ? ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
+    : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  const monthLabel = useMemo(
+    () => getMonthLabel(calYear, calMonth, i18n.language),
+    [calMonth, calYear, i18n.language],
+  )
+
+  const topKeys = useMemo(() => dashStats?.topKeys.slice(0, 3) ?? [], [dashStats])
+  const topProjects = useMemo(() => dashStats?.topProjects.slice(0, 3) ?? [], [dashStats])
   const rankClasses = [styles.topRank1, styles.topRank2, styles.topRank3]
 
   return (
     <div className={styles.container}>
-      {/* Header - Fixed */}
       <div className={styles.header}>
         <div className={styles.headerContent}>
           <Title level={2} className={styles.title}>
@@ -195,10 +151,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Content - Scrollable */}
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-          {/* Stats Cards - 4 columns */}
           <div className={styles.statsRow}>
             <Card className={styles.statCard} variant='outlined'>
               <div className={styles.statContent}>
@@ -213,6 +167,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </Card>
+
             <Card className={styles.statCard} variant='outlined'>
               <div className={styles.statContent}>
                 <WalletOutlined className={styles.statIcon} style={{ color: token.colorSuccess }} />
@@ -226,6 +181,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </Card>
+
             <Card className={styles.statCard} variant='outlined'>
               <div className={styles.statContent}>
                 <ThunderboltOutlined
@@ -242,6 +198,7 @@ export default function Dashboard() {
                 </div>
               </div>
             </Card>
+
             <Card className={styles.statCard} variant='outlined'>
               <div className={styles.statContent}>
                 <DatabaseOutlined className={styles.statIcon} style={{ color: '#722ed1' }} />
@@ -257,70 +214,175 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* Weekly Trend Chart */}
-          <Card
-            className={styles.trendCard}
-            variant='outlined'
-            title={<Text strong>{t('dashboard.weeklyTrend')}</Text>}
-          >
-            {weeklyTrend.some((d) => d.cost > 0) ? (
-              <div className={styles.trendChart}>
-                {weeklyTrend.map((day, i) => (
-                  <div
-                    key={day.date}
-                    className={styles.trendBarWrapper}
-                    onMouseEnter={() => setHoveredBar(i)}
-                    onMouseLeave={() => setHoveredBar(null)}
-                  >
-                    <div
-                      style={{
-                        flex: 1,
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        width: '100%',
-                        justifyContent: 'center',
-                        position: 'relative',
-                      }}
-                    >
-                      <div
-                        className={styles.trendBar}
-                        style={{
-                          height: `${Math.max((day.cost / maxCost) * 100, 2)}%`,
-                          background: token.colorPrimary,
-                        }}
-                      >
-                        {hoveredBar === i && (
-                          <div className={styles.trendTooltip}>
-                            ${day.cost.toFixed(4)} / {day.requests} req
-                          </div>
-                        )}
+          <div className={styles.mainGrid}>
+            <Card
+              className={`${styles.calendarCard} ${calendarView === 'heatmap' ? styles.calendarCardCompact : ''}`}
+              variant='outlined'
+              title={
+                <div className={styles.trendTitleRow}>
+                  <div className={styles.trendTitleLeft}>
+                    <Text strong>
+                      {calendarView === 'calendar'
+                        ? t('dashboard.costCalendar')
+                        : t('dashboard.costHeatmap')}
+                    </Text>
+                    {calendarView === 'calendar' ? (
+                      <div className={styles.calendarNav}>
+                        <button
+                          type='button'
+                          className={styles.calendarNavButton}
+                          onClick={calPrev}
+                        >
+                          <LeftOutlined style={{ fontSize: 10 }} />
+                        </button>
+                        <Popover
+                          trigger='click'
+                          open={monthPickerOpen}
+                          onOpenChange={(open) => {
+                            if (open) openMonthPicker()
+                            else setMonthPickerOpen(false)
+                          }}
+                          content={
+                            <div className={styles.pickerContainer}>
+                              <div className={styles.pickerYearRow}>
+                                <button
+                                  type='button'
+                                  className={styles.calendarNavButton}
+                                  onClick={() => setPickerYear((y) => y - 1)}
+                                >
+                                  <LeftOutlined style={{ fontSize: 10 }} />
+                                </button>
+                                <span className={styles.pickerYearLabel}>{pickerYear}</span>
+                                <button
+                                  type='button'
+                                  className={styles.calendarNavButton}
+                                  onClick={() => setPickerYear((y) => y + 1)}
+                                  disabled={pickerYear >= currentYear}
+                                >
+                                  <RightOutlined style={{ fontSize: 10 }} />
+                                </button>
+                              </div>
+                              <div className={styles.pickerMonthGrid}>
+                                {monthNames.map((name, i) => {
+                                  const isFuture =
+                                    pickerYear === currentYear && i > new Date().getMonth()
+                                  return (
+                                    <button
+                                      type='button'
+                                      key={name}
+                                      className={`${styles.pickerMonthButton} ${calYear === pickerYear && calMonth === i + 1 ? styles.pickerMonthActive : ''}`}
+                                      disabled={isFuture}
+                                      onClick={() => handleMonthSelect(pickerYear, i + 1)}
+                                    >
+                                      {name}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          }
+                        >
+                          <button type='button' className={styles.calendarLabelButton}>
+                            {monthLabel}
+                          </button>
+                        </Popover>
+                        <button
+                          type='button'
+                          className={styles.calendarNavButton}
+                          onClick={calNext}
+                          disabled={!calCanGoNext}
+                        >
+                          <RightOutlined style={{ fontSize: 10 }} />
+                        </button>
                       </div>
-                    </div>
-                    <span className={styles.trendBarLabel}>{day.label}</span>
+                    ) : (
+                      <div className={styles.calendarNav}>
+                        <button
+                          type='button'
+                          className={styles.calendarNavButton}
+                          onClick={calYearPrev}
+                        >
+                          <LeftOutlined style={{ fontSize: 10 }} />
+                        </button>
+                        <Popover
+                          trigger='click'
+                          open={yearPickerOpen}
+                          onOpenChange={setYearPickerOpen}
+                          content={
+                            <div className={styles.pickerContainer}>
+                              <div className={styles.pickerGrid}>
+                                {yearList.map((y) => (
+                                  <button
+                                    type='button'
+                                    key={y}
+                                    className={`${styles.pickerButton} ${calYear === y ? styles.pickerButtonActive : ''}`}
+                                    onClick={() => handleYearSelect(y)}
+                                  >
+                                    {y}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          }
+                        >
+                          <button type='button' className={styles.calendarLabelButton}>
+                            {heatmapLabel}
+                          </button>
+                        </Popover>
+                        <button
+                          type='button'
+                          className={styles.calendarNavButton}
+                          onClick={calYearNext}
+                          disabled={calYear >= currentYear}
+                        >
+                          <RightOutlined style={{ fontSize: 10 }} />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className={styles.trendEmpty}>
-                <Text type='secondary'>{t('dashboard.noTrendData')}</Text>
-              </div>
-            )}
-          </Card>
 
-          {/* Top 3 Grid */}
-          {dashStats?.topKeys.length || dashStats?.topProjects.length ? (
-            <div className={styles.topGrid}>
+                  <Segmented
+                    size='small'
+                    value={calendarView}
+                    onChange={handleCalendarViewChange}
+                    options={[
+                      {
+                        value: 'calendar',
+                        icon: <CalendarOutlined />,
+                        label: t('dashboard.calendarMode'),
+                      },
+                      {
+                        value: 'heatmap',
+                        icon: <BgColorsOutlined />,
+                        label: t('dashboard.heatmapMode'),
+                      },
+                    ]}
+                  />
+                </div>
+              }
+            >
+              <MonthCalendar year={calYear} month={calMonth} mode={calendarView} />
+            </Card>
+
+            <div className={styles.sidebarColumn}>
               <Card
                 className={styles.topCard}
                 variant='outlined'
                 title={<Text strong>{t('dashboard.topKeysByCost')}</Text>}
               >
-                {dashStats!.topKeys.length > 0 ? (
+                {topKeys.length > 0 ? (
                   <div className={styles.topList}>
-                    {dashStats!.topKeys.map((item, i) => (
+                    {topKeys.map((item, index) => (
                       <div key={item.keyId} className={styles.topItem}>
-                        <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
-                        <span className={styles.topName}>{item.keyAlias}</span>
+                        <span className={`${styles.topRank} ${rankClasses[index] || ''}`}>
+                          {index + 1}
+                        </span>
+                        <div className={styles.topMeta}>
+                          <span className={styles.topName}>{item.keyAlias}</span>
+                          <span className={styles.topSub}>
+                            {item.providerName || t('common.none')}
+                          </span>
+                        </div>
                         <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
                       </div>
                     ))}
@@ -329,17 +391,25 @@ export default function Dashboard() {
                   <div className={styles.topEmpty}>{t('common.noData')}</div>
                 )}
               </Card>
+
               <Card
                 className={styles.topCard}
                 variant='outlined'
                 title={<Text strong>{t('dashboard.topProjectsByCost')}</Text>}
               >
-                {dashStats!.topProjects.length > 0 ? (
+                {topProjects.length > 0 ? (
                   <div className={styles.topList}>
-                    {dashStats!.topProjects.map((item, i) => (
+                    {topProjects.map((item, index) => (
                       <div key={item.projectId} className={styles.topItem}>
-                        <span className={`${styles.topRank} ${rankClasses[i] || ''}`}>{i + 1}</span>
-                        <span className={styles.topName}>{item.projectName}</span>
+                        <span className={`${styles.topRank} ${rankClasses[index] || ''}`}>
+                          {index + 1}
+                        </span>
+                        <div className={styles.topMeta}>
+                          <span className={styles.topName}>{item.projectName}</span>
+                          <span className={styles.topSub}>
+                            {item.totalRequests} {t('dashboard.requests')}
+                          </span>
+                        </div>
                         <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
                       </div>
                     ))}
@@ -349,43 +419,9 @@ export default function Dashboard() {
                 )}
               </Card>
             </div>
-          ) : null}
-
-          {/* Recent Projects Section */}
-          <Card
-            className={styles.recentCard}
-            variant='outlined'
-            title={<Text strong>{t('dashboard.recentProjects')}</Text>}
-          >
-            {projects.length === 0 ? (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={t('dashboard.noRecentProjects')}
-              />
-            ) : (
-              <RecentProjects
-                projects={projects.slice(0, 8)}
-                providers={providers}
-                apiKeys={allApiKeys}
-                onOpen={handleOpenProject}
-                onDelete={handleDeleteProject}
-              />
-            )}
-          </Card>
+          </div>
         </SimpleBar>
       </div>
-
-      <NewProjectModal
-        open={modalOpen}
-        path={droppedPath}
-        providers={providers}
-        apiKeys={allApiKeys}
-        onClose={() => {
-          setModalOpen(false)
-          setDroppedPath('')
-        }}
-        onSave={handleCreateProject}
-      />
     </div>
   )
 }

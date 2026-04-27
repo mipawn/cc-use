@@ -83,6 +83,17 @@ pub fn request_log_get_recent_paginated(
 }
 
 #[tauri::command]
+pub fn request_log_get_monthly_trend(
+    db: State<'_, Arc<Mutex<Database>>>,
+    year: i64,
+    month: i64,
+) -> Result<Vec<crate::models::DailyCostTrendItem>, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.request_log_get_monthly_trend(year, month)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn request_log_get_dashboard_stats(
     db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<DashboardCostStats, String> {

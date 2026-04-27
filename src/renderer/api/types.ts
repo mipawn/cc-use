@@ -146,6 +146,7 @@ export interface Api {
       pageSize?: number,
     ) => Promise<PaginatedRecentRequests>
     getDashboardStats: () => Promise<DashboardCostStats>
+    getMonthlyTrend: (year: number, month: number) => Promise<{ date: string; cost: number; requests: number }[]>
   }
   modelPricing: {
     getAll: () => Promise<

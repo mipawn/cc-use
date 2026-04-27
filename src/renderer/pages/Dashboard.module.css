@@ -17,7 +17,6 @@
   }
 }
 
-/* Header - Fixed */
 .header {
   display: flex;
   justify-content: space-between;
@@ -41,7 +40,6 @@
   font-size: 14px;
 }
 
-/* Content - Scrollable with SimpleBar */
 .content {
   flex: 1;
   overflow: hidden;
@@ -54,27 +52,16 @@
   padding-bottom: 24px;
 }
 
-/* Stats Row - 4 columns */
 .statsRow {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
 
-@media (max-width: 900px) {
-  .statsRow {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 500px) {
-  .statsRow {
-    grid-template-columns: 1fr;
-  }
-}
-
-.statCard {
+.statCard,
+.calendarCard,
+.topCard {
   border-radius: var(--radius-ant-lg) !important;
 }
 
@@ -92,6 +79,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .statLabel {
@@ -102,90 +90,164 @@
   font-size: 20px;
 }
 
-/* Weekly Trend Chart */
-.trendCard {
-  border-radius: var(--radius-ant-lg) !important;
-  margin-bottom: 24px;
+.mainGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  align-items: start;
 }
 
-.trendChart {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  height: 120px;
-  padding: 8px 0;
+.calendarCardCompact :global(.ant-card-body) {
+  padding-bottom: 18px !important;
 }
 
-.trendBarWrapper {
-  flex: 1;
+.sidebarColumn {
+  display: grid;
+  gap: 16px;
+}
+
+.trendTitleRow {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  height: 100%;
-  justify-content: flex-end;
-  position: relative;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.trendBar {
-  width: 100%;
-  max-width: 48px;
-  border-radius: 4px 4px 0 0;
-  min-height: 2px;
-  transition: opacity 0.2s;
-  cursor: pointer;
-  position: relative;
-}
-
-.trendBar:hover {
-  opacity: 0.8;
-}
-
-.trendBarLabel {
-  font-size: 11px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
-  white-space: nowrap;
-}
-
-.trendTooltip {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.75);
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 10;
-}
-
-.trendEmpty {
+.trendTitleLeft {
   display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.calendarNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.calendarNavButton {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 120px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  color: var(--ant-color-text-secondary);
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
-/* Top 3 Grid */
-.topGrid {
+.calendarNavButton:hover:not(:disabled) {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.calendarNavButton:disabled {
+  cursor: default;
+  color: var(--ant-color-text-quaternary);
+}
+
+.calendarLabelButton {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+  padding: 2px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background 0.2s ease;
+}
+
+.calendarLabelButton:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+/* ==================== 选择器 Popover ==================== */
+
+.pickerContainer {
+  padding: 4px;
+  min-width: 180px;
+}
+
+.pickerGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
 }
 
-@media (max-width: 700px) {
-  .topGrid {
-    grid-template-columns: 1fr;
-  }
+.pickerButton {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ant-color-text);
+  transition: background 0.15s ease;
 }
 
-.topCard {
-  border-radius: var(--radius-ant-lg) !important;
+.pickerButton:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.pickerButtonActive {
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary);
+  font-weight: 600;
+}
+
+.pickerYearRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px;
+  margin-bottom: 6px;
+}
+
+.pickerYearLabel {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ant-color-text);
+}
+
+.pickerMonthGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.pickerMonthButton {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ant-color-text);
+  transition: background 0.15s ease;
+}
+
+.pickerMonthButton:hover:not(:disabled) {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.pickerMonthButton:disabled {
+  cursor: default;
+  color: var(--ant-color-text-quaternary);
+}
+
+.pickerMonthActive {
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary);
+  font-weight: 600;
 }
 
 .topList {
@@ -227,12 +289,27 @@
   color: #d4380d;
 }
 
-.topName {
+.topMeta {
+  min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.topName {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+
+.topSub {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topCost {
@@ -244,12 +321,35 @@
 .topEmpty {
   text-align: center;
   padding: 16px 0;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  color: var(--ant-color-text-secondary);
   font-size: 13px;
 }
 
-/* Recent Projects Card */
-.recentCard {
-  border-radius: var(--radius-ant-lg) !important;
-  margin-bottom: 24px;
+@media (max-width: 1100px) {
+  .statsRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mainGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebarColumn {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .statsRow,
+  .sidebarColumn {
+    grid-template-columns: 1fr;
+  }
+
+  .trendTitleRow {
+    align-items: flex-start;
+  }
+
+  .calendarMonthLabel {
+    min-width: 88px;
+  }
 }

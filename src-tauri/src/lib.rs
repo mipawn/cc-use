@@ -56,6 +56,7 @@ pub fn run() {
             commands::statistics::request_log_get_cost_stats,
             commands::statistics::request_log_get_key_costs,
             commands::statistics::request_log_get_daily_trend,
+            commands::statistics::request_log_get_monthly_trend,
             commands::statistics::request_log_get_cost_statistics,
             commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_dashboard_stats,

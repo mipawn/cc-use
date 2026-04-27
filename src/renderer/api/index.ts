@@ -129,6 +129,8 @@ function buildApi(): Api {
       getRecentPaginated: (timeRange, page, pageSize) =>
         invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
       getDashboardStats: () => invoke('request_log_get_dashboard_stats'),
+      getMonthlyTrend: (year: number, month: number) =>
+        invoke('request_log_get_monthly_trend', { year, month }),
     },
     modelPricing: {
       getAll: () => invoke('model_pricing_get_all'),

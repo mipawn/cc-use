@@ -185,6 +185,30 @@ impl Database {
         rows.collect()
     }
 
+    pub fn request_log_get_monthly_trend(
+        &self,
+        year: i64,
+        month: i64,
+    ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
+        let ym = format!("{:04}-{:02}", year, month);
+        let mut stmt = self.conn.prepare(
+            "SELECT DATE(created_at) as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
+                 FROM request_logs
+                 WHERE strftime('%Y-%m', created_at) = ?1
+                 GROUP BY d ORDER BY d ASC",
+        )?;
+
+        let rows = stmt.query_map([&ym], |row| {
+            Ok(DailyCostTrendItem {
+                date: row.get(0)?,
+                cost: row.get(1)?,
+                requests: row.get(2)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
     pub fn request_log_get_cost_statistics(
         &self,
         time_range: &str,
