@@ -210,8 +210,11 @@ pub fn run() {
                 let db_state = handle2.state::<Arc<Mutex<Database>>>();
 
                 // Clean up stale sessions (older than 30 days)
+                // Clean up old request & usage logs (older than 90 days)
                 if let Ok(db) = db_state.lock() {
                     let _ = db.proxy_session_cleanup_stale(30);
+                    let _ = db.request_log_cleanup_old(90);
+                    let _ = db.usage_log_cleanup_old(90);
                 }
 
                 // Version-based restart: if app version changed, restart daemon

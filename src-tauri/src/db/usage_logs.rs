@@ -191,6 +191,16 @@ impl Database {
         Ok(())
     }
 
+    pub fn usage_log_cleanup_old(&self, max_age_days: i64) -> Result<i64, rusqlite::Error> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+        let cutoff_str = cutoff.to_rfc3339();
+        let deleted = self.conn.execute(
+            "DELETE FROM usage_logs WHERE launched_at < ?1",
+            [&cutoff_str],
+        )?;
+        Ok(deleted as i64)
+    }
+
     pub fn usage_log_upsert(&self, log: &UsageLog) -> Result<(), rusqlite::Error> {
         self.conn.execute(
             "INSERT OR REPLACE INTO usage_logs (id, project_id, project_name, provider_id, provider_name,

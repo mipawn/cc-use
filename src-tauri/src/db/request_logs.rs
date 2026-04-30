@@ -506,6 +506,16 @@ impl Database {
         })
     }
 
+    pub fn request_log_cleanup_old(&self, max_age_days: i64) -> Result<i64, rusqlite::Error> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days);
+        let cutoff_str = cutoff.to_rfc3339();
+        let deleted = self.conn.execute(
+            "DELETE FROM request_logs WHERE created_at < ?1",
+            [&cutoff_str],
+        )?;
+        Ok(deleted as i64)
+    }
+
     /// Recalculate and update costs for all request_logs using current default + custom pricing.
     /// Returns the count of rows updated.
     pub fn request_log_repair_costs(&self) -> Result<i64, rusqlite::Error> {
@@ -578,5 +588,64 @@ impl Database {
         }
 
         Ok(updated)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_removes_old_logs() {
+        let db = Database::new_in_memory().unwrap();
+
+        fn mk_log(id: &str, created_at: String) -> RequestLog {
+            RequestLog {
+                id: id.into(),
+                provider_id: None,
+                api_key_id: None,
+                project_id: None,
+                session_id: None,
+                model: None,
+                request_model: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                input_cost_usd: 0.0,
+                output_cost_usd: 0.0,
+                cache_read_cost_usd: 0.0,
+                cache_creation_cost_usd: 0.0,
+                total_cost_usd: 0.0,
+                cost_multiplier: 1.0,
+                latency_ms: None,
+                first_token_ms: None,
+                status_code: None,
+                error_message: None,
+                is_streaming: false,
+                created_at,
+                key_alias: None,
+                provider_name: None,
+                project_name: None,
+            }
+        }
+
+        let old_log = mk_log(
+            "old-1",
+            (chrono::Utc::now() - chrono::Duration::days(100)).to_rfc3339(),
+        );
+        db.request_log_create(&old_log).unwrap();
+
+        let recent_log = mk_log("recent-1", chrono::Utc::now().to_rfc3339());
+        db.request_log_create(&recent_log).unwrap();
+
+        let deleted = db.request_log_cleanup_old(90).unwrap();
+        assert!(deleted >= 1);
+
+        let remaining = db.request_log_list_all().unwrap();
+        let has_recent = remaining.iter().any(|r| r.id == "recent-1");
+        let has_old = remaining.iter().any(|r| r.id == "old-1");
+        assert!(has_recent);
+        assert!(!has_old);
     }
 }
