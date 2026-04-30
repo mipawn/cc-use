@@ -107,7 +107,7 @@ export interface Provider {
   token: string | null
   icon: string | null
   // Balance configuration
-  walletBalanceType: 'none' | 'newapi' | 'custom'
+  walletBalanceType: 'none' | 'newapi' | 'custom' | 'deepseek'
   walletBalanceUrl: string | null
   walletBalancePath: string | null
   walletBalanceHeaders: string | null
@@ -134,7 +134,7 @@ export interface CreateProviderInput {
   remark?: string
   token?: string
   icon?: string
-  walletBalanceType?: 'none' | 'newapi' | 'custom'
+  walletBalanceType?: 'none' | 'newapi' | 'custom' | 'deepseek'
   walletBalanceUrl?: string
   walletBalancePath?: string
   walletBalanceHeaders?: string
@@ -334,7 +334,7 @@ export interface ExportProvider {
   website?: string
   remark?: string
   icon?: string
-  walletBalanceType?: 'none' | 'newapi' | 'custom'
+  walletBalanceType?: 'none' | 'newapi' | 'custom' | 'deepseek'
   walletBalanceUrl?: string
   walletBalancePath?: string
   walletBalanceHeaders?: string

@@ -219,6 +219,7 @@ export default {
     balanceTypeNone: 'None',
     balanceTypeNewapi: 'NewAPI',
     balanceTypeCustom: 'Custom',
+    balanceTypeDeepseek: 'DeepSeek',
     balanceUrl: 'Balance URL',
     enterBalanceUrl: 'Please enter balance URL',
     balanceUrlHint: 'Supports {baseUrl} placeholder, auto-replaced with provider Base URL',

@@ -18,6 +18,7 @@ pub async fn refresh_balance(
         })),
         "newapi" => fetch_newapi_balance(provider, fallback_api_keys).await,
         "custom" => fetch_custom_balance(provider).await,
+        "deepseek" => fetch_deepseek_balance(provider, fallback_api_keys).await,
         _ => Err("Unknown balance type".to_string()),
     }
 }
@@ -205,6 +206,73 @@ async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, 
         "unlimited": false,
         "error": null,
     }))
+}
+
+async fn fetch_deepseek_balance(
+    _provider: &Provider,
+    fallback_api_keys: &[ApiKey],
+) -> Result<serde_json::Value, String> {
+    let api_key = pick_first_available_key(fallback_api_keys)
+        .ok_or_else(|| "No available API keys for DeepSeek balance check".to_string())?;
+
+    let client = reqwest::Client::new();
+    let url = "https://api.deepseek.com/user/balance";
+    let resp = client
+        .get(url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status().as_u16()));
+    }
+
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    parse_deepseek_balance_response(&body)
+}
+
+pub fn parse_deepseek_balance_response(
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let is_available = body
+        .get("is_available")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !is_available {
+        return Ok(serde_json::json!({
+            "balance": 0.0,
+            "total": null,
+            "used": null,
+            "unlimited": false,
+            "error": "DeepSeek account balance is not available",
+        }));
+    }
+
+    let balance_infos = body
+        .get("balance_infos")
+        .and_then(|v| v.as_array());
+
+    let balance_obj = balance_infos.and_then(|arr| {
+        arr.iter()
+            .find(|v| v.get("currency").and_then(|c| c.as_str()) == Some("CNY"))
+            .or_else(|| arr.first())
+    });
+
+    let total_balance =
+        to_number(balance_obj.and_then(|v| v.get("total_balance")));
+
+    match total_balance {
+        Some(balance) => Ok(serde_json::json!({
+            "balance": round2(balance),
+            "total": null,
+            "used": null,
+            "unlimited": false,
+            "error": null,
+        })),
+        None => Err("Failed to parse DeepSeek balance".to_string()),
+    }
 }
 
 fn parse_headers(raw: &str) -> Result<Vec<(String, String)>, String> {

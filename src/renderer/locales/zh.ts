@@ -218,6 +218,7 @@ export default {
     balanceTypeNone: '无',
     balanceTypeNewapi: 'NewAPI',
     balanceTypeCustom: '自定义',
+    balanceTypeDeepseek: 'DeepSeek',
     balanceUrl: '余额 URL',
     enterBalanceUrl: '请输入余额 URL',
     balanceUrlHint: '支持 {baseUrl} 占位符，会自动替换为供应商的 Base URL',

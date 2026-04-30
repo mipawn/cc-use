@@ -46,7 +46,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const { t } = useTranslation()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
-  const [balanceType, setBalanceType] = useState<'none' | 'newapi' | 'custom'>('none')
+  const [balanceType, setBalanceType] = useState<'none' | 'newapi' | 'custom' | 'deepseek'>('none')
   const [selectedIcon, setSelectedIcon] = useState<string>('claude')
   const [customIconPath, setCustomIconPath] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -312,6 +312,10 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                             {
                               value: 'custom',
                               label: t('providers.balanceTypeCustom'),
+                            },
+                            {
+                              value: 'deepseek',
+                              label: t('providers.balanceTypeDeepseek'),
                             },
                           ]}
                         />
