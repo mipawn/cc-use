@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.1.2] - 2026-04-30
+
+### Added
+
+- daemon watchdog：daemon 崩溃后自动恢复，不需要手动重启 app
+- `request_logs` / `usage_logs` 90 天自动清理策略，避免本地数据库无限增长
+- 余额查询新增 DeepSeek 类型
+
+---
+
 ## [3.1.1] - 2026-04-27
 
 ### Added
