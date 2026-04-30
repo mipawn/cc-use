@@ -146,7 +146,7 @@ describe('Instances page', () => {
     expect(view.container.textContent).toContain('instances.tableTitle')
     expect(view.container.textContent).toContain('1a2b3c4d')
     expect(view.container.textContent).toContain('9f8e7d6c')
-    expect(view.container.textContent).not.toContain('bid-web')
+    expect(view.container.textContent).toContain('bid-web')
     expect(view.container.textContent).not.toContain('/tmp/team-a/bid-web')
     expect(view.container.textContent).not.toContain('PID 222')
     expect(view.container.textContent).toContain('2026-04-15 00:00:00')
