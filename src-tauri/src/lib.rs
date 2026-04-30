@@ -9,6 +9,7 @@ pub mod terminal;
 pub mod tray;
 
 use db::Database;
+use models::ProxyStatus;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, LogicalSize, Manager, Size};
 
@@ -255,6 +256,34 @@ pub fn run() {
 
                 tray::refresh_tray_menu(&handle2);
             });
+
+            // Daemon watchdog: periodically check health and auto-recover on crash
+            {
+                let handle_wd = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        let db_state = handle_wd.state::<Arc<Mutex<Database>>>();
+                        if !commands::proxy::is_proxy_running(&*db_state) {
+                            log::warn!("Daemon watchdog detected stopped daemon, auto-restarting");
+                            if let Err(e) = commands::proxy::proxy_start_inner(&*db_state).await {
+                                log::error!("Daemon watchdog restart failed: {}", e);
+                                continue;
+                            }
+                            let status = commands::proxy::proxy_status_inner(&*db_state)
+                                .unwrap_or(ProxyStatus {
+                                    is_running: false,
+                                    port: 12345,
+                                    request_count: 0,
+                                    last_error: None,
+                                });
+                            let _ = handle_wd.emit("proxy:statusChanged", &status);
+                            tray::refresh_tray_menu(&handle_wd);
+                            log::info!("Daemon watchdog auto-restart succeeded");
+                        }
+                    }
+                });
+            }
 
             // Handle close-to-tray: intercept window close event
             let handle3 = handle.clone();
