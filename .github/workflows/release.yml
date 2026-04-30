@@ -65,7 +65,6 @@ jobs:
             如果你的应用不在 `/Applications` 目录，请将路径替换为实际安装路径。
           releaseDraft: false
           prerelease: false
-          uploadUpdaterJson: true
-          uploadUpdaterSignatures: false
+          includeUpdaterJson: true
           assetNamePattern: ${{ matrix.assetName }}
           args: ${{ matrix.args }}
