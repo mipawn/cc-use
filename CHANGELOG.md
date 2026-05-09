@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.1.3] - 2026-05-09
+
+### Added
+
+- Provider 拖拽排序：filter tab 支持 @dnd-kit 拖拽重新排序，新增 `sort_order` 列和 `provider_reorder` 命令
+- Provider 模型列表展示：Keys 页支持从 `/v1/models` 获取并展示可用模型列表
+- 乐观更新：拖拽排序先本地重排再异步持久化，避免闪一下
+- 测试：Rust 集成测试 `provider_reorder_sequence` + vitest 纯函数 + 渲染测试
+
+### Changed
+
+- Keys 页 filter bar 从 Ant Design Segmented 替换为 @dnd-kit 自定义实现
+- 新增依赖：`@dnd-kit/core`、`@dnd-kit/sortable`、`@dnd-kit/utilities`
+
 ## [3.1.2] - 2026-04-30
 
 ### Added
