@@ -470,6 +470,11 @@ export default {
     pricingSourceLabel: '价格',
     pricingSourceProviderShort: '供应商',
     pricingSourceGlobalShort: '全局',
+    // Model list
+    viewModels: '查看模型',
+    models: '可用模型',
+    modelsFetchFailed: '无法获取模型列表',
+    modelsCount: '共 {{count}} 个模型',
   },
   keyDetail: {
     title: '密钥详情',

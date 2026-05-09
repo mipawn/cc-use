@@ -472,6 +472,11 @@ export default {
     pricingSourceLabel: 'Pricing',
     pricingSourceProviderShort: 'Provider',
     pricingSourceGlobalShort: 'Global',
+    // Model list
+    viewModels: 'View Models',
+    models: 'Available Models',
+    modelsFetchFailed: 'Failed to fetch models',
+    modelsCount: '{{count}} models total',
   },
   configPreview: {
     title: 'Configuration Preview',
