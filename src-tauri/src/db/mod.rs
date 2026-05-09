@@ -99,7 +99,8 @@ impl Database {
                 cost_multiplier REAL DEFAULT 1,
                 cached_model_pricing TEXT,
                 last_pricing_synced_at TEXT,
-                is_active INTEGER DEFAULT 1
+                is_active INTEGER DEFAULT 1,
+                sort_order INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -304,6 +305,7 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN wallet_balance_user_id TEXT",
             "ALTER TABLE providers ADD COLUMN cached_model_pricing TEXT",
             "ALTER TABLE providers ADD COLUMN last_pricing_synced_at TEXT",
+            "ALTER TABLE providers ADD COLUMN sort_order INTEGER DEFAULT 0",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
             "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\"claude\"]'",

@@ -124,6 +124,7 @@ export interface Provider {
   // Cost multiplier for this provider (e.g., 1.5 means 150% of base price)
   costMultiplier?: number
   isActive: boolean
+  sortOrder: number
 }
 
 export interface CreateProviderInput {

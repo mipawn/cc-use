@@ -32,6 +32,7 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         last_usage_checked_at: row.get(20)?,
         cost_multiplier: row.get(21)?,
         is_active: row.get::<_, i32>(22)? != 0,
+        sort_order: row.get(23)?,
     })
 }
 
@@ -44,8 +45,8 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active
-             FROM providers ORDER BY name",
+                    cost_multiplier, is_active, sort_order
+             FROM providers ORDER BY sort_order ASC, name ASC",
         )?;
 
         let rows = stmt.query_map([], row_to_provider)?;
@@ -60,7 +61,7 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active
+                    cost_multiplier, is_active, sort_order
              FROM providers WHERE id = ?1",
         )?;
 
@@ -78,11 +79,19 @@ impl Database {
         input: &CreateProviderInput,
     ) -> Result<Provider, rusqlite::Error> {
         let id = nanoid::nanoid!();
+        // Auto-assign next sort_order (max + 1)
+        let next_sort: i32 = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM providers", [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(0);
         self.conn.execute(
             "INSERT INTO providers (id, name, base_url, type, website, remark, token, icon,
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
-                wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1)",
+                wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
+                sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18)",
             rusqlite::params![
                 id,
                 input.name,
@@ -101,6 +110,7 @@ impl Database {
                 input.usage_url,
                 input.usage_path,
                 input.usage_headers,
+                next_sort,
             ],
         )?;
 
@@ -197,6 +207,19 @@ impl Database {
 
         self.provider_get(&input.id)?
             .ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn provider_reorder(
+        &self,
+        provider_ids: &[String],
+    ) -> Result<Vec<Provider>, rusqlite::Error> {
+        for (i, id) in provider_ids.iter().enumerate() {
+            self.conn.execute(
+                "UPDATE providers SET sort_order = ?1 WHERE id = ?2",
+                rusqlite::params![i as i32, id],
+            )?;
+        }
+        self.provider_list()
     }
 
     pub fn provider_delete(&self, id: &str) -> Result<(), rusqlite::Error> {

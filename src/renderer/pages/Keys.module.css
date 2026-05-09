@@ -33,18 +33,54 @@
 .filterSection {
   margin-bottom: 24px;
   flex-shrink: 0;
+}
+
+.filterBar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
+  background: var(--surface-sunken);
+  padding: 4px;
+  border-radius: var(--radius-ant);
 }
 
-.filterSegmented {
-  background: var(--surface-sunken) !important;
-  padding: 4px !important;
-  border-radius: var(--radius-ant) !important;
+.filterTab {
+  display: flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  user-select: none;
+  transition: none;
+  border: 1px solid transparent;
 }
 
-.filterSegmented :global(.ant-segmented-item) {
-  border-radius: var(--radius-sm) !important;
+.filterTab:hover {
+  background: var(--surface-elevated);
+}
+
+.filterTabActive {
+  background: var(--surface-default) !important;
+  border-color: var(--border-subtle) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Draggable tabs */
+.filterTabDraggable {
+  cursor: grab;
+}
+
+.filterTabDraggable:active {
+  cursor: grabbing;
+}
+
+.filterTabDragging {
+  opacity: 0.35;
+  box-shadow: var(--shadow-sm);
 }
 
 .filterBadge :global(.ant-badge-count) {

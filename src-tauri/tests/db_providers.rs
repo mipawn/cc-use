@@ -165,3 +165,102 @@ fn provider_update_no_changes() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap().name, "Test");
 }
+
+#[test]
+fn provider_reorder_sequence() {
+    let fixture = TempDb::new();
+
+    let p1 = fixture
+        .db
+        .provider_create(&CreateProviderInput {
+            name: "Alpha".to_string(),
+            base_url: "https://alpha.test.com".to_string(),
+            provider_type: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+        })
+        .unwrap();
+
+    let p2 = fixture
+        .db
+        .provider_create(&CreateProviderInput {
+            name: "Beta".to_string(),
+            base_url: "https://beta.test.com".to_string(),
+            provider_type: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+        })
+        .unwrap();
+
+    let p3 = fixture
+        .db
+        .provider_create(&CreateProviderInput {
+            name: "Gamma".to_string(),
+            base_url: "https://gamma.test.com".to_string(),
+            provider_type: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+        })
+        .unwrap();
+
+    // Initially ordered by creation (p1 < p2 < p3 by sort_order)
+    let all = fixture.db.provider_list().unwrap();
+    assert_eq!(all[0].id, p1.id);
+    assert_eq!(all[1].id, p2.id);
+    assert_eq!(all[2].id, p3.id);
+
+    // Reverse order: p3, p2, p1
+    fixture
+        .db
+        .provider_reorder(&[p3.id.clone(), p2.id.clone(), p1.id.clone()])
+        .unwrap();
+
+    let all = fixture.db.provider_list().unwrap();
+    assert_eq!(all[0].id, p3.id);
+    assert_eq!(all[1].id, p2.id);
+    assert_eq!(all[2].id, p1.id);
+
+    // Partial reorder: p1, p3, p2
+    fixture
+        .db
+        .provider_reorder(&[p1.id.clone(), p3.id.clone(), p2.id.clone()])
+        .unwrap();
+
+    let all = fixture.db.provider_list().unwrap();
+    assert_eq!(all[0].id, p1.id);
+    assert_eq!(all[1].id, p3.id);
+    assert_eq!(all[2].id, p2.id);
+}

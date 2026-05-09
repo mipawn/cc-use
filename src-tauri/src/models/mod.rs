@@ -32,6 +32,7 @@ pub struct Provider {
     // Cost
     pub cost_multiplier: Option<f64>,
     pub is_active: bool,
+    pub sort_order: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -43,6 +43,8 @@ export interface Api {
     create: (input: CreateProviderInput) => Promise<Provider>
     update: (input: UpdateProviderInput) => Promise<Provider>
     delete: (id: string) => Promise<void>
+    reorder: (providerIds: string[]) => Promise<Provider[]>
+    modelList: (providerId: string) => Promise<string[]>
   }
   apiKey: {
     list: (providerId: string) => Promise<ApiKey[]>

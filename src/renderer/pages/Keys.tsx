@@ -12,7 +12,6 @@ import {
   Spin,
   theme,
   Card,
-  Segmented,
   Space,
   Tag,
   Tooltip,
@@ -41,9 +40,13 @@ import {
   CopyOutlined,
   DollarOutlined,
   ThunderboltOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
+import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
@@ -55,6 +58,49 @@ import { getProviderTypeConfig, formatEnvCommand, TERMINAL_TYPE_LABELS } from '@
 import { useSettingsStore } from '../stores/settingsStore'
 import { buildQuickAddPayload } from './keysQuickAdd'
 import styles from './Keys.module.css'
+
+// dnd-kit sortable wrapper — defined at module level to avoid hook issues
+// Pure reorder logic — extract for testing
+export function computeProviderReorder(ids: string[], fromId: string, toId: string): string[] | null {
+  const fromIdx = ids.indexOf(fromId)
+  const toIdx = ids.indexOf(toId)
+  if (fromIdx === -1 || toIdx === -1) return null
+  const result = [...ids]
+  result.splice(fromIdx, 1)
+  result.splice(toIdx, 0, fromId)
+  return result
+}
+
+function SortableTab({
+  id,
+  onClick,
+  className,
+  children,
+}: {
+  id: string
+  onClick: () => void
+  className: string
+  children: React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.35 : undefined,
+        zIndex: isDragging ? 1 : undefined,
+      }}
+      className={className}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+    >
+      {children}
+    </div>
+  )
+}
 
 // Import provider type icons
 import claudeIcon from '../assets/provider-icons/claude.svg'
@@ -130,6 +176,12 @@ export default function Keys() {
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
   const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
 
+  // Model list state
+  const [modelListOpen, setModelListOpen] = useState(false)
+  const [modelListProvider, setModelListProvider] = useState<Provider | null>(null)
+  const [modelList, setModelList] = useState<string[]>([])
+  const [modelListLoading, setModelListLoading] = useState(false)
+
   // Cost stats per key (today and total)
   const [keyCostStats, setKeyCostStats] = useState<
     Record<string, { todayCost: number; totalCost: number }>
@@ -170,36 +222,6 @@ export default function Keys() {
     }
     fetchCostStats()
   }, [allApiKeys.length])
-
-  // Build filter options
-  const filterOptions = useMemo(() => {
-    const options: { label: React.ReactNode; value: string }[] = [
-      {
-        label: (
-          <Space size={4}>
-            <span>{t('keys.allKeys') || '全部密钥'}</span>
-            <Badge count={allApiKeys.length} showZero className={styles.filterBadge} />
-          </Space>
-        ),
-        value: 'all',
-      },
-    ]
-
-    providers.forEach((provider) => {
-      const keyCount = (apiKeys[provider.id] || []).length
-      options.push({
-        label: (
-          <Space size={4}>
-            <span>{provider.name}</span>
-            <Badge count={keyCount} showZero className={styles.filterBadge} />
-          </Space>
-        ),
-        value: provider.id,
-      })
-    })
-
-    return options
-  }, [providers, apiKeys, allApiKeys, t])
 
   // Group keys by provider for display
   const groupedKeys = useMemo(() => {
@@ -416,6 +438,35 @@ export default function Keys() {
   }
 
   // Handle edit key
+  // Drag-and-drop reorder handlers
+  const handleViewModels = async (provider: Provider) => {
+    setModelListProvider(provider)
+    setModelListOpen(true)
+    setModelList([])
+    setModelListLoading(true)
+    try {
+      const models = await getApi().provider.modelList(provider.id)
+      setModelList(models)
+    } catch {
+      setModelList([])
+    } finally {
+      setModelListLoading(false)
+    }
+  }
+
+  // dnd-kit sensors — require 8px drag threshold so clicks pass through
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  )
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const ids = providers.map((p) => p.id)
+    const reordered = computeProviderReorder(ids, active.id as string, over.id as string)
+    if (reordered) useProviderStore.getState().reorderProviders(reordered)
+  }
+
   const handleEditKey = (key: ApiKey) => {
     setEditingKey(key)
     setDefaultProviderId(key.providerId)
@@ -503,12 +554,38 @@ export default function Keys() {
 
       {/* Filter Tabs - Fixed */}
       <div className={styles.filterSection}>
-        <Segmented
-          value={activeFilter}
-          onChange={(value) => setActiveFilter(value as string)}
-          options={filterOptions}
-          className={styles.filterSegmented}
-        />
+        <div className={styles.filterBar}>
+          {/* "All Keys" tab — not sortable */}
+          <div
+            className={`${styles.filterTab} ${activeFilter === 'all' ? styles.filterTabActive : ''}`}
+            onClick={() => setActiveFilter('all')}
+          >
+            <Space size={4}>
+              <span>{t('keys.allKeys') || '全部密钥'}</span>
+              <Badge count={allApiKeys.length} showZero className={styles.filterBadge} />
+            </Space>
+          </div>
+
+          {/* Provider tabs — @dnd-kit sortable */}
+          <DndContext sensors={sensors} onDragEnd={handleDragEnd} autoScroll={false}>
+            <SortableContext items={providers.map((p) => p.id)} strategy={horizontalListSortingStrategy}>
+              {providers.map((provider) => (
+                <SortableTab
+                  key={provider.id}
+                  id={provider.id}
+                  onClick={() => setActiveFilter(provider.id)}
+                  className={`${styles.filterTab} ${styles.filterTabDraggable} ${activeFilter === provider.id ? styles.filterTabActive : ''}`}
+                >
+                  <Space size={4}>
+                    <Avatar src={getProviderIconSrc(provider)} size={16} style={{ background: 'transparent' }} />
+                    <span>{provider.name}</span>
+                    <Badge count={(apiKeys[provider.id] || []).length} showZero className={styles.filterBadge} />
+                  </Space>
+                </SortableTab>
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
       </div>
 
       {/* Content - Scrollable */}
@@ -569,6 +646,14 @@ export default function Keys() {
                           />
                         </Tooltip>
                       )}
+                      <Tooltip title={t('keys.viewModels') || '查看模型'}>
+                        <Button
+                          type='text'
+                          size='small'
+                          icon={<EyeOutlined />}
+                          onClick={() => handleViewModels(provider)}
+                        />
+                      </Tooltip>
                       <Tooltip title={t('common.settings')}>
                         <Button
                           type='text'
@@ -958,6 +1043,63 @@ export default function Keys() {
                   </div>
                 )
               })}
+            </div>
+          </SimpleBar>
+        )}
+      </Modal>
+
+      {/* Model List Modal */}
+      <Modal
+        title={
+          <Space>
+            <EyeOutlined />
+            <span>{modelListProvider?.name || ''}</span>
+            <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
+              — {t('keys.models') || '可用模型'}
+            </span>
+          </Space>
+        }
+        open={modelListOpen}
+        onCancel={() => {
+          setModelListOpen(false)
+          setModelListProvider(null)
+          setModelList([])
+        }}
+        footer={null}
+        width={500}
+        style={{ top: 24 }}
+      >
+        {modelListLoading ? (
+          <div className='empty-state' style={{ padding: '48px 0' }}>
+            <Spin />
+          </div>
+        ) : modelList.length === 0 ? (
+          <div className='empty-state' style={{ padding: '48px 0' }}>
+            <Text type='secondary'>{t('keys.modelsFetchFailed') || '无法获取模型列表'}</Text>
+          </div>
+        ) : (
+          <SimpleBar style={{ maxHeight: '60vh' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {modelList.map((model) => (
+                <div
+                  key={model}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontFamily: 'var(--font-mono)',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--surface-sunken)',
+                  }}
+                >
+                  {model}
+                </div>
+              ))}
+              {modelList.length > 0 && (
+                <Text type='secondary' style={{ fontSize: 12, textAlign: 'center', marginTop: 8 }}>
+                  {t('keys.modelsCount', { count: modelList.length }) || `共 ${modelList.length} 个模型`}
+                </Text>
+              )}
             </div>
           </SimpleBar>
         )}
