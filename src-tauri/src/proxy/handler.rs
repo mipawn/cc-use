@@ -25,6 +25,8 @@ use std::task::{Context, Poll};
 struct RouteExecution {
     upstream_url: String,
     real_api_key: Option<String>,
+    provider_type: Option<String>,
+    model_mapping: Option<String>,
     log_ctx: Option<ResolvedSessionContext>,
 }
 
@@ -223,30 +225,41 @@ pub async fn proxy_handler(
     let mut headers = req.headers().clone();
 
     if let Some(real_api_key) = route_execution.real_api_key.as_deref() {
-        let bearer = format!("Bearer {}", real_api_key);
-        match HeaderValue::from_str(&bearer) {
-            Ok(v) => {
-                headers.insert("authorization", v);
+        let is_openai = route_execution
+            .provider_type
+            .as_deref()
+            .map(|t| t == "codex")
+            .unwrap_or(false);
+
+        if is_openai {
+            let bearer = format!("Bearer {}", real_api_key);
+            match HeaderValue::from_str(&bearer) {
+                Ok(v) => {
+                    headers.insert("authorization", v);
+                }
+                Err(_) => {
+                    emit.reject("API key contains invalid characters");
+                    return Err(error_response(
+                        StatusCode::BAD_REQUEST,
+                        "API key contains invalid characters",
+                    ));
+                }
             }
-            Err(_) => {
-                emit.reject("API key contains invalid characters");
-                return Err(error_response(
-                    StatusCode::BAD_REQUEST,
-                    "API key contains invalid characters",
-                ));
+            headers.remove("x-api-key");
+        } else {
+            match HeaderValue::from_str(real_api_key) {
+                Ok(v) => {
+                    headers.insert("x-api-key", v);
+                }
+                Err(_) => {
+                    emit.reject("API key contains invalid characters");
+                    return Err(error_response(
+                        StatusCode::BAD_REQUEST,
+                        "API key contains invalid characters",
+                    ));
+                }
             }
-        }
-        match HeaderValue::from_str(real_api_key) {
-            Ok(v) => {
-                headers.insert("x-api-key", v);
-            }
-            Err(_) => {
-                emit.reject("API key contains invalid characters");
-                return Err(error_response(
-                    StatusCode::BAD_REQUEST,
-                    "API key contains invalid characters",
-                ));
-            }
+            headers.remove("authorization");
         }
     }
 
@@ -271,6 +284,8 @@ pub async fn proxy_handler(
                 .and_then(|m| m.as_str())
                 .map(|s| s.to_string())
         });
+
+    let body_bytes = apply_model_mapping(body_bytes, &route_execution);
 
     let client = reqwest::Client::new();
     let mut req_builder = client.request(method, &route_execution.upstream_url);
@@ -460,9 +475,13 @@ fn build_route_execution(
                 .and_then(|pid| db.project_get(pid).ok().flatten())
                 .map(|p| p.name);
             let upstream_url = build_provider_upstream_url(&provider.base_url, req_path, emit)?;
+            let ptype = provider.provider_type.clone();
+            let mapping = api_key.model_mapping.clone();
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
+                provider_type: ptype,
+                model_mapping: mapping,
                 log_ctx: Some(ResolvedSessionContext {
                     session_token: session.session_token,
                     provider_id: session.provider_id,
@@ -490,6 +509,8 @@ fn build_route_execution(
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: None,
+                provider_type: None,
+                model_mapping: None,
                 log_ctx: None,
             })
         }
@@ -590,7 +611,10 @@ fn build_provider_upstream_url(
             return Err(error_response(StatusCode::BAD_GATEWAY, reason));
         }
     };
-    let target_origin = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
+    let target_origin = match parsed.port() {
+        Some(port) => format!("{}://{}:{}", parsed.scheme(), parsed.host_str().unwrap_or(""), port),
+        None => format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or("")),
+    };
     let path_prefix = if parsed.path() == "/" {
         ""
     } else {
@@ -612,6 +636,97 @@ fn build_official_upstream_url(upstream_family: UpstreamFamily, req_path: &str) 
             req_path.strip_prefix("/openai/v1").unwrap_or(req_path)
         ),
     }
+}
+
+fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) -> axum::body::Bytes {
+    let is_claude = route
+        .provider_type
+        .as_deref()
+        .map(|t| t != "codex")
+        .unwrap_or(true);
+
+    if !is_claude {
+        return body_bytes;
+    }
+
+    let mapping_str = match route.model_mapping.as_deref() {
+        Some(s) if !s.is_empty() => s,
+        _ => return strip_one_m_suffix(body_bytes),
+    };
+
+    #[derive(serde::Deserialize)]
+    struct ModelMapping {
+        haiku: Option<String>,
+        sonnet: Option<String>,
+        opus: Option<String>,
+        default: Option<String>,
+    }
+
+    let mapping: ModelMapping = match serde_json::from_str(mapping_str) {
+        Ok(m) => m,
+        Err(_) => return strip_one_m_suffix(body_bytes),
+    };
+
+    let mut json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
+        Ok(v) => v,
+        Err(_) => return body_bytes,
+    };
+
+    let model = match json.get("model").and_then(|m| m.as_str()) {
+        Some(m) => m.to_string(),
+        None => return body_bytes,
+    };
+
+    let model_lower = model.to_lowercase();
+
+    let mapped = if model_lower.contains("haiku") {
+        mapping.haiku.as_deref().map(|m| m.to_string())
+    } else if model_lower.contains("opus") {
+        mapping.opus.as_deref().map(|m| m.to_string())
+    } else if model_lower.contains("sonnet") {
+        mapping.sonnet.as_deref().map(|m| m.to_string())
+    } else {
+        mapping.default.as_deref().map(|m| m.to_string())
+    };
+
+    if let Some(mapped) = mapped {
+        if mapped != model {
+            json["model"] = serde_json::Value::String(mapped);
+            let mapped_bytes = axum::body::Bytes::from(serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()));
+            return strip_one_m_suffix(mapped_bytes);
+        }
+    }
+
+    strip_one_m_suffix(body_bytes)
+}
+
+/// Strips the [1M] suffix that Claude Code appends to model names for 1M context.
+const ONE_M_MARKER: &str = "[1M]";
+
+fn strip_one_m_suffix(body_bytes: axum::body::Bytes) -> axum::body::Bytes {
+    let mut json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
+        Ok(v) => v,
+        Err(_) => return body_bytes,
+    };
+
+    let model = match json.get("model").and_then(|m| m.as_str()) {
+        Some(m) => m,
+        None => return body_bytes,
+    };
+
+    let trimmed = model.trim_end();
+    let bytes = trimmed.as_bytes();
+    let marker = ONE_M_MARKER.as_bytes();
+
+    if bytes.len() >= marker.len()
+        && bytes[bytes.len() - marker.len()..].eq_ignore_ascii_case(marker)
+    {
+        let stripped = trimmed[..trimmed.len() - marker.len()].trim_end();
+        json["model"] = serde_json::Value::String(stripped.to_string());
+        return axum::body::Bytes::from(serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()));
+    }
+
+    body_bytes
 }
 
 pub fn error_response(status: StatusCode, message: &str) -> Response<Body> {
