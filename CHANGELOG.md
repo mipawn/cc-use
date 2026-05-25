@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.1.4] - 2026-05-25
+
+### Added
+
+- 模型名称语义映射：API 密钥级别支持按 haiku/sonnet/opus/default 四类别模糊匹配并改写请求中的 model 字段，前端提供结构化表单配置
+- 代理层自动剥离 Claude Code 的 `[1M]` 上下文标记，避免上游 API 拒绝不识别的模型名
+
+### Fixed
+
+- 代理认证 Header 按 Provider 类型分流：claude 类型只发 `x-api-key`，codex 类型只发 `Authorization: Bearer`，解决企业网关因多余认证头拒绝请求的问题
+- 修复 `build_provider_upstream_url` 中非标准端口号被丢弃的 bug
+
+### Changed
+
+- 模型映射从 Provider 级别迁移到 API Key 级别，粒度更细
+
 ## [3.1.3] - 2026-05-09
 
 ### Added
