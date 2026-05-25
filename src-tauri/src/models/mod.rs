@@ -108,6 +108,7 @@ pub struct ApiKey {
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
     pub cost_multiplier: f64,
+    pub model_mapping: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +126,7 @@ pub struct CreateApiKeyInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    pub model_mapping: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +147,7 @@ pub struct UpdateApiKeyInput {
     pub usage_headers: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
+    pub model_mapping: Option<String>,
 }
 
 // ── Project ──

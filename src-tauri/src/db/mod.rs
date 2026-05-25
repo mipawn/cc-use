@@ -324,6 +324,7 @@ impl Database {
             "ALTER TABLE request_logs ADD COLUMN key_alias TEXT",
             "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",
             "ALTER TABLE request_logs ADD COLUMN project_name TEXT",
+            "ALTER TABLE api_keys ADD COLUMN model_mapping TEXT",
         ];
 
         for stmt in &alter_statements {

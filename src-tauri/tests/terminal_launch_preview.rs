@@ -37,6 +37,7 @@ fn merges_global_key_and_runtime_for_claude_preview() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            model_mapping: None,
         })
         .unwrap();
 
@@ -95,6 +96,7 @@ fn overrides_codex_runtime_fields_in_preview() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            model_mapping: None,
         })
         .unwrap();
 
@@ -205,6 +207,7 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            model_mapping: None,
         })
         .unwrap();
 

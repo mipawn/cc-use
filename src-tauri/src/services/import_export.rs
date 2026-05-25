@@ -200,6 +200,7 @@ pub fn import_all(
                             usage_url: None,
                             usage_path: None,
                             usage_headers: None,
+                            model_mapping: None,
                         }) {
                             errors.push(format!("Failed to import key for {}: {}", ep.name, e));
                         }

@@ -50,6 +50,7 @@ interface KeyEditModalProps {
     usageUrl?: string
     usagePath?: string
     usageHeaders?: string
+    modelMapping?: string
   }) => Promise<void>
 }
 
@@ -84,6 +85,11 @@ export default function KeyEditModal({
   const [usageHeaders, setUsageHeaders] = useState('')
   const [costMultiplier, setCostMultiplier] = useState<number>(1)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showModelMapping, setShowModelMapping] = useState(false)
+  const [haikuModel, setHaikuModel] = useState('')
+  const [sonnetModel, setSonnetModel] = useState('')
+  const [opusModel, setOpusModel] = useState('')
+  const [defaultModel, setDefaultModel] = useState('')
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -175,6 +181,28 @@ export default function KeyEditModal({
         (apiKey.costMultiplier != null && apiKey.costMultiplier !== 1) ||
           (apiKey.usageType != null && apiKey.usageType !== 'none'),
       )
+      if (apiKey.modelMapping) {
+        try {
+          const m = JSON.parse(apiKey.modelMapping)
+          setHaikuModel(m.haiku || '')
+          setSonnetModel(m.sonnet || '')
+          setOpusModel(m.opus || '')
+          setDefaultModel(m.default || '')
+          setShowModelMapping(!!(m.haiku || m.sonnet || m.opus || m.default))
+        } catch {
+          setHaikuModel('')
+          setSonnetModel('')
+          setOpusModel('')
+          setDefaultModel('')
+          setShowModelMapping(false)
+        }
+      } else {
+        setHaikuModel('')
+        setSonnetModel('')
+        setOpusModel('')
+        setDefaultModel('')
+        setShowModelMapping(false)
+      }
       if (apiKey.usageHeaders) {
         try {
           setUsageHeaders(JSON.stringify(JSON.parse(apiKey.usageHeaders), null, 2))
@@ -191,6 +219,11 @@ export default function KeyEditModal({
       setUsageHeaders('')
       setCostMultiplier(1)
       setShowAdvanced(false)
+      setHaikuModel('')
+      setSonnetModel('')
+      setOpusModel('')
+      setDefaultModel('')
+      setShowModelMapping(false)
     }
 
     setJsonError(null)
@@ -261,6 +294,15 @@ export default function KeyEditModal({
     setIncludeGlobal(checked)
   }
 
+  const buildModelMappingJson = (): string | undefined => {
+    const map: Record<string, string> = {}
+    if (haikuModel.trim()) map.haiku = haikuModel.trim()
+    if (sonnetModel.trim()) map.sonnet = sonnetModel.trim()
+    if (opusModel.trim()) map.opus = opusModel.trim()
+    if (defaultModel.trim()) map.default = defaultModel.trim()
+    return Object.keys(map).length > 0 ? JSON.stringify(map) : undefined
+  }
+
   const handleSubmit = async () => {
     try {
       setLoading(true)
@@ -301,6 +343,7 @@ export default function KeyEditModal({
         usageUrl: usageType === 'custom' ? usageUrl?.trim() : undefined,
         usagePath: usageType === 'custom' ? usagePath?.trim() : undefined,
         usageHeaders: usageType === 'custom' ? usageHeaders?.trim() : undefined,
+        modelMapping: buildModelMappingJson(),
       })
 
       message.success(apiKey?.id ? t('apiKeys.keyUpdated') || '密钥已更新' : t('apiKeys.keyAdded') || '密钥已添加')
@@ -408,8 +451,14 @@ export default function KeyEditModal({
 
           <Collapse
             ghost
-            activeKey={showAdvanced ? ['advanced'] : []}
-            onChange={(keys) => setShowAdvanced(keys.includes('advanced'))}
+            activeKey={[
+              ...(showAdvanced ? ['advanced'] : []),
+              ...(showModelMapping ? ['modelMapping'] : []),
+            ]}
+            onChange={(keys) => {
+              setShowAdvanced(keys.includes('advanced'))
+              setShowModelMapping(keys.includes('modelMapping'))
+            }}
             className={styles.advancedCollapse}
             items={[
               {
@@ -520,6 +569,52 @@ export default function KeyEditModal({
                         </Form.Item>
                       </>
                     )}
+                  </div>
+                ),
+              },
+              {
+                key: 'modelMapping',
+                label: (
+                  <Space>
+                    <SettingOutlined />
+                    <span>{t('keys.modelMapping') || '模型映射'}</span>
+                  </Space>
+                ),
+                children: (
+                  <div className={styles.advancedContent}>
+                    <Text type='secondary' style={{ marginBottom: 12, display: 'block', fontSize: 12 }}>
+                      {t('keys.modelMappingHint') || '根据模型名称自动匹配类别并替换，仅对 Claude 类型生效'}
+                    </Text>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                      <Form.Item label='Haiku' extra={t('keys.modelMapHaikuExtra') || '包含 haiku 的模型 →'}>
+                        <Input
+                          value={haikuModel}
+                          onChange={(e) => setHaikuModel(e.target.value)}
+                          placeholder='claude-haiku-4-5'
+                        />
+                      </Form.Item>
+                      <Form.Item label='Sonnet' extra={t('keys.modelMapSonnetExtra') || '包含 sonnet 的模型 →'}>
+                        <Input
+                          value={sonnetModel}
+                          onChange={(e) => setSonnetModel(e.target.value)}
+                          placeholder='claude-sonnet-4-5'
+                        />
+                      </Form.Item>
+                      <Form.Item label='Opus' extra={t('keys.modelMapOpusExtra') || '包含 opus 的模型 →'}>
+                        <Input
+                          value={opusModel}
+                          onChange={(e) => setOpusModel(e.target.value)}
+                          placeholder='claude-opus-4-7'
+                        />
+                      </Form.Item>
+                      <Form.Item label={t('keys.modelMapDefault') || '兜底模型'} extra={t('keys.modelMapDefaultExtra') || '以上都不匹配时使用'}>
+                        <Input
+                          value={defaultModel}
+                          onChange={(e) => setDefaultModel(e.target.value)}
+                          placeholder={t('keys.modelMapDefaultPlaceholder') || '留空则保持原名'}
+                        />
+                      </Form.Item>
+                    </div>
                   </div>
                 ),
               },

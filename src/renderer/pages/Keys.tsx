@@ -493,6 +493,7 @@ export default function Keys() {
     usageUrl?: string
     usagePath?: string
     usageHeaders?: string
+    modelMapping?: string
   }) => {
     if (input.id) {
       await getApi().apiKey.update({
@@ -506,6 +507,7 @@ export default function Keys() {
         usageUrl: input.usageUrl,
         usagePath: input.usagePath,
         usageHeaders: input.usageHeaders,
+        modelMapping: input.modelMapping,
       })
     } else {
       await getApi().apiKey.create({
@@ -519,6 +521,7 @@ export default function Keys() {
         usageUrl: input.usageUrl,
         usagePath: input.usagePath,
         usageHeaders: input.usageHeaders,
+        modelMapping: input.modelMapping,
       })
     }
     fetchAllApiKeys(providers.map((p) => p.id))

@@ -171,6 +171,7 @@ export interface ApiKey {
   lastUsageCheckedAt: string | null
   // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
   costMultiplier: number
+  modelMapping: string | null
 }
 
 export interface CreateApiKeyInput {
@@ -186,6 +187,7 @@ export interface CreateApiKeyInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  modelMapping?: string
 }
 
 export interface UpdateApiKeyInput {
@@ -202,6 +204,7 @@ export interface UpdateApiKeyInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  modelMapping?: string
 }
 
 // Project types

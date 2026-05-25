@@ -23,6 +23,7 @@ fn api_key_crud() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            model_mapping: None,
         })
         .unwrap();
 
@@ -58,6 +59,7 @@ fn cascade_delete_removes_api_keys() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            model_mapping: None,
         })
         .unwrap();
 
@@ -88,6 +90,7 @@ fn api_key_create_returns_proper_result() {
         usage_url: None,
         usage_path: None,
         usage_headers: None,
+        model_mapping: None,
     });
 
     assert!(result.is_ok());
@@ -112,6 +115,7 @@ fn api_key_update_no_changes() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            model_mapping: None,
         })
         .unwrap();
 
@@ -131,6 +135,7 @@ fn api_key_update_no_changes() {
         usage_headers: None,
         cached_usage: None,
         last_usage_checked_at: None,
+        model_mapping: None,
     });
 
     assert!(result.is_ok());

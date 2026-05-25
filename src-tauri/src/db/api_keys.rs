@@ -31,6 +31,7 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
             .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
         last_usage_checked_at: row.get(14)?,
         cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
+        model_mapping: row.get(16)?,
     })
 }
 
@@ -39,7 +40,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier
+                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC",
         )?;
 
@@ -51,7 +52,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier
+                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping
              FROM api_keys WHERE id = ?1",
         )?;
 
@@ -80,8 +81,8 @@ impl Database {
 
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
-                config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             rusqlite::params![
                 id,
                 input.provider_id,
@@ -96,6 +97,7 @@ impl Database {
                 input.usage_path,
                 input.usage_headers,
                 input.cost_multiplier.unwrap_or(1.0),
+                input.model_mapping,
             ],
         )?;
 
@@ -121,6 +123,7 @@ impl Database {
             sets,
             params
         );
+        add_field!(input.model_mapping, "model_mapping", sets, params);
 
         if let Some(ref types) = input.types {
             sets.push("types = ?".to_string());

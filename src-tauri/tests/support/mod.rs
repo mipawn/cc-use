@@ -69,6 +69,7 @@ pub fn create_api_key(db: &Database, provider_id: &str, cli_type: &str) -> ApiKe
         usage_url: None,
         usage_path: None,
         usage_headers: None,
+        model_mapping: None,
     })
     .expect("create api key")
 }
