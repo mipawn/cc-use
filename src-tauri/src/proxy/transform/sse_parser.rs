@@ -64,7 +64,7 @@ impl SseParser {
 
     /// 解析并提取完整的 SSE 事件
     ///
-    /// 返回 (事件列表, 剩余未解析的字节数)
+    /// 只解析完整的事件（以双换行符 \n\n 结尾），未完成的数据保留在缓冲区
     pub fn parse(&mut self) -> Vec<SseEvent> {
         let mut events = Vec::new();
         let buffer_str = match str::from_utf8(&self.buffer) {
@@ -72,30 +72,51 @@ impl SseParser {
             Err(_) => return events,
         };
 
-        let mut current_event: Option<String> = None;
-        let mut current_data_lines: Vec<String> = Vec::new();
+        // 按 \n\n 分割事件
+        let parts: Vec<&str> = buffer_str.split("\n\n").collect();
+
+        // 最后一个部分可能是未完成的事件，保留在缓冲区
+        let complete_parts = if buffer_str.ends_with("\n\n") {
+            parts.as_slice()
+        } else {
+            // 最后一个部分不完整，只处理前面的
+            if parts.len() > 1 {
+                &parts[..parts.len() - 1]
+            } else {
+                // 整个缓冲区都是不完整的
+                return events;
+            }
+        };
+
         let mut consumed = 0;
 
-        for line in buffer_str.lines() {
-            consumed += line.len() + 1; // +1 for \n
-
-            if line.is_empty() {
-                // 空行表示一个事件结束
-                if !current_data_lines.is_empty() {
-                    let data_str = current_data_lines.join("\n");
-                    events.push(SseEvent {
-                        event: current_event.clone(),
-                        data: serde_json::from_str(&data_str).ok(),
-                        raw_data: Some(data_str),
-                    });
-                    current_event = None;
-                    current_data_lines.clear();
-                }
-            } else if let Some(event_type) = line.strip_prefix("event: ") {
-                current_event = Some(event_type.to_string());
-            } else if let Some(data) = line.strip_prefix("data: ") {
-                current_data_lines.push(data.to_string());
+        for part in complete_parts {
+            if part.is_empty() {
+                consumed += 2; // \n\n
+                continue;
             }
+
+            let mut current_event: Option<String> = None;
+            let mut current_data_lines: Vec<String> = Vec::new();
+
+            for line in part.lines() {
+                if let Some(event_type) = line.strip_prefix("event: ") {
+                    current_event = Some(event_type.to_string());
+                } else if let Some(data) = line.strip_prefix("data: ") {
+                    current_data_lines.push(data.to_string());
+                }
+            }
+
+            if !current_data_lines.is_empty() {
+                let data_str = current_data_lines.join("\n");
+                events.push(SseEvent {
+                    event: current_event,
+                    data: serde_json::from_str(&data_str).ok(),
+                    raw_data: Some(data_str),
+                });
+            }
+
+            consumed += part.len() + 2; // +2 for \n\n
         }
 
         // 移除已解析的部分
