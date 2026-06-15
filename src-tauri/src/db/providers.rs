@@ -33,6 +33,8 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         cost_multiplier: row.get(21)?,
         is_active: row.get::<_, i32>(22)? != 0,
         sort_order: row.get(23)?,
+        api_format: row.get::<_, Option<String>>(24)?,
+        transform_enabled: row.get::<_, i32>(25)? != 0,
     })
 }
 
@@ -45,7 +47,8 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order
+                    cost_multiplier, is_active, sort_order,
+                    api_format, transform_enabled
              FROM providers ORDER BY sort_order ASC, name ASC",
         )?;
 
@@ -61,7 +64,8 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order
+                    cost_multiplier, is_active, sort_order,
+                    api_format, transform_enabled
              FROM providers WHERE id = ?1",
         )?;
 
@@ -90,8 +94,8 @@ impl Database {
             "INSERT INTO providers (id, name, base_url, type, website, remark, token, icon,
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18)",
+                sort_order, api_format, transform_enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20)",
             rusqlite::params![
                 id,
                 input.name,
@@ -111,6 +115,8 @@ impl Database {
                 input.usage_path,
                 input.usage_headers,
                 next_sort,
+                input.api_format.as_deref().unwrap_or("auto"),
+                input.transform_enabled.unwrap_or(false) as i32,
             ],
         )?;
 
@@ -190,6 +196,12 @@ impl Database {
         if let Some(ref val) = input.cached_usage {
             sets.push("cached_usage = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
+        }
+
+        add_field!(input.api_format, "api_format", sets, params);
+        if let Some(ref val) = input.transform_enabled {
+            sets.push("transform_enabled = ?".to_string());
+            params.push(Box::new(if *val { 1i32 } else { 0i32 }));
         }
 
         if sets.is_empty() {

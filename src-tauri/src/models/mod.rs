@@ -33,6 +33,9 @@ pub struct Provider {
     pub cost_multiplier: Option<f64>,
     pub is_active: bool,
     pub sort_order: i32,
+    // v3.2.0: 格式转换
+    pub api_format: Option<String>,
+    pub transform_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +58,9 @@ pub struct CreateProviderInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    // v3.2.0: 格式转换
+    pub api_format: Option<String>,
+    pub transform_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +90,9 @@ pub struct UpdateProviderInput {
     pub last_balance_checked_at: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
+    // v3.2.0: 格式转换
+    pub api_format: Option<String>,
+    pub transform_enabled: Option<bool>,
 }
 
 // ── API Key ──

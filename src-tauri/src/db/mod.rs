@@ -325,6 +325,9 @@ impl Database {
             "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",
             "ALTER TABLE request_logs ADD COLUMN project_name TEXT",
             "ALTER TABLE api_keys ADD COLUMN model_mapping TEXT",
+            // v3.2.0: 格式转换支持
+            "ALTER TABLE providers ADD COLUMN api_format TEXT DEFAULT 'auto'",
+            "ALTER TABLE providers ADD COLUMN transform_enabled INTEGER DEFAULT 0",
         ];
 
         for stmt in &alter_statements {

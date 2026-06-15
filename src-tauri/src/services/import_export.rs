@@ -184,6 +184,8 @@ pub fn import_all(
                 usage_url: ep.usage_url.clone(),
                 usage_path: ep.usage_path.clone(),
                 usage_headers: ep.usage_headers.clone(),
+                api_format: None,
+                transform_enabled: None,
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {
