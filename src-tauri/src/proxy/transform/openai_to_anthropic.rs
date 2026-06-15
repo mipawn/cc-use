@@ -241,22 +241,22 @@ mod tests {
     fn test_stream_transform() {
         let mut transformer = StreamTransformer::new();
 
-        // 第一个 chunk：带 id 和 model
+        // 第一个 chunk：带 id 和 model，且带空 content（触发 content_block_start）
         let chunk1 = b"data: {\"id\":\"chatcmpl-xxx\",\"model\":\"gpt-4\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n";
         let output1 = transformer.transform_chunk(chunk1);
         let output1_str = String::from_utf8(output1).unwrap();
 
-        // 应该包含 message_start
+        // 应该包含 message_start 和 content_block_start
         assert!(output1_str.contains("message_start"));
         assert!(output1_str.contains("chatcmpl-xxx"));
+        assert!(output1_str.contains("content_block_start"));
 
         // 第二个 chunk：内容
         let chunk2 = b"data: {\"id\":\"chatcmpl-xxx\",\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n";
         let output2 = transformer.transform_chunk(chunk2);
         let output2_str = String::from_utf8(output2).unwrap();
 
-        // 应该包含 content_block_start 和 content_block_delta
-        assert!(output2_str.contains("content_block_start"));
+        // 应该包含 content_block_delta
         assert!(output2_str.contains("content_block_delta"));
         assert!(output2_str.contains("Hello"));
 
