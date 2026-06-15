@@ -63,6 +63,7 @@ fn seed_managed_instance(db: &Database) -> String {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            model_mapping: None,
         })
         .expect("create api key");
     let session_token = "session-managed".to_string();
