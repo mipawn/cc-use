@@ -7,6 +7,7 @@ use tokio::sync::broadcast;
 pub mod console;
 pub mod handler;
 pub mod key_selector;
+pub mod transform;
 pub mod usage_parser;
 
 pub use console::{now_timestamp, ConsoleEvent};
