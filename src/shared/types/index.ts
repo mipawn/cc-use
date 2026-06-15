@@ -172,6 +172,11 @@ export interface ApiKey {
   // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
   costMultiplier: number
   modelMapping: string | null
+  // Failover state — managed by the proxy's key_selector
+  cooldownUntil: string | null
+  lastErrorAt: string | null
+  lastErrorKind: string | null
+  consecutiveErrors: number
 }
 
 export interface CreateApiKeyInput {

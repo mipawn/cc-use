@@ -186,6 +186,12 @@ export interface Api {
     selectFolder: () => Promise<string | null>
     openExternal: (url: string) => Promise<void>
   }
+  systemExt: {
+    autoLaunchIsEnabled: () => Promise<boolean>
+    autoLaunchSetEnabled: (enabled: boolean) => Promise<boolean>
+    showWindowGetShortcut: () => Promise<string>
+    showWindowSetShortcut: (combo: string) => Promise<string>
+  }
   sessions: {
     scanSessions: () => Promise<ClaudeSession[]>
     deleteSessions: (sessionIds: string[]) => Promise<number>
