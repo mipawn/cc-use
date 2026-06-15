@@ -199,6 +199,12 @@ function buildApi(): Api {
       updateAssignment: (input) => invoke('managed_instance_update_assignment', { input }),
       cleanup: () => invoke('managed_instance_cleanup'),
     },
+    systemExt: {
+      autoLaunchIsEnabled: () => invoke('auto_launch_is_enabled'),
+      autoLaunchSetEnabled: (enabled) => invoke('auto_launch_set_enabled', { enabled }),
+      showWindowGetShortcut: () => invoke('show_window_get_shortcut'),
+      showWindowSetShortcut: (combo) => invoke('show_window_set_shortcut', { combo }),
+    },
   }
 }
 

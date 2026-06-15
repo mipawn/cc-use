@@ -9,4 +9,5 @@ pub mod sessions;
 pub mod settings;
 pub mod statistics;
 pub mod system;
+pub mod system_ext;
 pub mod terminal;

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod shared_runtime;
+pub mod auto_launch;
 pub mod daemon_client;
 pub mod db;
 pub mod models;
@@ -22,6 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(Arc::new(Mutex::new(db)))
         .invoke_handler(tauri::generate_handler![
             // Provider commands
@@ -108,6 +110,11 @@ pub fn run() {
             commands::system::icon_list,
             // App commands
             commands::system::app_get_version,
+            // Auto-launch + global shortcut commands
+            commands::system_ext::auto_launch_is_enabled,
+            commands::system_ext::auto_launch_set_enabled,
+            commands::system_ext::show_window_get_shortcut,
+            commands::system_ext::show_window_set_shortcut,
         ])
         .setup(|app| {
             // Keep legacy behavior: close button hides to tray by default unless user explicitly changed it.
@@ -189,6 +196,18 @@ pub fn run() {
             // Setup system tray
             if let Err(e) = tray::setup_tray(&handle) {
                 log::error!("Failed to setup tray: {}", e);
+            }
+
+            // Re-arm the user's previously chosen "show window" global
+            // shortcut (if any) so it works immediately after a cold boot,
+            // not only after the user re-opens Settings.
+            {
+                let db_state = handle.state::<Arc<Mutex<Database>>>();
+                let db_arc = db_state.inner().clone();
+                drop(db_state);
+                if let Ok(db) = db_arc.lock() {
+                    commands::system_ext::restore_shortcut(&handle, &db);
+                };
             }
 
             // Check if Electron migration is available

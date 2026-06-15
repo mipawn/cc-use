@@ -11,6 +11,7 @@ import {
   Space,
   theme,
   InputNumber,
+  Input,
   Divider,
   Switch,
   Tag,
@@ -37,6 +38,8 @@ import {
   MinusCircleOutlined,
   DownloadOutlined,
   UploadOutlined,
+  PoweroffOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import styles from './Settings.module.css'
 
@@ -144,10 +147,102 @@ export default function Settings() {
   ])
   const [backupModalOpen, setBackupModalOpen] = useState(false)
 
+  // System integration: launch-at-login + global shortcut
+  const [launchAtLogin, setLaunchAtLogin] = useState(false)
+  const [launchAtLoginLoading, setLaunchAtLoginLoading] = useState(false)
+  const [shortcutCombo, setShortcutCombo] = useState('')
+  const [recording, setRecording] = useState(false)
+
   useEffect(() => {
     fetchGlobalSettings()
     getApi().app.getVersion().then(setAppVersion)
+    // Load launch-at-login + show-window-shortcut state in parallel with the
+    // other settings so the toggles are populated by the time the page renders.
+    Promise.all([
+      getApi().systemExt.autoLaunchIsEnabled().catch(() => false),
+      getApi().systemExt.showWindowGetShortcut().catch(() => ''),
+    ]).then(([enabled, combo]) => {
+      setLaunchAtLogin(enabled)
+      setShortcutCombo(combo || '')
+    })
   }, [fetchGlobalSettings])
+
+  const handleToggleLaunchAtLogin = async (checked: boolean) => {
+    setLaunchAtLoginLoading(true)
+    try {
+      await getApi().systemExt.autoLaunchSetEnabled(checked)
+      setLaunchAtLogin(checked)
+    } catch {
+      message.error(t('settings.launchAtLoginToggleFailed'))
+      // Revert optimistic state on failure so the switch reflects reality.
+      setLaunchAtLogin(!checked)
+    } finally {
+      setLaunchAtLoginLoading(false)
+    }
+  }
+
+  // Normalize a DOM KeyboardEvent into the Tauri/accelerator combo string the
+  // global-shortcut plugin expects, e.g. "Alt+Space", "CommandOrControl+Shift+P".
+  // Returns null when the key press isn't a valid binding (no modifier, or a
+  // bare modifier press).
+  const formatCombo = (e: KeyboardEvent): string | null => {
+    const mods: string[] = []
+    if (e.metaKey) mods.push('Super')
+    if (e.ctrlKey) mods.push('Control')
+    if (e.altKey) mods.push('Alt')
+    if (e.shiftKey) mods.push('Shift')
+    if (mods.length === 0) return null
+
+    // Ignore lone modifier presses — require a real key.
+    if (['Meta', 'Control', 'Alt', 'Shift'].includes(e.key)) return null
+
+    let keyName = e.key
+    if (keyName === ' ') keyName = 'Space'
+    else if (keyName.length === 1) keyName = keyName.toUpperCase()
+    // Normalize macOS Cmd to the cross-platform alias so combos work on Win/Linux too.
+    const normalizedMods = mods.map((m) => (m === 'Super' ? 'CommandOrControl' : m))
+    // Deduplicate CommandOrControl if both Super+Control were somehow held.
+    const uniqueMods = Array.from(new Set(normalizedMods))
+    return [...uniqueMods, keyName].join('+')
+  }
+
+  const startRecording = () => {
+    setRecording(true)
+    // The capture happens via a window keydown listener installed below while
+    // `recording` is true. ESC aborts without changing anything.
+  }
+
+  const commitCombo = async (combo: string) => {
+    try {
+      await getApi().systemExt.showWindowSetShortcut(combo)
+      setShortcutCombo(combo)
+    } catch {
+      message.error(t('settings.shortcutUpdateFailed'))
+    } finally {
+      setRecording(false)
+    }
+  }
+
+  // While recording, intercept every keypress at the window level so we can
+  // capture combos the OS would otherwise swallow (e.g. Space).
+  useEffect(() => {
+    if (!recording) return
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        setRecording(false)
+        return
+      }
+      const combo = formatCombo(e)
+      if (combo) {
+        void commitCombo(combo)
+      }
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording])
 
   const languageOptions = [
     { value: 'en', label: 'English' },
@@ -429,6 +524,84 @@ export default function Settings() {
                   onChange={(checked) => updateGlobalSettings({ closeToTray: checked })}
                 />
               </div>
+            </Card>
+
+            {/* Launch at login */}
+            <Card className={styles.settingCard} variant='outlined'>
+              <div className={styles.settingRow}>
+                <Space>
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
+                    <PoweroffOutlined
+                      className={styles.settingIcon}
+                      style={{ color: token.colorText }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong>{t('settings.launchAtLogin')}</Text>
+                    <br />
+                    <Text type='secondary' className={styles.settingDesc}>
+                      {t('settings.launchAtLoginDesc')}
+                    </Text>
+                  </div>
+                </Space>
+                <Switch
+                  checked={launchAtLogin}
+                  loading={launchAtLoginLoading}
+                  onChange={handleToggleLaunchAtLogin}
+                />
+              </div>
+            </Card>
+
+            {/* Show-window global shortcut */}
+            <Card className={styles.settingCard} variant='outlined'>
+              <div className={styles.settingRow}>
+                <Space>
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
+                    <ThunderboltOutlined
+                      className={styles.settingIcon}
+                      style={{ color: token.colorText }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong>{t('settings.showWindowShortcut')}</Text>
+                    <br />
+                    <Text type='secondary' className={styles.settingDesc}>
+                      {t('settings.showWindowShortcutDesc')}
+                    </Text>
+                  </div>
+                </Space>
+                <Space>
+                  <Input
+                    readOnly
+                    value={recording ? t('settings.recording') : shortcutCombo}
+                    placeholder={t('settings.showWindowShortcutPlaceholder')}
+                    style={{ width: 180 }}
+                  />
+                  {shortcutCombo && !recording && (
+                    <Button
+                      size='small'
+                      onClick={() => void commitCombo('')}
+                    >
+                      {t('settings.shortcutClear')}
+                    </Button>
+                  )}
+                  <Button
+                    size='small'
+                    type={recording ? 'default' : 'primary'}
+                    danger={recording}
+                    onClick={() => (recording ? setRecording(false) : startRecording())}
+                  >
+                    {recording ? t('settings.recordCancel') : t('settings.recordShortcut')}
+                  </Button>
+                </Space>
+              </div>
+              {recording && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type='secondary' style={{ fontSize: 12 }}>
+                    {t('settings.recordHint')}
+                  </Text>
+                </div>
+              )}
             </Card>
 
             {/* Default Terminal */}
