@@ -4,14 +4,15 @@ use crate::models::ProxySession;
 impl Database {
     pub fn proxy_session_create(&self, session: &ProxySession) -> Result<(), rusqlite::Error> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO proxy_sessions (session_token, provider_id, api_key_id, project_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT OR REPLACE INTO proxy_sessions (session_token, provider_id, api_key_id, project_id, created_at, cli_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 session.session_token,
                 session.provider_id,
                 session.api_key_id,
                 session.project_id,
                 session.created_at,
+                session.cli_type,
             ],
         )?;
         Ok(())
@@ -19,7 +20,7 @@ impl Database {
 
     pub fn proxy_session_get(&self, token: &str) -> Result<Option<ProxySession>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_token, provider_id, api_key_id, project_id, created_at
+            "SELECT session_token, provider_id, api_key_id, project_id, created_at, cli_type
              FROM proxy_sessions WHERE session_token = ?1",
         )?;
 
@@ -30,6 +31,7 @@ impl Database {
                 api_key_id: row.get(2)?,
                 project_id: row.get(3)?,
                 created_at: row.get(4)?,
+                cli_type: row.get(5)?,
             })
         })?;
 
@@ -77,7 +79,7 @@ impl Database {
 
     pub fn proxy_session_list(&self) -> Result<Vec<ProxySession>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT session_token, provider_id, api_key_id, project_id, created_at
+            "SELECT session_token, provider_id, api_key_id, project_id, created_at, cli_type
              FROM proxy_sessions ORDER BY created_at DESC",
         )?;
 
@@ -88,6 +90,7 @@ impl Database {
                 api_key_id: row.get(2)?,
                 project_id: row.get(3)?,
                 created_at: row.get(4)?,
+                cli_type: row.get(5)?,
             })
         })?;
 

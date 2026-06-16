@@ -244,6 +244,8 @@ pub struct ProxySession {
     pub api_key_id: String,
     pub project_id: Option<String>,
     pub created_at: String,
+    // v3.2.0: CLI 类型，用于格式转换判断
+    pub cli_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -336,6 +336,7 @@ fn prepare_managed_launch(
         api_key_id: context.api_key_id.clone(),
         project_id: Some(context.project_id.clone()),
         created_at: launched_at.clone(),
+        cli_type: Some(context.cli_type.clone()),
     };
     if let Err(error) = db.proxy_session_create(&session) {
         let _ = std::fs::remove_file(&script_path);

@@ -1,6 +1,7 @@
 use crate::db::Database;
 use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
+use crate::proxy::transform_bridge;
 use crate::proxy::usage_parser;
 use crate::proxy::ProxyState;
 use crate::services::cost_calculator;
@@ -28,6 +29,9 @@ struct RouteExecution {
     provider_type: Option<String>,
     model_mapping: Option<String>,
     log_ctx: Option<ResolvedSessionContext>,
+    // v3.2.0: 格式转换支持
+    provider: Option<Provider>,
+    cli_type: Option<String>,
 }
 
 #[derive(Clone)]
@@ -287,8 +291,38 @@ pub async fn proxy_handler(
 
     let body_bytes = apply_model_mapping(body_bytes, &route_execution);
 
+    // v3.2.0: 格式转换 - 请求转换
+    let (body_bytes, final_path) = if let Some(ref provider) = route_execution.provider {
+        match transform_bridge::transform_request_if_needed(
+            body_bytes.to_vec(),
+            &req_path,
+            provider,
+            route_execution.cli_type.as_deref(),
+        ) {
+            Ok((transformed_bytes, transformed_path)) => (transformed_bytes.into(), transformed_path),
+            Err(e) => {
+                emit.reject(&format!("Request transform failed: {}", e));
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    &format!("Request transform failed: {}", e),
+                ));
+            }
+        }
+    } else {
+        (body_bytes, req_path.clone())
+    };
+
     let client = reqwest::Client::new();
-    let mut req_builder = client.request(method, &route_execution.upstream_url);
+    // 使用转换后的路径构建完整 URL
+    let final_url = if final_path.starts_with("http://") || final_path.starts_with("https://") {
+        final_path
+    } else {
+        // 路径是相对的，拼接 base_url
+        let base = route_execution.upstream_url.trim_end_matches('/');
+        let path = final_path.trim_start_matches('/');
+        format!("{}/{}", base, path)
+    };
+    let mut req_builder = client.request(method, &final_url);
 
     for (name, value) in &headers {
         if let Ok(v) = value.to_str() {
@@ -477,6 +511,7 @@ fn build_route_execution(
             let upstream_url = build_provider_upstream_url(&provider.base_url, req_path, emit)?;
             let ptype = provider.provider_type.clone();
             let mapping = api_key.model_mapping.clone();
+            let cli_type = session.cli_type.clone();
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
@@ -492,6 +527,8 @@ fn build_route_execution(
                     provider_name: Some(provider.name.clone()),
                     project_name,
                 }),
+                provider: Some(provider),
+                cli_type,
             })
         }
         RoutePlan::PassThrough => {
@@ -512,6 +549,8 @@ fn build_route_execution(
                 provider_type: None,
                 model_mapping: None,
                 log_ctx: None,
+                provider: None,
+                cli_type: None,
             })
         }
         RoutePlan::RejectMissingAuth => {

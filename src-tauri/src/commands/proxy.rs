@@ -105,6 +105,7 @@ pub fn session_create(
         api_key_id,
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        cli_type: None,
     };
     db.proxy_session_create(&session)
         .map_err(|e| e.to_string())?;
