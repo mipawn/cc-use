@@ -7,6 +7,9 @@ interface QuickAddInput {
   keyAlias?: string
   keyValue: string
   keyType: ProviderType[]
+  // v3.2.0: 格式转换
+  apiFormat?: string
+  transformEnabled?: boolean
 }
 
 export function buildQuickAddPayload(data: QuickAddInput): {
@@ -21,6 +24,9 @@ export function buildQuickAddPayload(data: QuickAddInput): {
       baseUrl: data.providerBaseUrl,
       icon: data.providerIcon,
       type: primaryType,
+      // v3.2.0: 格式转换
+      apiFormat: data.apiFormat || 'auto',
+      transformEnabled: data.transformEnabled ?? false,
     },
     apiKey: {
       alias: data.keyAlias,

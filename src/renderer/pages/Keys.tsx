@@ -265,6 +265,8 @@ export default function Keys() {
     keyAlias?: string
     keyValue: string
     keyType: ProviderType[]
+    apiFormat?: string
+    transformEnabled?: boolean
   }) => {
     const payload = buildQuickAddPayload(data)
     const newProvider = await getApi().provider.create(payload.provider)

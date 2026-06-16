@@ -18,6 +18,9 @@ interface QuickAddModalProps {
     keyAlias?: string
     keyValue: string
     keyType: ProviderType[]
+    // v3.2.0: 格式转换
+    apiFormat?: string
+    transformEnabled?: boolean
   }) => Promise<void>
 }
 
@@ -36,6 +39,8 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
       providerName: preset.name,
       providerBaseUrl: preset.baseUrl,
       keyType: [preset.providerType],
+      apiFormat: preset.apiFormat,
+      transformEnabled: preset.transformEnabled,
     })
     setSelectedIcon(preset.icon)
     setActivePresetId(preset.id)
@@ -53,6 +58,8 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
         keyAlias: values.keyAlias?.trim(),
         keyValue: values.keyValue.trim(),
         keyType: values.keyType,
+        apiFormat: values.apiFormat || 'auto',
+        transformEnabled: values.transformEnabled ?? false,
       })
       message.success(t('providers.quickAddSuccess') || '添加成功')
       form.resetFields()
