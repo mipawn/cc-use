@@ -125,6 +125,9 @@ export interface Provider {
   costMultiplier?: number
   isActive: boolean
   sortOrder: number
+  // v3.2.0: 格式转换
+  apiFormat?: string
+  transformEnabled: boolean
 }
 
 export interface CreateProviderInput {
@@ -144,11 +147,17 @@ export interface CreateProviderInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  // v3.2.0: 格式转换
+  apiFormat?: string
+  transformEnabled?: boolean
 }
 
 export interface UpdateProviderInput extends Partial<CreateProviderInput> {
   id: string
   isActive?: boolean
+  // v3.2.0: 格式转换
+  apiFormat?: string
+  transformEnabled?: boolean
 }
 
 // API Key types

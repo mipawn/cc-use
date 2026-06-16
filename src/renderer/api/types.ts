@@ -204,6 +204,11 @@ export interface Api {
     updateAssignment: (input: UpdateManagedInstanceAssignmentInput) => Promise<ManagedInstance>
     cleanup: () => Promise<number>
   }
+  codexApp: {
+    launch: (projectId: string) => Promise<string>
+    stop: () => Promise<void>
+    getActiveProject: () => Promise<string | null>
+  }
 }
 
 export interface ClaudeSession {

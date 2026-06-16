@@ -205,6 +205,11 @@ function buildApi(): Api {
       showWindowGetShortcut: () => invoke('show_window_get_shortcut'),
       showWindowSetShortcut: (combo) => invoke('show_window_set_shortcut', { combo }),
     },
+    codexApp: {
+      launch: (projectId: string) => invoke('codex_app_launch', { projectId }),
+      stop: () => invoke('codex_app_stop'),
+      getActiveProject: () => invoke<string | null>('codex_app_get_active_project'),
+    },
   }
 }
 
