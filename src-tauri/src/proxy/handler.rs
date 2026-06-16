@@ -377,6 +377,16 @@ pub async fn proxy_handler(
         .to_lowercase();
 
     if content_type.contains("text/event-stream") {
+        // v3.2.0: 检查是否需要响应转换
+        let transform_path = if let Some(ref provider) = route_execution.provider {
+            transform_bridge::should_transform_response(
+                provider,
+                route_execution.cli_type.as_deref(),
+            )
+        } else {
+            None
+        };
+
         let accumulator = usage_parser::StreamUsageAccumulator::new();
         let tracking_stream = UsageTrackingStream {
             inner: upstream_resp.bytes_stream(),
@@ -406,6 +416,8 @@ pub async fn proxy_handler(
                 key_alias: key_snapshot.clone(),
             }),
             finished: false,
+            // v3.2.0: 格式转换器
+            transformer: transform_path.map(|path| transform_bridge::create_stream_transformer(path)),
         };
 
         let mut response = Response::builder().status(status.as_u16());
@@ -911,6 +923,8 @@ struct UsageTrackingStream<S> {
     log_ctx: Option<LogContext>,
     console_ctx: Option<StreamConsoleCtx>,
     finished: bool,
+    // v3.2.0: 格式转换器（可选）
+    transformer: Option<Box<dyn transform_bridge::StreamTransformer + Send>>,
 }
 
 impl<S> Stream for UsageTrackingStream<S>
@@ -928,10 +942,20 @@ where
 
         match Pin::new(&mut this.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(bytes))) => {
+                // 用原始 bytes 做 usage tracking（转换前的格式）
                 if let Ok(text) = std::str::from_utf8(&bytes) {
                     this.accumulator.process_chunk(text);
                 }
-                Poll::Ready(Some(Ok(bytes)))
+
+                // v3.2.0: 如果有转换器，先转换再返回
+                let output_bytes = if let Some(ref mut transformer) = this.transformer {
+                    let transformed = transformer.transform_chunk(&bytes);
+                    axum::body::Bytes::from(transformed)
+                } else {
+                    bytes
+                };
+
+                Poll::Ready(Some(Ok(output_bytes)))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(std::io::Error::other(e)))),
             Poll::Ready(None) => {
