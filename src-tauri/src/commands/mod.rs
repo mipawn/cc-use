@@ -1,5 +1,6 @@
 pub mod api_keys;
 pub mod balance;
+pub mod codex_app;
 pub mod import_export;
 pub mod managed_instances;
 pub mod projects;
