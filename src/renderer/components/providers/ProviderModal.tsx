@@ -1,6 +1,6 @@
 import { getApi } from '../../api'
 import { useEffect, useState, useRef } from 'react'
-import { Modal, Form, Input, Select, Typography, Tooltip, Space, Collapse } from 'antd'
+import { Modal, Form, Input, Select, Typography, Tooltip, Space, Collapse, Switch } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import { UploadOutlined, LinkOutlined, SettingOutlined, WalletOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -68,6 +68,9 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           walletBalancePath: provider.walletBalancePath,
           walletBalanceHeaders: provider.walletBalanceHeaders,
           walletBalanceUserId: provider.walletBalanceUserId,
+          // v3.2.0: 格式转换
+          apiFormat: provider.apiFormat || 'auto',
+          transformEnabled: provider.transformEnabled,
         })
         setBalanceType(provider.walletBalanceType)
         if (provider.icon) {
@@ -88,6 +91,9 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         form.resetFields()
         form.setFieldsValue({
           walletBalanceType: 'none',
+          // v3.2.0: 格式转换默认值
+          apiFormat: 'auto',
+          transformEnabled: false,
         })
         setBalanceType('none')
         setSelectedIcon('claude')
@@ -117,6 +123,9 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         walletBalanceHeaders: values.walletBalanceHeaders?.trim(),
         walletBalanceUserId: values.walletBalanceUserId?.trim(),
         isActive: provider?.isActive ?? true,
+        // v3.2.0: 格式转换
+        apiFormat: values.apiFormat || 'auto',
+        transformEnabled: values.transformEnabled ?? false,
       })
 
       message.success(provider ? t('providers.providerUpdated') : t('providers.providerCreated'))
@@ -276,6 +285,35 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                     placeholder={t('providers.remarkPlaceholder')}
                     className={styles.textarea}
                   />
+                </Form.Item>
+
+                {/* v3.2.0: 格式转换配置 */}
+                <Form.Item
+                  name='apiFormat'
+                  label={
+                    <Tooltip title='上游 API 的格式。auto 表示自动检测，一般无需修改。'>
+                      <span>API 格式</span>
+                    </Tooltip>
+                  }
+                >
+                  <Select size='large' className={styles.input}>
+                    <Select.Option value='auto'>自动检测</Select.Option>
+                    <Select.Option value='anthropic_messages'>Anthropic Messages</Select.Option>
+                    <Select.Option value='openai_chat'>OpenAI Chat Completions</Select.Option>
+                    <Select.Option value='codex_responses'>Codex Responses</Select.Option>
+                  </Select>
+                </Form.Item>
+
+                <Form.Item
+                  name='transformEnabled'
+                  label={
+                    <Tooltip title='启用后，代理会自动将 CLI 请求转换为上游 API 格式。适用于使用非官方 API 的场景。'>
+                      <span>启用格式转换</span>
+                    </Tooltip>
+                  }
+                  valuePropName='checked'
+                >
+                  <Switch />
                 </Form.Item>
               </div>
             </div>
