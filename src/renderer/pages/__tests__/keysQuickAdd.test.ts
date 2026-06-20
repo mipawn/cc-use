@@ -17,6 +17,8 @@ describe('buildQuickAddPayload', () => {
       baseUrl: 'https://example.com',
       icon: 'claude',
       type: 'codex',
+      apiFormat: 'auto',
+      transformEnabled: false,
     })
 
     expect(result.apiKey).toEqual({
