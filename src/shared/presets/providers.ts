@@ -1,7 +1,8 @@
 /**
- * 国内/主流 Claude Code & Codex 中转站与官方 API 预设（精简版）。
+ * 国内/主流 Claude Code & Codex 中转站与官方 API 预设。
  *
- * v3.2.0 精简到 5 个核心预设，每个都包含格式转换配置。
+ * v3.2.0 内置预设只保留 DeepSeek、NewAPI；Custom 为手动入口，无需预设条目。
+ * MiniMax、Sub2API、AnyRouter 等不再作为内置预设，用户可通过 Custom 手动配置。
  */
 import type { ProviderType } from '../types'
 
@@ -31,7 +32,7 @@ export interface ProviderPreset {
 }
 
 /**
- * 预设清单（精简到 5 个核心）。
+ * 预设清单（v3.2.0 内置：DeepSeek、NewAPI）。
  */
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
@@ -46,17 +47,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     note: 'DeepSeek-V3 / R1，支持推理链，已自动配置格式转换',
   },
   {
-    id: 'minimax',
-    name: 'MiniMax',
-    baseUrl: 'https://api.minimax.chat/v1',
-    providerType: 'codex',
-    apiFormat: 'openai_chat',
-    transformEnabled: true,
-    icon: 'minimax',
-    website: 'https://platform.minimaxi.com',
-    note: 'MiniMax-M 系列，已自动配置格式转换',
-  },
-  {
     id: 'newapi',
     name: 'NewAPI',
     baseUrl: 'http://localhost:3000/v1',
@@ -67,28 +57,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     website: 'https://github.com/Calcium-Ion/new-api',
     note: '自建中转网关，请根据实际配置手动选择 API 格式',
   },
-  {
-    id: 'sub2api',
-    name: 'Sub2API',
-    baseUrl: 'https://api.sub2api.com/v1',
-    providerType: 'claude',
-    apiFormat: 'anthropic_messages',
-    transformEnabled: false,
-    icon: 'sub2api',
-    website: 'https://sub2api.com',
-    note: 'Claude / Codex 原生兼容，无需格式转换',
-  },
-  {
-    id: 'anyrouter',
-    name: 'AnyRouter',
-    baseUrl: 'https://api.anyrouter.ai/v1',
-    providerType: 'codex',
-    apiFormat: 'openai_chat',
-    transformEnabled: true,
-    icon: 'custom',
-    website: 'https://anyrouter.ai',
-    note: '多模型聚合路由，已自动配置格式转换',
-  },
 ]
 
 /**
@@ -97,4 +65,3 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 export function findPresetById(id: string): ProviderPreset | undefined {
   return PROVIDER_PRESETS.find((p) => p.id === id)
 }
-
