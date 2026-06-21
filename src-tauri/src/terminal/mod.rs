@@ -449,8 +449,10 @@ pub fn launch_terminal(
         .or_else(|| get_first_available())
         .ok_or("No terminal available")?;
 
+    // v3.2.0: 传 wrapper 脚本路径,终端只负责执行它
+    let wrapper_path = prepared.script_path.to_string_lossy().to_string();
     if let Err(error) = strategy.launch(
-        &prepared.project_path,
+        &wrapper_path,
         &prepared.env,
         &prepared.command,
         Some(&prepared.instance_label),

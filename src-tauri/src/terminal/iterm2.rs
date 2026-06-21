@@ -1,3 +1,8 @@
+//! iTerm2 终端启动策略
+//!
+//! v3.2.0: 改用 wrapper 脚本方式。不再内联 env/token/CLI 命令到 AppleScript 中。
+//! 终端只负责用 iTerm2 AppleScript 打开并执行 wrapper 脚本。
+
 use super::{EnvObject, TerminalStrategy};
 use std::process::Command;
 
@@ -25,55 +30,33 @@ impl TerminalStrategy for ITerm2Strategy {
 
     fn launch(
         &self,
-        path: &str,
-        env: &EnvObject,
-        cli_command: &str,
+        wrapper_path: &str,
+        _env: &EnvObject,
+        _cli_command: &str,
         _instance_label: Option<&str>,
     ) -> Result<(), String> {
-        let escaped_path = path.replace('\'', "'\\''");
-        let env_inline = build_env_inline(env);
-
-        let full_command = format!(
-            "cd '{}' && clear && {} {}",
-            escaped_path, env_inline, cli_command
-        );
-        let escaped_command = full_command.replace('\\', "\\\\").replace('"', "\\\"");
-
+        // v3.2.0: 直接执行 wrapper 脚本,不内联 env/command
         let script = format!(
             r#"tell application "iTerm2"
-                activate
-                set newWindow to (create window with default profile)
-                tell current session of newWindow
-                    write text "{}"
-                end tell
-            end tell"#,
-            escaped_command
+    activate
+    set newWindow to (create window with default profile)
+    tell current session of newWindow
+        write text "{}"
+    end tell
+end tell"#,
+            wrapper_path
         );
 
-        run_osascript(&script)
-    }
-}
+        let output = Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| format!("Failed to run osascript: {}", e))?;
 
-fn build_env_inline(env: &EnvObject) -> String {
-    env.iter()
-        .map(|(k, v)| {
-            let escaped_value = v.replace('\'', "'\\''");
-            format!("{}='{}'", k, escaped_value)
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn run_osascript(script: &str) -> Result<(), String> {
-    let output = Command::new("osascript")
-        .args(["-e", script])
-        .output()
-        .map_err(|e| format!("Failed to run osascript: {}", e))?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("osascript failed: {}", stderr))
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("osascript failed: {}", stderr))
+        }
     }
 }

@@ -1,3 +1,8 @@
+//! Terminal.app 启动策略
+//!
+//! v3.2.0: 改用 wrapper 脚本方式。不再内联 env/token/CLI 命令到 AppleScript 中。
+//! 终端只负责用 Terminal AppleScript 打开并执行 wrapper 脚本。
+
 use super::{EnvObject, TerminalStrategy};
 use std::process::Command;
 
@@ -14,33 +19,18 @@ impl TerminalStrategy for MacTerminalStrategy {
 
     fn launch(
         &self,
-        path: &str,
-        env: &EnvObject,
-        cli_command: &str,
+        wrapper_path: &str,
+        _env: &EnvObject,
+        _cli_command: &str,
         _instance_label: Option<&str>,
     ) -> Result<(), String> {
-        let escaped_path = path.replace('\'', "'\\''");
-        let env_inline: String = env
-            .iter()
-            .map(|(k, v)| {
-                let escaped_value = v.replace('\'', "'\\''");
-                format!("{}='{}'", k, escaped_value)
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        let full_command = format!(
-            "cd '{}' && clear && {} {}",
-            escaped_path, env_inline, cli_command
-        );
-        let escaped_command = full_command.replace('\\', "\\\\").replace('"', "\\\"");
-
+        // v3.2.0: 直接执行 wrapper 脚本,不内联 env/command
         let script = format!(
             r#"tell application "Terminal"
-                activate
-                do script "{}"
-            end tell"#,
-            escaped_command
+    activate
+    do script "{}"
+end tell"#,
+            wrapper_path
         );
 
         let output = Command::new("osascript")
