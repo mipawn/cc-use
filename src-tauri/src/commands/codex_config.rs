@@ -84,6 +84,7 @@ pub struct ProviderAuth {
 pub struct CodexConfigManager {
     config_path: PathBuf,
     backup_dir: PathBuf,
+    bin_dir: PathBuf,
 }
 
 impl CodexConfigManager {
@@ -95,10 +96,12 @@ impl CodexConfigManager {
 
         let config_path = home.join(".codex").join("config.toml");
         let backup_dir = home.join(".cc-use").join("backups").join("codex");
+        let bin_dir = home.join(".cc-use").join("bin");
 
         Ok(Self {
             config_path,
             backup_dir,
+            bin_dir,
         })
     }
 
@@ -156,13 +159,27 @@ impl CodexConfigManager {
             None
         };
 
-        // 2. 读取现有配置
+        // 2. 写入 route-token 脚本,Codex 通过 command 方式获取 token
+        let bin_dir = &self.bin_dir;
+        fs::create_dir_all(bin_dir)?;
+        let token_script = bin_dir.join("codex-route-token");
+        let script_content = format!("#!/bin/sh\necho '{}'\n", route_token);
+        fs::write(&token_script, script_content)?;
+        // chmod 700
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&token_script, std::fs::Permissions::from_mode(0o700))?;
+        }
+        let command_path = token_script.to_string_lossy().to_string();
+
+        // 3. 读取现有配置
         let mut config = self.read()?;
 
-        // 3. 修改 model_provider
+        // 4. 修改 model_provider
         config.model_provider = Some(CC_USE_PROVIDER_KEY.to_string());
 
-        // 4. 写入 cc-use provider
+        // 5. 写入 cc-use provider — Codex 要求 auth 必须有 command 字段
         let mut providers = config.model_providers.unwrap_or_default();
         providers.insert(
             CC_USE_PROVIDER_KEY.to_string(),
@@ -171,9 +188,9 @@ impl CodexConfigManager {
                 base_url: format!("http://127.0.0.1:{}/v1", proxy_port),
                 wire_api: "responses".to_string(),
                 auth: Some(ProviderAuth {
-                    token: Some(route_token.to_string()),
-                    command: None,
-                    refresh_interval_ms: None,
+                    token: None,
+                    command: Some(vec![command_path]),
+                    refresh_interval_ms: Some(300000),
                     other: HashMap::new(),
                 }),
                 other: HashMap::new(),
@@ -181,7 +198,7 @@ impl CodexConfigManager {
         );
         config.model_providers = Some(providers);
 
-        // 5. 原子写入
+        // 6. 原子写入
         self.write_atomic(&config)?;
 
         Ok(backup_path.unwrap_or_else(|| PathBuf::from("")))
@@ -189,6 +206,8 @@ impl CodexConfigManager {
 
     /// 恢复配置：从备份恢复或移除 cc-use provider
     pub fn restore(&self, backup_path: Option<&Path>) -> Result<(), CodexConfigError> {
+        // 清理 route-token 脚本
+        let _ = fs::remove_file(self.bin_dir.join("codex-route-token"));
         if let Some(backup) = backup_path {
             // 从备份恢复
             if !backup.exists() {
@@ -287,6 +306,7 @@ mod tests {
         let manager = CodexConfigManager {
             config_path,
             backup_dir,
+            bin_dir: temp_dir.path().join(".cc-use").join("bin"),
         };
 
         (manager, temp_dir)
@@ -315,10 +335,7 @@ mod tests {
         assert_eq!(cc_use.name, "CC Use");
         assert_eq!(cc_use.base_url, "http://127.0.0.1:12345/v1");
         assert_eq!(cc_use.wire_api, "responses");
-        assert_eq!(
-            cc_use.auth.as_ref().unwrap().token.as_deref(),
-            Some("test-token")
-        );
+        assert!(cc_use.auth.as_ref().unwrap().command.is_some());
     }
 
     #[test]
