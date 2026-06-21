@@ -1,5 +1,77 @@
 // Provider types - only claude and codex are supported
 export type ProviderType = 'claude' | 'codex'
+
+// v3.2.0: ClientKind - 客户端类型 (替代 ProviderType)
+// ProviderType 混淆了供应商、客户端、协议格式,逐步迁移到 ClientKind
+export type ClientKind = 'codex' | 'claude_code' | 'claude_desktop'
+
+// 接入形态: cc-use 能不能亲自启动这个客户端
+export type IntegrationForm =
+  | 'process_injection'   // 进程级: wrapper 注入 env (Claude Code)
+  | 'config_takeover'     // 配置级: 改客户端配置文件指向本地代理 (Codex/Claude Desktop)
+
+// 协议格式 (网关内部用于路由与转换)
+export type ProtocolFormat = 'codex_responses' | 'openai_chat' | 'anthropic_messages'
+
+// 配置作用域 (只对 config_takeover 有意义)
+export type ConfigScope =
+  | 'codex_user_config'        // ~/.codex/config.toml
+  | 'claude_desktop_app_config'
+
+// ClientKind 配置
+export interface ClientKindConfig {
+  kind: ClientKind
+  label: string
+  form: IntegrationForm
+  defaultProtocol: ProtocolFormat
+  cliCommand?: string // 仅 process_injection 有值
+}
+
+// ClientKind 配置表
+export const CLIENT_KIND_CONFIGS: ClientKindConfig[] = [
+  {
+    kind: 'claude_code',
+    label: 'Claude Code',
+    form: 'process_injection',
+    defaultProtocol: 'anthropic_messages',
+    cliCommand: 'claude',
+  },
+  {
+    kind: 'codex',
+    label: 'Codex',
+    form: 'config_takeover',
+    defaultProtocol: 'codex_responses',
+    cliCommand: 'codex',
+  },
+  {
+    kind: 'claude_desktop',
+    label: 'Claude Desktop',
+    form: 'config_takeover',
+    defaultProtocol: 'anthropic_messages',
+  },
+]
+
+// Helper: 获取 ClientKind 配置
+export function getClientKindConfig(kind: ClientKind): ClientKindConfig {
+  const config = CLIENT_KIND_CONFIGS.find((c) => c.kind === kind)
+  if (!config) {
+    return CLIENT_KIND_CONFIGS[0] // Default to claude_code
+  }
+  return config
+}
+
+// 临时兼容: ProviderType -> ClientKind 映射
+export function providerTypeToClientKind(type: ProviderType): ClientKind {
+  return type === 'claude' ? 'claude_code' : 'codex'
+}
+
+// 临时兼容: ClientKind -> ProviderType 映射 (仅 claude_code/codex)
+export function clientKindToProviderType(kind: ClientKind): ProviderType | null {
+  if (kind === 'claude_code') return 'claude'
+  if (kind === 'codex') return 'codex'
+  return null // claude_desktop 无对应 ProviderType
+}
+
 export type PresetIcon =
   | 'claude'
   | 'codex'
