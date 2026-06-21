@@ -1,8 +1,8 @@
 /**
- * Codex 配置页 — config.toml 接管
+ * Codex 配置页 — config.toml 接管 + route 管理
  */
 import { useEffect, useState } from 'react'
-import { Typography, Button, Card, Space, Tag, Descriptions, Modal, Input, message, Spin } from 'antd'
+import { Typography, Button, Card, Space, Tag, Descriptions, Modal, Input, message, Spin, Select, Divider } from 'antd'
 import {
   SettingOutlined,
   ReloadOutlined,
@@ -10,6 +10,8 @@ import {
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
+import { useProviderStore } from '../stores/providerStore'
+import { useApiKeyStore } from '../stores/apiKeyStore'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -19,6 +21,21 @@ export default function CodexPage() {
   const [takenOver, setTakenOver] = useState(false)
   const [configContent, setConfigContent] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('')
+  const [selectedKeyId, setSelectedKeyId] = useState<string>('')
+
+  const { providers, fetchProviders } = useProviderStore()
+  const { fetchAllApiKeys, getAllApiKeys } = useApiKeyStore()
+
+  useEffect(() => {
+    fetchProviders()
+  }, [fetchProviders])
+
+  useEffect(() => {
+    if (providers.length > 0) {
+      fetchAllApiKeys(providers.map(p => p.id))
+    }
+  }, [providers, fetchAllApiKeys])
 
   const checkStatus = async () => {
     try {
@@ -46,10 +63,17 @@ export default function CodexPage() {
   }
 
   const handleTakeover = async () => {
+    if (!selectedProviderId || !selectedKeyId) {
+      message.warning('请先选择供应商和密钥')
+      return
+    }
     setLoading(true)
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      const result: string = await invoke('codex_config_takeover')
+      const result: string = await invoke('codex_config_takeover', {
+        providerId: selectedProviderId,
+        apiKeyId: selectedKeyId,
+      })
       message.success(result)
       setTakenOver(true)
     } catch (e) {
@@ -72,6 +96,15 @@ export default function CodexPage() {
       setLoading(false)
     }
   }
+
+  const allKeys = getAllApiKeys()
+  const activeProviders = providers.filter(p => p.isActive)
+  const filteredKeys = allKeys.filter(k =>
+    !selectedProviderId || k.providerId === selectedProviderId
+  )
+
+  const selectedKey = allKeys.find(k => k.id === selectedKeyId)
+  const selectedProvider = providers.find(p => p.id === selectedProviderId)
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 80 }}><Spin size='large' /></div>
@@ -99,27 +132,72 @@ export default function CodexPage() {
               ? <Tag color='green' icon={<CheckCircleOutlined />}>已接管 — 指向本地代理</Tag>
               : <Tag icon={<ExclamationCircleOutlined />}>官方配置</Tag>}
           </Descriptions.Item>
-          <Descriptions.Item label='说明'>
-            <Text type='secondary'>
-              接管后在 config.toml 中写入 [model_providers.cc-use] block。
-              Desktop 与 CLI 共享同一配置。不碰 auth.json。
-            </Text>
-          </Descriptions.Item>
         </Descriptions>
 
-        <div style={{ marginTop: 16 }}>
-          <Space>
-            {takenOver ? (
+        <Divider />
+
+        <Title level={5}>Route 配置 — 选择上游供应商和密钥</Title>
+        <Text type='secondary' style={{ display: 'block', marginBottom: 12 }}>
+          Codex 通过代理转发到上游时使用此配置。接管后可在网关内部热切换，无需重写 config.toml。
+        </Text>
+
+        <Space direction='vertical' style={{ width: '100%' }}>
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 4 }}>供应商</Text>
+            <Select
+              style={{ width: '100%' }}
+              placeholder='选择供应商'
+              value={selectedProviderId || undefined}
+              onChange={(v) => { setSelectedProviderId(v); setSelectedKeyId('') }}
+              options={activeProviders.map(p => ({
+                value: p.id,
+                label: p.name,
+              }))}
+            />
+          </div>
+
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 4 }}>密钥</Text>
+            <Select
+              style={{ width: '100%' }}
+              placeholder='选择密钥'
+              value={selectedKeyId || undefined}
+              onChange={(v) => setSelectedKeyId(v)}
+              options={filteredKeys.map(k => ({
+                value: k.id,
+                label: k.alias || k.value.slice(0, 12) + '...',
+              }))}
+              notFoundContent={selectedProviderId ? '该供应商下无密钥，请先去密钥页添加' : '请先选择供应商'}
+            />
+          </div>
+        </Space>
+
+        {selectedProvider && selectedKey && (
+          <div style={{ marginTop: 12, padding: '8px 12px', background: '#f6ffed', borderRadius: 6, border: '1px solid #b7eb8f' }}>
+            <Text style={{ fontSize: 13 }}>
+              当前选择: <Text strong>{selectedProvider.name}</Text> / <Text code>{selectedKey.alias || selectedKey.value.slice(0, 12)}</Text>
+            </Text>
+          </div>
+        )}
+
+        <Divider />
+
+        <Space>
+          {takenOver ? (
+            <>
               <Button danger icon={<ReloadOutlined />} onClick={handleRestore} loading={loading}>
                 恢复官方配置
               </Button>
-            ) : (
               <Button type='primary' icon={<SettingOutlined />} onClick={handleTakeover} loading={loading}>
-                接管 Codex
+                重新接管 (切 route)
               </Button>
-            )}
-          </Space>
-        </div>
+            </>
+          ) : (
+            <Button type='primary' icon={<SettingOutlined />} onClick={handleTakeover} loading={loading}>
+              接管 Codex
+            </Button>
+          )}
+        </Space>
       </Card>
 
       <Modal title='~/.codex/config.toml' open={previewOpen} onCancel={() => setPreviewOpen(false)} footer={null} width={600}>

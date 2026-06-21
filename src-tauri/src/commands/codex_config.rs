@@ -427,6 +427,7 @@ wire_api = "openai"
 // ── Tauri commands ──
 
 use crate::db::Database;
+use crate::models::ProxySession;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -457,15 +458,29 @@ pub fn codex_config_is_taken_over() -> Result<bool, String> {
 #[tauri::command]
 pub fn codex_config_takeover(
     db: State<'_, Arc<Mutex<Database>>>,
+    provider_id: String,
+    api_key_id: String,
 ) -> Result<String, String> {
-    let port = {
+    let (port, session_token) = {
         let db = db.lock().map_err(|e| e.to_string())?;
-        get_proxy_port(&db)
+        let port = get_proxy_port(&db);
+        // 创建持久 session,用于代理识别此接入点的 route
+        let session_token = gen_route_token();
+        let session = ProxySession {
+            session_token: session_token.clone(),
+            provider_id: provider_id.clone(),
+            api_key_id: api_key_id.clone(),
+            project_id: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            cli_type: Some("codex".to_string()),
+        };
+        db.proxy_session_create(&session)
+            .map_err(|e| format!("创建 session 失败: {}", e))?;
+        (port, session_token)
     };
-    let route_token = gen_route_token();
     let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
-    let backup = mgr.takeover(&route_token, port as u16).map_err(|e| e.to_string())?;
-    Ok(format!("接管成功,备份: {}", backup.display()))
+    let backup = mgr.takeover(&session_token, port as u16).map_err(|e| e.to_string())?;
+    Ok(format!("接管成功, route 已绑定, config.toml 已写入"))
 }
 
 #[tauri::command]
