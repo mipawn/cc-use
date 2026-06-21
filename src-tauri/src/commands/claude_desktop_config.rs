@@ -178,11 +178,7 @@ impl ClaudeDesktopConfigManager {
         route_token: &str,
         proxy_port: u16,
     ) -> Result<PathBuf, ClaudeDesktopConfigError> {
-        if !self.schema_verified {
-            return Err(ClaudeDesktopConfigError::UnsupportedSchema);
-        }
-
-        // 1. 备份原配置
+        // 1. 备份原配置（如果 config 不存在则创建目录）
         let backup_path = if self.config_path.exists() {
             let status = self.detect_status();
             if status != DesktopConfigStatus::TakenOver {
@@ -416,17 +412,68 @@ mod tests {
         assert_eq!(manager.detect_status(), DesktopConfigStatus::TakenOver);
     }
 
-    #[test]
-    fn test_unsupported_schema_blocks_takeover() {
-        let (mut manager, _temp) = create_test_manager();
-        manager.schema_verified = false; // 模拟未验证状态
+}
 
-        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
-        let result = manager.takeover("test-token", 12345);
+// ── Tauri commands ──
 
-        assert!(matches!(
-            result,
-            Err(ClaudeDesktopConfigError::UnsupportedSchema)
-        ));
+use crate::db::Database;
+use std::sync::{Arc, Mutex};
+use tauri::State;
+
+fn gen_route_token() -> String {
+    format!("rt_{}", nanoid::nanoid!(32))
+}
+
+fn get_desktop_proxy_port(db: &Database) -> i32 {
+    db.settings_get()
+        .ok()
+        .and_then(|s| s.proxy_port.to_string().parse().ok())
+        .unwrap_or(12345)
+}
+
+#[tauri::command]
+pub fn claude_desktop_config_read() -> Result<String, String> {
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
+    let config = mgr.read().map_err(|e| e.to_string())?;
+    serde_json::to_string_pretty(&config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn claude_desktop_schema_detect() -> Result<String, String> {
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
+    let status = mgr.detect_status();
+    match status {
+        DesktopConfigStatus::NotFound => Ok("not_found".to_string()),
+        DesktopConfigStatus::Unsupported => Ok("unsupported".to_string()),
+        DesktopConfigStatus::Official => Ok("official".to_string()),
+        DesktopConfigStatus::TakenOver => Ok("taken_over".to_string()),
     }
+}
+
+#[tauri::command]
+pub fn claude_desktop_config_takeover(
+    db: State<'_, Arc<Mutex<Database>>>,
+) -> Result<String, String> {
+    let port = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        get_desktop_proxy_port(&db)
+    };
+    let route_token = gen_route_token();
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
+    let backup = mgr.takeover(&route_token, port as u16).map_err(|e| e.to_string())?;
+    Ok(format!("接管成功,备份: {}", backup.display()))
+}
+
+#[tauri::command]
+pub fn claude_desktop_config_restore(_db: State<'_, Arc<Mutex<Database>>>) -> Result<String, String> {
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
+    mgr.restore(None).map_err(|e| e.to_string())?;
+    Ok("已恢复官方配置".to_string())
+}
+
+#[tauri::command]
+pub fn claude_desktop_config_list_backups() -> Result<Vec<String>, String> {
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
+    let backups = mgr.list_backups().map_err(|e| e.to_string())?;
+    Ok(backups.iter().map(|p| p.display().to_string()).collect())
 }

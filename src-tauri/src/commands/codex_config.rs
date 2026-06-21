@@ -423,3 +423,61 @@ wire_api = "openai"
         assert_eq!(backups.len(), 2);
     }
 }
+
+// ── Tauri commands ──
+
+use crate::db::Database;
+use std::sync::{Arc, Mutex};
+use tauri::State;
+
+fn get_proxy_port(db: &Database) -> i32 {
+    db.settings_get()
+        .ok()
+        .and_then(|s| s.proxy_port.to_string().parse().ok())
+        .unwrap_or(12345)
+}
+
+fn gen_route_token() -> String {
+    format!("rt_{}", nanoid::nanoid!(32))
+}
+
+#[tauri::command]
+pub fn codex_config_read() -> Result<String, String> {
+    let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
+    let config = mgr.read().map_err(|e| e.to_string())?;
+    toml::to_string_pretty(&config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn codex_config_is_taken_over() -> Result<bool, String> {
+    let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
+    mgr.is_taken_over().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn codex_config_takeover(
+    db: State<'_, Arc<Mutex<Database>>>,
+) -> Result<String, String> {
+    let port = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        get_proxy_port(&db)
+    };
+    let route_token = gen_route_token();
+    let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
+    let backup = mgr.takeover(&route_token, port as u16).map_err(|e| e.to_string())?;
+    Ok(format!("接管成功,备份: {}", backup.display()))
+}
+
+#[tauri::command]
+pub fn codex_config_restore(_db: State<'_, Arc<Mutex<Database>>>) -> Result<String, String> {
+    let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
+    mgr.restore(None).map_err(|e| e.to_string())?;
+    Ok("已恢复官方配置".to_string())
+}
+
+#[tauri::command]
+pub fn codex_config_list_backups() -> Result<Vec<String>, String> {
+    let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
+    let backups = mgr.list_backups().map_err(|e| e.to_string())?;
+    Ok(backups.iter().map(|p| p.display().to_string()).collect())
+}

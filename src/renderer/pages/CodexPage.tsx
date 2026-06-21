@@ -1,7 +1,7 @@
 /**
  * Codex 配置页 — config.toml 接管
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Typography, Button, Card, Space, Tag, Descriptions, Modal, Input, message, Spin } from 'antd'
 import {
   SettingOutlined,
@@ -15,18 +15,43 @@ const { Title, Text } = Typography
 const { TextArea } = Input
 
 export default function CodexPage() {
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [takenOver, setTakenOver] = useState(false)
-  const [configPreview, setConfigPreview] = useState('')
+  const [configContent, setConfigContent] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
+
+  const checkStatus = async () => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const taken: boolean = await invoke('codex_config_is_taken_over')
+      setTakenOver(taken)
+    } catch (e) {
+      console.error('Status check failed:', e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { checkStatus() }, [])
+
+  const handleReadConfig = async () => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const content: string = await invoke('codex_config_read')
+      setConfigContent(content || '(空)')
+      setPreviewOpen(true)
+    } catch (e) {
+      message.error(`读取失败: ${e}`)
+    }
+  }
 
   const handleTakeover = async () => {
     setLoading(true)
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('codex_config_takeover', { proxyPort: 12345 })
+      const result: string = await invoke('codex_config_takeover')
+      message.success(result)
       setTakenOver(true)
-      message.success('Codex config.toml 已接管')
     } catch (e) {
       message.error(`接管失败: ${e}`)
     } finally {
@@ -38,9 +63,9 @@ export default function CodexPage() {
     setLoading(true)
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('codex_config_restore', {})
+      const result: string = await invoke('codex_config_restore')
+      message.success(result)
       setTakenOver(false)
-      message.success('Codex 官方配置已恢复')
     } catch (e) {
       message.error(`恢复失败: ${e}`)
     } finally {
@@ -48,27 +73,8 @@ export default function CodexPage() {
     }
   }
 
-  const handlePreview = async () => {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      const content: string = await invoke('codex_config_read', {})
-      setConfigPreview(content || '(config.toml 为空或不存在)')
-      setPreviewOpen(true)
-    } catch {
-      setConfigPreview('(读取失败)')
-      setPreviewOpen(true)
-    }
-  }
-
-  const handleCheckStatus = async () => {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      const status: boolean = await invoke('codex_config_is_taken_over', {})
-      setTakenOver(status)
-      message.info(status ? '当前状态: 已接管' : '当前状态: 官方配置')
-    } catch {
-      message.error('状态查询失败')
-    }
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 80 }}><Spin size='large' /></div>
   }
 
   return (
@@ -79,46 +85,24 @@ export default function CodexPage() {
             <SettingOutlined style={{ marginRight: 8 }} />
             Codex
           </Title>
-          <Text type='secondary'>
-            配置级接入点 — 接管 ~/.codex/config.toml，指向本地代理
-          </Text>
+          <Text type='secondary'>配置级接入点 — 接管 ~/.codex/config.toml</Text>
         </div>
-        <Space>
-          <Button icon={<EyeOutlined />} onClick={handlePreview}>
-            查看配置
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={handleCheckStatus}>
-            检测状态
-          </Button>
-        </Space>
+        <Button icon={<EyeOutlined />} onClick={handleReadConfig}>查看配置</Button>
       </div>
-
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 40 }}>
-          <Spin size='large' />
-        </div>
-      )}
 
       <Card variant='outlined' style={{ marginTop: 16 }}>
         <Descriptions column={1} size='small'>
-          <Descriptions.Item label='接入形态'>
-            <Tag color='purple'>配置级接管</Tag>
+          <Descriptions.Item label='接入形态'><Tag color='purple'>配置级接管</Tag></Descriptions.Item>
+          <Descriptions.Item label='配置文件'><Text code>~/.codex/config.toml</Text></Descriptions.Item>
+          <Descriptions.Item label='当前状态'>
+            {takenOver
+              ? <Tag color='green' icon={<CheckCircleOutlined />}>已接管 — 指向本地代理</Tag>
+              : <Tag icon={<ExclamationCircleOutlined />}>官方配置</Tag>}
           </Descriptions.Item>
-          <Descriptions.Item label='配置文件'>
-            <Text code>~/.codex/config.toml</Text>
-          </Descriptions.Item>
-          <Descriptions.Item label='接管状态'>
-            {takenOver ? (
-              <Tag color='green' icon={<CheckCircleOutlined />}>已接管</Tag>
-            ) : (
-              <Tag icon={<ExclamationCircleOutlined />}>官方配置</Tag>
-            )}
-          </Descriptions.Item>
-          <Descriptions.Item label='接入方式'>
+          <Descriptions.Item label='说明'>
             <Text type='secondary'>
-              接管后写入 [model_providers.cc-use] block，指向本地代理。
-              不做 launchctl setenv、不碰 auth.json。
-              Desktop 与 CLI 共享同一套配置。
+              接管后在 config.toml 中写入 [model_providers.cc-use] block。
+              Desktop 与 CLI 共享同一配置。不碰 auth.json。
             </Text>
           </Descriptions.Item>
         </Descriptions>
@@ -138,19 +122,8 @@ export default function CodexPage() {
         </div>
       </Card>
 
-      <Modal
-        title='~/.codex/config.toml'
-        open={previewOpen}
-        onCancel={() => setPreviewOpen(false)}
-        footer={null}
-        width={600}
-      >
-        <TextArea
-          value={configPreview}
-          readOnly
-          autoSize={{ minRows: 4, maxRows: 20 }}
-          style={{ fontFamily: 'monospace', fontSize: 12 }}
-        />
+      <Modal title='~/.codex/config.toml' open={previewOpen} onCancel={() => setPreviewOpen(false)} footer={null} width={600}>
+        <TextArea value={configContent} readOnly autoSize={{ minRows: 4, maxRows: 20 }} style={{ fontFamily: 'monospace', fontSize: 12 }} />
       </Modal>
     </div>
   )

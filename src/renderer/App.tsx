@@ -6,12 +6,11 @@ import Sidebar from './components/layout/Sidebar'
 import TitleBar from './components/layout/TitleBar'
 import Dashboard from './pages/Dashboard'
 import Keys from './pages/Keys'
-import Projects from './pages/Projects'
 import Statistics from './pages/Statistics'
 import Settings from './pages/Settings'
-import Sessions from './pages/Sessions'
-import Instances from './pages/Instances'
 import Console from './pages/Console'
+import LaunchPad from './pages/LaunchPad'
+import ClaudeCodePage from './pages/ClaudeCodePage'
 import CodexPage from './pages/CodexPage'
 import ClaudeDesktopPage from './pages/ClaudeDesktopPage'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
@@ -34,34 +33,23 @@ function UpdateBanner() {
     const lastCheckRef = { time: 0 }
     const timer = setTimeout(() => {
       lastCheckRef.time = Date.now()
-      getApi()
-        .app.checkUpdate()
-        .then((result) => {
-          if (result.available) setUpdateInfo(result)
-        })
-        .catch((e) => console.error('Update check failed:', e))
+      getApi().app.checkUpdate().then((result) => {
+        if (result.available) setUpdateInfo(result)
+      }).catch(() => {})
     }, 5000)
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        const elapsed = Date.now() - lastCheckRef.time
-        if (elapsed >= 24 * 60 * 60 * 1000) {
+        if (Date.now() - lastCheckRef.time >= 24 * 60 * 60 * 1000) {
           lastCheckRef.time = Date.now()
-          getApi()
-            .app.checkUpdate()
-            .then((result) => {
-              if (result.available) setUpdateInfo(result)
-            })
-            .catch((e) => console.error('Update check failed:', e))
+          getApi().app.checkUpdate().then((result) => {
+            if (result.available) setUpdateInfo(result)
+          }).catch(() => {})
         }
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
-
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-    }
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibilityChange) }
   }, [])
 
   if (!updateInfo) return null
@@ -70,22 +58,8 @@ function UpdateBanner() {
     <Alert
       message={t('settings.newVersionAvailable')}
       description={t('settings.newVersionDesc', { version: updateInfo.version })}
-      type='info'
-      showIcon
-      closable
-      onClose={() => setUpdateInfo(null)}
-      action={
-        <Button
-          size='small'
-          type='primary'
-          onClick={() => {
-            navigate('/settings')
-            setUpdateInfo(null)
-          }}
-        >
-          {t('settings.goToDownload')}
-        </Button>
-      }
+      type='info' showIcon closable onClose={() => setUpdateInfo(null)}
+      action={<Button size='small' type='primary' onClick={() => { navigate('/settings'); setUpdateInfo(null) }}>{t('settings.goToDownload')}</Button>}
       style={{ marginBottom: 16 }}
     />
   )
@@ -100,52 +74,24 @@ function MigrationModal() {
   useEffect(() => {
     let unlisten: (() => void) | null = null
     import('@tauri-apps/api/event').then(({ listen }) => {
-      listen<boolean>('app:migrationAvailable', () => {
-        setVisible(true)
-      }).then((fn) => {
-        unlisten = fn
-      })
+      listen<boolean>('app:migrationAvailable', () => setVisible(true)).then((fn) => { unlisten = fn })
     })
-    return () => {
-      unlisten?.()
-    }
+    return () => { unlisten?.() }
   }, [])
 
   const handleMigrate = useCallback(async () => {
     setMigrating(true)
     try {
       const result = await getApi().importExport.migrateFromElectron()
-      if (result.success) {
-        message.success(
-          t('migration.successDetail', {
-            providers: result.providers,
-            apiKeys: result.apiKeys,
-            projects: result.projects,
-          }),
-        )
-        setVisible(false)
-        setTimeout(() => window.location.reload(), 500)
-      }
-    } catch (e) {
-      message.error(`${t('migration.failed')}: ${e}`)
-    } finally {
-      setMigrating(false)
-    }
+      if (result.success) { message.success(t('migration.successDetail', { providers: result.providers, apiKeys: result.apiKeys, projects: result.projects })); setVisible(false); setTimeout(() => window.location.reload(), 500) }
+    } catch (e) { message.error(`${t('migration.failed')}: ${e}`) }
+    finally { setMigrating(false) }
   }, [message, t])
 
   return (
-    <Modal
-      title={t('migration.title')}
-      open={visible}
-      onOk={handleMigrate}
-      onCancel={() => setVisible(false)}
-      okText={t('migration.confirm')}
-      cancelText={t('migration.cancel')}
-      confirmLoading={migrating}
-      closable={!migrating}
-      maskClosable={!migrating}
-      focusable={{ focusTriggerAfterClose: false }}
-    >
+    <Modal title={t('migration.title')} open={visible} onOk={handleMigrate} onCancel={() => setVisible(false)}
+      okText={t('migration.confirm')} cancelText={t('migration.cancel')} confirmLoading={migrating}
+      closable={!migrating} maskClosable={!migrating} focusable={{ focusTriggerAfterClose: false }}>
       <p>{t('migration.description')}</p>
     </Modal>
   )
@@ -155,18 +101,12 @@ function AppContent() {
   const { token } = theme.useToken()
   const { message } = AntdApp.useApp()
   useAntdTokenSync()
-
   setGlobalMessage(message)
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === 'r') {
-        e.preventDefault()
-        window.location.reload()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    const h = (e: KeyboardEvent) => { if (e.metaKey && e.key === 'r') { e.preventDefault(); window.location.reload() } }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
   }, [])
 
   return (
@@ -174,72 +114,31 @@ function AppContent() {
       <Sidebar />
       <Layout style={{ background: token.colorBgLayout }}>
         <TitleBar />
-        <Content
-          style={{
-            padding: 24,
-            overflow: 'hidden',
-            height: 'calc(100vh - 36px)',
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
+        <Content style={{ padding: 24, overflow: 'hidden', height: 'calc(100vh - 36px)', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <UpdateBanner />
           <MigrationModal />
           <Routes>
             <Route path='/' element={<Dashboard />} />
-
-            {/* Claude Code */}
-            <Route path='/projects' element={<Projects />} />
-            <Route path='/instances' element={<Instances />} />
-            <Route path='/sessions' element={<Sessions />} />
-
-            {/* Codex & Claude Desktop */}
+            <Route path='/launch' element={<LaunchPad />} />
+            <Route path='/claude-code' element={<ClaudeCodePage />} />
             <Route path='/codex' element={<CodexPage />} />
             <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
-
-            {/* 上游 */}
             <Route path='/keys' element={<Keys />} />
-
-            {/* 观测 */}
             <Route path='/stats' element={<Statistics />} />
             <Route path='/statistics' element={<Navigate to='/stats' replace />} />
             <Route path='/console' element={<Console />} />
-
-            {/* 系统 */}
             <Route path='/settings' element={<Settings />} />
-
             {/* 旧路由兼容 */}
+            <Route path='/projects' element={<Navigate to='/claude-code' replace />} />
+            <Route path='/instances' element={<Navigate to='/claude-code' replace />} />
+            <Route path='/sessions' element={<Navigate to='/claude-code' replace />} />
             <Route path='/providers' element={<Navigate to='/keys' replace />} />
-            <Route path='/launch' element={<Navigate to='/codex' replace />} />
-            <Route path='/integrations' element={<Navigate to='/codex' replace />} />
-
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>
         </Content>
       </Layout>
       {import.meta.env.DEV && (
-        <div
-          style={{
-            position: 'fixed',
-            right: 12,
-            bottom: 12,
-            padding: '2px 8px',
-            fontSize: 11,
-            fontWeight: 600,
-            fontFamily: 'JetBrains Mono, monospace',
-            color: '#fff',
-            background: token.colorPrimary,
-            borderRadius: 4,
-            opacity: 0.75,
-            zIndex: 9999,
-            pointerEvents: 'none',
-            userSelect: 'none',
-            letterSpacing: 0.5,
-          }}
-        >
-          DEV
-        </div>
+        <div style={{ position: 'fixed', right: 12, bottom: 12, padding: '2px 8px', fontSize: 11, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace', color: '#fff', background: token.colorPrimary, borderRadius: 4, opacity: 0.75, zIndex: 9999, pointerEvents: 'none', userSelect: 'none', letterSpacing: 0.5 }}>DEV</div>
       )}
     </Layout>
   )

@@ -109,6 +109,18 @@ pub fn run() {
             // Icon commands
             commands::system::icon_upload,
             commands::system::icon_list,
+            // Codex config commands
+            commands::codex_config::codex_config_read,
+            commands::codex_config::codex_config_is_taken_over,
+            commands::codex_config::codex_config_takeover,
+            commands::codex_config::codex_config_restore,
+            commands::codex_config::codex_config_list_backups,
+            // Claude Desktop config commands
+            commands::claude_desktop_config::claude_desktop_config_read,
+            commands::claude_desktop_config::claude_desktop_schema_detect,
+            commands::claude_desktop_config::claude_desktop_config_takeover,
+            commands::claude_desktop_config::claude_desktop_config_restore,
+            commands::claude_desktop_config::claude_desktop_config_list_backups,
             // App commands
             commands::system::app_get_version,
             // Auto-launch + global shortcut commands

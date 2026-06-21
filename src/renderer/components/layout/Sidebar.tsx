@@ -9,6 +9,7 @@ import {
   MonitorOutlined,
   CodeOutlined,
   DesktopOutlined,
+  RocketOutlined,
 } from '@ant-design/icons'
 
 const { Sider } = Layout
@@ -26,33 +27,26 @@ export default function Sidebar() {
       label: t('common.dashboard'),
     },
     {
-      key: '/claude-code',
-      icon: <CodeOutlined />,
-      label: 'Claude Code',
+      key: 'launch',
+      icon: <RocketOutlined />,
+      label: t('launchpad.title') || '启动台',
       children: [
         {
-          key: '/projects',
-          label: t('common.projects') || '项目',
+          key: '/claude-code',
+          icon: <CodeOutlined />,
+          label: 'Claude Code',
         },
         {
-          key: '/instances',
-          label: t('instances.title') || '实例',
+          key: '/codex',
+          icon: <CodeOutlined />,
+          label: 'Codex',
         },
         {
-          key: '/sessions',
-          label: '会话',
+          key: '/claude-desktop',
+          icon: <DesktopOutlined />,
+          label: 'Claude Desktop',
         },
       ],
-    },
-    {
-      key: '/codex',
-      icon: <CodeOutlined />,
-      label: 'Codex',
-    },
-    {
-      key: '/claude-desktop',
-      icon: <DesktopOutlined />,
-      label: 'Claude Desktop',
     },
     {
       key: '/keys',
@@ -79,6 +73,7 @@ export default function Sidebar() {
   const selectedKey = (() => {
     const p = location.pathname
     if (p === '/statistics') return '/stats'
+    if (p === '/projects' || p === '/instances' || p === '/sessions') return '/claude-code'
     return p
   })()
 
@@ -96,9 +91,7 @@ export default function Sidebar() {
         selectedKeys={[selectedKey]}
         items={menuItems}
         onClick={({ key }) => {
-          // 只导航叶子节点，父级菜单只展开/折叠
-          const isParent = menuItems.some((item) => item.key === key && 'children' in item && item.children != null)
-          if (!isParent) navigate(key)
+          if (key !== 'launch') navigate(key)
         }}
         style={{
           background: 'transparent',
