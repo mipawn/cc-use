@@ -8,6 +8,7 @@ pub mod proxy;
 pub mod services;
 pub mod terminal;
 pub mod tray;
+pub mod codex_config;
 
 use db::Database;
 use models::ProxyStatus;
