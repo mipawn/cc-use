@@ -455,9 +455,7 @@ fn get_proxy_port(db: &Database) -> i32 {
         .unwrap_or(12345)
 }
 
-fn gen_route_token() -> String {
-    format!("rt_{}", nanoid::nanoid!(32))
-}
+use crate::shared_runtime::session_token::new_session_token;
 
 #[tauri::command]
 pub fn codex_config_read() -> Result<String, String> {
@@ -481,8 +479,7 @@ pub fn codex_config_takeover(
     let (port, session_token) = {
         let db = db.lock().map_err(|e| e.to_string())?;
         let port = get_proxy_port(&db);
-        // 创建持久 session,用于代理识别此接入点的 route
-        let session_token = gen_route_token();
+        let session_token = new_session_token();
         let session = ProxySession {
             session_token: session_token.clone(),
             provider_id: provider_id.clone(),
@@ -496,8 +493,8 @@ pub fn codex_config_takeover(
         (port, session_token)
     };
     let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
-    let backup = mgr.takeover(&session_token, port as u16).map_err(|e| e.to_string())?;
-    Ok(format!("接管成功, route 已绑定, config.toml 已写入"))
+    mgr.takeover(&session_token, port as u16).map_err(|e| e.to_string())?;
+    Ok("接管成功, route 已绑定, config.toml 已写入".to_string())
 }
 
 #[tauri::command]
