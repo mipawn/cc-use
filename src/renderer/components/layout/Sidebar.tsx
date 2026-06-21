@@ -95,7 +95,11 @@ export default function Sidebar() {
         mode='inline'
         selectedKeys={[selectedKey]}
         items={menuItems}
-        onClick={({ key }) => navigate(key)}
+        onClick={({ key }) => {
+          // 只导航叶子节点，父级菜单只展开/折叠
+          const isParent = menuItems.some((item) => item.key === key && 'children' in item && item.children != null)
+          if (!isParent) navigate(key)
+        }}
         style={{
           background: 'transparent',
           borderRight: 'none',
