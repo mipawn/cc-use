@@ -18,7 +18,7 @@
 //!
 //! 注：响应方向（Chat → Responses，含 SSE 重建）见 `chat_to_codex`。
 
-use crate::proxy::transform::TransformedRequest;
+use crate::proxy::transform::{reasoning::is_reasoning_model, tools::flatten_tool_name, TransformedRequest};
 use serde_json::{json, Map, Value};
 
 /// 将 Codex Responses 请求转换为 OpenAI Chat Completions 请求。
@@ -169,21 +169,6 @@ fn tool_to_chat_tool(tool: &Value) -> Option<Value> {
     Some(json!({ "type": "function", "function": function }))
 }
 
-/// 命名空间工具名拍平 + 截断到 64 字符（OpenAI function name 上限）。
-fn flatten_tool_name(name: &str) -> String {
-    let flat: String = name
-        .chars()
-        .map(|c| match c {
-            '.' | '/' | ' ' | ':' => '_',
-            other => other,
-        })
-        .collect();
-    if flat.chars().count() > 64 {
-        flat.chars().take(64).collect()
-    } else {
-        flat
-    }
-}
 
 /// 多条 system 合并到首条（MiniMax 等要求 system 单条置顶）。
 fn collapse_system_messages_to_head(messages: &mut Vec<Value>) {
@@ -200,10 +185,6 @@ fn collapse_system_messages_to_head(messages: &mut Vec<Value>) {
     messages.insert(0, json!({ "role": "system", "content": merged }));
 }
 
-fn is_reasoning_model(model: &str) -> bool {
-    let m = model.to_lowercase();
-    m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") || m.starts_with("gpt-5")
-}
 
 fn value_to_text(v: &Value) -> String {
     match v {

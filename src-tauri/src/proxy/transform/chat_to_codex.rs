@@ -19,8 +19,11 @@
 //! data: {"type":"done"}
 //! ```
 
-use crate::proxy::transform::sse_parser::{serialize_sse_event, SseEvent, SseParser};
-use serde_json::{json, Value};
+use crate::proxy::transform::{
+    reasoning::extract_reasoning_content,
+    sse_parser::{serialize_sse_event, SseParser},
+};
+use serde_json::json;
 
 /// 流式响应转换状态
 pub struct StreamTransformer {
@@ -85,19 +88,15 @@ impl StreamTransformer {
                             }
 
                             // reasoning_content（DeepSeek R1）
-                            if let Some(reasoning) =
-                                delta.get("reasoning_content").and_then(|v| v.as_str())
-                            {
-                                if !reasoning.is_empty() {
-                                    let reasoning_event = json!({
-                                        "type": "reasoning",
-                                        "reasoning": reasoning
-                                    });
-                                    output.extend(serialize_sse_event(
-                                        None,
-                                        &reasoning_event.to_string(),
-                                    ));
-                                }
+                            if let Some(reasoning) = extract_reasoning_content(delta) {
+                                let reasoning_event = json!({
+                                    "type": "reasoning",
+                                    "reasoning": reasoning
+                                });
+                                output.extend(serialize_sse_event(
+                                    None,
+                                    &reasoning_event.to_string(),
+                                ));
                             }
                         }
 
