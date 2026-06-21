@@ -6,12 +6,15 @@ import Sidebar from './components/layout/Sidebar'
 import TitleBar from './components/layout/TitleBar'
 import Dashboard from './pages/Dashboard'
 import Keys from './pages/Keys'
+import Providers from './pages/Providers'
 import Projects from './pages/Projects'
 import Statistics from './pages/Statistics'
 import Settings from './pages/Settings'
 import Sessions from './pages/Sessions'
 import Instances from './pages/Instances'
 import Console from './pages/Console'
+import LaunchPad from './pages/LaunchPad'
+import Integrations from './pages/Integrations'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
@@ -31,7 +34,6 @@ function UpdateBanner() {
   useEffect(() => {
     const lastCheckRef = { time: 0 }
 
-    // Check on startup (delayed)
     const timer = setTimeout(() => {
       lastCheckRef.time = Date.now()
       getApi()
@@ -124,7 +126,6 @@ function MigrationModal() {
           }),
         )
         setVisible(false)
-        // Reload to pick up migrated data
         setTimeout(() => window.location.reload(), 500)
       }
     } catch (e) {
@@ -157,7 +158,6 @@ function AppContent() {
   const { message } = AntdApp.useApp()
   useAntdTokenSync()
 
-  // Initialize global message reference for non-component code
   setGlobalMessage(message)
 
   useEffect(() => {
@@ -189,15 +189,29 @@ function AppContent() {
           <UpdateBanner />
           <MigrationModal />
           <Routes>
+            {/* 概览 */}
             <Route path='/' element={<Dashboard />} />
-            <Route path='/keys' element={<Keys />} />
-            <Route path='/providers' element={<Keys />} />
+
+            {/* 接入 */}
+            <Route path='/launch' element={<LaunchPad />} />
+            <Route path='/integrations' element={<Integrations />} />
             <Route path='/projects' element={<Projects />} />
-            <Route path='/statistics' element={<Statistics />} />
-            <Route path='/sessions' element={<Sessions />} />
             <Route path='/instances' element={<Instances />} />
+            <Route path='/sessions' element={<Sessions />} />
+
+            {/* 上游 */}
+            <Route path='/providers' element={<Providers />} />
+            <Route path='/keys' element={<Keys />} />
+
+            {/* 观测 */}
+            <Route path='/stats' element={<Statistics />} />
+            <Route path='/statistics' element={<Navigate to='/stats' replace />} />
             <Route path='/console' element={<Console />} />
+
+            {/* 系统 */}
             <Route path='/settings' element={<Settings />} />
+
+            {/* Fallback */}
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>
         </Content>

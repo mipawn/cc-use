@@ -10,6 +10,9 @@ import {
   DatabaseOutlined,
   DeploymentUnitOutlined,
   MonitorOutlined,
+  RocketOutlined,
+  ApiOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons'
 
 const { Sider } = Layout
@@ -21,50 +24,104 @@ export default function Sidebar() {
   const { token } = theme.useToken()
 
   const menuItems = [
+    // ── 概览 ──
     {
-      key: '/',
-      icon: <HomeOutlined />,
-      label: t('common.dashboard'),
+      type: 'group' as const,
+      label: t('sidebar.overview') || '概览',
+      children: [
+        {
+          key: '/',
+          icon: <HomeOutlined />,
+          label: t('common.dashboard'),
+        },
+      ],
     },
+    // ── 接入 ──
     {
-      key: '/keys',
-      icon: <KeyOutlined />,
-      label: t('keys.title') || 'API 密钥',
+      type: 'group' as const,
+      label: t('sidebar.access') || '接入',
+      children: [
+        {
+          key: '/launch',
+          icon: <RocketOutlined />,
+          label: t('sidebar.launchpad') || '启动台',
+        },
+        {
+          key: '/integrations',
+          icon: <ApiOutlined />,
+          label: t('sidebar.integrations') || '接入点',
+        },
+        {
+          key: '/projects',
+          icon: <FolderOutlined />,
+          label: t('common.projects'),
+        },
+        {
+          key: '/instances',
+          icon: <DeploymentUnitOutlined />,
+          label: t('instances.title'),
+        },
+        {
+          key: '/sessions',
+          icon: <DatabaseOutlined />,
+          label: t('sidebar.sessions') || '会话',
+        },
+      ],
     },
+    // ── 上游 ──
     {
-      key: '/projects',
-      icon: <FolderOutlined />,
-      label: t('common.projects'),
+      type: 'group' as const,
+      label: t('sidebar.upstream') || '上游',
+      children: [
+        {
+          key: '/providers',
+          icon: <CloudServerOutlined />,
+          label: t('sidebar.providers') || '供应商',
+        },
+        {
+          key: '/keys',
+          icon: <KeyOutlined />,
+          label: t('sidebar.keys') || '密钥',
+        },
+      ],
     },
+    // ── 观测 ──
     {
-      key: '/statistics',
-      icon: <BarChartOutlined />,
-      label: t('statistics.title') || '使用统计',
+      type: 'group' as const,
+      label: t('sidebar.observe') || '观测',
+      children: [
+        {
+          key: '/stats',
+          icon: <BarChartOutlined />,
+          label: t('sidebar.stats') || '费用统计',
+        },
+        {
+          key: '/console',
+          icon: <MonitorOutlined />,
+          label: t('console.title'),
+        },
+      ],
     },
+    // ── 系统 ──
     {
-      key: '/sessions',
-      icon: <DatabaseOutlined />,
-      label: '会话管理',
-    },
-    {
-      key: '/instances',
-      icon: <DeploymentUnitOutlined />,
-      label: t('instances.title'),
-    },
-    {
-      key: '/console',
-      icon: <MonitorOutlined />,
-      label: t('console.title'),
-    },
-    {
-      key: '/settings',
-      icon: <SettingOutlined />,
-      label: t('common.settings'),
+      type: 'group' as const,
+      label: t('sidebar.system') || '系统',
+      children: [
+        {
+          key: '/settings',
+          icon: <SettingOutlined />,
+          label: t('common.settings'),
+        },
+      ],
     },
   ]
 
-  // Map /providers to /keys for backward compatibility
-  const selectedKey = location.pathname === '/providers' ? '/keys' : location.pathname
+  // Backward compatibility: map old paths to new ones
+  const selectedKey = (() => {
+    const p = location.pathname
+    if (p === '/statistics') return '/stats'
+    return p
+  })()
 
   return (
     <Sider
