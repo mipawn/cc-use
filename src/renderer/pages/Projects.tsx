@@ -75,8 +75,8 @@ function getProviderIconSrc(provider: Provider | null): string {
 }
 
 // CLI type icon component
-const CliTypeIcon = ({ type, size = 14 }: { type: 'claude' | 'codex'; size?: number }) => {
-  const icon = type === 'claude' ? claudeIcon : openaiIcon
+const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => {
+  const icon = type === 'claude' || type === 'claude_code' || type === 'claude_desktop' ? claudeIcon : openaiIcon
   return <img src={icon} alt={type} style={{ width: size, height: size }} />
 }
 

@@ -1,5 +1,6 @@
 // Provider types - only claude and codex are supported
-export type ProviderType = 'claude' | 'codex'
+// v3.2.0: 改为 string 别名以兼容 ClientKind
+export type ProviderType = string
 
 // v3.2.0: ClientKind - 客户端类型 (替代 ProviderType)
 // ProviderType 混淆了供应商、客户端、协议格式,逐步迁移到 ClientKind
@@ -110,7 +111,7 @@ export interface UsageData {
 
 // Provider type configuration for environment variable injection
 export interface ProviderTypeConfig {
-  type: ProviderType
+  type: string // v3.2.0: 改为 string 以支持 ClientKind
   label: string
   envKeyName: string
   envBaseUrlName: string
@@ -139,7 +140,7 @@ export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
 ]
 
 // Helper function to get provider type config
-export function getProviderTypeConfig(type: ProviderType): ProviderTypeConfig {
+export function getProviderTypeConfig(type: string): ProviderTypeConfig {
   const config = PROVIDER_TYPE_CONFIGS.find((c) => c.type === type)
   if (!config) {
     return PROVIDER_TYPE_CONFIGS[0] // Default to claude
@@ -169,7 +170,7 @@ export interface Provider {
   id: string
   name: string
   baseUrl: string
-  type?: ProviderType // Deprecated - type is now on ApiKey, kept for backward compatibility
+  type?: string // v3.2.0: 改为 string,兼容 ProviderType 和 ClientKind (Deprecated - type is now on ApiKey, kept for backward compatibility)
   website: string | null
   remark: string | null
   token: string | null
@@ -201,7 +202,7 @@ export interface Provider {
 export interface CreateProviderInput {
   name: string
   baseUrl: string
-  type?: ProviderType
+  type?: string // v3.2.0: 改为 string,支持 ClientKind
   website?: string
   remark?: string
   token?: string
@@ -234,7 +235,7 @@ export interface ApiKey {
   providerId: string
   alias: string | null
   value: string
-  types: ProviderType[] // supports multiple types
+  types: string[] // v3.2.0: 改为 string[],supports multiple types including ClientKind
   priority: number
   isExhausted: boolean
   isActive: boolean
@@ -260,7 +261,7 @@ export interface CreateApiKeyInput {
   providerId: string
   alias?: string
   value: string
-  types?: ProviderType[] // defaults to ['claude']
+  types?: string[] // v3.2.0: 改为 string[],defaults to ['claude']
   priority?: number
   isActive?: boolean
   config?: CliConfig
@@ -276,7 +277,7 @@ export interface UpdateApiKeyInput {
   id: string
   alias?: string
   value?: string
-  types?: ProviderType[]
+  types?: string[] // v3.2.0: 改为 string[]
   priority?: number
   isExhausted?: boolean
   isActive?: boolean

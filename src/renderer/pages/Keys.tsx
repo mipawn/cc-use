@@ -53,8 +53,11 @@ import ProviderModal from '../components/providers/ProviderModal'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
 import QuickAddModal from '../components/providers/QuickAddModal'
-import type { Provider, ApiKey, ProviderType } from '@shared/types'
-import { getProviderTypeConfig, formatEnvCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
+import type { Provider, ApiKey } from '@shared/types'
+import {
+  formatEnvCommand,
+  TERMINAL_TYPE_LABELS,
+} from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { buildQuickAddPayload } from './keysQuickAdd'
 import styles from './Keys.module.css'
@@ -110,10 +113,12 @@ import newapiIcon from '../assets/provider-icons/newapi.svg'
 
 const { Title, Text } = Typography
 
-// Type icon mapping
-const TYPE_ICONS: Record<ProviderType, string> = {
+// Type icon mapping (compatible with legacy ProviderType)
+const TYPE_ICONS: Record<string, string> = {
   claude: claudeIcon,
+  claude_code: claudeIcon,
   codex: openaiIcon,
+  claude_desktop: claudeIcon,
 }
 
 // Preset provider icon mapping
@@ -256,7 +261,7 @@ export default function Keys() {
     providerIcon: string
     keyAlias?: string
     keyValue: string
-    keyType: ProviderType[]
+    keyType: string[] // v3.2.0: 改为 string[] 以支持 ClientKind
     apiFormat?: string
     transformEnabled?: boolean
   }) => {
@@ -397,30 +402,33 @@ export default function Keys() {
 
   // Generate command based on proxy status and terminal type
   const generateCommand = (
-    type: ProviderType,
+    type: string, // v3.2.0: 改为 string 以支持 ClientKind
     provider: Provider,
     key: ApiKey,
     useProxy: boolean,
   ): string => {
-    const config = getProviderTypeConfig(type)
+    // 兼容处理: 如果是 ClientKind, 转换为 legacy 环境变量
+    const isCodex = type === 'codex'
     const envVars: Record<string, string> = {}
 
     if (useProxy && proxyStatus.isRunning && proxySessionToken) {
       const baseUrl = `http://localhost:${proxyStatus.port}`
-      envVars[config.envBaseUrlName] = baseUrl
-      if (type === 'codex') {
-        envVars[config.envKeyName] = proxySessionToken
+      if (isCodex) {
+        envVars['OPENAI_BASE_URL'] = baseUrl
+        envVars['OPENAI_API_KEY'] = proxySessionToken
       } else {
+        envVars['ANTHROPIC_BASE_URL'] = baseUrl
         envVars['API_TIMEOUT_MS'] = '3000000'
         envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
         envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
         envVars['ANTHROPIC_AUTH_TOKEN'] = proxySessionToken
       }
     } else {
-      envVars[config.envBaseUrlName] = provider.baseUrl
-      if (type === 'codex') {
-        envVars[config.envKeyName] = key.value
+      if (isCodex) {
+        envVars['OPENAI_BASE_URL'] = provider.baseUrl
+        envVars['OPENAI_API_KEY'] = key.value
       } else {
+        envVars['ANTHROPIC_BASE_URL'] = provider.baseUrl
         envVars['API_TIMEOUT_MS'] = '3000000'
         envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
         envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
@@ -428,7 +436,8 @@ export default function Keys() {
       }
     }
 
-    return formatEnvCommand(envVars, config.cliCommand)
+    const cliCommand = isCodex ? 'codex' : 'claude'
+    return formatEnvCommand(envVars, cliCommand)
   }
 
   // Handle edit key
@@ -480,7 +489,7 @@ export default function Keys() {
     providerId: string
     alias?: string
     value: string
-    types: ProviderType[]
+    types: string[] // v3.2.0: 改为 string[] 以支持 ClientKind
     config?: Record<string, unknown>
     costMultiplier?: number
     usageType?: 'none' | 'newapi' | 'custom'

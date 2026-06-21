@@ -240,7 +240,7 @@ export default function KeyEditModal({
       .terminal.getLaunchPreview({
         providerId,
         apiKeyId: apiKey.id,
-        cliType: activeConfigType,
+        cliType: activeConfigType as any, // v3.2.0: as any 兼容 string
       })
       .then(setLaunchPreview)
       .catch(() => setLaunchPreview(null))

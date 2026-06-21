@@ -1,4 +1,4 @@
-import type { CreateApiKeyInput, CreateProviderInput, ProviderType } from '@shared/types'
+import type { CreateApiKeyInput, CreateProviderInput } from '@shared/types'
 
 interface QuickAddInput {
   providerName: string
@@ -6,7 +6,7 @@ interface QuickAddInput {
   providerIcon: string
   keyAlias?: string
   keyValue: string
-  keyType: ProviderType[]
+  keyType: string[] // v3.2.0: 改为 string[] 以支持 ClientKind
   // v3.2.0: 格式转换
   apiFormat?: string
   transformEnabled?: boolean

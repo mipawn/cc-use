@@ -51,7 +51,7 @@ export default function KeyDetailModal({
     if (!open) return
     const cliType = apiKey.types[0] || 'claude'
     getApi()
-      .terminal.getLaunchPreview({ apiKeyId: apiKey.id, cliType })
+      .terminal.getLaunchPreview({ apiKeyId: apiKey.id, cliType: cliType as any }) // v3.2.0: as any 兼容 string
       .then(setPreview)
       .catch(() => setPreview(null))
   }, [open, apiKey.id, apiKey.types])
