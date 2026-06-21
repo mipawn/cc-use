@@ -313,14 +313,21 @@ pub async fn proxy_handler(
     };
 
     let client = reqwest::Client::new();
-    // 使用转换后的路径构建完整 URL
+    // 构建上游 URL。注意 upstream_url 已经包含原始 req_path
+    // （见 build_provider_upstream_url / build_official_upstream_url），所以：
+    // - final_path 是完整 URL：直接使用；
+    // - 未转换（final_path == req_path）：直接用 upstream_url，避免把 req_path 拼第二次；
+    // - 转换改写了路径：剥掉 upstream_url 末尾的原 req_path，再接转换后的 final_path。
     let final_url = if final_path.starts_with("http://") || final_path.starts_with("https://") {
         final_path
+    } else if final_path == req_path {
+        route_execution.upstream_url.clone()
     } else {
-        // 路径是相对的，拼接 base_url
-        let base = route_execution.upstream_url.trim_end_matches('/');
-        let path = final_path.trim_start_matches('/');
-        format!("{}/{}", base, path)
+        let base = route_execution
+            .upstream_url
+            .strip_suffix(req_path.as_str())
+            .unwrap_or(&route_execution.upstream_url);
+        format!("{}{}", base.trim_end_matches('/'), final_path)
     };
     let mut req_builder = client.request(method, &final_url);
 

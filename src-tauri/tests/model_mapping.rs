@@ -74,6 +74,8 @@ fn setup_provider_with_mapping(
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .expect("create provider");
 

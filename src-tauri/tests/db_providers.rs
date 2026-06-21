@@ -26,6 +26,8 @@ fn provider_crud() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .unwrap();
 
@@ -64,6 +66,8 @@ fn provider_create_returns_proper_result() {
         usage_url: None,
         usage_path: None,
         usage_headers: None,
+        api_format: None,
+        transform_enabled: None,
     });
     assert!(result.is_ok());
 }
@@ -98,6 +102,8 @@ fn provider_get_direct_query() {
                 usage_url: None,
                 usage_path: None,
                 usage_headers: None,
+                api_format: None,
+                transform_enabled: None,
             })
             .unwrap();
     }
@@ -133,6 +139,8 @@ fn provider_update_no_changes() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .unwrap();
 
@@ -160,6 +168,8 @@ fn provider_update_no_changes() {
         last_usage_checked_at: None,
         cost_multiplier: None,
         is_active: None,
+        api_format: None,
+        transform_enabled: None,
     });
 
     assert!(result.is_ok());
@@ -189,6 +199,8 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .unwrap();
 
@@ -211,6 +223,8 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .unwrap();
 
@@ -233,6 +247,8 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .unwrap();
 

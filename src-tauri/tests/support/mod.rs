@@ -51,6 +51,8 @@ pub fn create_provider(db: &Database, name: &str, provider_type: &str) -> Provid
         usage_url: None,
         usage_path: None,
         usage_headers: None,
+        api_format: None,
+        transform_enabled: None,
     })
     .expect("create provider")
 }
@@ -116,6 +118,7 @@ pub fn create_proxy_session(
         api_key_id: api_key_id.to_string(),
         project_id: project_id.map(|id| id.to_string()),
         created_at: chrono::Utc::now().to_rfc3339(),
+        cli_type: None,
     })
     .expect("create proxy session")
 }

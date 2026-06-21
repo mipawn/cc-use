@@ -80,6 +80,8 @@ fn setup_session_with_type(
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .expect("create provider");
 
@@ -160,6 +162,8 @@ async fn provider_type_none_defaults_to_x_api_key() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .expect("create provider");
 

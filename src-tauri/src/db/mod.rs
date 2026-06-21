@@ -183,7 +183,8 @@ impl Database {
                 provider_id TEXT NOT NULL,
                 api_key_id TEXT NOT NULL,
                 project_id TEXT,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                cli_type TEXT
             );
 
             CREATE TABLE IF NOT EXISTS managed_instances (
@@ -328,6 +329,8 @@ impl Database {
             // v3.2.0: 格式转换支持
             "ALTER TABLE providers ADD COLUMN api_format TEXT DEFAULT 'auto'",
             "ALTER TABLE providers ADD COLUMN transform_enabled INTEGER DEFAULT 0",
+            // v3.2.0: proxy_sessions 记录 CLI 类型，供代理层格式转换判断
+            "ALTER TABLE proxy_sessions ADD COLUMN cli_type TEXT",
         ];
 
         for stmt in &alter_statements {
