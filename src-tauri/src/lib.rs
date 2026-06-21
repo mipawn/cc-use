@@ -9,6 +9,7 @@ pub mod services;
 pub mod terminal;
 pub mod tray;
 pub mod codex_config;
+pub mod claude_desktop_config;
 
 use db::Database;
 use models::ProxyStatus;
