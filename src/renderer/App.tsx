@@ -6,15 +6,14 @@ import Sidebar from './components/layout/Sidebar'
 import TitleBar from './components/layout/TitleBar'
 import Dashboard from './pages/Dashboard'
 import Keys from './pages/Keys'
-import Providers from './pages/Providers'
 import Projects from './pages/Projects'
 import Statistics from './pages/Statistics'
 import Settings from './pages/Settings'
 import Sessions from './pages/Sessions'
 import Instances from './pages/Instances'
 import Console from './pages/Console'
-import LaunchPad from './pages/LaunchPad'
-import Integrations from './pages/Integrations'
+import CodexPage from './pages/CodexPage'
+import ClaudeDesktopPage from './pages/ClaudeDesktopPage'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
@@ -33,7 +32,6 @@ function UpdateBanner() {
 
   useEffect(() => {
     const lastCheckRef = { time: 0 }
-
     const timer = setTimeout(() => {
       lastCheckRef.time = Date.now()
       getApi()
@@ -189,18 +187,18 @@ function AppContent() {
           <UpdateBanner />
           <MigrationModal />
           <Routes>
-            {/* 概览 */}
             <Route path='/' element={<Dashboard />} />
 
-            {/* 接入 */}
-            <Route path='/launch' element={<LaunchPad />} />
-            <Route path='/integrations' element={<Integrations />} />
+            {/* Claude Code */}
             <Route path='/projects' element={<Projects />} />
             <Route path='/instances' element={<Instances />} />
             <Route path='/sessions' element={<Sessions />} />
 
+            {/* Codex & Claude Desktop */}
+            <Route path='/codex' element={<CodexPage />} />
+            <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
+
             {/* 上游 */}
-            <Route path='/providers' element={<Providers />} />
             <Route path='/keys' element={<Keys />} />
 
             {/* 观测 */}
@@ -211,7 +209,11 @@ function AppContent() {
             {/* 系统 */}
             <Route path='/settings' element={<Settings />} />
 
-            {/* Fallback */}
+            {/* 旧路由兼容 */}
+            <Route path='/providers' element={<Navigate to='/keys' replace />} />
+            <Route path='/launch' element={<Navigate to='/codex' replace />} />
+            <Route path='/integrations' element={<Navigate to='/codex' replace />} />
+
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>
         </Content>
