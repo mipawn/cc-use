@@ -3,12 +3,8 @@ export type ProviderType = 'claude' | 'codex'
 export type PresetIcon =
   | 'claude'
   | 'codex'
-  | 'gemini'
-  | 'zhipu'
-  | 'minimax'
-  | 'xiaomi'
   | 'deepseek'
-  | 'sub2api'
+  | 'newapi'
   | 'custom'
 
 // Terminal types

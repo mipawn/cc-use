@@ -217,11 +217,7 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
               claude: 'Claude',
               openai: 'OpenAI',
               deepseek: 'DeepSeek',
-              zhipu: '智谱',
-              minimax: 'MiniMax',
-              siliconflow: '硅基流动',
               newapi: 'NewAPI',
-              sub2api: 'Sub2API',
             }).map(([key, label]) => (
               <div
                 key={key}

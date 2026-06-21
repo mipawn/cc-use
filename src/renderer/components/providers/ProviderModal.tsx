@@ -10,12 +10,8 @@ import styles from './ProviderModal.module.css'
 
 import claudeIcon from '../../assets/provider-icons/claude.svg'
 import openaiIcon from '../../assets/provider-icons/openai.svg'
-import zhipuIcon from '../../assets/provider-icons/zhipu.svg'
-import minimaxIcon from '../../assets/provider-icons/minimax.svg'
 import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
-import siliconflowIcon from '../../assets/provider-icons/siliconflow.svg'
 import newapiIcon from '../../assets/provider-icons/newapi.svg'
-import sub2apiIcon from '../../assets/provider-icons/sub2api.png'
 
 const { Text } = Typography
 const { TextArea } = Input
@@ -24,11 +20,7 @@ const PRESET_ICONS: { key: string; icon: string; label: string }[] = [
   { key: 'claude', icon: claudeIcon, label: 'Claude' },
   { key: 'openai', icon: openaiIcon, label: 'OpenAI' },
   { key: 'deepseek', icon: deepseekIcon, label: 'DeepSeek' },
-  { key: 'zhipu', icon: zhipuIcon, label: '智谱' },
-  { key: 'minimax', icon: minimaxIcon, label: 'MiniMax' },
-  { key: 'siliconflow', icon: siliconflowIcon, label: '硅基流动' },
   { key: 'newapi', icon: newapiIcon, label: 'NewAPI' },
-  { key: 'sub2api', icon: sub2apiIcon, label: 'Sub2API' },
 ]
 
 const PRESET_ICON_MAP: Record<string, string> = Object.fromEntries(

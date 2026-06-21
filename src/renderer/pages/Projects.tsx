@@ -36,12 +36,8 @@ import {
 // Import provider icons
 import claudeIcon from '../assets/provider-icons/claude.svg'
 import openaiIcon from '../assets/provider-icons/openai.svg'
-import zhipuIcon from '../assets/provider-icons/zhipu.svg'
-import minimaxIcon from '../assets/provider-icons/minimax.svg'
 import deepseekIcon from '../assets/provider-icons/deepseek.svg'
-import siliconflowIcon from '../assets/provider-icons/siliconflow.svg'
 import newapiIcon from '../assets/provider-icons/newapi.svg'
-import sub2apiIcon from '../assets/provider-icons/sub2api.png'
 
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../stores/projectStore'
@@ -60,12 +56,8 @@ const PRESET_ICON_MAP: Record<string, string> = {
   claude: claudeIcon,
   codex: openaiIcon,
   openai: openaiIcon,
-  zhipu: zhipuIcon,
-  minimax: minimaxIcon,
   deepseek: deepseekIcon,
-  siliconflow: siliconflowIcon,
   newapi: newapiIcon,
-  sub2api: sub2apiIcon,
 }
 
 // Get provider icon src
