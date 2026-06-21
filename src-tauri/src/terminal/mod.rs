@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 
 pub mod iterm2;
 pub mod mac_terminal;
-pub mod codex_app;
 pub mod launcher;
 
 const MANAGED_INSTANCE_HEARTBEAT_INTERVAL_SECS: u64 = 5;

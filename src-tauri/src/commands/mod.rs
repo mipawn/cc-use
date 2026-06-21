@@ -1,6 +1,5 @@
 pub mod api_keys;
 pub mod balance;
-pub mod codex_app;
 pub mod import_export;
 pub mod managed_instances;
 pub mod projects;
@@ -12,3 +11,5 @@ pub mod statistics;
 pub mod system;
 pub mod system_ext;
 pub mod terminal;
+pub mod codex_config;
+pub mod claude_desktop_config;
