@@ -124,7 +124,7 @@ export default function Projects() {
   // Check if the key supports the project's CLI type
   const isKeyCompatible = (project: Project, apiKey: ApiKey | null): boolean => {
     if (!apiKey) return false
-    return apiKey.types.includes(project.cliType || 'claude')
+    return apiKey.types.includes(project.cliType || 'claude_code')
   }
 
   const formatDate = (timestamp: string | null) => {
@@ -179,7 +179,7 @@ export default function Projects() {
       path: project.path,
       remark: project.remark,
       key: project.providerId && project.apiKeyId ? [project.providerId, project.apiKeyId] : null,
-      cliType: project.cliType || 'claude',
+      cliType: project.cliType || 'claude_code',
     })
     setModalOpen(true)
   }
@@ -390,7 +390,7 @@ export default function Projects() {
                 const provider = getProvider(project.providerId)
                 const apiKey = getApiKey(project.apiKeyId)
                 const hasKey = !!project.providerId && !!project.apiKeyId
-                const cliType = project.cliType || 'claude'
+                const cliType = project.cliType || 'claude_code'
                 const keyCompatible = isKeyCompatible(project, apiKey)
                 const canOpen = hasKey && keyCompatible
                 const remark = project.remark?.trim()
@@ -407,24 +407,14 @@ export default function Projects() {
                         menu={{
                           items: [
                             {
-                              key: 'claude',
+                              key: 'claude_code',
                               label: (
                                 <Space size={6}>
-                                  <CliTypeIcon type='claude' size={14} />
+                                  <CliTypeIcon type='claude_code' size={14} />
                                   <span>Claude Code</span>
                                 </Space>
                               ),
-                              onClick: () => handleSwitchCliType(project, 'claude'),
-                            },
-                            {
-                              key: 'codex',
-                              label: (
-                                <Space size={6}>
-                                  <CliTypeIcon type='codex' size={14} />
-                                  <span>Codex CLI</span>
-                                </Space>
-                              ),
-                              onClick: () => handleSwitchCliType(project, 'codex'),
+                              onClick: () => handleSwitchCliType(project, 'claude_code'),
                             },
                           ],
                           selectedKeys: [cliType],
@@ -627,26 +617,17 @@ export default function Projects() {
             />
           </Form.Item>
 
-          <Form.Item name='cliType' label={t('projects.cliType')} initialValue='claude'>
+          <Form.Item name='cliType' label={t('projects.cliType')} initialValue='claude_code'>
             <Segmented
               options={[
                 {
                   label: (
                     <Space size={6}>
-                      <CliTypeIcon type='claude' size={16} />
+                      <CliTypeIcon type='claude_code' size={16} />
                       <span>Claude Code</span>
                     </Space>
                   ),
-                  value: 'claude',
-                },
-                {
-                  label: (
-                    <Space size={6}>
-                      <CliTypeIcon type='codex' size={16} />
-                      <span>Codex CLI</span>
-                    </Space>
-                  ),
-                  value: 'codex',
+                  value: 'claude_code',
                 },
               ]}
               block

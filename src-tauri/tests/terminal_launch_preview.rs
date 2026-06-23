@@ -64,62 +64,6 @@ fn merges_global_key_and_runtime_for_claude_preview() {
 }
 
 #[test]
-fn overrides_codex_runtime_fields_in_preview() {
-    let fixture = TempDb::new();
-    fixture
-        .db
-        .settings_update(&json!({
-          "codexConfig": {
-            "OPENAI_BASE_URL": "https://upstream.example/v1",
-            "OPENAI_API_KEY": "global-key",
-            "OPENAI_MODEL": "global-model"
-          }
-        }))
-        .unwrap();
-
-    let provider = create_provider(&fixture.db, "Codex Provider", "codex");
-    let api_key = fixture
-        .db
-        .api_key_create(&CreateApiKeyInput {
-            provider_id: provider.id,
-            alias: Some("test".to_string()),
-            value: "sk-test".to_string(),
-            types: Some(vec!["codex".to_string()]),
-            priority: Some(0),
-            is_active: Some(true),
-            config: Some(json!({
-              "OPENAI_API_KEY": "key-value",
-              "OPENAI_MODEL": "key-model"
-            })),
-            cost_multiplier: None,
-            usage_type: None,
-            usage_url: None,
-            usage_path: None,
-            usage_headers: None,
-            model_mapping: None,
-        })
-        .unwrap();
-
-    let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "codex").unwrap();
-
-    assert_eq!(
-        preview.env.get("OPENAI_MODEL"),
-        Some(&"key-model".to_string())
-    );
-    assert_eq!(
-        preview.env.get("OPENAI_API_KEY"),
-        Some(&"preview-session-token".to_string())
-    );
-    assert_eq!(
-        preview.env.get("OPENAI_BASE_URL"),
-        Some(&"http://localhost:12345/v1".to_string()),
-    );
-    assert!(preview
-        .command
-        .contains("openai_base_url=\"http://localhost:12345/v1\""));
-}
-
-#[test]
 fn project_preview_uses_placeholder_token_and_does_not_create_session() {
     let fixture = TempDb::new();
     let provider = create_provider(&fixture.db, "Claude Provider", "claude");

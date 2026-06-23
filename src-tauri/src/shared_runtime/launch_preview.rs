@@ -43,17 +43,9 @@ fn json_value_to_env_string(value: &Value) -> Option<String> {
     }
 }
 
-fn build_cli_command(cli_type: &str, env: &EnvObject) -> String {
-    if cli_type == "codex" {
-        let base_url = env
-            .get("OPENAI_BASE_URL")
-            .cloned()
-            .unwrap_or_else(|| "http://localhost:12345/v1".to_string())
-            .replace('"', "\\\"");
-        format!("codex -c 'openai_base_url=\"{}\"'", base_url)
-    } else {
-        "claude".to_string()
-    }
+fn build_cli_command(_cli_type: &str, _env: &EnvObject) -> String {
+    // 终端启动仅用于 Claude Code(Codex 走 Codex Desktop 配置接管,不经终端)。
+    "claude".to_string()
 }
 
 pub fn resolve_launch_preview_from_configs(
@@ -77,29 +69,22 @@ pub fn resolve_launch_preview_from_configs(
         }
     }
 
-    if cli_type == "codex" {
-        env.insert("OPENAI_API_KEY".to_string(), session_token.to_string());
-        env.insert(
-            "OPENAI_BASE_URL".to_string(),
-            format!("http://localhost:{}/v1", proxy_port),
-        );
-    } else {
-        env.entry("API_TIMEOUT_MS".to_string())
-            .or_insert_with(|| "3000000".to_string());
-        env.entry("CLAUDE_CODE_ATTRIBUTION_HEADER".to_string())
-            .or_insert_with(|| "0".to_string());
-        env.entry("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string())
-            .or_insert_with(|| "1".to_string());
-        env.insert(
-            "ANTHROPIC_BASE_URL".to_string(),
-            format!("http://localhost:{}", proxy_port),
-        );
-        env.remove("ANTHROPIC_API_KEY");
-        env.insert(
-            "ANTHROPIC_AUTH_TOKEN".to_string(),
-            session_token.to_string(),
-        );
-    }
+    // Claude Code only. 注入 Anthropic 代理 env;显式移除 ANTHROPIC_API_KEY。
+    env.entry("API_TIMEOUT_MS".to_string())
+        .or_insert_with(|| "3000000".to_string());
+    env.entry("CLAUDE_CODE_ATTRIBUTION_HEADER".to_string())
+        .or_insert_with(|| "0".to_string());
+    env.entry("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string())
+        .or_insert_with(|| "1".to_string());
+    env.insert(
+        "ANTHROPIC_BASE_URL".to_string(),
+        format!("http://localhost:{}", proxy_port),
+    );
+    env.remove("ANTHROPIC_API_KEY");
+    env.insert(
+        "ANTHROPIC_AUTH_TOKEN".to_string(),
+        session_token.to_string(),
+    );
 
     TerminalLaunchPreview {
         cli_type: cli_type.to_string(),

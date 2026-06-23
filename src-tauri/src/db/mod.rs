@@ -108,7 +108,7 @@ impl Database {
                 provider_id TEXT REFERENCES providers(id) ON DELETE CASCADE,
                 alias TEXT,
                 value TEXT NOT NULL,
-                types TEXT DEFAULT '[\"claude\"]',
+                types TEXT DEFAULT '[\"claude_code\"]',
                 priority INTEGER DEFAULT 0,
                 is_exhausted INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
@@ -129,7 +129,7 @@ impl Database {
                 remark TEXT,
                 provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
                 api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
-                cli_type TEXT DEFAULT 'claude',
+                cli_type TEXT DEFAULT 'claude_code',
                 terminal_type TEXT DEFAULT 'iterm2',
                 last_opened_at TEXT
             );
@@ -309,7 +309,7 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN sort_order INTEGER DEFAULT 0",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
-            "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\"claude\"]'",
+            "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\\\"claude_code\\\"]'",
             "ALTER TABLE api_keys ADD COLUMN usage_type TEXT DEFAULT 'none'",
             "ALTER TABLE api_keys ADD COLUMN usage_url TEXT",
             "ALTER TABLE api_keys ADD COLUMN usage_path TEXT",
@@ -320,7 +320,7 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
             "ALTER TABLE projects ADD COLUMN remark TEXT",
-            "ALTER TABLE projects ADD COLUMN cli_type TEXT DEFAULT 'claude'",
+            "ALTER TABLE projects ADD COLUMN cli_type TEXT DEFAULT 'claude_code'",
             // Snapshot columns on request_logs — preserve display names after entity deletion
             "ALTER TABLE request_logs ADD COLUMN key_alias TEXT",
             "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",
@@ -336,6 +336,36 @@ impl Database {
         for stmt in &alter_statements {
             let _ = self.conn.execute(stmt, []);
         }
+
+        // v3.2.0: Migrate api_keys.types from legacy 'claude' to ClientKind 'claude_code'.
+        // Codex CLI removed; only 3 clients: claude_code / codex / claude_desktop.
+        self.migrate_api_key_types_to_client_kind();
+        self.migrate_projects_cli_type_to_client_kind();
+    }
+
+    /// Migrate api_keys.types: replace 'claude' with 'claude_code' (v3.2.0 ClientKind).
+    /// Idempotent — safe to run multiple times.
+    fn migrate_api_key_types_to_client_kind(&self) {
+        let _ = self.conn.execute(
+            r#"
+            UPDATE api_keys
+            SET types = REPLACE(types, '"claude"', '"claude_code"')
+            WHERE types LIKE '%"claude"%'
+            "#,
+            [],
+        );
+    }
+
+    /// Migrate projects.cli_type: 'claude' → 'claude_code' (v3.2.0 ClientKind).
+    fn migrate_projects_cli_type_to_client_kind(&self) {
+        let _ = self.conn.execute(
+            r#"
+            UPDATE projects
+            SET cli_type = 'claude_code'
+            WHERE cli_type = 'claude'
+            "#,
+            [],
+        );
     }
 }
 

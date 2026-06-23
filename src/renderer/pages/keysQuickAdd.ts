@@ -16,7 +16,7 @@ export function buildQuickAddPayload(data: QuickAddInput): {
   provider: CreateProviderInput
   apiKey: Omit<CreateApiKeyInput, 'providerId'>
 } {
-  const primaryType = data.keyType[0] ?? 'claude'
+  const primaryType = data.keyType[0] ?? 'claude_code'
 
   return {
     provider: {

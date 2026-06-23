@@ -106,7 +106,7 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
       width={560}
       destroyOnClose
     >
-      <Form form={form} layout='vertical' initialValues={{ keyType: ['claude'] }}>
+      <Form form={form} layout='vertical' initialValues={{ keyType: ['claude_code'] }}>
         {/* ── 预设选择栏 ── */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ marginBottom: 8 }}>
@@ -267,8 +267,9 @@ export default function QuickAddModal({ open, onClose, onSave }: QuickAddModalPr
           <Select
             mode='multiple'
             options={[
-              { value: 'claude', label: 'Claude Code' },
-              { value: 'codex', label: 'Codex CLI' },
+              { value: 'claude_code', label: 'Claude Code' },
+              { value: 'codex', label: 'Codex Desktop' },
+              { value: 'claude_desktop', label: 'Claude Desktop' },
             ]}
           />
         </Form.Item>

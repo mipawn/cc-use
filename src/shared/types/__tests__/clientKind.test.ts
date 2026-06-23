@@ -37,7 +37,7 @@ describe('ClientKind types (v3.2.0)', () => {
 
     const codexConfig = CLIENT_KIND_CONFIGS.find(c => c.kind === 'codex')
     expect(codexConfig).toBeDefined()
-    expect(codexConfig?.label).toBe('Codex')
+    expect(codexConfig?.label).toBe('Codex Desktop')
     expect(codexConfig?.form).toBe('config_takeover')
     expect(codexConfig?.defaultProtocol).toBe('codex_responses')
 
@@ -61,11 +61,13 @@ describe('ClientKind types (v3.2.0)', () => {
 
   it('should convert ProviderType to ClientKind', () => {
     expect(providerTypeToClientKind('claude')).toBe('claude_code')
+    expect(providerTypeToClientKind('claude_code')).toBe('claude_code')
     expect(providerTypeToClientKind('codex')).toBe('codex')
+    expect(providerTypeToClientKind('claude_desktop')).toBe('claude_desktop')
   })
 
   it('should convert ClientKind to ProviderType', () => {
-    expect(clientKindToProviderType('claude_code')).toBe('claude')
+    expect(clientKindToProviderType('claude_code')).toBe('claude_code')
     expect(clientKindToProviderType('codex')).toBe('codex')
     expect(clientKindToProviderType('claude_desktop')).toBeNull()
   })

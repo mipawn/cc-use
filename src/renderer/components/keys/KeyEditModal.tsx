@@ -140,9 +140,9 @@ export default function KeyEditModal({
         value: apiKey.value,
       })
       setSelectedTypes(apiKey.types)
-      setActiveConfigType(apiKey.types[0] || 'claude')
+      setActiveConfigType(apiKey.types[0] || 'claude_code')
 
-      if (apiKey.types.includes('claude')) {
+      if (apiKey.types.includes('claude_code')) {
         setClaudeConfigJson(JSON.stringify({ ...claudeGlobalConfig, ...(apiKey.config || {}) }, null, 2))
         setClaudeIncludeGlobal(true)
       } else {
@@ -250,7 +250,7 @@ export default function KeyEditModal({
     if (checked) {
       setSelectedTypes((prev) => [...prev, type])
       setActiveConfigType(type)
-      if (type === 'claude' && claudeConfigJson === '{}' && Object.keys(claudeGlobalConfig).length > 0) {
+      if (type === 'claude_code' && claudeConfigJson === '{}' && Object.keys(claudeGlobalConfig).length > 0) {
         setClaudeConfigJson(JSON.stringify(claudeGlobalConfig, null, 2))
       } else if (
         type === 'codex' &&
@@ -273,10 +273,10 @@ export default function KeyEditModal({
   }
 
   const handleToggleGlobal = (type: ProviderType, checked: boolean) => {
-    const globalConfig = type === 'claude' ? claudeGlobalConfig : codexGlobalConfig
-    const configJson = type === 'claude' ? claudeConfigJson : codexConfigJson
-    const setConfigJson = type === 'claude' ? setClaudeConfigJson : setCodexConfigJson
-    const setIncludeGlobal = type === 'claude' ? setClaudeIncludeGlobal : setCodexIncludeGlobal
+    const globalConfig = type === 'claude_code' ? claudeGlobalConfig : codexGlobalConfig
+    const configJson = type === 'claude_code' ? claudeConfigJson : codexConfigJson
+    const setConfigJson = type === 'claude_code' ? setClaudeConfigJson : setCodexConfigJson
+    const setIncludeGlobal = type === 'claude_code' ? setClaudeIncludeGlobal : setCodexIncludeGlobal
 
     const currentConfig = parseConfig(configJson)
 
@@ -315,7 +315,7 @@ export default function KeyEditModal({
       }
 
       try {
-        if (selectedTypes.includes('claude')) JSON.parse(claudeConfigJson)
+        if (selectedTypes.includes('claude_code')) JSON.parse(claudeConfigJson)
         if (selectedTypes.includes('codex')) JSON.parse(codexConfigJson)
       } catch {
         setJsonError('JSON 格式错误')
@@ -324,9 +324,9 @@ export default function KeyEditModal({
       }
 
       const primaryType = selectedTypes[0]
-      const configJson = primaryType === 'claude' ? claudeConfigJson : codexConfigJson
-      const globalConfig = primaryType === 'claude' ? claudeGlobalConfig : codexGlobalConfig
-      const includeGlobal = primaryType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
+      const configJson = primaryType === 'claude_code' ? claudeConfigJson : codexConfigJson
+      const globalConfig = primaryType === 'claude_code' ? claudeGlobalConfig : codexGlobalConfig
+      const includeGlobal = primaryType === 'claude_code' ? claudeIncludeGlobal : codexIncludeGlobal
       const localConfig = includeGlobal
         ? getLocalConfigToSave(configJson, globalConfig, true)
         : parseConfig(configJson)
@@ -362,10 +362,10 @@ export default function KeyEditModal({
     return currentProvider ? `${baseTitle} - ${currentProvider.name}` : baseTitle
   }, [apiKey, currentProvider, t])
 
-  const currentConfigJson = activeConfigType === 'claude' ? claudeConfigJson : codexConfigJson
-  const setCurrentConfigJson = activeConfigType === 'claude' ? setClaudeConfigJson : setCodexConfigJson
-  const currentIncludeGlobal = activeConfigType === 'claude' ? claudeIncludeGlobal : codexIncludeGlobal
-  const currentGlobalConfig = activeConfigType === 'claude' ? claudeGlobalConfig : codexGlobalConfig
+  const currentConfigJson = activeConfigType === 'claude_code' ? claudeConfigJson : codexConfigJson
+  const setCurrentConfigJson = activeConfigType === 'claude_code' ? setClaudeConfigJson : setCodexConfigJson
+  const currentIncludeGlobal = activeConfigType === 'claude_code' ? claudeIncludeGlobal : codexIncludeGlobal
+  const currentGlobalConfig = activeConfigType === 'claude_code' ? claudeGlobalConfig : codexGlobalConfig
   const hasGlobalConfig = Object.keys(currentGlobalConfig).length > 0
 
   const previewJson = useMemo(() => {
@@ -417,8 +417,8 @@ export default function KeyEditModal({
           >
             <Space size={16}>
               <Checkbox
-                checked={selectedTypes.includes('claude')}
-                onChange={(e) => handleTypeChange('claude', e.target.checked)}
+                checked={selectedTypes.includes('claude_code')}
+                onChange={(e) => handleTypeChange('claude_code', e.target.checked)}
               >
                 <Space>
                   <span className={styles.typeIndicator} style={{ background: token.colorPrimary }} />
@@ -431,7 +431,16 @@ export default function KeyEditModal({
               >
                 <Space>
                   <span className={styles.typeIndicator} style={{ background: token.colorSuccess }} />
-                  Codex CLI
+                  Codex Desktop
+                </Space>
+              </Checkbox>
+              <Checkbox
+                checked={selectedTypes.includes('claude_desktop')}
+                onChange={(e) => handleTypeChange('claude_desktop', e.target.checked)}
+              >
+                <Space>
+                  <span className={styles.typeIndicator} style={{ background: token.colorWarning }} />
+                  Claude Desktop
                 </Space>
               </Checkbox>
             </Space>
@@ -648,9 +657,9 @@ export default function KeyEditModal({
                     <Space>
                       <span
                         className={styles.typeIndicator}
-                        style={{ background: type === 'claude' ? token.colorPrimary : token.colorSuccess }}
+                        style={{ background: type === 'claude_code' ? token.colorPrimary : (type === 'codex' ? token.colorSuccess : token.colorWarning) }}
                       />
-                      {type === 'claude' ? 'Claude' : 'Codex'}
+                      {type === 'claude_code' ? 'Claude Code' : (type === 'codex' ? 'Codex Desktop' : 'Claude Desktop')}
                     </Space>
                   ),
                 }))}

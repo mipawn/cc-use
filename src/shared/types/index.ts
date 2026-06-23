@@ -4,7 +4,8 @@ export type ProviderType = string
 
 // v3.2.0: ClientKind - 客户端类型 (替代 ProviderType)
 // ProviderType 混淆了供应商、客户端、协议格式,逐步迁移到 ClientKind
-export type ClientKind = 'codex' | 'claude_code' | 'claude_desktop'
+// v3.2.0 最终支持范围:三客户端(Claude Code / Codex Desktop / Claude Desktop)
+export type ClientKind = 'claude_code' | 'codex' | 'claude_desktop'
 
 // 接入形态: cc-use 能不能亲自启动这个客户端
 export type IntegrationForm =
@@ -39,10 +40,10 @@ export const CLIENT_KIND_CONFIGS: ClientKindConfig[] = [
   },
   {
     kind: 'codex',
-    label: 'Codex',
+    label: 'Codex Desktop',
     form: 'config_takeover',
     defaultProtocol: 'codex_responses',
-    cliCommand: 'codex',
+    // cliCommand removed — Codex CLI no longer supported
   },
   {
     kind: 'claude_desktop',
@@ -63,12 +64,15 @@ export function getClientKindConfig(kind: ClientKind): ClientKindConfig {
 
 // 临时兼容: ProviderType -> ClientKind 映射
 export function providerTypeToClientKind(type: ProviderType): ClientKind {
-  return type === 'claude' ? 'claude_code' : 'codex'
+  if (type === 'claude' || type === 'claude_code') return 'claude_code'
+  if (type === 'codex') return 'codex'
+  if (type === 'claude_desktop') return 'claude_desktop'
+  return 'claude_code' // fallback
 }
 
 // 临时兼容: ClientKind -> ProviderType 映射 (仅 claude_code/codex)
 export function clientKindToProviderType(kind: ClientKind): ProviderType | null {
-  if (kind === 'claude_code') return 'claude'
+  if (kind === 'claude_code') return 'claude_code'
   if (kind === 'codex') return 'codex'
   return null // claude_desktop 无对应 ProviderType
 }

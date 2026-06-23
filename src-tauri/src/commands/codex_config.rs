@@ -1,35 +1,53 @@
-//! Codex config.toml 配置级接管
+//! Codex Desktop 配置级接管
 //!
-//! 实现 Codex 配置文件的读取、备份、写入、恢复。
+//! 基于 cc-switch preserve 模式(线上验证):key 写进 config.toml 的
+//! `experimental_bearer_token`(per-provider 或顶层),**不碰 `auth.json`**
+//! 以保留官方 ChatGPT OAuth 登录(及依赖它的插件能力)。
 //!
 //! ## 接管策略
 //!
-//! - 只改 `model_provider` 与 `[model_providers.cc-use]` 块
-//! - 保留用户其他配置（官方登录、其他 provider、用户偏好）
-//! - 不碰 `~/.codex/auth.json`
-//! - 备份到 `~/.cc-use/backups/codex/config.<ISO8601>.toml`
+//! - **不写 `auth.json`**(保住用户的官方登录/OAuth tokens)
+//! - 写 `~/.codex/config.toml`:
+//!   - `model_provider = "cc-use"`
+//!   - `[model_providers.cc-use]`:base_url 指向 daemon、wire_api="responses"
+//!   - `experimental_bearer_token = "<session-token>"`(写进 cc-use 表或顶层)
+//! - 保留用户其他配置(mcp_servers / projects / marketplaces 等)
+//! - 接管前备份 config.toml 到带时间戳子目录,恢复时还原
 //!
-//! ## 写入内容
+//! ## 写入内容(参考 cc-switch)
 //!
+//! `config.toml`:
 //! ```toml
 //! model_provider = "cc-use"
+//! model = "gpt-5.5"
+//! model_reasoning_effort = "high"
+//! disable_response_storage = true
 //!
 //! [model_providers.cc-use]
 //! name = "CC Use"
-//! base_url = "http://127.0.0.1:12345/v1"
+//! base_url = "http://127.0.0.1:<proxy_port>/v1"
 //! wire_api = "responses"
-//!
-//! [model_providers.cc-use.auth]
-//! token = "<route-token>"
+//! experimental_bearer_token = "session-xxxx"
 //! ```
+//!
+//! **不设 `requires_openai_auth = true`**(那会让 Codex 走 auth.json 的
+//! OAuth 直连官方,忽略我们的 base_url)。bearer token 走 Authorization
+//! header,daemon 识别 `session-` 前缀路由到对应 provider。
+//!
+//! 适配点:`cli_type = "codex-app"` session 触发 transform 层的
+//! `CliType::CodexApp` 分支(按 provider `apiFormat` 决定 `/responses`
+//! 直透或转 chat)。
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use toml_edit::DocumentMut;
 
 const CC_USE_PROVIDER_KEY: &str = "cc-use";
+/// 默认钉死的 Codex 模型(Codex Desktop 当前主力模型)。
+const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
 
 #[derive(Error, Debug)]
 pub enum CodexConfigError {
@@ -71,8 +89,6 @@ pub struct ProviderConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderAuth {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_interval_ms: Option<u64>,
@@ -84,7 +100,6 @@ pub struct ProviderAuth {
 pub struct CodexConfigManager {
     config_path: PathBuf,
     backup_dir: PathBuf,
-    bin_dir: PathBuf,
 }
 
 impl CodexConfigManager {
@@ -96,18 +111,28 @@ impl CodexConfigManager {
 
         let config_path = home.join(".codex").join("config.toml");
         let backup_dir = home.join(".cc-use").join("backups").join("codex");
-        let bin_dir = home.join(".cc-use").join("bin");
 
         Ok(Self {
             config_path,
             backup_dir,
-            bin_dir,
+        })
+    }
+
+    /// 读取当前配置文本
+    fn read_text(&self) -> Result<String, CodexConfigError> {
+        if !self.config_path.exists() {
+            return Ok(String::new());
+        }
+
+        fs::read_to_string(&self.config_path).map_err(|e| {
+            CodexConfigError::ReadError(format!("{}: {}", self.config_path.display(), e))
         })
     }
 
     /// 读取当前配置
     pub fn read(&self) -> Result<CodexConfig, CodexConfigError> {
-        if !self.config_path.exists() {
+        let text = self.read_text()?;
+        if text.trim().is_empty() {
             return Ok(CodexConfig {
                 model_provider: None,
                 model_providers: None,
@@ -115,158 +140,175 @@ impl CodexConfigManager {
             });
         }
 
-        let content = fs::read_to_string(&self.config_path).map_err(|e| {
-            CodexConfigError::ReadError(format!("{}: {}", self.config_path.display(), e))
-        })?;
-
-        toml::from_str(&content)
+        toml::from_str(&text)
             .map_err(|e| CodexConfigError::ParseError(format!("{}: {}", self.config_path.display(), e)))
     }
 
-    /// 备份当前配置
+    /// 备份当前 config.toml 到带时间戳的子目录,返回该目录路径。
+    /// 任一文件不存在则跳过该文件。
     pub fn backup(&self) -> Result<PathBuf, CodexConfigError> {
-        if !self.config_path.exists() {
-            return Err(CodexConfigError::NotFound(format!(
-                "Config file does not exist: {}",
-                self.config_path.display()
-            )));
+        let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+        let dir = self.backup_dir.join(&timestamp);
+        fs::create_dir_all(&dir)?;
+
+        if self.config_path.exists() {
+            fs::copy(&self.config_path, dir.join("config.toml")).map_err(|e| {
+                CodexConfigError::BackupError(format!("Failed to backup config.toml: {}", e))
+            })?;
         }
 
-        fs::create_dir_all(&self.backup_dir)?;
-
-        let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-        let backup_path = self.backup_dir.join(format!("config.{}.toml", timestamp));
-
-        fs::copy(&self.config_path, &backup_path).map_err(|e| {
-            CodexConfigError::BackupError(format!("Failed to copy to {}: {}", backup_path.display(), e))
-        })?;
-
-        Ok(backup_path)
+        Ok(dir)
     }
 
-    /// 接管配置：写入 cc-use provider
-    pub fn takeover(&self, route_token: &str, proxy_port: u16) -> Result<PathBuf, CodexConfigError> {
-        // 1. 备份原配置(如果存在且尚未被接管)
-        let backup_path = if self.config_path.exists() {
-            let is_taken = self.is_taken_over().unwrap_or(false);
-            if !is_taken {
+    /// 最新的备份目录(用于恢复)
+    fn latest_backup_dir(&self) -> Option<PathBuf> {
+        let mut dirs: Vec<PathBuf> = fs::read_dir(&self.backup_dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        dirs.sort();
+        dirs.pop()
+    }
+
+    /// 接管配置:写入 cc-use provider(experimental_bearer_token 模式)
+    pub fn takeover(&self, session_token: &str, proxy_port: u16) -> Result<PathBuf, CodexConfigError> {
+        self.takeover_with_model(session_token, proxy_port, DEFAULT_CODEX_MODEL)
+    }
+
+    /// 接管配置,可指定钉死的 model
+    pub fn takeover_with_model(
+        &self,
+        session_token: &str,
+        proxy_port: u16,
+        model: &str,
+    ) -> Result<PathBuf, CodexConfigError> {
+        // 1. 读取原配置文本
+        let original_text = self.read_text()?;
+
+        // 2. 备份(仅在尚未被接管时,避免把已接管状态覆盖成基线)
+        let backup_path = {
+            let is_taken = self.is_taken_over_inner(&original_text)?;
+            if !is_taken && self.config_path.exists() {
                 Some(self.backup()?)
             } else {
                 None
             }
-        } else {
-            fs::create_dir_all(self.config_path.parent().unwrap())?;
-            None
         };
 
-        // 2. 写入 route-token 脚本,Codex 通过 command 方式获取 token
-        let bin_dir = &self.bin_dir;
-        fs::create_dir_all(bin_dir)?;
-        let token_script = bin_dir.join("codex-route-token");
-        let script_content = format!("#!/bin/sh\necho '{}'\n", route_token);
-        fs::write(&token_script, script_content)?;
-        // chmod 700
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&token_script, std::fs::Permissions::from_mode(0o700))?;
+        // 3. 确保 ~/.codex 目录存在
+        if let Some(parent) = self.config_path.parent() {
+            fs::create_dir_all(parent)?;
         }
-        let command_path = token_script.to_string_lossy().to_string();
 
-        // 3. 读取现有配置
-        let mut config = self.read()?;
+        // 4. 用 toml_edit 修改 config.toml(保留用户其他配置)
+        let mut doc = if original_text.trim().is_empty() {
+            DocumentMut::new()
+        } else {
+            original_text
+                .parse::<DocumentMut>()
+                .map_err(|e| CodexConfigError::ParseError(format!("Invalid TOML: {}", e)))?
+        };
 
-        // 4. 修改 model_provider
-        config.model_provider = Some(CC_USE_PROVIDER_KEY.to_string());
+        // 5. 顶层字段
+        doc["model_provider"] = toml_edit::value(CC_USE_PROVIDER_KEY);
+        doc["model"] = toml_edit::value(model);
+        doc["model_reasoning_effort"] = toml_edit::value("high");
+        doc["disable_response_storage"] = toml_edit::value(true);
 
-        // 5. 写入 cc-use provider — Codex 要求 auth 必须有 command 字段
-        let mut providers = config.model_providers.unwrap_or_default();
-        providers.insert(
-            CC_USE_PROVIDER_KEY.to_string(),
-            ProviderConfig {
-                name: "CC Use".to_string(),
-                base_url: format!("http://127.0.0.1:{}/v1", proxy_port),
-                wire_api: "responses".to_string(),
-                auth: Some(ProviderAuth {
-                    token: None,
-                    command: Some(vec![command_path]),
-                    refresh_interval_ms: Some(300000),
-                    other: HashMap::new(),
-                }),
-                other: HashMap::new(),
-            },
-        );
-        config.model_providers = Some(providers);
+        // 6. 确保 [model_providers] 存在
+        if doc.get("model_providers").is_none() {
+            doc["model_providers"] = toml_edit::table();
+        }
 
-        // 6. 原子写入
-        self.write_atomic(&config)?;
+        // 7. 写入 [model_providers.cc-use](含 experimental_bearer_token)
+        if let Some(providers) = doc["model_providers"].as_table_mut() {
+            let mut cc_use_table = toml_edit::Table::new();
+            cc_use_table["name"] = toml_edit::value("CC Use");
+            cc_use_table["base_url"] =
+                toml_edit::value(format!("http://127.0.0.1:{}/v1", proxy_port));
+            cc_use_table["wire_api"] = toml_edit::value("responses");
+            cc_use_table["experimental_bearer_token"] = toml_edit::value(session_token);
+            // 不设 requires_openai_auth — 那会让 Codex 走 auth.json OAuth 直连官方
+            providers[CC_USE_PROVIDER_KEY] = toml_edit::Item::Table(cc_use_table);
+        }
+
+        // 8. 原子写入 config.toml
+        write_atomic(&self.config_path, &doc.to_string())?;
 
         Ok(backup_path.unwrap_or_else(|| PathBuf::from("")))
     }
 
-    /// 恢复配置：从备份恢复或移除 cc-use provider
+    /// 恢复配置:优先从最新备份还原 config.toml;
+    /// 无备份时移除 cc-use provider 并清空被覆写字段。
     pub fn restore(&self, backup_path: Option<&Path>) -> Result<(), CodexConfigError> {
-        // 清理 route-token 脚本
-        let _ = fs::remove_file(self.bin_dir.join("codex-route-token"));
-        if let Some(backup) = backup_path {
-            // 从备份恢复
-            if !backup.exists() {
-                return Err(CodexConfigError::NotFound(format!(
-                    "Backup file not found: {}",
-                    backup.display()
-                )));
-            }
-            fs::copy(backup, &self.config_path)?;
-        } else {
-            // 移除 cc-use provider
-            let mut config = self.read()?;
+        let dir = backup_path
+            .map(|p| p.to_path_buf())
+            .or_else(|| self.latest_backup_dir());
 
-            if config.model_provider.as_deref() == Some(CC_USE_PROVIDER_KEY) {
-                config.model_provider = None;
+        if let Some(dir) = dir.filter(|d| d.is_dir()) {
+            // 从备份目录还原
+            let backup_config = dir.join("config.toml");
+            if backup_config.exists() {
+                fs::copy(&backup_config, &self.config_path)?;
+            } else {
+                self.strip_cc_use_from_config()?;
             }
-
-            if let Some(ref mut providers) = config.model_providers {
-                providers.remove(CC_USE_PROVIDER_KEY);
-            }
-
-            self.write_atomic(&config)?;
+            return Ok(());
         }
 
-        Ok(())
+        // 无备份:移除 cc-use 痕迹
+        self.strip_cc_use_from_config()
     }
 
-    /// 原子写入配置（临时文件 + rename）
-    fn write_atomic(&self, config: &CodexConfig) -> Result<(), CodexConfigError> {
-        let content = toml::to_string_pretty(config)
-            .map_err(|e| CodexConfigError::WriteError(format!("Failed to serialize: {}", e)))?;
+    /// 从 config.toml 移除 cc-use provider 及被我们覆写的顶层字段
+    fn strip_cc_use_from_config(&self) -> Result<(), CodexConfigError> {
+        let original_text = self.read_text()?;
+        if original_text.trim().is_empty() {
+            return Ok(());
+        }
 
-        let temp_path = self.config_path.with_extension("toml.tmp");
+        let mut doc = original_text
+            .parse::<DocumentMut>()
+            .map_err(|e| CodexConfigError::ParseError(format!("Invalid TOML: {}", e)))?;
 
-        fs::write(&temp_path, content).map_err(|e| {
-            CodexConfigError::WriteError(format!("Failed to write temp file: {}", e))
-        })?;
+        if doc
+            .get("model_provider")
+            .and_then(|item: &toml_edit::Item| item.as_str())
+            == Some(CC_USE_PROVIDER_KEY)
+        {
+            let table = doc.as_table_mut();
+            table.remove("model_provider");
+            table.remove("model");
+            table.remove("model_reasoning_effort");
+            table.remove("disable_response_storage");
+        }
 
-        fs::rename(&temp_path, &self.config_path).map_err(|e| {
-            CodexConfigError::WriteError(format!("Failed to rename temp file: {}", e))
-        })?;
+        if let Some(providers) = doc
+            .get_mut("model_providers")
+            .and_then(|item: &mut toml_edit::Item| item.as_table_mut())
+        {
+            providers.remove(CC_USE_PROVIDER_KEY);
+            if providers.is_empty() {
+                doc.as_table_mut().remove("model_providers");
+            }
+        }
 
-        Ok(())
+        write_atomic(&self.config_path, &doc.to_string())
     }
 
-    /// 列出所有备份
+    /// 列出所有备份目录
     pub fn list_backups(&self) -> Result<Vec<PathBuf>, CodexConfigError> {
         if !self.backup_dir.exists() {
             return Ok(Vec::new());
         }
 
-        let mut backups = Vec::new();
-        for entry in fs::read_dir(&self.backup_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                backups.push(path);
-            }
-        }
+        let mut backups: Vec<PathBuf> = fs::read_dir(&self.backup_dir)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
 
         backups.sort();
         backups.reverse(); // 最新的在前
@@ -274,15 +316,32 @@ impl CodexConfigManager {
         Ok(backups)
     }
 
+    /// 检查是否已接管(内部版本,接受文本)
+    fn is_taken_over_inner(&self, text: &str) -> Result<bool, CodexConfigError> {
+        if text.trim().is_empty() {
+            return Ok(false);
+        }
+
+        let doc = text.parse::<DocumentMut>().map_err(|e| {
+            CodexConfigError::ParseError(format!("Invalid TOML: {}", e))
+        })?;
+
+        let has_provider = doc.get("model_provider")
+            .and_then(|item: &toml_edit::Item| item.as_str())
+            == Some(CC_USE_PROVIDER_KEY);
+
+        let has_provider_table = doc.get("model_providers")
+            .and_then(|item: &toml_edit::Item| item.as_table())
+            .and_then(|table| table.get(CC_USE_PROVIDER_KEY))
+            .is_some();
+
+        Ok(has_provider && has_provider_table)
+    }
+
     /// 检查是否已接管
     pub fn is_taken_over(&self) -> Result<bool, CodexConfigError> {
-        let config = self.read()?;
-        Ok(config.model_provider.as_deref() == Some(CC_USE_PROVIDER_KEY)
-            && config
-                .model_providers
-                .as_ref()
-                .and_then(|p| p.get(CC_USE_PROVIDER_KEY))
-                .is_some())
+        let text = self.read_text()?;
+        self.is_taken_over_inner(&text)
     }
 }
 
@@ -292,153 +351,19 @@ impl Default for CodexConfigManager {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::TempDir;
+/// 原子写入文件(临时文件 + rename)
+fn write_atomic(path: &Path, content: &str) -> Result<(), CodexConfigError> {
+    let temp_path = path.with_extension("cc-use.tmp");
 
-    fn create_test_manager() -> (CodexConfigManager, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join(".codex").join("config.toml");
-        let backup_dir = temp_dir.path().join(".cc-use").join("backups").join("codex");
+    fs::write(&temp_path, content).map_err(|e| {
+        CodexConfigError::WriteError(format!("Failed to write temp file: {}", e))
+    })?;
 
-        let manager = CodexConfigManager {
-            config_path,
-            backup_dir,
-            bin_dir: temp_dir.path().join(".cc-use").join("bin"),
-        };
+    fs::rename(&temp_path, path).map_err(|e| {
+        CodexConfigError::WriteError(format!("Failed to rename temp file: {}", e))
+    })?;
 
-        (manager, temp_dir)
-    }
-
-    #[test]
-    fn test_read_empty_config() {
-        let (manager, _temp) = create_test_manager();
-        let config = manager.read().unwrap();
-        assert!(config.model_provider.is_none());
-        assert!(config.model_providers.is_none());
-    }
-
-    #[test]
-    fn test_takeover_creates_cc_use_provider() {
-        let (manager, _temp) = create_test_manager();
-
-        manager.takeover("test-token", 12345).unwrap();
-
-        let config = manager.read().unwrap();
-        assert_eq!(config.model_provider.as_deref(), Some("cc-use"));
-
-        let providers = config.model_providers.unwrap();
-        let cc_use = providers.get("cc-use").unwrap();
-
-        assert_eq!(cc_use.name, "CC Use");
-        assert_eq!(cc_use.base_url, "http://127.0.0.1:12345/v1");
-        assert_eq!(cc_use.wire_api, "responses");
-        assert!(cc_use.auth.as_ref().unwrap().command.is_some());
-    }
-
-    #[test]
-    fn test_takeover_preserves_other_config() {
-        let (manager, _temp) = create_test_manager();
-
-        // 写入原始配置
-        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
-        let original = r#"
-model_provider = "openai"
-some_other_field = "value"
-
-[model_providers.openai]
-name = "OpenAI"
-base_url = "https://api.openai.com/v1"
-wire_api = "openai"
-"#;
-        fs::write(&manager.config_path, original).unwrap();
-
-        // 接管
-        manager.takeover("test-token", 12345).unwrap();
-
-        // 验证保留了其他配置
-        let config = manager.read().unwrap();
-        assert!(config.other.contains_key("some_other_field"));
-
-        let providers = config.model_providers.unwrap();
-        assert!(providers.contains_key("openai"));
-        assert!(providers.contains_key("cc-use"));
-    }
-
-    #[test]
-    fn test_restore_removes_cc_use_provider() {
-        let (manager, _temp) = create_test_manager();
-
-        manager.takeover("test-token", 12345).unwrap();
-        assert!(manager.is_taken_over().unwrap());
-
-        manager.restore(None).unwrap();
-
-        let config = manager.read().unwrap();
-        assert_ne!(config.model_provider.as_deref(), Some("cc-use"));
-        assert!(!config
-            .model_providers
-            .as_ref()
-            .map(|p| p.contains_key("cc-use"))
-            .unwrap_or(false));
-    }
-
-    #[test]
-    fn test_backup_and_restore() {
-        let (manager, _temp) = create_test_manager();
-
-        // 写入原始配置
-        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
-        let original = "model_provider = \"openai\"\n";
-        fs::write(&manager.config_path, original).unwrap();
-
-        // 接管并备份
-        let backup_path = manager.takeover("test-token", 12345).unwrap();
-        assert!(backup_path.exists());
-
-        // 从备份恢复
-        manager.restore(Some(&backup_path)).unwrap();
-
-        let content = fs::read_to_string(&manager.config_path).unwrap();
-        assert_eq!(content, original);
-    }
-
-    #[test]
-    fn test_is_taken_over() {
-        let (manager, _temp) = create_test_manager();
-
-        assert!(!manager.is_taken_over().unwrap());
-
-        manager.takeover("test-token", 12345).unwrap();
-        assert!(manager.is_taken_over().unwrap());
-
-        manager.restore(None).unwrap();
-        assert!(!manager.is_taken_over().unwrap());
-    }
-
-    #[test]
-    fn test_list_backups() {
-        let (manager, _temp) = create_test_manager();
-
-        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
-        fs::write(&manager.config_path, "model_provider = \"openai\"\n").unwrap();
-
-        // 第一次 takeover 创建备份
-        manager.takeover("token1", 12345).unwrap();
-        let backups = manager.list_backups().unwrap();
-        assert_eq!(backups.len(), 1);
-
-        // 恢复并再次接管
-        let first_backup = backups[0].clone();
-        manager.restore(Some(&first_backup)).unwrap();
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        manager.takeover("token2", 12345).unwrap();
-
-        let backups = manager.list_backups().unwrap();
-        assert_eq!(backups.len(), 2);
-    }
+    Ok(())
 }
 
 // ── Tauri commands ──
@@ -486,15 +411,18 @@ pub fn codex_config_takeover(
             api_key_id: api_key_id.clone(),
             project_id: None,
             created_at: chrono::Utc::now().to_rfc3339(),
-            cli_type: Some("codex".to_string()),
+            cli_type: Some("codex-app".to_string()),
         };
         db.proxy_session_create(&session)
             .map_err(|e| format!("创建 session 失败: {}", e))?;
         (port, session_token)
     };
+
     let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
-    mgr.takeover(&session_token, port as u16).map_err(|e| e.to_string())?;
-    Ok("接管成功, route 已绑定, config.toml 已写入".to_string())
+    mgr.takeover(&session_token, port as u16)
+        .map_err(|e| e.to_string())?;
+
+    Ok("接管成功".to_string())
 }
 
 #[tauri::command]
@@ -509,4 +437,116 @@ pub fn codex_config_list_backups() -> Result<Vec<String>, String> {
     let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
     let backups = mgr.list_backups().map_err(|e| e.to_string())?;
     Ok(backups.iter().map(|p| p.display().to_string()).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn create_test_manager() -> (CodexConfigManager, TempDir) {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(".codex").join("config.toml");
+        let backup_dir = temp_dir.path().join(".cc-use").join("backups").join("codex");
+
+        let manager = CodexConfigManager {
+            config_path,
+            backup_dir,
+        };
+
+        (manager, temp_dir)
+    }
+
+    #[test]
+    fn test_takeover_writes_experimental_bearer_token() {
+        let (manager, _temp) = create_test_manager();
+
+        manager.takeover("session-abc123", 22345).unwrap();
+
+        let text = fs::read_to_string(&manager.config_path).unwrap();
+        assert!(text.contains("model_provider = \"cc-use\""));
+        assert!(text.contains("model = \"gpt-5.5\""));
+        assert!(text.contains("disable_response_storage = true"));
+        assert!(text.contains("[model_providers.cc-use]"));
+        assert!(text.contains("base_url = \"http://127.0.0.1:22345/v1\""));
+        assert!(text.contains("wire_api = \"responses\""));
+        assert!(text.contains("experimental_bearer_token = \"session-abc123\""));
+        // 不设 requires_openai_auth(那会让 Codex 走 OAuth 直连官方)
+        assert!(!text.contains("requires_openai_auth"));
+    }
+
+    #[test]
+    fn test_takeover_preserves_other_config() {
+        let (manager, _temp) = create_test_manager();
+
+        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
+        let original = r#"
+some_other_field = "value"
+
+[mcp_servers.node_repl]
+command = "/x/node_repl"
+"#;
+        fs::write(&manager.config_path, original).unwrap();
+
+        manager.takeover("session-abc", 12345).unwrap();
+
+        let text = fs::read_to_string(&manager.config_path).unwrap();
+        assert!(text.contains("some_other_field"));
+        assert!(text.contains("[mcp_servers.node_repl]"));
+        assert!(text.contains("[model_providers.cc-use]"));
+        assert!(text.contains("experimental_bearer_token"));
+    }
+
+    #[test]
+    fn test_restore_strips_cc_use_when_no_prior_config() {
+        let (manager, _temp) = create_test_manager();
+
+        manager.takeover("session-abc", 12345).unwrap();
+        assert!(manager.is_taken_over().unwrap());
+
+        manager.restore(None).unwrap();
+
+        let text = fs::read_to_string(&manager.config_path).unwrap();
+        assert!(!text.contains("model_provider = \"cc-use\""));
+        assert!(!text.contains("[model_providers.cc-use]"));
+        assert!(!text.contains("model = \"gpt-5.5\""));
+        assert!(!text.contains("experimental_bearer_token"));
+    }
+
+    #[test]
+    fn test_backup_and_restore_roundtrip() {
+        let (manager, _temp) = create_test_manager();
+
+        // 原始 config.toml
+        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
+        let original_config = "model_provider = \"openai\"\n";
+        fs::write(&manager.config_path, original_config).unwrap();
+
+        // 接管(自动备份)
+        manager.takeover("session-xyz", 22345).unwrap();
+        assert!(fs::read_to_string(&manager.config_path)
+            .unwrap()
+            .contains("session-xyz"));
+
+        // 恢复:从备份还原
+        manager.restore(None).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&manager.config_path).unwrap(),
+            original_config
+        );
+    }
+
+    #[test]
+    fn test_is_taken_over() {
+        let (manager, _temp) = create_test_manager();
+
+        assert!(!manager.is_taken_over().unwrap());
+
+        manager.takeover("session-abc", 12345).unwrap();
+        assert!(manager.is_taken_over().unwrap());
+
+        manager.restore(None).unwrap();
+        assert!(!manager.is_taken_over().unwrap());
+    }
 }

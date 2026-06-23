@@ -28,7 +28,7 @@ describe('buildQuickAddPayload', () => {
     })
   })
 
-  it('falls back to claude when no type is selected', () => {
+  it('falls back to claude_code when no type is selected', () => {
     const result = buildQuickAddPayload({
       providerName: 'Test Provider',
       providerBaseUrl: 'https://example.com',
@@ -37,7 +37,7 @@ describe('buildQuickAddPayload', () => {
       keyType: [],
     })
 
-    expect(result.provider.type).toBe('claude')
+    expect(result.provider.type).toBe('claude_code')
     expect(result.apiKey.types).toEqual([])
   })
 })

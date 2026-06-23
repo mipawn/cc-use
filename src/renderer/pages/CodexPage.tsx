@@ -1,8 +1,8 @@
 /**
- * Codex 配置页 — config.toml 接管 + route 管理
+ * Codex Desktop 配置页 — auth.json + config.toml 接管
  */
 import { useEffect, useState } from 'react'
-import { Typography, Button, Card, Space, Tag, Descriptions, Modal, Input, message, Spin, Select, Divider } from 'antd'
+import { Typography, Button, Card, Space, Tag, Descriptions, Modal, Input, message, Spin, Select, Divider, Alert } from 'antd'
 import {
   SettingOutlined,
   ReloadOutlined,
@@ -15,6 +15,9 @@ import { useApiKeyStore } from '../stores/apiKeyStore'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
+
+/** 某个 key 是否支持 Codex(client kind = codex) */
+const isCodexKey = (types: string[]) => types.includes('codex')
 
 export default function CodexPage() {
   const [loading, setLoading] = useState(true)
@@ -98,8 +101,12 @@ export default function CodexPage() {
   }
 
   const allKeys = getAllApiKeys()
-  const activeProviders = providers.filter(p => p.isActive)
-  const filteredKeys = allKeys.filter(k =>
+  // 仅保留支持 Codex 的 key,以及至少有一个 Codex key 的 provider,避免选到
+  // anthropic 风格 provider 导致 /responses 路由错配。
+  const codexKeys = allKeys.filter(k => isCodexKey(k.types))
+  const codexProviderIds = new Set(codexKeys.map(k => k.providerId))
+  const activeProviders = providers.filter(p => p.isActive && codexProviderIds.has(p.id))
+  const filteredKeys = codexKeys.filter(k =>
     !selectedProviderId || k.providerId === selectedProviderId
   )
 
@@ -116,9 +123,9 @@ export default function CodexPage() {
         <div>
           <Title level={3} className='m-0! mb-1!'>
             <SettingOutlined style={{ marginRight: 8 }} />
-            Codex
+            Codex Desktop
           </Title>
-          <Text type='secondary'>配置级接入点 — 接管 ~/.codex/config.toml</Text>
+          <Text type='secondary'>配置级接管 — 写入 ~/.codex/auth.json + config.toml,转发到本地网关</Text>
         </div>
         <Button icon={<EyeOutlined />} onClick={handleReadConfig}>查看配置</Button>
       </div>
@@ -126,19 +133,21 @@ export default function CodexPage() {
       <Card variant='outlined' style={{ marginTop: 16 }}>
         <Descriptions column={1} size='small'>
           <Descriptions.Item label='接入形态'><Tag color='purple'>配置级接管</Tag></Descriptions.Item>
-          <Descriptions.Item label='配置文件'><Text code>~/.codex/config.toml</Text></Descriptions.Item>
+          <Descriptions.Item label='配置文件'>
+            <Text code>~/.codex/config.toml</Text>
+          </Descriptions.Item>
           <Descriptions.Item label='当前状态'>
             {takenOver
-              ? <Tag color='green' icon={<CheckCircleOutlined />}>已接管 — 指向本地代理</Tag>
+              ? <Tag color='green' icon={<CheckCircleOutlined />}>已接管 — 指向本地网关</Tag>
               : <Tag icon={<ExclamationCircleOutlined />}>官方配置</Tag>}
           </Descriptions.Item>
         </Descriptions>
 
         <Divider />
 
-        <Title level={5}>Route 配置 — 选择上游供应商和密钥</Title>
+        <Title level={5}>选择上游供应商和密钥</Title>
         <Text type='secondary' style={{ display: 'block', marginBottom: 12 }}>
-          Codex 通过代理转发到上游时使用此配置。接管后可在网关内部热切换，无需重写 config.toml。
+          仅列出支持 Codex 的密钥。接管会把 session token 写入 config.toml 的 experimental_bearer_token,<strong>不动 auth.json</strong> → 保留你的官方 ChatGPT 登录和插件能力。
         </Text>
 
         <Space direction='vertical' style={{ width: '100%' }}>
@@ -182,6 +191,14 @@ export default function CodexPage() {
 
         <Divider />
 
+        <Alert
+          type='warning'
+          showIcon
+          style={{ marginBottom: 12 }}
+          message='接管后需重启 Codex Desktop 才生效'
+          description='Codex Desktop 仅在启动时读取配置。另外:若在 App 内登录 ChatGPT 账号并使用第一方模型,会绕过本接管直连官方。接管采用 experimental_bearer_token 机制保留官方登录,但该字段为 Codex 实验特性,跨版本可能变化。'
+        />
+
         <Space>
           {takenOver ? (
             <>
@@ -189,12 +206,12 @@ export default function CodexPage() {
                 恢复官方配置
               </Button>
               <Button type='primary' icon={<SettingOutlined />} onClick={handleTakeover} loading={loading}>
-                重新接管 (切 route)
+                重新接管 (切换上游)
               </Button>
             </>
           ) : (
             <Button type='primary' icon={<SettingOutlined />} onClick={handleTakeover} loading={loading}>
-              接管 Codex
+              接管 Codex Desktop
             </Button>
           )}
         </Space>

@@ -137,11 +137,8 @@ fn resolve_launch_preview(
         .map_err(|e| e.to_string())?
         .ok_or("API key not found")?;
 
-    let global_config = if cli_type == "codex" {
-        settings.codex_config.as_ref()
-    } else {
-        settings.claude_config.as_ref()
-    };
+    // 终端启动仅用于 Claude Code(Codex 走 Codex Desktop 配置接管)。
+    let global_config = settings.claude_config.as_ref();
 
     let preview = resolve_launch_preview_from_configs(
         cli_type,

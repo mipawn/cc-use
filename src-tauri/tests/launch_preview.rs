@@ -47,43 +47,6 @@ fn resolve_launch_preview_merges_global_and_key_config_for_claude() {
 }
 
 #[test]
-fn resolve_launch_preview_overrides_codex_runtime_fields() {
-    let preview = resolve_launch_preview_from_configs(
-        "codex",
-        Some(&json!({
-            "OPENAI_BASE_URL": "https://upstream.example/v1",
-            "OPENAI_API_KEY": "global-key",
-            "OPENAI_MODEL": "global-model"
-        })),
-        Some(&json!({
-            "OPENAI_API_KEY": "key-value",
-            "OPENAI_MODEL": "key-model"
-        })),
-        "session-codex",
-        22345,
-    );
-
-    // Key-level model override wins
-    assert_eq!(
-        preview.env.get("OPENAI_MODEL"),
-        Some(&"key-model".to_string())
-    );
-    // Runtime session token overrides any key-level / global OPENAI_API_KEY
-    assert_eq!(
-        preview.env.get("OPENAI_API_KEY"),
-        Some(&"session-codex".to_string())
-    );
-    // Runtime proxy URL overrides any upstream OPENAI_BASE_URL
-    assert_eq!(
-        preview.env.get("OPENAI_BASE_URL"),
-        Some(&"http://localhost:22345/v1".to_string())
-    );
-    assert!(preview
-        .command
-        .contains("openai_base_url=\"http://localhost:22345/v1\""));
-}
-
-#[test]
 fn resolve_launch_preview_key_config_null_unsets_and_stringifies_values() {
     let preview = resolve_launch_preview_from_configs(
         "claude",
