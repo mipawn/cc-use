@@ -45,6 +45,18 @@ export default function CodexPage() {
       const { invoke } = await import('@tauri-apps/api/core')
       const taken: boolean = await invoke('codex_config_is_taken_over')
       setTakenOver(taken)
+
+      // 如果已接管，回显上次选择的 provider + key
+      if (taken) {
+        try {
+          const providerId: string | null = await invoke('get_setting', { key: 'codex_last_provider_id' })
+          const keyId: string | null = await invoke('get_setting', { key: 'codex_last_api_key_id' })
+          if (providerId) setSelectedProviderId(providerId)
+          if (keyId) setSelectedKeyId(keyId)
+        } catch {
+          // settings 可能不存在，忽略错误
+        }
+      }
     } catch (e) {
       console.error('Status check failed:', e)
     } finally {
@@ -79,6 +91,10 @@ export default function CodexPage() {
       })
       message.success(result)
       setTakenOver(true)
+
+      // 持久化当前选择，下次打开页面回显
+      await invoke('set_setting', { key: 'codex_last_provider_id', value: selectedProviderId })
+      await invoke('set_setting', { key: 'codex_last_api_key_id', value: selectedKeyId })
     } catch (e) {
       message.error(`接管失败: ${e}`)
     } finally {
@@ -93,6 +109,12 @@ export default function CodexPage() {
       const result: string = await invoke('codex_config_restore')
       message.success(result)
       setTakenOver(false)
+
+      // 清除持久化的选择
+      await invoke('delete_setting', { key: 'codex_last_provider_id' })
+      await invoke('delete_setting', { key: 'codex_last_api_key_id' })
+      setSelectedProviderId('')
+      setSelectedKeyId('')
     } catch (e) {
       message.error(`恢复失败: ${e}`)
     } finally {
