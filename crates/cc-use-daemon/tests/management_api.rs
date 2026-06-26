@@ -47,6 +47,8 @@ fn seed_managed_instance(db: &Database) -> String {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
         })
         .expect("create provider");
     let api_key = db
@@ -64,6 +66,9 @@ fn seed_managed_instance(db: &Database) -> String {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
         })
         .expect("create api key");
     let session_token = "session-managed".to_string();
@@ -73,6 +78,7 @@ fn seed_managed_instance(db: &Database) -> String {
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: "2026-04-14T16:00:00Z".to_string(),
+        cli_type: None,
     })
     .expect("create proxy session");
     let instance_id = "instance-managed".to_string();

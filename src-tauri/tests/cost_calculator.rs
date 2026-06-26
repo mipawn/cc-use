@@ -37,3 +37,46 @@ fn model_pricing_prefix_match() {
     assert!(pricing.is_some());
     assert!((pricing.unwrap().input - 3.0).abs() < 1e-6);
 }
+
+#[test]
+fn latest_claude_prices_match_provider_prefixed_models() {
+    let custom = HashMap::new();
+
+    let sonnet = find_pricing("anthropic.claude-sonnet-4-6-20260601", &custom).unwrap();
+    assert!((sonnet.input - 3.0).abs() < 1e-6);
+    assert!((sonnet.output - 15.0).abs() < 1e-6);
+
+    let opus = find_pricing("anthropic.claude-opus-4-8", &custom).unwrap();
+    assert!((opus.input - 5.0).abs() < 1e-6);
+    assert!((opus.output - 25.0).abs() < 1e-6);
+
+    let fable = find_pricing("claude-fable-5", &custom).unwrap();
+    assert!((fable.input - 10.0).abs() < 1e-6);
+    assert!((fable.output - 50.0).abs() < 1e-6);
+}
+
+#[test]
+fn latest_openai_prices_match_codex_and_gpt_models() {
+    let custom = HashMap::new();
+
+    let gpt = find_pricing("gpt-5.5", &custom).unwrap();
+    assert!((gpt.input - 5.0).abs() < 1e-6);
+    assert!((gpt.output - 30.0).abs() < 1e-6);
+
+    let pro = find_pricing("openai.gpt-5.5-pro", &custom).unwrap();
+    assert!((pro.input - 30.0).abs() < 1e-6);
+    assert!((pro.output - 180.0).abs() < 1e-6);
+
+    let codex = find_pricing("gpt-5.3-codex-20260618", &custom).unwrap();
+    assert!((codex.input - 1.75).abs() < 1e-6);
+    assert!((codex.output - 14.0).abs() < 1e-6);
+}
+
+#[test]
+fn longest_prefix_match_prefers_specific_model_price() {
+    let custom = HashMap::new();
+    let pricing = find_pricing("gpt-4o-mini-20240718", &custom).unwrap();
+
+    assert!((pricing.input - 0.15).abs() < 1e-6);
+    assert!((pricing.output - 0.6).abs() < 1e-6);
+}

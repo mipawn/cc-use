@@ -12,20 +12,32 @@ import {
   InputNumber,
   Checkbox,
   Typography,
-  Switch,
   Space,
   Segmented,
   theme,
   Tooltip,
   Select,
-  Collapse,
+  Tabs,
   Button,
 } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import { SettingOutlined, CopyOutlined, CheckOutlined, WalletOutlined } from '@ant-design/icons'
+import {
+  SettingOutlined,
+  CopyOutlined,
+  CheckOutlined,
+  DesktopOutlined,
+  CodeOutlined,
+} from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import type { ApiKey, Provider, ProviderType, CliConfig, TerminalLaunchPreview } from '@shared/types'
+import type {
+  ApiKey,
+  Provider,
+  ClientKind,
+  CliConfig,
+  TerminalLaunchPreview,
+} from '@shared/types'
+import { CLIENT_KIND_CONFIGS } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import styles from './KeyEditModal.module.css'
 
@@ -43,7 +55,7 @@ interface KeyEditModalProps {
     providerId: string
     alias?: string
     value: string
-    types: ProviderType[]
+    types: ClientKind[]
     config?: CliConfig
     costMultiplier?: number
     usageType?: 'none' | 'newapi' | 'custom'
@@ -68,12 +80,9 @@ export default function KeyEditModal({
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
 
-  const [selectedTypes, setSelectedTypes] = useState<ProviderType[]>(['claude'])
-  const [activeConfigType, setActiveConfigType] = useState<ProviderType>('claude')
+  const [selectedTypes, setSelectedTypes] = useState<ClientKind[]>(['claude_code'])
   const [claudeConfigJson, setClaudeConfigJson] = useState('{}')
-  const [codexConfigJson, setCodexConfigJson] = useState('{}')
-  const [claudeIncludeGlobal, setClaudeIncludeGlobal] = useState(true)
-  const [codexIncludeGlobal, setCodexIncludeGlobal] = useState(true)
+  const [configMode, setConfigMode] = useState<'preview' | 'edit'>('preview')
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [configCopied, setConfigCopied] = useState(false)
   const [launchPreview, setLaunchPreview] = useState<TerminalLaunchPreview | null>(null)
@@ -84,8 +93,6 @@ export default function KeyEditModal({
   const [usagePath, setUsagePath] = useState('')
   const [usageHeaders, setUsageHeaders] = useState('')
   const [costMultiplier, setCostMultiplier] = useState<number>(1)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [showModelMapping, setShowModelMapping] = useState(false)
   const [haikuModel, setHaikuModel] = useState('')
   const [sonnetModel, setSonnetModel] = useState('')
   const [opusModel, setOpusModel] = useState('')
@@ -100,35 +107,12 @@ export default function KeyEditModal({
     () => globalSettings.claudeConfig || {},
     [globalSettings.claudeConfig],
   )
-  const codexGlobalConfig = useMemo(
-    () => globalSettings.codexConfig || {},
-    [globalSettings.codexConfig],
-  )
-
   const parseConfig = (json: string): CliConfig => {
     try {
       return JSON.parse(json) as CliConfig
     } catch {
       return {}
     }
-  }
-
-  const getLocalConfigToSave = (
-    configJson: string,
-    globalConfig: CliConfig,
-    includeGlobal: boolean,
-  ): CliConfig => {
-    const currentConfig = parseConfig(configJson)
-    if (!includeGlobal) {
-      return currentConfig
-    }
-    const diff: CliConfig = {}
-    for (const [key, value] of Object.entries(currentConfig)) {
-      if (JSON.stringify(globalConfig[key]) !== JSON.stringify(value)) {
-        diff[key] = value
-      }
-    }
-    return diff
   }
 
   useEffect(() => {
@@ -139,48 +123,23 @@ export default function KeyEditModal({
         alias: apiKey.alias || '',
         value: apiKey.value,
       })
-      setSelectedTypes(apiKey.types)
-      setActiveConfigType(apiKey.types[0] || 'claude_code')
-
-      if (apiKey.types.includes('claude_code')) {
-        setClaudeConfigJson(JSON.stringify({ ...claudeGlobalConfig, ...(apiKey.config || {}) }, null, 2))
-        setClaudeIncludeGlobal(true)
-      } else {
-        setClaudeConfigJson('{}')
-        setClaudeIncludeGlobal(true)
-      }
-
-      if (apiKey.types.includes('codex')) {
-        setCodexConfigJson(JSON.stringify({ ...codexGlobalConfig, ...(apiKey.config || {}) }, null, 2))
-        setCodexIncludeGlobal(true)
-      } else {
-        setCodexConfigJson('{}')
-        setCodexIncludeGlobal(true)
-      }
+      const nextTypes = (apiKey.types?.length ? apiKey.types : ['claude_code'])
+        .map((type) => (type === 'claude' ? 'claude_code' : type)) as ClientKind[]
+      setSelectedTypes(nextTypes)
+      setClaudeConfigJson(JSON.stringify(apiKey.config || {}, null, 2))
     } else {
       form.resetFields()
       form.setFieldsValue({ alias: '', value: '' })
-      setSelectedTypes(['claude'])
-      setActiveConfigType('claude')
-      setClaudeConfigJson(
-        Object.keys(claudeGlobalConfig).length > 0 ? JSON.stringify(claudeGlobalConfig, null, 2) : '{}',
-      )
-      setCodexConfigJson(
-        Object.keys(codexGlobalConfig).length > 0 ? JSON.stringify(codexGlobalConfig, null, 2) : '{}',
-      )
-      setClaudeIncludeGlobal(true)
-      setCodexIncludeGlobal(true)
+      setSelectedTypes(['claude_code'])
+      setClaudeConfigJson('{}')
     }
+    setConfigMode('preview')
 
     if (apiKey) {
       setUsageType(apiKey.usageType || 'none')
       setUsageUrl(apiKey.usageUrl || '')
       setUsagePath(apiKey.usagePath || '')
       setCostMultiplier(apiKey.costMultiplier ?? 1)
-      setShowAdvanced(
-        (apiKey.costMultiplier != null && apiKey.costMultiplier !== 1) ||
-          (apiKey.usageType != null && apiKey.usageType !== 'none'),
-      )
       if (apiKey.modelMapping) {
         try {
           const m = JSON.parse(apiKey.modelMapping)
@@ -188,20 +147,17 @@ export default function KeyEditModal({
           setSonnetModel(m.sonnet || '')
           setOpusModel(m.opus || '')
           setDefaultModel(m.default || '')
-          setShowModelMapping(!!(m.haiku || m.sonnet || m.opus || m.default))
         } catch {
           setHaikuModel('')
           setSonnetModel('')
           setOpusModel('')
           setDefaultModel('')
-          setShowModelMapping(false)
         }
       } else {
         setHaikuModel('')
         setSonnetModel('')
         setOpusModel('')
         setDefaultModel('')
-        setShowModelMapping(false)
       }
       if (apiKey.usageHeaders) {
         try {
@@ -218,19 +174,17 @@ export default function KeyEditModal({
       setUsagePath('')
       setUsageHeaders('')
       setCostMultiplier(1)
-      setShowAdvanced(false)
       setHaikuModel('')
       setSonnetModel('')
       setOpusModel('')
       setDefaultModel('')
-      setShowModelMapping(false)
     }
 
     setJsonError(null)
-  }, [open, apiKey, form, claudeGlobalConfig, codexGlobalConfig])
+  }, [open, apiKey, form])
 
   useEffect(() => {
-    if (!open || !apiKey?.id) {
+    if (!open || !apiKey?.id || !selectedTypes.includes('claude_code')) {
       setLaunchPreview(null)
       return
     }
@@ -240,25 +194,15 @@ export default function KeyEditModal({
       .terminal.getLaunchPreview({
         providerId,
         apiKeyId: apiKey.id,
-        cliType: activeConfigType as any, // v3.2.0: as any 兼容 string
+        cliType: 'claude_code',
       })
       .then(setLaunchPreview)
       .catch(() => setLaunchPreview(null))
-  }, [open, apiKey, defaultProviderId, activeConfigType])
+  }, [open, apiKey, defaultProviderId, selectedTypes])
 
-  const handleTypeChange = (type: ProviderType, checked: boolean) => {
+  const handleTypeChange = (type: ClientKind, checked: boolean) => {
     if (checked) {
       setSelectedTypes((prev) => [...prev, type])
-      setActiveConfigType(type)
-      if (type === 'claude_code' && claudeConfigJson === '{}' && Object.keys(claudeGlobalConfig).length > 0) {
-        setClaudeConfigJson(JSON.stringify(claudeGlobalConfig, null, 2))
-      } else if (
-        type === 'codex' &&
-        codexConfigJson === '{}' &&
-        Object.keys(codexGlobalConfig).length > 0
-      ) {
-        setCodexConfigJson(JSON.stringify(codexGlobalConfig, null, 2))
-      }
     } else {
       const newTypes = selectedTypes.filter((t) => t !== type)
       if (newTypes.length === 0) {
@@ -266,32 +210,7 @@ export default function KeyEditModal({
         return
       }
       setSelectedTypes(newTypes)
-      if (activeConfigType === type) {
-        setActiveConfigType(newTypes[0])
-      }
     }
-  }
-
-  const handleToggleGlobal = (type: ProviderType, checked: boolean) => {
-    const globalConfig = type === 'claude_code' ? claudeGlobalConfig : codexGlobalConfig
-    const configJson = type === 'claude_code' ? claudeConfigJson : codexConfigJson
-    const setConfigJson = type === 'claude_code' ? setClaudeConfigJson : setCodexConfigJson
-    const setIncludeGlobal = type === 'claude_code' ? setClaudeIncludeGlobal : setCodexIncludeGlobal
-
-    const currentConfig = parseConfig(configJson)
-
-    if (checked) {
-      setConfigJson(JSON.stringify({ ...globalConfig, ...currentConfig }, null, 2))
-    } else {
-      const local: CliConfig = {}
-      for (const [key, value] of Object.entries(currentConfig)) {
-        if (JSON.stringify(globalConfig[key]) !== JSON.stringify(value)) {
-          local[key] = value
-        }
-      }
-      setConfigJson(JSON.stringify(local, null, 2) || '{}')
-    }
-    setIncludeGlobal(checked)
   }
 
   const buildModelMappingJson = (): string | undefined => {
@@ -316,21 +235,13 @@ export default function KeyEditModal({
 
       try {
         if (selectedTypes.includes('claude_code')) JSON.parse(claudeConfigJson)
-        if (selectedTypes.includes('codex')) JSON.parse(codexConfigJson)
       } catch {
         setJsonError('JSON 格式错误')
         message.error('JSON 格式错误')
         return
       }
 
-      const primaryType = selectedTypes[0]
-      const configJson = primaryType === 'claude_code' ? claudeConfigJson : codexConfigJson
-      const globalConfig = primaryType === 'claude_code' ? claudeGlobalConfig : codexGlobalConfig
-      const includeGlobal = primaryType === 'claude_code' ? claudeIncludeGlobal : codexIncludeGlobal
-      const localConfig = includeGlobal
-        ? getLocalConfigToSave(configJson, globalConfig, true)
-        : parseConfig(configJson)
-
+      const localConfig = selectedTypes.includes('claude_code') ? parseConfig(claudeConfigJson) : undefined
       await onSave({
         id: apiKey?.id,
         providerId,
@@ -362,27 +273,27 @@ export default function KeyEditModal({
     return currentProvider ? `${baseTitle} - ${currentProvider.name}` : baseTitle
   }, [apiKey, currentProvider, t])
 
-  const currentConfigJson = activeConfigType === 'claude_code' ? claudeConfigJson : codexConfigJson
-  const setCurrentConfigJson = activeConfigType === 'claude_code' ? setClaudeConfigJson : setCodexConfigJson
-  const currentIncludeGlobal = activeConfigType === 'claude_code' ? claudeIncludeGlobal : codexIncludeGlobal
-  const currentGlobalConfig = activeConfigType === 'claude_code' ? claudeGlobalConfig : codexGlobalConfig
-  const hasGlobalConfig = Object.keys(currentGlobalConfig).length > 0
+  const mergedConfigJson = useMemo(() => (
+    JSON.stringify({ ...claudeGlobalConfig, ...parseConfig(claudeConfigJson) }, null, 2)
+  ), [claudeGlobalConfig, claudeConfigJson])
 
   const previewJson = useMemo(() => {
-    if (!launchPreview) return ''
-    return JSON.stringify(
-      {
-        ...launchPreview.env,
-        __command: launchPreview.command,
-      },
-      null,
-      2,
-    )
-  }, [launchPreview])
+    if (launchPreview) {
+      return JSON.stringify(
+        {
+          ...launchPreview.env,
+          __command: launchPreview.command,
+        },
+        null,
+        2,
+      )
+    }
+    return mergedConfigJson
+  }, [launchPreview, mergedConfigJson])
 
   const handleCopyConfig = async () => {
     try {
-      await navigator.clipboard.writeText(previewJson || currentConfigJson)
+      await navigator.clipboard.writeText(configMode === 'preview' ? previewJson : claudeConfigJson)
       setConfigCopied(true)
       setTimeout(() => setConfigCopied(false), 2000)
       message.success(t('common.copied') || '已复制')
@@ -407,79 +318,48 @@ export default function KeyEditModal({
       <SimpleBar className={styles.scrollContainer}>
         <Form form={form} layout='vertical' className={styles.form}>
           <Form.Item
-            label={t('apiKeys.keyType') || '密钥类型'}
+            label={t('apiKeys.keyType') || '适用客户端'}
             required
-            extra={
-              selectedTypes.length > 1
-                ? '同一把密钥只保存一份局部配置；下面切换的是不同 CLI 类型下的真实合并预览。'
-                : undefined
-            }
+            className={styles.clientSelector}
           >
-            <Space size={16}>
-              <Checkbox
-                checked={selectedTypes.includes('claude_code')}
-                onChange={(e) => handleTypeChange('claude_code', e.target.checked)}
-              >
-                <Space>
-                  <span className={styles.typeIndicator} style={{ background: token.colorPrimary }} />
-                  Claude Code
-                </Space>
-              </Checkbox>
-              <Checkbox
-                checked={selectedTypes.includes('codex')}
-                onChange={(e) => handleTypeChange('codex', e.target.checked)}
-              >
-                <Space>
-                  <span className={styles.typeIndicator} style={{ background: token.colorSuccess }} />
-                  Codex Desktop
-                </Space>
-              </Checkbox>
-              <Checkbox
-                checked={selectedTypes.includes('claude_desktop')}
-                onChange={(e) => handleTypeChange('claude_desktop', e.target.checked)}
-              >
-                <Space>
-                  <span className={styles.typeIndicator} style={{ background: token.colorWarning }} />
-                  Claude Desktop
-                </Space>
-              </Checkbox>
+            <Space size={16} wrap>
+              {CLIENT_KIND_CONFIGS.map((client) => (
+                <Checkbox
+                  key={client.kind}
+                  checked={selectedTypes.includes(client.kind)}
+                  onChange={(e) => handleTypeChange(client.kind, e.target.checked)}
+                >
+                  <Space>
+                    {client.form === 'process_injection' ? <CodeOutlined /> : <DesktopOutlined />}
+                    {client.label}
+                  </Space>
+                </Checkbox>
+              ))}
             </Space>
           </Form.Item>
 
-          <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
-            <Input placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'} size='large' />
-          </Form.Item>
-
-          <Form.Item
-            name='value'
-            label={t('apiKeys.apiKey') || 'API 密钥'}
-            rules={[{ required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' }]}
-          >
-            <Input.Password placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'} size='large' />
-          </Form.Item>
-
-          <Collapse
-            ghost
-            activeKey={[
-              ...(showAdvanced ? ['advanced'] : []),
-              ...(showModelMapping ? ['modelMapping'] : []),
-            ]}
-            onChange={(keys) => {
-              setShowAdvanced(keys.includes('advanced'))
-              setShowModelMapping(keys.includes('modelMapping'))
-            }}
-            className={styles.advancedCollapse}
+          <Tabs
+            defaultActiveKey='basic'
+            destroyOnHidden={false}
+            className={styles.tabs}
             items={[
               {
-                key: 'advanced',
-                label: (
-                  <Space>
-                    <WalletOutlined />
-                    <span>{t('keys.advancedConfig') || '额度与费用'}</span>
-                  </Space>
-                ),
+                key: 'basic',
+                label: '基础',
                 children: (
-                  <div className={styles.advancedContent}>
+                  <div className={styles.tabPane}>
+                    <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
+                      <Input placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'} size='large' />
+                    </Form.Item>
+
+                    <Form.Item
+                      name='value'
+                      label={t('apiKeys.apiKey') || 'API 密钥'}
+                      rules={[{ required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' }]}
+                    >
+                      <Input.Password placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'} size='large' />
+                    </Form.Item>
+
                     <Form.Item
                       label={t('keys.costMultiplier') || '费用倍率'}
                       extra={t('keys.costMultiplierHint') || '中转站分组倍率，默认 1 表示按官方价格计算'}
@@ -583,14 +463,9 @@ export default function KeyEditModal({
               },
               {
                 key: 'modelMapping',
-                label: (
-                  <Space>
-                    <SettingOutlined />
-                    <span>{t('keys.modelMapping') || '模型映射'}</span>
-                  </Space>
-                ),
+                label: '模型映射',
                 children: (
-                  <div className={styles.advancedContent}>
+                  <div className={styles.tabPane}>
                     <Text type='secondary' style={{ marginBottom: 12, display: 'block', fontSize: 12 }}>
                       {t('keys.modelMappingHint') || '根据模型名称自动匹配类别并替换，仅对 Claude 类型生效'}
                     </Text>
@@ -627,97 +502,70 @@ export default function KeyEditModal({
                   </div>
                 ),
               },
+              ...(selectedTypes.includes('claude_code')
+                ? [{
+                    key: 'claudeConfig',
+                    label: '局部配置',
+                    children: (
+                      <div className={styles.tabPane}>
+                        <div className={styles.configSection}>
+                          <div className={styles.configHeader}>
+                            <Space>
+                            <SettingOutlined style={{ color: token.colorPrimary }} />
+                            <Text strong>Claude Code 局部配置</Text>
+                          </Space>
+                          <Tooltip title={configCopied ? t('common.copied') : t('common.copy')}>
+                            <button type='button' className={styles.copyButton} onClick={handleCopyConfig}>
+                              {configCopied ? (
+                                <CheckOutlined style={{ color: token.colorSuccess }} />
+                              ) : (
+                                <CopyOutlined />
+                              )}
+                            </button>
+                          </Tooltip>
+                        </div>
+
+                        <Segmented
+                          value={configMode}
+                          onChange={(value) => setConfigMode(value as 'preview' | 'edit')}
+                          options={[
+                            { value: 'preview', label: '预览' },
+                            { value: 'edit', label: '编辑局部' },
+                          ]}
+                          block
+                          className={styles.configTabs}
+                        />
+
+                        <TextArea
+                          value={configMode === 'preview' ? previewJson : claudeConfigJson}
+                          readOnly={configMode === 'preview'}
+                          onChange={(e) => {
+                            setClaudeConfigJson(e.target.value)
+                            if (jsonError) setJsonError(null)
+                          }}
+                          className={`${styles.jsonEditor} ${jsonError ? styles.jsonEditorError : ''}`}
+                          autoSize={{ minRows: 8, maxRows: 16 }}
+                          placeholder='{}'
+                        />
+
+                        <Text type='secondary' className={styles.errorText}>
+                          {configMode === 'preview'
+                            ? '预览态展示 Claude Code 全局配置、局部配置和启动注入环境合并后的结果。'
+                            : '这里只编辑这把密钥自己的局部配置；全局配置在 Claude Code 页面维护。'}
+                        </Text>
+
+                        {jsonError && (
+                          <Text type='danger' className={styles.errorText}>
+                            {jsonError}
+                            </Text>
+                          )}
+                        </div>
+                      </div>
+                    ),
+                  }]
+                : []),
             ]}
           />
-
-          <div className={styles.configSection}>
-            <div className={styles.configHeader}>
-              <Space>
-                <SettingOutlined style={{ color: token.colorPrimary }} />
-                <Text strong>{t('apiKeys.configTitle') || '配置'}</Text>
-              </Space>
-              <Tooltip title={configCopied ? t('common.copied') : t('common.copy')}>
-                <button type='button' className={styles.copyButton} onClick={handleCopyConfig}>
-                  {configCopied ? (
-                    <CheckOutlined style={{ color: token.colorSuccess }} />
-                  ) : (
-                    <CopyOutlined />
-                  )}
-                </button>
-              </Tooltip>
-            </div>
-
-            {selectedTypes.length > 1 && (
-              <Segmented
-                value={activeConfigType}
-                onChange={(value) => setActiveConfigType(value as ProviderType)}
-                options={selectedTypes.map((type) => ({
-                  value: type,
-                  label: (
-                    <Space>
-                      <span
-                        className={styles.typeIndicator}
-                        style={{ background: type === 'claude_code' ? token.colorPrimary : (type === 'codex' ? token.colorSuccess : token.colorWarning) }}
-                      />
-                      {type === 'claude_code' ? 'Claude Code' : (type === 'codex' ? 'Codex Desktop' : 'Claude Desktop')}
-                    </Space>
-                  ),
-                }))}
-                block
-                className={styles.configTabs}
-              />
-            )}
-
-            {hasGlobalConfig && (
-              <div className={styles.globalToggle}>
-                <Text type='secondary' style={{ fontSize: 12 }}>
-                  {t('apiKeys.mergeGlobal') || '合并全局配置'}
-                </Text>
-                <Switch
-                  size='small'
-                  checked={currentIncludeGlobal}
-                  onChange={(checked) => handleToggleGlobal(activeConfigType, checked)}
-                />
-              </div>
-            )}
-
-            <TextArea
-              value={currentConfigJson}
-              onChange={(e) => {
-                setCurrentConfigJson(e.target.value)
-                if (jsonError) setJsonError(null)
-              }}
-              className={`${styles.jsonEditor} ${jsonError ? styles.jsonEditorError : ''}`}
-              autoSize={{ minRows: 8, maxRows: 14 }}
-              placeholder='{}'
-            />
-
-            <Text type='secondary' className={styles.errorText}>
-              {selectedTypes.length > 1
-                ? '当前只会保存一份局部配置；真实启动预览会按当前 CLI 类型叠加对应的全局配置。'
-                : '上面编辑的是局部配置；下面展示的是后端返回的真实启动预览。'}
-            </Text>
-
-            {jsonError && (
-              <Text type='danger' className={styles.errorText}>
-                {jsonError}
-              </Text>
-            )}
-
-            {launchPreview && (
-              <>
-                <Text strong style={{ display: 'block', marginTop: 12, marginBottom: 8 }}>
-                  {t('apiKeys.configPreview') || '最终配置预览'}
-                </Text>
-                <TextArea
-                  value={previewJson}
-                  readOnly
-                  className={styles.jsonEditor}
-                  autoSize={{ minRows: 10, maxRows: 16 }}
-                />
-              </>
-            )}
-          </div>
         </Form>
       </SimpleBar>
     </Modal>

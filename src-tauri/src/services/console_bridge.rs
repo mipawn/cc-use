@@ -43,10 +43,7 @@ impl ConsoleBridgeHandle {
 /// forever with capped backoff. A failing daemon is silent — the Console page
 /// is a diagnostic tool, not a load-bearing feature, so propagating errors
 /// into the UI would just add noise.
-pub fn spawn_console_bridge(
-    handle: AppHandle,
-    db: Arc<Mutex<Database>>,
-) -> ConsoleBridgeHandle {
+pub fn spawn_console_bridge(handle: AppHandle, db: Arc<Mutex<Database>>) -> ConsoleBridgeHandle {
     let restart = Arc::new(Notify::new());
     let bridge_restart = restart.clone();
 
@@ -81,12 +78,7 @@ enum RunOutcome {
     ConnectionLost,
 }
 
-async fn run_once(
-    handle: &AppHandle,
-    port: i32,
-    token: &str,
-    restart: &Notify,
-) -> RunOutcome {
+async fn run_once(handle: &AppHandle, port: i32, token: &str, restart: &Notify) -> RunOutcome {
     let url = format!("http://127.0.0.1:{}/_management/console/stream", port);
 
     let client = match reqwest::Client::builder()
@@ -211,7 +203,11 @@ mod tests {
         let records = collect(&mut buf);
         assert_eq!(
             records,
-            vec!["data: a".to_string(), "data: b".to_string(), ":keepalive".to_string()]
+            vec![
+                "data: a".to_string(),
+                "data: b".to_string(),
+                ":keepalive".to_string()
+            ]
         );
         assert!(buf.is_empty());
     }

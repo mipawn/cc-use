@@ -23,6 +23,10 @@ fn classify_request_auth_distinguishes_session_provider_and_missing() {
         RequestAuth::SessionToken("session-abc".to_string())
     );
     assert_eq!(
+        classify_request_auth(Some("bearer session-abc"), None),
+        RequestAuth::SessionToken("session-abc".to_string())
+    );
+    assert_eq!(
         classify_request_auth(Some("Bearer sk-live"), None),
         RequestAuth::ProviderCredential
     );

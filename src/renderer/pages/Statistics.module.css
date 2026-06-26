@@ -166,6 +166,14 @@
   border-radius: var(--radius-ant-lg) !important;
 }
 
+.tooltipCellText {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .recentCard {
   border-radius: var(--radius-ant-lg) !important;
 }

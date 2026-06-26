@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub mod iterm2;
-pub mod mac_terminal;
 pub mod launcher;
+pub mod mac_terminal;
 
 const MANAGED_INSTANCE_HEARTBEAT_INTERVAL_SECS: u64 = 5;
 
@@ -35,7 +35,6 @@ struct PreparedManagedLaunch {
     cli_type: String,
     terminal_type: String,
     instance_label: String,
-    command: String,
     env: EnvObject,
     script_path: PathBuf,
 }
@@ -190,6 +189,7 @@ fn resolve_project_launch_context(
 
 fn write_managed_launch_script(
     script_path: &Path,
+    project_path: &str,
     preview: &TerminalLaunchPreview,
     instance_id: &str,
     instance_label: &str,
@@ -201,6 +201,7 @@ fn write_managed_launch_script(
 
     let mut script = String::from("#!/bin/sh\n");
     script.push_str("set -u\n\n");
+    script.push_str(&format!("cd {}\n\n", shell_quote(project_path)));
 
     for (key, value) in env_entries {
         script.push_str(&format!("export {}={}\n", key, shell_quote(value)));
@@ -293,10 +294,6 @@ exit "${CC_USE_EXIT_CODE}"
     Ok(())
 }
 
-fn build_managed_launch_command(script_path: &Path) -> String {
-    format!("sh {}", shell_quote(script_path.to_string_lossy().as_ref()))
-}
-
 fn prepare_managed_launch(
     db: &Database,
     project_id: &str,
@@ -321,6 +318,7 @@ fn prepare_managed_launch(
     let script_path = runtime_script_dir()?.join(format!("{}.sh", instance_id));
     write_managed_launch_script(
         &script_path,
+        &context.project_path,
         &preview,
         &instance_id,
         &instance_label,
@@ -376,7 +374,6 @@ fn prepare_managed_launch(
         cli_type: context.cli_type,
         terminal_type: context.terminal_type,
         instance_label,
-        command: build_managed_launch_command(&script_path),
         env: EnvObject::new(),
         script_path,
     })
@@ -446,12 +443,12 @@ pub fn launch_terminal(
         .or_else(|| get_first_available())
         .ok_or("No terminal available")?;
 
-    // v3.2.0: 传 wrapper 脚本路径,终端只负责执行它
+    // v3.2.0: 终端在项目目录打开,并执行 wrapper 脚本
     let wrapper_path = prepared.script_path.to_string_lossy().to_string();
     if let Err(error) = strategy.launch(
-        &wrapper_path,
+        &prepared.project_path,
         &prepared.env,
-        &prepared.command,
+        &wrapper_path,
         Some(&prepared.instance_label),
     ) {
         let _ = std::fs::remove_file(&prepared.script_path);

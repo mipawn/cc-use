@@ -111,6 +111,10 @@ function buildApi(): Api {
       get: () => invoke('settings_get'),
       update: (updates) => invoke('settings_update', { updates }),
     },
+    configTakeover: {
+      readCodex: () => invoke('codex_config_read'),
+      readClaudeDesktop: () => invoke('claude_desktop_config_read'),
+    },
     icon: {
       upload: (buffer, filename) => {
         const arr = Array.from(new Uint8Array(buffer))

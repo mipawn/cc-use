@@ -119,7 +119,10 @@ impl Database {
                 usage_headers TEXT,
                 cached_usage TEXT,
                 last_usage_checked_at TEXT,
-                cost_multiplier REAL DEFAULT 1
+                cost_multiplier REAL DEFAULT 1,
+                api_format TEXT DEFAULT 'auto',
+                transform_enabled INTEGER DEFAULT 0,
+                client_configs TEXT
             );
 
             CREATE TABLE IF NOT EXISTS projects (
@@ -317,6 +320,9 @@ impl Database {
             "ALTER TABLE api_keys ADD COLUMN cached_usage TEXT",
             "ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT",
             "ALTER TABLE api_keys ADD COLUMN cost_multiplier REAL DEFAULT 1",
+            "ALTER TABLE api_keys ADD COLUMN api_format TEXT DEFAULT 'auto'",
+            "ALTER TABLE api_keys ADD COLUMN transform_enabled INTEGER DEFAULT 0",
+            "ALTER TABLE api_keys ADD COLUMN client_configs TEXT",
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
             "ALTER TABLE projects ADD COLUMN remark TEXT",
@@ -326,10 +332,10 @@ impl Database {
             "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",
             "ALTER TABLE request_logs ADD COLUMN project_name TEXT",
             "ALTER TABLE api_keys ADD COLUMN model_mapping TEXT",
-            // v3.2.0: 格式转换支持
+            // Legacy compatibility fields retained for existing databases.
             "ALTER TABLE providers ADD COLUMN api_format TEXT DEFAULT 'auto'",
             "ALTER TABLE providers ADD COLUMN transform_enabled INTEGER DEFAULT 0",
-            // v3.2.0: proxy_sessions 记录 CLI 类型，供代理层格式转换判断
+            // proxy_sessions records the client marker for config-takeover routing.
             "ALTER TABLE proxy_sessions ADD COLUMN cli_type TEXT",
         ];
 
@@ -338,7 +344,7 @@ impl Database {
         }
 
         // v3.2.0: Migrate api_keys.types from legacy 'claude' to ClientKind 'claude_code'.
-        // Codex CLI removed; only 3 clients: claude_code / codex / claude_desktop.
+        // Codex terminal launch removed; only 3 clients: claude_code / codex / claude_desktop.
         self.migrate_api_key_types_to_client_kind();
         self.migrate_projects_cli_type_to_client_kind();
     }

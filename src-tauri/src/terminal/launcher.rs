@@ -106,7 +106,10 @@ impl TerminalLauncher {
     /// 检查终端是否可用（通过 bundle ID）
     fn is_terminal_available(app_name: &str) -> bool {
         Command::new("mdfind")
-            .arg(format!("kMDItemCFBundleIdentifier == '{}'", Self::bundle_id(app_name)))
+            .arg(format!(
+                "kMDItemCFBundleIdentifier == '{}'",
+                Self::bundle_id(app_name)
+            ))
             .output()
             .map(|output| !output.stdout.is_empty())
             .unwrap_or(false)
@@ -217,10 +220,7 @@ end tell"#,
             wrapper_script.display()
         );
 
-        let status = Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .status()?;
+        let status = Command::new("osascript").arg("-e").arg(&script).status()?;
 
         if status.success() {
             Ok(())
@@ -244,10 +244,7 @@ end tell"#,
             wrapper_script.display()
         );
 
-        let status = Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .status()?;
+        let status = Command::new("osascript").arg("-e").arg(&script).status()?;
 
         if status.success() {
             Ok(())
@@ -398,10 +395,7 @@ mod tests {
             TerminalLauncher::bundle_id("WezTerm"),
             "com.github.wez.wezterm"
         );
-        assert_eq!(
-            TerminalLauncher::bundle_id("Warp"),
-            "dev.warp.Warp-Stable"
-        );
+        assert_eq!(TerminalLauncher::bundle_id("Warp"), "dev.warp.Warp-Stable");
         assert_eq!(
             TerminalLauncher::bundle_id("Terminal"),
             "com.apple.Terminal"

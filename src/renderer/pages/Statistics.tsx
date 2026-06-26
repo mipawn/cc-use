@@ -5,7 +5,19 @@ import { getApi } from '../api'
  */
 import { useEffect, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
-import { Typography, Card, Segmented, Table, Tag, Spin, theme, Space, Statistic, Button } from 'antd'
+import {
+  Typography,
+  Card,
+  Segmented,
+  Table,
+  Tag,
+  Spin,
+  theme,
+  Space,
+  Statistic,
+  Button,
+  Tooltip,
+} from 'antd'
 import {
   DollarOutlined,
   ThunderboltOutlined,
@@ -14,9 +26,9 @@ import {
   BarChartOutlined,
   KeyOutlined,
   CloudServerOutlined,
-  FolderOutlined,
   RobotOutlined,
   SettingOutlined,
+  FolderOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -34,6 +46,11 @@ function formatTokens(n: number): string {
 
 function formatCost(n: number): string {
   return `$${n.toFixed(4)}`
+}
+
+function displayName(value: string | null | undefined, fallback: string): string {
+  const trimmed = value?.trim()
+  return trimmed || fallback
 }
 
 export default function Statistics() {
@@ -101,7 +118,7 @@ export default function Statistics() {
   const maxTrendCost = stats ? Math.max(...stats.dailyTrend.map((d) => d.cost), 0.0001) : 1
 
   // Top table columns (shared pattern)
-  const makeTopColumns = (nameLabel: string) => [
+  const makeTopColumns = (nameLabel: string, showNameTooltip = false) => [
     {
       title: t('statistics.rank'),
       key: 'rank',
@@ -115,6 +132,16 @@ export default function Statistics() {
       dataIndex: 'name',
       key: 'name',
       ellipsis: true,
+      render: (v: string | null) => {
+        const name = displayName(v, t('statistics.other'))
+        return showNameTooltip ? (
+          <Tooltip title={name}>
+            <span className={styles.tooltipCellText}>{name}</span>
+          </Tooltip>
+        ) : (
+          name
+        )
+      },
     },
     {
       title: t('statistics.cost'),
@@ -164,7 +191,15 @@ export default function Statistics() {
       key: 'providerName',
       width: 120,
       ellipsis: true,
-      render: (v: string | null) => v || '-',
+      render: (v: string | null) => displayName(v, '-'),
+    },
+    {
+      title: t('statistics.project'),
+      dataIndex: 'projectName',
+      key: 'projectName',
+      width: 140,
+      ellipsis: true,
+      render: (v: string | null) => displayName(v, t('statistics.other')),
     },
     {
       title: t('statistics.cost'),
@@ -379,7 +414,7 @@ export default function Statistics() {
                       name: k.keyAlias,
                       key: k.keyId,
                     }))}
-                    columns={makeTopColumns(t('statistics.key'))}
+                    columns={makeTopColumns(t('statistics.key'), true)}
                     rowKey='keyId'
                     size='small'
                     pagination={false}
@@ -403,7 +438,7 @@ export default function Statistics() {
                       name: p.providerName,
                       key: p.providerId,
                     }))}
-                    columns={makeTopColumns(t('statistics.provider'))}
+                    columns={makeTopColumns(t('statistics.provider'), true)}
                     rowKey='providerId'
                     size='small'
                     pagination={false}
@@ -430,7 +465,7 @@ export default function Statistics() {
                       name: p.projectName,
                       key: p.projectId,
                     }))}
-                    columns={makeTopColumns(t('statistics.project'))}
+                    columns={makeTopColumns(t('statistics.project'), true)}
                     rowKey='projectId'
                     size='small'
                     pagination={false}
@@ -454,8 +489,8 @@ export default function Statistics() {
                       name: m.model,
                       key: m.model,
                     }))}
-                    columns={makeTopColumns(t('statistics.model'))}
-                    rowKey='model'
+                    columns={makeTopColumns(t('statistics.model'), true)}
+                    rowKey={(record) => `${record.model || 'unknown'}-${record.totalRequests}-${record.totalTokens}`}
                     size='small'
                     pagination={false}
                     scroll={{ y: 240 }}
@@ -489,7 +524,7 @@ export default function Statistics() {
                     pageSizeOptions: ['10', '20', '50', '100'],
                     showTotal: (total) => `共 ${total} 条`,
                   }}
-                  scroll={{ x: 1000 }}
+                  scroll={{ x: 1120 }}
                 />
               </Card>
             </div>

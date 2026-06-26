@@ -72,4 +72,12 @@ impl Database {
         )?;
         Ok(())
     }
+
+    pub fn settings_delete_value(&self, key: &str) -> Result<(), rusqlite::Error> {
+        self.conn.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            rusqlite::params![key],
+        )?;
+        Ok(())
+    }
 }

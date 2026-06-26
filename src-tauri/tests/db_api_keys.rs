@@ -14,7 +14,7 @@ fn api_key_crud() {
             provider_id: provider.id.clone(),
             alias: Some("Test Key".to_string()),
             value: "sk-test-123".to_string(),
-            types: Some(vec!["claude".to_string()]),
+            types: None,
             priority: Some(0),
             is_active: None,
             config: None,
@@ -24,6 +24,9 @@ fn api_key_crud() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
         })
         .unwrap();
 
@@ -60,6 +63,9 @@ fn cascade_delete_removes_api_keys() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
         })
         .unwrap();
 
@@ -91,6 +97,9 @@ fn api_key_create_returns_proper_result() {
         usage_path: None,
         usage_headers: None,
         model_mapping: None,
+        api_format: None,
+        transform_enabled: None,
+        client_configs: None,
     });
 
     assert!(result.is_ok());
@@ -116,6 +125,9 @@ fn api_key_update_no_changes() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
         })
         .unwrap();
 
@@ -136,8 +148,78 @@ fn api_key_update_no_changes() {
         cached_usage: None,
         last_usage_checked_at: None,
         model_mapping: None,
+        api_format: None,
+        transform_enabled: None,
+        client_configs: None,
     });
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap().value, "sk-test-789");
+}
+
+#[test]
+fn api_key_types_round_trip() {
+    let fixture = TempDb::new();
+    let provider = create_provider(&fixture.db, "Test", "claude");
+    let key = fixture
+        .db
+        .api_key_create(&CreateApiKeyInput {
+            provider_id: provider.id.clone(),
+            alias: Some("Multi client".to_string()),
+            value: "sk-test-types".to_string(),
+            types: Some(vec![
+                "claude_code".to_string(),
+                "codex".to_string(),
+                "claude_desktop".to_string(),
+            ]),
+            priority: None,
+            is_active: None,
+            config: None,
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        key.types,
+        vec![
+            "claude_code".to_string(),
+            "codex".to_string(),
+            "claude_desktop".to_string()
+        ]
+    );
+
+    let updated = fixture
+        .db
+        .api_key_update(&UpdateApiKeyInput {
+            id: key.id,
+            alias: None,
+            value: None,
+            types: Some(vec!["claude_desktop".to_string()]),
+            priority: None,
+            is_exhausted: None,
+            is_active: None,
+            config: None,
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            cached_usage: None,
+            last_usage_checked_at: None,
+            model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
+        })
+        .unwrap();
+
+    assert_eq!(updated.types, vec!["claude_desktop".to_string()]);
 }

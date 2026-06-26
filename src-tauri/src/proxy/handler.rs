@@ -1,13 +1,12 @@
 use crate::db::Database;
 use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
-use crate::proxy::transform_bridge;
 use crate::proxy::usage_parser;
 use crate::proxy::ProxyState;
 use crate::services::cost_calculator;
 use crate::shared_runtime::{
-    classify_request_auth, decide_route_plan, infer_upstream_family_from_path, RoutePlan,
-    UpstreamFamily,
+    classify_request_auth, decide_route_plan, infer_upstream_family_from_path, RequestAuth,
+    RoutePlan, UpstreamFamily,
 };
 
 use axum::{
@@ -26,10 +25,8 @@ use std::task::{Context, Poll};
 struct RouteExecution {
     upstream_url: String,
     real_api_key: Option<String>,
-    provider_type: Option<String>,
     model_mapping: Option<String>,
     log_ctx: Option<ResolvedSessionContext>,
-    // v3.2.0: 格式转换支持
     provider: Option<Provider>,
     cli_type: Option<String>,
 }
@@ -64,8 +61,12 @@ impl<'a> EmitCtx<'a> {
     }
 
     fn reject(&self, reason: &str) {
-        self.state
-            .emit_console(ConsoleEvent::rejected(self.method, self.path, self.elapsed_ms(), reason));
+        self.state.emit_console(ConsoleEvent::rejected(
+            self.method,
+            self.path,
+            self.elapsed_ms(),
+            reason,
+        ));
     }
 
     fn upstream_error(
@@ -181,7 +182,7 @@ pub async fn proxy_handler(
                 ));
             }
         };
-        let route_plan = decide_route_plan(&request_auth);
+        let route_plan = route_plan_with_codex_takeover_fallback(&db, &req_path, &request_auth);
         match build_route_execution(&db, &state, &req_path, route_plan, &emit) {
             Ok(re) => re,
             Err(resp) => return Err(resp),
@@ -225,15 +226,39 @@ pub async fn proxy_handler(
             .into_response());
     }
 
+    let request_path_only = req_path.split('?').next().unwrap_or(req_path.as_str());
+    if matches!(
+        request_path_only.trim_end_matches('/'),
+        "/v1/models" | "/claude-desktop/v1/models"
+    ) && route_execution.cli_type.as_deref() == Some("claude_desktop")
+    {
+        let body = crate::commands::claude_desktop_config::claude_desktop_model_list_response(
+            route_execution.model_mapping.as_deref(),
+        );
+        let response_body = serde_json::to_vec(&body).unwrap_or_else(|_| b"{}".to_vec());
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "application/json")
+            .body(Body::from(response_body))
+            .unwrap_or_else(|_| {
+                Response::builder()
+                    .status(500)
+                    .body(Body::from("Internal error"))
+                    .unwrap()
+            }));
+    }
+
     let method = req.method().clone();
     let mut headers = req.headers().clone();
 
     if let Some(real_api_key) = route_execution.real_api_key.as_deref() {
+        let upstream_url_lower = route_execution.upstream_url.to_ascii_lowercase();
         let is_openai = route_execution
-            .provider_type
-            .as_deref()
-            .map(|t| t == "codex")
-            .unwrap_or(false);
+            .provider
+            .as_ref()
+            .map(|provider| provider_uses_bearer_auth(provider, &upstream_url_lower))
+            .unwrap_or(false)
+            && !upstream_url_lower.contains("anthropic");
 
         if is_openai {
             let bearer = format!("Bearer {}", real_api_key);
@@ -269,6 +294,7 @@ pub async fn proxy_handler(
 
     headers.remove("host");
     headers.remove("accept-encoding");
+    headers.remove("content-length");
 
     let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
         Ok(b) => b,
@@ -291,45 +317,8 @@ pub async fn proxy_handler(
 
     let body_bytes = apply_model_mapping(body_bytes, &route_execution);
 
-    // v3.2.0: 格式转换 - 请求转换
-    let (body_bytes, final_path) = if let Some(ref provider) = route_execution.provider {
-        match transform_bridge::transform_request_if_needed(
-            body_bytes.to_vec(),
-            &req_path,
-            provider,
-            route_execution.cli_type.as_deref(),
-        ) {
-            Ok((transformed_bytes, transformed_path)) => (transformed_bytes.into(), transformed_path),
-            Err(e) => {
-                emit.reject(&format!("Request transform failed: {}", e));
-                return Err(error_response(
-                    StatusCode::BAD_REQUEST,
-                    &format!("Request transform failed: {}", e),
-                ));
-            }
-        }
-    } else {
-        (body_bytes, req_path.clone())
-    };
-
     let client = reqwest::Client::new();
-    // 构建上游 URL。注意 upstream_url 已经包含原始 req_path
-    // （见 build_provider_upstream_url / build_official_upstream_url），所以：
-    // - final_path 是完整 URL：直接使用；
-    // - 未转换（final_path == req_path）：直接用 upstream_url，避免把 req_path 拼第二次；
-    // - 转换改写了路径：剥掉 upstream_url 末尾的原 req_path，再接转换后的 final_path。
-    let final_url = if final_path.starts_with("http://") || final_path.starts_with("https://") {
-        final_path
-    } else if final_path == req_path {
-        route_execution.upstream_url.clone()
-    } else {
-        let base = route_execution
-            .upstream_url
-            .strip_suffix(req_path.as_str())
-            .unwrap_or(&route_execution.upstream_url);
-        format!("{}{}", base.trim_end_matches('/'), final_path)
-    };
-    let mut req_builder = client.request(method, &final_url);
+    let mut req_builder = client.request(method, &route_execution.upstream_url);
 
     for (name, value) in &headers {
         if let Ok(v) = value.to_str() {
@@ -384,16 +373,6 @@ pub async fn proxy_handler(
         .to_lowercase();
 
     if content_type.contains("text/event-stream") {
-        // v3.2.0: 检查是否需要响应转换
-        let transform_path = if let Some(ref provider) = route_execution.provider {
-            transform_bridge::should_transform_response(
-                provider,
-                route_execution.cli_type.as_deref(),
-            )
-        } else {
-            None
-        };
-
         let accumulator = usage_parser::StreamUsageAccumulator::new();
         let tracking_stream = UsageTrackingStream {
             inner: upstream_resp.bytes_stream(),
@@ -408,6 +387,8 @@ pub async fn proxy_handler(
                 cost_multiplier: ctx.cost_multiplier,
                 status_code: status.as_u16(),
                 start_time,
+                path: req_path.clone(),
+                response_content_type: content_type.clone(),
                 key_alias: ctx.key_alias.clone(),
                 provider_name: ctx.provider_name.clone(),
                 project_name: ctx.project_name.clone(),
@@ -423,14 +404,14 @@ pub async fn proxy_handler(
                 key_alias: key_snapshot.clone(),
             }),
             finished: false,
-            // v3.2.0: 格式转换器
-            transformer: transform_path.map(|path| transform_bridge::create_stream_transformer(path)),
         };
 
         let mut response = Response::builder().status(status.as_u16());
         for (name, value) in &resp_headers {
-            if let Ok(v) = value.to_str() {
-                response = response.header(name.as_str(), v);
+            if should_forward_response_header(name.as_str()) {
+                if let Ok(v) = value.to_str() {
+                    response = response.header(name.as_str(), v);
+                }
             }
         }
 
@@ -478,12 +459,21 @@ pub async fn proxy_handler(
                 cost_multiplier: ctx.cost_multiplier,
                 status_code: status.as_u16(),
                 start_time,
+                path: req_path.clone(),
+                response_content_type: content_type.clone(),
                 key_alias: ctx.key_alias.clone(),
                 provider_name: ctx.provider_name.clone(),
                 project_name: ctx.project_name.clone(),
             };
             record_usage(&log_ctx, u, model.as_deref(), is_streaming);
         }
+    } else if route_execution.log_ctx.is_some() {
+        log::warn!(
+            "Usage not recorded: no usage parsed from response; path={}, status={}, content_type={}",
+            req_path,
+            status.as_u16(),
+            content_type
+        );
     }
 
     emit.ok(
@@ -496,8 +486,10 @@ pub async fn proxy_handler(
 
     let mut response = Response::builder().status(status.as_u16());
     for (name, value) in &resp_headers {
-        if let Ok(v) = value.to_str() {
-            response = response.header(name.as_str(), v);
+        if should_forward_response_header(name.as_str()) {
+            if let Ok(v) = value.to_str() {
+                response = response.header(name.as_str(), v);
+            }
         }
     }
 
@@ -509,6 +501,37 @@ pub async fn proxy_handler(
                 .body(Body::from("Internal error"))
                 .unwrap()
         }))
+}
+
+fn route_plan_with_codex_takeover_fallback(
+    db: &Database,
+    req_path: &str,
+    request_auth: &RequestAuth,
+) -> RoutePlan {
+    let route_plan = decide_route_plan(request_auth);
+    if matches!(route_plan, RoutePlan::ExplicitSession { .. })
+        || !is_codex_responses_request_path(req_path)
+    {
+        return route_plan;
+    }
+
+    let Ok(Some(session_token)) =
+        db.settings_get_value(crate::shared_runtime::CODEX_SESSION_TOKEN_SETTING_KEY)
+    else {
+        return route_plan;
+    };
+    let session_token = session_token.trim();
+    if session_token.is_empty() {
+        return route_plan;
+    }
+
+    if db.proxy_session_get(session_token).ok().flatten().is_some() {
+        RoutePlan::ExplicitSession {
+            session_token: session_token.to_string(),
+        }
+    } else {
+        route_plan
+    }
 }
 
 fn build_route_execution(
@@ -527,14 +550,18 @@ fn build_route_execution(
                 .as_deref()
                 .and_then(|pid| db.project_get(pid).ok().flatten())
                 .map(|p| p.name);
-            let upstream_url = build_provider_upstream_url(&provider.base_url, req_path, emit)?;
-            let ptype = provider.provider_type.clone();
             let mapping = api_key.model_mapping.clone();
-            let cli_type = session.cli_type.clone();
+            let cli_type = effective_session_cli_type(session.cli_type.as_deref(), req_path);
+            let upstream_req_path = if cli_type.as_deref() == Some("claude_desktop") {
+                strip_claude_desktop_prefix(req_path).to_string()
+            } else {
+                req_path.to_string()
+            };
+            let upstream_url =
+                build_provider_upstream_url(&provider.base_url, &upstream_req_path, emit)?;
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
-                provider_type: ptype,
                 model_mapping: mapping,
                 log_ctx: Some(ResolvedSessionContext {
                     session_token: session.session_token,
@@ -565,7 +592,6 @@ fn build_route_execution(
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: None,
-                provider_type: None,
                 model_mapping: None,
                 log_ctx: None,
                 provider: None,
@@ -578,6 +604,22 @@ fn build_route_execution(
             Err(error_response(StatusCode::UNAUTHORIZED, reason))
         }
     }
+}
+
+fn effective_session_cli_type(cli_type: Option<&str>, req_path: &str) -> Option<String> {
+    match cli_type {
+        Some(value) if !value.trim().is_empty() => Some(value.to_string()),
+        _ if is_codex_responses_request_path(req_path) => Some("codex-app".to_string()),
+        _ => None,
+    }
+}
+
+fn is_codex_responses_request_path(req_path: &str) -> bool {
+    let path = req_path.split('?').next().unwrap_or(req_path);
+    matches!(
+        path.trim_end_matches('/'),
+        "/v1/responses" | "/responses" | "/v1/responses/compact" | "/responses/compact"
+    )
 }
 
 fn resolve_session_resources(
@@ -670,7 +712,12 @@ fn build_provider_upstream_url(
         }
     };
     let target_origin = match parsed.port() {
-        Some(port) => format!("{}://{}:{}", parsed.scheme(), parsed.host_str().unwrap_or(""), port),
+        Some(port) => format!(
+            "{}://{}:{}",
+            parsed.scheme(),
+            parsed.host_str().unwrap_or(""),
+            port
+        ),
         None => format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or("")),
     };
     let path_prefix = if parsed.path() == "/" {
@@ -678,7 +725,53 @@ fn build_provider_upstream_url(
     } else {
         parsed.path().trim_end_matches('/')
     };
-    Ok(format!("{}{}{}", target_origin, path_prefix, req_path))
+
+    // 避免路径重复：如果 base_url 末尾已经包含 req_path 的前缀（如 /v1），
+    // 只拼接 req_path 的剩余部分
+    let final_req_path = if let Some(stripped) = strip_common_prefix(path_prefix, req_path) {
+        stripped
+    } else {
+        req_path
+    };
+
+    Ok(format!(
+        "{}{}{}",
+        target_origin, path_prefix, final_req_path
+    ))
+}
+
+fn strip_claude_desktop_prefix(req_path: &str) -> &str {
+    const PREFIX: &str = "/claude-desktop";
+    let Some(rest) = req_path.strip_prefix(PREFIX) else {
+        return req_path;
+    };
+    if rest.is_empty() {
+        "/"
+    } else if rest.starts_with('/') || rest.starts_with('?') {
+        rest
+    } else {
+        req_path
+    }
+}
+
+/// 如果 req_path 的开头与 base_path 的结尾有公共部分（如 /v1），
+/// 返回去掉公共部分后的 req_path
+fn strip_common_prefix<'a>(base_path: &str, req_path: &'a str) -> Option<&'a str> {
+    if base_path.is_empty() {
+        return None;
+    }
+
+    // 例如：base_path = "/v1", req_path = "/v1/responses"
+    // 应该返回 "/responses"
+    if req_path.starts_with(base_path) {
+        let rest = &req_path[base_path.len()..];
+        // 确保剩余部分以 / 开头或为空
+        if rest.is_empty() || rest.starts_with('/') {
+            return Some(rest);
+        }
+    }
+
+    None
 }
 
 fn build_official_upstream_url(upstream_family: UpstreamFamily, req_path: &str) -> String {
@@ -697,13 +790,15 @@ fn build_official_upstream_url(upstream_family: UpstreamFamily, req_path: &str) 
 }
 
 fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) -> axum::body::Bytes {
-    let is_claude = route
-        .provider_type
-        .as_deref()
-        .map(|t| t != "codex")
+    let is_claude_like_provider = route
+        .provider
+        .as_ref()
+        .map(|provider| {
+            !provider_uses_bearer_auth(provider, &provider.base_url.to_ascii_lowercase())
+        })
         .unwrap_or(true);
 
-    if !is_claude {
+    if !is_claude_like_provider {
         return body_bytes;
     }
 
@@ -717,6 +812,7 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
         haiku: Option<String>,
         sonnet: Option<String>,
         opus: Option<String>,
+        fable: Option<String>,
         default: Option<String>,
     }
 
@@ -741,6 +837,13 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
         mapping.haiku.as_deref().map(|m| m.to_string())
     } else if model_lower.contains("opus") {
         mapping.opus.as_deref().map(|m| m.to_string())
+    } else if model_lower.contains("fable") {
+        mapping
+            .fable
+            .as_deref()
+            .or(mapping.opus.as_deref())
+            .or(mapping.default.as_deref())
+            .map(|m| m.to_string())
     } else if model_lower.contains("sonnet") {
         mapping.sonnet.as_deref().map(|m| m.to_string())
     } else {
@@ -750,12 +853,29 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     if let Some(mapped) = mapped {
         if mapped != model {
             json["model"] = serde_json::Value::String(mapped);
-            let mapped_bytes = axum::body::Bytes::from(serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()));
+            let mapped_bytes = axum::body::Bytes::from(
+                serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()),
+            );
             return strip_one_m_suffix(mapped_bytes);
         }
     }
 
     strip_one_m_suffix(body_bytes)
+}
+
+fn provider_uses_bearer_auth(provider: &Provider, url_lower: &str) -> bool {
+    if url_lower.contains("anthropic") {
+        return false;
+    }
+
+    match provider.provider_type.as_deref() {
+        Some("claude" | "claude_code" | "claude_desktop" | "anthropic") => false,
+        Some(
+            "openai" | "codex" | "deepseek" | "newapi" | "zhipu" | "siliconflow" | "minimax"
+            | "kimi" | "moonshot" | "xiaomi",
+        ) => true,
+        _ => url_lower.contains("/v1") || url_lower.contains("openai"),
+    }
 }
 
 /// Strips the [1M] suffix that Claude Code appends to model names for 1M context.
@@ -781,7 +901,9 @@ fn strip_one_m_suffix(body_bytes: axum::body::Bytes) -> axum::body::Bytes {
     {
         let stripped = trimmed[..trimmed.len() - marker.len()].trim_end();
         json["model"] = serde_json::Value::String(stripped.to_string());
-        return axum::body::Bytes::from(serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()));
+        return axum::body::Bytes::from(
+            serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()),
+        );
     }
 
     body_bytes
@@ -796,6 +918,21 @@ pub fn error_response(status: StatusCode, message: &str) -> Response<Body> {
         .header("content-type", "application/json")
         .body(Body::from(json))
         .unwrap_or_else(|_| Response::new(Body::from(r#"{"error":"internal error"}"#)))
+}
+
+fn should_forward_response_header(name: &str) -> bool {
+    !matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "content-length"
+    )
 }
 
 fn decompress(data: &[u8], encoding: &str) -> Vec<u8> {
@@ -837,6 +974,8 @@ struct LogContext {
     cost_multiplier: f64,
     status_code: u16,
     start_time: std::time::Instant,
+    path: String,
+    response_content_type: String,
     // Snapshot names for request_logs persistence
     key_alias: Option<String>,
     provider_name: Option<String>,
@@ -864,14 +1003,12 @@ fn record_usage(
     is_streaming: bool,
 ) {
     let latency_ms = ctx.start_time.elapsed().as_millis() as i64;
-    let model_name = model.unwrap_or("unknown");
+    let model_name = model.or(ctx.request_model.as_deref()).unwrap_or("unknown");
 
     let custom_pricing = {
         let db = ctx.db.lock().unwrap();
         match db.settings_get_value("customModelPricing") {
-            Ok(Some(json)) => {
-                serde_json::from_str(&json).unwrap_or_default()
-            }
+            Ok(Some(json)) => serde_json::from_str(&json).unwrap_or_default(),
             _ => std::collections::HashMap::new(),
         }
     };
@@ -892,7 +1029,7 @@ fn record_usage(
         api_key_id: Some(ctx.api_key_id.clone()),
         project_id: ctx.project_id.clone(),
         session_id: Some(ctx.session_token.clone()),
-        model: model.map(|s| s.to_string()),
+        model: Some(model_name.to_string()),
         request_model: ctx.request_model.clone(),
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
@@ -930,8 +1067,6 @@ struct UsageTrackingStream<S> {
     log_ctx: Option<LogContext>,
     console_ctx: Option<StreamConsoleCtx>,
     finished: bool,
-    // v3.2.0: 格式转换器（可选）
-    transformer: Option<Box<dyn transform_bridge::StreamTransformer + Send>>,
 }
 
 impl<S> Stream for UsageTrackingStream<S>
@@ -949,20 +1084,10 @@ where
 
         match Pin::new(&mut this.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(bytes))) => {
-                // 用原始 bytes 做 usage tracking（转换前的格式）
                 if let Ok(text) = std::str::from_utf8(&bytes) {
                     this.accumulator.process_chunk(text);
                 }
-
-                // v3.2.0: 如果有转换器，先转换再返回
-                let output_bytes = if let Some(ref mut transformer) = this.transformer {
-                    let transformed = transformer.transform_chunk(&bytes);
-                    axum::body::Bytes::from(transformed)
-                } else {
-                    bytes
-                };
-
-                Poll::Ready(Some(Ok(output_bytes)))
+                Poll::Ready(Some(Ok(bytes)))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(std::io::Error::other(e)))),
             Poll::Ready(None) => {
@@ -971,6 +1096,14 @@ where
                     this.accumulator.flush();
                     if let Some(usage) = this.accumulator.get_usage() {
                         record_usage(&ctx, &usage, this.accumulator.model.as_deref(), true);
+                    } else {
+                        log::warn!(
+                            "Usage not recorded: no usage parsed from streaming response; path={}, status={}, content_type={}, diagnostics={}",
+                            ctx.path,
+                            ctx.status_code,
+                            ctx.response_content_type,
+                            this.accumulator.diagnostics_summary()
+                        );
                     }
                 }
                 if let Some(ctx) = this.console_ctx.take() {
@@ -1094,4 +1227,186 @@ fn extract_host(url: &str) -> Option<String> {
             }
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        effective_session_cli_type, is_codex_responses_request_path, record_usage,
+        route_plan_with_codex_takeover_fallback, should_forward_response_header, LogContext,
+    };
+    use crate::db::Database;
+    use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
+    use crate::shared_runtime::{RequestAuth, RoutePlan, CODEX_SESSION_TOKEN_SETTING_KEY};
+
+    #[test]
+    fn response_header_filter_drops_hop_by_hop_headers() {
+        for header in [
+            "connection",
+            "Connection",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "Transfer-Encoding",
+            "upgrade",
+            "content-length",
+        ] {
+            assert!(!should_forward_response_header(header), "{header}");
+        }
+    }
+
+    #[test]
+    fn response_header_filter_keeps_end_to_end_headers() {
+        for header in ["content-type", "server", "x-request-id"] {
+            assert!(should_forward_response_header(header), "{header}");
+        }
+    }
+
+    #[test]
+    fn codex_responses_paths_are_detected_for_takeover_fallback() {
+        for path in [
+            "/v1/responses",
+            "/v1/responses?stream=true",
+            "/responses",
+            "/v1/responses/compact",
+        ] {
+            assert!(is_codex_responses_request_path(path), "{path}");
+        }
+        assert!(!is_codex_responses_request_path("/v1/chat/completions"));
+        assert!(!is_codex_responses_request_path("/v1/models"));
+    }
+
+    #[test]
+    fn legacy_empty_session_type_is_treated_as_codex_app_for_responses() {
+        assert_eq!(
+            effective_session_cli_type(None, "/v1/responses").as_deref(),
+            Some("codex-app")
+        );
+        assert_eq!(
+            effective_session_cli_type(Some(""), "/v1/responses").as_deref(),
+            Some("codex-app")
+        );
+        assert_eq!(
+            effective_session_cli_type(Some("claude_desktop"), "/v1/responses").as_deref(),
+            Some("claude_desktop")
+        );
+        assert_eq!(effective_session_cli_type(None, "/v1/messages"), None);
+    }
+
+    #[test]
+    fn codex_responses_provider_auth_uses_saved_takeover_session() {
+        let db = Database::new_in_memory().unwrap();
+        let session_token = "session-fixed-codex";
+        db.settings_set_value(CODEX_SESSION_TOKEN_SETTING_KEY, session_token)
+            .unwrap();
+        db.proxy_session_create(&ProxySession {
+            session_token: session_token.to_string(),
+            provider_id: "provider".to_string(),
+            api_key_id: "key".to_string(),
+            project_id: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            cli_type: Some("codex-app".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            route_plan_with_codex_takeover_fallback(
+                &db,
+                "/v1/responses",
+                &RequestAuth::ProviderCredential,
+            ),
+            RoutePlan::ExplicitSession {
+                session_token: session_token.to_string()
+            }
+        );
+        assert_eq!(
+            route_plan_with_codex_takeover_fallback(
+                &db,
+                "/v1/models",
+                &RequestAuth::ProviderCredential,
+            ),
+            RoutePlan::PassThrough
+        );
+    }
+
+    #[test]
+    fn record_usage_persists_request_model_when_response_model_missing() {
+        let raw_db = Database::new_in_memory().unwrap();
+        let provider = raw_db
+            .provider_create(&CreateProviderInput {
+                name: "codex-provider".to_string(),
+                base_url: "https://example.com/v1".to_string(),
+                provider_type: Some("codex".to_string()),
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                api_format: None,
+                transform_enabled: None,
+            })
+            .unwrap();
+        let api_key = raw_db
+            .api_key_create(&CreateApiKeyInput {
+                provider_id: provider.id.clone(),
+                alias: Some("codex-key".to_string()),
+                value: "sk-test".to_string(),
+                types: Some(vec!["codex".to_string()]),
+                priority: None,
+                is_active: None,
+                config: None,
+                cost_multiplier: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                model_mapping: None,
+                api_format: None,
+                transform_enabled: None,
+                client_configs: None,
+            })
+            .unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(raw_db));
+        let ctx = LogContext {
+            db: db.clone(),
+            session_token: "session-codex".to_string(),
+            provider_id: provider.id.clone(),
+            api_key_id: api_key.id.clone(),
+            project_id: None,
+            request_model: Some("gpt-5.5".to_string()),
+            cost_multiplier: 1.0,
+            status_code: 200,
+            start_time: std::time::Instant::now(),
+            path: "/v1/responses".to_string(),
+            response_content_type: "text/event-stream".to_string(),
+            key_alias: Some("codex-key".to_string()),
+            provider_name: Some("codex-provider".to_string()),
+            project_name: None,
+        };
+        let usage = crate::proxy::usage_parser::TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+        };
+
+        record_usage(&ctx, &usage, None, true);
+
+        let rows = db.lock().unwrap().request_log_list_all().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
+        assert_eq!(rows[0].request_model.as_deref(), Some("gpt-5.5"));
+        assert!((rows[0].total_cost_usd - 35.0).abs() < 1e-6);
+    }
 }

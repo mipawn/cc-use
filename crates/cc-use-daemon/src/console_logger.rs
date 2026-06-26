@@ -60,9 +60,7 @@ impl Log for ConsoleLogger {
 }
 
 fn is_own_crate(target: &str) -> bool {
-    target.starts_with("cc_use")
-        || target == "cc_use_lib"
-        || target == "cc_use_daemon"
+    target.starts_with("cc_use") || target == "cc_use_lib" || target == "cc_use_daemon"
 }
 
 fn level_to_str(level: log::Level) -> String {

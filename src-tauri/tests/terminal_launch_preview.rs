@@ -25,7 +25,7 @@ fn merges_global_key_and_runtime_for_claude_preview() {
             provider_id: provider.id,
             alias: Some("test".to_string()),
             value: "sk-test".to_string(),
-            types: Some(vec!["claude".to_string()]),
+            types: None,
             priority: Some(0),
             is_active: Some(true),
             config: Some(json!({
@@ -38,6 +38,9 @@ fn merges_global_key_and_runtime_for_claude_preview() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
         })
         .unwrap();
 
@@ -137,7 +140,7 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
             provider_id: provider.id,
             alias: Some("test".to_string()),
             value: "sk-test".to_string(),
-            types: Some(vec!["claude".to_string()]),
+            types: None,
             priority: Some(0),
             is_active: Some(true),
             config: Some(json!({
@@ -152,6 +155,9 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
         })
         .unwrap();
 

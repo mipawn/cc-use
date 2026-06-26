@@ -8,6 +8,10 @@ use std::process::Command;
 
 pub struct ITerm2Strategy;
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 impl TerminalStrategy for ITerm2Strategy {
     fn name(&self) -> &str {
         "iTerm2"
@@ -30,12 +34,17 @@ impl TerminalStrategy for ITerm2Strategy {
 
     fn launch(
         &self,
-        wrapper_path: &str,
+        working_dir: &str,
         _env: &EnvObject,
-        _cli_command: &str,
+        wrapper_path: &str,
         _instance_label: Option<&str>,
     ) -> Result<(), String> {
         // v3.2.0: 直接执行 wrapper 脚本,不内联 env/command
+        let command = format!(
+            "cd {} && {}",
+            shell_quote(working_dir),
+            shell_quote(wrapper_path)
+        );
         let script = format!(
             r#"tell application "iTerm2"
     activate
@@ -44,7 +53,7 @@ impl TerminalStrategy for ITerm2Strategy {
         write text "{}"
     end tell
 end tell"#,
-            wrapper_path
+            command.replace('"', "\\\"")
         );
 
         let output = Command::new("osascript")

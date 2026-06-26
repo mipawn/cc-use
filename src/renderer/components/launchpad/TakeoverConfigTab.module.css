@@ -1,0 +1,239 @@
+.root {
+  min-width: 0;
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.statusText {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.providerPanel {
+  overflow: hidden;
+  margin-bottom: 24px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+.providerHeader {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.providerTitle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.iconFrame {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-sunken));
+}
+
+.providerIcon {
+  width: 21px;
+  height: 21px;
+  object-fit: contain;
+}
+
+.providerName {
+  overflow: hidden;
+  color: var(--ant-color-text);
+  font-size: 24px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keyCount {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.sortControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.table {
+  width: 100%;
+}
+
+.tableHead,
+.tableRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, 0.35fr) minmax(110px, 0.24fr) minmax(
+      172px,
+      0.32fr
+    );
+  align-items: center;
+}
+
+.tableHead {
+  min-height: 48px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--color-accent-secondary) 5%, var(--surface-default));
+  color: var(--ant-color-text-secondary);
+  font-weight: 650;
+}
+
+.tableRow {
+  min-height: 80px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-elevated) 92%, var(--surface-default));
+  transition:
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.tableRow:last-child {
+  border-bottom: 0;
+}
+
+.selectedRow {
+  box-shadow: inset 4px 0 0 var(--color-accent-primary);
+  background: color-mix(in srgb, var(--color-accent-primary) 10%, var(--surface-elevated));
+}
+
+.nameCell,
+.tierCell,
+.latencyCell,
+.actionCell {
+  min-width: 0;
+}
+
+.keyNameLine {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.keyName {
+  max-width: 100%;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.starIcon {
+  flex: 0 0 auto;
+  color: var(--color-accent-primary);
+  font-size: 15px;
+}
+
+.note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.tierCell {
+  display: flex;
+  align-items: center;
+}
+
+.statusTag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.latencyCell {
+  color: var(--ant-color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.actionCell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .providerHeader,
+  .tableHead,
+  .tableRow {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .tableHead,
+  .tableRow {
+    grid-template-columns: minmax(180px, 1fr) minmax(128px, 0.42fr) minmax(92px, 0.2fr) minmax(
+        160px,
+        0.34fr
+      );
+  }
+}
+
+@media (max-width: 720px) {
+  .providerHeader {
+    min-height: 62px;
+  }
+
+  .providerName {
+    font-size: 20px;
+  }
+
+  .tableHead {
+    display: none;
+  }
+
+  .tableRow {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .tierCell,
+  .latencyCell,
+  .actionCell {
+    justify-content: flex-start;
+  }
+
+  .actionCell {
+    flex-wrap: wrap;
+  }
+}

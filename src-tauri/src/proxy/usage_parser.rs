@@ -18,6 +18,7 @@ pub fn parse_usage_from_response(body: &str) -> (Option<TokenUsage>, Option<Stri
 
     let model = json
         .get("model")
+        .or_else(|| json.get("response").and_then(|r| r.get("model")))
         .and_then(|m| m.as_str())
         .map(|s| s.to_string());
     let usage = parse_usage_from_json(&json);
@@ -26,9 +27,44 @@ pub fn parse_usage_from_response(body: &str) -> (Option<TokenUsage>, Option<Stri
 }
 
 fn parse_usage_from_json(json: &serde_json::Value) -> Option<TokenUsage> {
-    let usage = json.get("usage")?;
+    let usage = json
+        .get("usage")
+        .or_else(|| json.get("response").and_then(|r| r.get("usage")))
+        .or_else(|| find_usage_value(json))?;
+    parse_usage_value(usage)
+}
 
-    // Claude format
+fn find_usage_value(json: &serde_json::Value) -> Option<&serde_json::Value> {
+    match json {
+        serde_json::Value::Object(map) => {
+            if let Some(usage) = map.get("usage") {
+                if usage.get("input_tokens").is_some()
+                    || usage.get("output_tokens").is_some()
+                    || usage.get("prompt_tokens").is_some()
+                    || usage.get("completion_tokens").is_some()
+                {
+                    return Some(usage);
+                }
+            }
+            map.values().find_map(find_usage_value)
+        }
+        serde_json::Value::Array(items) => items.iter().find_map(find_usage_value),
+        _ => None,
+    }
+}
+
+fn parse_usage_value(usage: &serde_json::Value) -> Option<TokenUsage> {
+    let cache_read_tokens = usage
+        .get("cache_read_input_tokens")
+        .or_else(|| {
+            usage
+                .get("input_tokens_details")
+                .and_then(|details| details.get("cached_tokens"))
+        })
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+
+    // Claude / OpenAI Responses format
     if usage.get("input_tokens").is_some() || usage.get("output_tokens").is_some() {
         return Some(TokenUsage {
             input_tokens: usage
@@ -39,10 +75,7 @@ fn parse_usage_from_json(json: &serde_json::Value) -> Option<TokenUsage> {
                 .get("output_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0),
-            cache_read_tokens: usage
-                .get("cache_read_input_tokens")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0),
+            cache_read_tokens,
             cache_creation_tokens: usage
                 .get("cache_creation_input_tokens")
                 .and_then(|v| v.as_i64())
@@ -78,6 +111,10 @@ pub struct StreamUsageAccumulator {
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub model: Option<String>,
+    data_event_count: usize,
+    invalid_json_count: usize,
+    event_types: Vec<String>,
+    top_level_keys: Vec<String>,
     /// Buffer for incomplete lines that span across TCP chunks
     line_buffer: String,
 }
@@ -90,6 +127,10 @@ impl StreamUsageAccumulator {
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
             model: None,
+            data_event_count: 0,
+            invalid_json_count: 0,
+            event_types: Vec::new(),
+            top_level_keys: Vec::new(),
             line_buffer: String::new(),
         }
     }
@@ -128,11 +169,21 @@ impl StreamUsageAccumulator {
         if json_str == "[DONE]" {
             return;
         }
+        self.data_event_count += 1;
 
         let data: serde_json::Value = match serde_json::from_str(json_str) {
             Ok(v) => v,
-            Err(_) => return,
+            Err(_) => {
+                self.invalid_json_count += 1;
+                return;
+            }
         };
+
+        if let Some(obj) = data.as_object() {
+            for key in obj.keys() {
+                push_limited_unique(&mut self.top_level_keys, key);
+            }
+        }
 
         // Extract model
         if let Some(msg) = data.get("message") {
@@ -147,6 +198,9 @@ impl StreamUsageAccumulator {
         }
 
         let event_type = data.get("type").and_then(|v| v.as_str());
+        if let Some(event_type) = event_type {
+            push_limited_unique(&mut self.event_types, event_type);
+        }
 
         // Claude message_start — input tokens
         if event_type == Some("message_start") {
@@ -188,6 +242,39 @@ impl StreamUsageAccumulator {
                     .unwrap_or(0);
             }
         }
+
+        // OpenAI Responses streaming format — final events often wrap usage
+        // under `response.usage` instead of putting it at the top level.
+        if let Some(usage) = data
+            .get("response")
+            .and_then(|response| response.get("usage"))
+            .or_else(|| {
+                if event_type
+                    .map(|event_type| event_type.starts_with("response."))
+                    .unwrap_or(false)
+                {
+                    find_usage_value(&data)
+                } else {
+                    None
+                }
+            })
+        {
+            if let Some(parsed) = parse_usage_value(usage) {
+                self.input_tokens = parsed.input_tokens;
+                self.output_tokens = parsed.output_tokens;
+                self.cache_read_tokens = parsed.cache_read_tokens;
+                self.cache_creation_tokens = parsed.cache_creation_tokens;
+            }
+        }
+        if self.model.is_none() {
+            if let Some(m) = data
+                .get("response")
+                .and_then(|response| response.get("model"))
+                .and_then(|v| v.as_str())
+            {
+                self.model = Some(m.to_string());
+            }
+        }
     }
 
     /// Flush any remaining buffered line (call when stream ends)
@@ -209,6 +296,24 @@ impl StreamUsageAccumulator {
             cache_creation_tokens: self.cache_creation_tokens,
         })
     }
+
+    pub fn diagnostics_summary(&self) -> String {
+        format!(
+            "data_events={}, invalid_json={}, event_types=[{}], top_level_keys=[{}], model_seen={}",
+            self.data_event_count,
+            self.invalid_json_count,
+            self.event_types.join(","),
+            self.top_level_keys.join(","),
+            self.model.as_deref().unwrap_or("")
+        )
+    }
+}
+
+fn push_limited_unique(values: &mut Vec<String>, value: &str) {
+    if values.len() >= 16 || values.iter().any(|existing| existing == value) {
+        return;
+    }
+    values.push(value.to_string());
 }
 
 /// Parse usage from collected response data (handles both SSE and JSON)

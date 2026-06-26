@@ -1,4 +1,6 @@
-use cc_use_lib::proxy::usage_parser::{parse_usage_from_response, StreamUsageAccumulator};
+use cc_use_lib::proxy::usage_parser::{
+    parse_usage_from_response, parse_usage_from_response_data, StreamUsageAccumulator,
+};
 
 #[test]
 fn parse_claude_response() {
@@ -25,6 +27,18 @@ fn parse_openai_response() {
 }
 
 #[test]
+fn parse_openai_responses_nested_usage() {
+    let body = r#"{"type":"response.completed","response":{"id":"resp-test","model":"gpt-5.5","usage":{"input_tokens":200,"output_tokens":100,"input_tokens_details":{"cached_tokens":25}}}}"#;
+    let (usage, model) = parse_usage_from_response(body);
+    let usage = usage.unwrap();
+
+    assert_eq!(usage.input_tokens, 200);
+    assert_eq!(usage.output_tokens, 100);
+    assert_eq!(usage.cache_read_tokens, 25);
+    assert_eq!(model.unwrap(), "gpt-5.5");
+}
+
+#[test]
 fn parse_no_usage() {
     let body = r#"{"error":"bad request"}"#;
     let (usage, _) = parse_usage_from_response(body);
@@ -43,6 +57,20 @@ fn parse_streaming_sse() {
     assert_eq!(usage.output_tokens, 300);
     assert_eq!(usage.cache_read_tokens, 20);
     assert_eq!(accumulator.model.unwrap(), "claude-sonnet-4");
+}
+
+#[test]
+fn parse_openai_responses_streaming_sse() {
+    let chunk = "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5.5\",\"usage\":{\"input_tokens\":120,\"output_tokens\":40,\"input_tokens_details\":{\"cached_tokens\":12}}}}\n\n";
+
+    let (usage, model, is_streaming) = parse_usage_from_response_data(chunk, "text/event-stream");
+    let usage = usage.unwrap();
+
+    assert!(is_streaming);
+    assert_eq!(usage.input_tokens, 120);
+    assert_eq!(usage.output_tokens, 40);
+    assert_eq!(usage.cache_read_tokens, 12);
+    assert_eq!(model.unwrap(), "gpt-5.5");
 }
 
 #[test]

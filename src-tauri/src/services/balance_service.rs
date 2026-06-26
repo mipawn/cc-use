@@ -250,9 +250,7 @@ pub fn parse_deepseek_balance_response(
         }));
     }
 
-    let balance_infos = body
-        .get("balance_infos")
-        .and_then(|v| v.as_array());
+    let balance_infos = body.get("balance_infos").and_then(|v| v.as_array());
 
     let balance_obj = balance_infos.and_then(|arr| {
         arr.iter()
@@ -260,8 +258,7 @@ pub fn parse_deepseek_balance_response(
             .or_else(|| arr.first())
     });
 
-    let total_balance =
-        to_number(balance_obj.and_then(|v| v.get("total_balance")));
+    let total_balance = to_number(balance_obj.and_then(|v| v.get("total_balance")));
 
     match total_balance {
         Some(balance) => Ok(serde_json::json!({

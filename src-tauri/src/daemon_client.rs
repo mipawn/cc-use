@@ -229,7 +229,11 @@ mod tests {
     fn probe_tcp_port_returns_true_when_listener_accepts() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
         let port = listener.local_addr().expect("local addr").port() as i32;
-        assert!(probe_tcp_port(port), "expected probe to succeed for {}", port);
+        assert!(
+            probe_tcp_port(port),
+            "expected probe to succeed for {}",
+            port
+        );
     }
 
     #[test]

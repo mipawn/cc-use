@@ -5,11 +5,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use cc_use_lib::shared_runtime::{
-    ensure_management_token, read_management_token, validate_management_token,
-    ManagementTokenPaths,
-};
 use cc_use_lib::db::Database;
+use cc_use_lib::shared_runtime::{
+    ensure_management_token, read_management_token, validate_management_token, ManagementTokenPaths,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 

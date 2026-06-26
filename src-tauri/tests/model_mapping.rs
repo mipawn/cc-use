@@ -84,7 +84,7 @@ fn setup_provider_with_mapping(
             provider_id: provider.id.clone(),
             alias: Some(format!("{}-key", provider_type)),
             value: format!("sk-{}", provider_type),
-            types: Some(vec![provider_type.to_string()]),
+            types: None,
             priority: Some(0),
             is_active: Some(true),
             config: None,
@@ -94,6 +94,9 @@ fn setup_provider_with_mapping(
             usage_path: None,
             usage_headers: None,
             model_mapping: model_mapping.map(|s| s.to_string()),
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
         })
         .expect("create api key");
 
@@ -122,7 +125,9 @@ async fn sonnet_category_maps_all_sonnet_variants() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"claude-sonnet-4-5-20250929","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"claude-sonnet-4-5-20250929","messages":[]}"#,
+        ))
         .unwrap();
 
     let response = proxy_handler(AxumState(state), request).await;
@@ -144,7 +149,9 @@ async fn haiku_category_maps_haiku_variants() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"claude-haiku-4-5-20251001","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"claude-haiku-4-5-20251001","messages":[]}"#,
+        ))
         .unwrap();
 
     let response = proxy_handler(AxumState(state), request).await;
@@ -166,7 +173,9 @@ async fn opus_category_maps_opus_variants() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"claude-opus-4-7-20250514","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"claude-opus-4-7-20250514","messages":[]}"#,
+        ))
         .unwrap();
 
     let response = proxy_handler(AxumState(state), request).await;
@@ -180,7 +189,8 @@ async fn opus_category_maps_opus_variants() {
 #[tokio::test]
 async fn default_model_fallback_when_no_category_match() {
     let mock = start_mock_upstream().await;
-    let mapping = r#"{"sonnet":"anthropic.claude-sonnet-4-6","default":"anthropic.claude-haiku-4-5"}"#;
+    let mapping =
+        r#"{"sonnet":"anthropic.claude-sonnet-4-6","default":"anthropic.claude-haiku-4-5"}"#;
     let (state, session_token) = setup_provider_with_mapping(mock.port, "claude", Some(mapping));
 
     let request = Request::builder()
@@ -188,7 +198,9 @@ async fn default_model_fallback_when_no_category_match() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"some-unknown-model","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"some-unknown-model","messages":[]}"#,
+        ))
         .unwrap();
 
     let response = proxy_handler(AxumState(state), request).await;
@@ -276,7 +288,9 @@ async fn strips_one_m_suffix_before_upstream() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"claude-sonnet-4-6[1M]","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"claude-sonnet-4-6[1M]","messages":[]}"#,
+        ))
         .unwrap();
 
     let response = proxy_handler(AxumState(state), request).await;
@@ -319,7 +333,9 @@ async fn one_m_suffix_case_insensitive() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"claude-sonnet-4-6[1m]","messages":[]}"#))
+        .body(Body::from(
+            r#"{"model":"claude-sonnet-4-6[1m]","messages":[]}"#,
+        ))
         .unwrap();
 
     let response = proxy_handler(AxumState(state), request).await;

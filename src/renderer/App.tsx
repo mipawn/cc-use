@@ -5,11 +5,10 @@ import { useState, useEffect, useCallback } from 'react'
 import Sidebar from './components/layout/Sidebar'
 import TitleBar from './components/layout/TitleBar'
 import Dashboard from './pages/Dashboard'
-import Keys from './pages/Keys'
 import Statistics from './pages/Statistics'
 import Settings from './pages/Settings'
 import Console from './pages/Console'
-import LaunchPad from './pages/LaunchPad'
+import Keys from './pages/Keys'
 import ClaudeCodePage from './pages/ClaudeCodePage'
 import CodexPage from './pages/CodexPage'
 import ClaudeDesktopPage from './pages/ClaudeDesktopPage'
@@ -119,7 +118,6 @@ function AppContent() {
           <MigrationModal />
           <Routes>
             <Route path='/' element={<Dashboard />} />
-            <Route path='/launch' element={<LaunchPad />} />
             <Route path='/claude-code' element={<ClaudeCodePage />} />
             <Route path='/codex' element={<CodexPage />} />
             <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
@@ -132,6 +130,8 @@ function AppContent() {
             <Route path='/projects' element={<Navigate to='/claude-code' replace />} />
             <Route path='/instances' element={<Navigate to='/claude-code' replace />} />
             <Route path='/sessions' element={<Navigate to='/claude-code' replace />} />
+            <Route path='/launch' element={<Navigate to='/claude-code' replace />} />
+            <Route path='/launchpad' element={<Navigate to='/claude-code' replace />} />
             <Route path='/providers' element={<Navigate to='/keys' replace />} />
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>

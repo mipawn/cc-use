@@ -49,7 +49,7 @@ impl TrayBadge {
 
 /// 格式化 USD 金额为简短形式
 fn format_usd_amount(amount: f64) -> String {
-    if amount >= 1000.0 {
+    if amount >= 999.95 {
         format!("${:.1}k", amount / 1000.0)
     } else if amount >= 1.0 {
         format!("${:.1}", amount)
@@ -182,10 +182,7 @@ impl UsageAggregator {
     }
 
     /// 聚合统计（占位实现，真实实现需查询数据库）
-    pub fn aggregate_usage(
-        _start_date: &str,
-        _end_date: &str,
-    ) -> Result<UsageAggregation, String> {
+    pub fn aggregate_usage(_start_date: &str, _end_date: &str) -> Result<UsageAggregation, String> {
         // 占位：真实实现需要查询 request_logs 和 usage_logs 表
         Ok(UsageAggregation {
             total_requests: 0,
@@ -247,7 +244,7 @@ mod tests {
     #[test]
     fn test_format_usd_amount() {
         assert_eq!(format_usd_amount(1234.56), "$1.2k");
-        assert_eq!(format_usd_amount(999.99), "$1000.0");
+        assert_eq!(format_usd_amount(999.99), "$1.0k");
         assert_eq!(format_usd_amount(5.67), "$5.7");
         assert_eq!(format_usd_amount(0.82), "$0.82");
         assert_eq!(format_usd_amount(0.005), "$<0.01");

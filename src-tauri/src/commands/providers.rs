@@ -48,7 +48,8 @@ pub fn provider_reorder(
     provider_ids: Vec<String>,
 ) -> Result<Vec<Provider>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    db.provider_reorder(&provider_ids).map_err(|e| e.to_string())
+    db.provider_reorder(&provider_ids)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

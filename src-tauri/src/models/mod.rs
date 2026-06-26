@@ -33,7 +33,7 @@ pub struct Provider {
     pub cost_multiplier: Option<f64>,
     pub is_active: bool,
     pub sort_order: i32,
-    // v3.2.0: 格式转换
+    // Legacy compatibility fields. Runtime request conversion has been removed.
     pub api_format: Option<String>,
     pub transform_enabled: bool,
 }
@@ -58,7 +58,7 @@ pub struct CreateProviderInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
-    // v3.2.0: 格式转换
+    // Legacy compatibility fields. Runtime request conversion has been removed.
     pub api_format: Option<String>,
     pub transform_enabled: Option<bool>,
 }
@@ -90,7 +90,7 @@ pub struct UpdateProviderInput {
     pub last_balance_checked_at: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
-    // v3.2.0: 格式转换
+    // Legacy compatibility fields. Runtime request conversion has been removed.
     pub api_format: Option<String>,
     pub transform_enabled: Option<bool>,
 }
@@ -118,6 +118,9 @@ pub struct ApiKey {
     pub last_usage_checked_at: Option<String>,
     pub cost_multiplier: f64,
     pub model_mapping: Option<String>,
+    pub api_format: Option<String>,
+    pub transform_enabled: bool,
+    pub client_configs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,6 +139,9 @@ pub struct CreateApiKeyInput {
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
     pub model_mapping: Option<String>,
+    pub api_format: Option<String>,
+    pub transform_enabled: Option<bool>,
+    pub client_configs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +163,9 @@ pub struct UpdateApiKeyInput {
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
     pub model_mapping: Option<String>,
+    pub api_format: Option<String>,
+    pub transform_enabled: Option<bool>,
+    pub client_configs: Option<serde_json::Value>,
 }
 
 // ── Project ──
@@ -244,7 +253,7 @@ pub struct ProxySession {
     pub api_key_id: String,
     pub project_id: Option<String>,
     pub created_at: String,
-    // v3.2.0: CLI 类型，用于格式转换判断
+    // Client marker used by config-takeover routing and request logging.
     pub cli_type: Option<String>,
 }
 
@@ -568,6 +577,7 @@ pub struct ExportApiKey {
     pub id: String,
     pub alias: Option<String>,
     pub value: String,
+    #[serde(default)]
     pub types: Option<Vec<String>>,
     pub priority: i32,
     pub cost_multiplier: Option<f64>,

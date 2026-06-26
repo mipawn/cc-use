@@ -32,14 +32,12 @@ import {
   DeleteOutlined,
   WalletOutlined,
   ReloadOutlined,
-  GlobalOutlined,
   LinkOutlined,
   PlayCircleOutlined,
   EditOutlined,
   FireOutlined,
   CopyOutlined,
   DollarOutlined,
-  ThunderboltOutlined,
   EyeOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -50,16 +48,15 @@ import { CSS } from '@dnd-kit/utilities'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
-import GlobalConfigModal from '../components/providers/GlobalConfigModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
-import QuickAddModal from '../components/providers/QuickAddModal'
 import type { Provider, ApiKey } from '@shared/types'
 import {
   formatEnvCommand,
+  getClientKindLabel,
   TERMINAL_TYPE_LABELS,
 } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
-import { buildQuickAddPayload } from './keysQuickAdd'
+import { getEffectiveKeyClients } from '../utils/clientSupport'
 import styles from './Keys.module.css'
 
 // dnd-kit sortable wrapper — defined at module level to avoid hook issues
@@ -121,6 +118,9 @@ const TYPE_ICONS: Record<string, string> = {
   claude_desktop: claudeIcon,
 }
 
+const clientIconType = (clientKind: string) =>
+  clientKind === 'codex' ? 'codex' : clientKind === 'claude_desktop' ? 'claude_desktop' : 'claude_code'
+
 // Preset provider icon mapping
 const PRESET_ICON_MAP: Record<string, string> = {
   claude: claudeIcon,
@@ -166,8 +166,6 @@ export default function Keys() {
   const [keyEditOpen, setKeyEditOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null)
   const [defaultProviderId, setDefaultProviderId] = useState<string | undefined>(undefined)
-  const [globalConfigOpen, setGlobalConfigOpen] = useState(false)
-  const [quickAddOpen, setQuickAddOpen] = useState(false)
 
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
@@ -253,25 +251,6 @@ export default function Keys() {
   const handleAddProvider = () => {
     setEditingProvider(null)
     setProviderModalOpen(true)
-  }
-
-  const handleQuickAdd = async (data: {
-    providerName: string
-    providerBaseUrl: string
-    providerIcon: string
-    keyAlias?: string
-    keyValue: string
-    keyType: string[] // v3.2.0: 改为 string[] 以支持 ClientKind
-    apiFormat?: string
-    transformEnabled?: boolean
-  }) => {
-    const payload = buildQuickAddPayload(data)
-    const newProvider = await getApi().provider.create(payload.provider)
-    await getApi().apiKey.create({
-      providerId: newProvider.id,
-      ...payload.apiKey,
-    })
-    fetchProviders()
   }
 
   const handleEditProvider = (provider: Provider) => {
@@ -503,7 +482,7 @@ export default function Keys() {
         id: input.id,
         alias: input.alias,
         value: input.value,
-        types: input.types,
+        types: input.types as any,
         config: input.config,
         costMultiplier: input.costMultiplier,
         usageType: input.usageType,
@@ -517,7 +496,7 @@ export default function Keys() {
         providerId: input.providerId,
         alias: input.alias,
         value: input.value,
-        types: input.types,
+        types: input.types as any,
         config: input.config,
         costMultiplier: input.costMultiplier,
         usageType: input.usageType,
@@ -541,12 +520,6 @@ export default function Keys() {
           <Text type='secondary'>{t('keys.subtitle') || '管理您的 API 密钥和供应商'}</Text>
         </div>
         <Space>
-          <Button icon={<GlobalOutlined />} onClick={() => setGlobalConfigOpen(true)} size='large'>
-            {t('globalConfig.title')}
-          </Button>
-          <Button icon={<ThunderboltOutlined />} onClick={() => setQuickAddOpen(true)} size='large'>
-            {t('providers.quickAdd')}
-          </Button>
           <Button
             type='primary'
             icon={<CloudServerOutlined />}
@@ -698,18 +671,17 @@ export default function Keys() {
                                 </Text>
                                 <div className={styles.keyMeta}>
                                   {/* Type icons - show all supported types */}
-                                  {key.types.map((type) => (
-                                    <Tooltip
-                                      key={type}
-                                      title={type === 'codex' ? 'Codex' : 'Claude'}
-                                    >
-                                      <Avatar
-                                        src={TYPE_ICONS[type]}
-                                        size={16}
-                                        style={{ background: 'transparent' }}
-                                      />
-                                    </Tooltip>
-                                  ))}
+                                  {getEffectiveKeyClients(provider, key).map((clientKind) => {
+                                    return (
+                                      <Tooltip key={clientKind} title={getClientKindLabel(clientKind)}>
+                                        <Avatar
+                                          src={TYPE_ICONS[clientIconType(clientKind)]}
+                                          size={16}
+                                          style={{ background: 'transparent' }}
+                                        />
+                                      </Tooltip>
+                                    )
+                                  })}
                                 </div>
                               </div>
                             </div>
@@ -763,19 +735,23 @@ export default function Keys() {
 
                           {/* Actions */}
                           <div className={styles.keyCardActions}>
-                            <Tooltip title={t('keys.copyCommand')}>
-                              <Button
-                                type='primary'
-                                size='small'
-                                icon={<PlayCircleOutlined />}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleCopyCommand(provider, key)
-                                }}
-                              >
-                                {t('keys.copyCommand')}
-                              </Button>
-                            </Tooltip>
+                            {getEffectiveKeyClients(provider, key).includes('claude_code') ? (
+                              <Tooltip title={t('keys.copyCommand')}>
+                                <Button
+                                  type='primary'
+                                  size='small'
+                                  icon={<PlayCircleOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleCopyCommand(provider, key)
+                                  }}
+                                >
+                                  {t('keys.copyCommand')}
+                                </Button>
+                              </Tooltip>
+                            ) : (
+                              <Tag color='blue'>配置接管</Tag>
+                            )}
                             <Space size={4}>
                               <Tooltip title={t('keys.copyKey')}>
                                 <Button
@@ -885,12 +861,6 @@ export default function Keys() {
         }}
       />
 
-      <QuickAddModal
-        open={quickAddOpen}
-        onClose={() => setQuickAddOpen(false)}
-        onSave={handleQuickAdd}
-      />
-
       {/* Key Edit Modal */}
       <KeyEditModal
         open={keyEditOpen}
@@ -904,9 +874,6 @@ export default function Keys() {
         }}
         onSave={handleSaveKey}
       />
-
-      {/* Global Config Modal */}
-      <GlobalConfigModal open={globalConfigOpen} onClose={() => setGlobalConfigOpen(false)} />
 
       {/* Copy Command List Modal */}
       <Modal
@@ -950,23 +917,23 @@ export default function Keys() {
                   <Text type='secondary' className={styles.commandSectionHint}>
                     {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
                   </Text>
-                  {copyCommandKey.key.types.map((type) => {
+                  {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter((clientKind) => clientKind === 'claude_code').map((clientKind) => {
                     const command = generateCommand(
-                      type,
+                      'claude',
                       copyCommandKey.provider,
                       copyCommandKey.key,
                       true,
                     )
                     return (
-                      <div key={`proxy-${type}`} className={styles.commandItem}>
+                      <div key={`proxy-${clientKind}`} className={styles.commandItem}>
                         <div className={styles.commandHeader}>
                           <Space>
                             <Avatar
-                              src={TYPE_ICONS[type]}
+                              src={TYPE_ICONS[clientIconType(clientKind)]}
                               size={20}
                               style={{ background: 'transparent' }}
                             />
-                            <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                            <Text strong>{getClientKindLabel(clientKind)}</Text>
                           </Space>
                           <Button
                             type='primary'
@@ -1007,23 +974,23 @@ export default function Keys() {
                   {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
                 </Text>
               )}
-              {copyCommandKey.key.types.map((type) => {
+              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter((clientKind) => clientKind === 'claude_code').map((clientKind) => {
                 const command = generateCommand(
-                  type,
+                  'claude',
                   copyCommandKey.provider,
                   copyCommandKey.key,
                   false,
                 )
                 return (
-                  <div key={`direct-${type}`} className={styles.commandItem}>
+                  <div key={`direct-${clientKind}`} className={styles.commandItem}>
                     <div className={styles.commandHeader}>
                       <Space>
                         <Avatar
-                          src={TYPE_ICONS[type]}
+                          src={TYPE_ICONS[clientIconType(clientKind)]}
                           size={20}
                           style={{ background: 'transparent' }}
                         />
-                        <Text strong>{type === 'claude' ? 'Claude Code' : 'Codex CLI'}</Text>
+                        <Text strong>{getClientKindLabel(clientKind)}</Text>
                       </Space>
                       <Button
                         type={proxyStatus.isRunning ? 'default' : 'primary'}
@@ -1049,6 +1016,11 @@ export default function Keys() {
                   </div>
                 )
               })}
+              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).some((clientKind) => clientKind !== 'claude_code') && (
+                <Text type='secondary' style={{ display: 'block', marginTop: 8 }}>
+                  Codex Desktop 和 Claude Desktop 请在对应页面选择此密钥并执行配置接管。
+                </Text>
+              )}
             </div>
           </SimpleBar>
         )}

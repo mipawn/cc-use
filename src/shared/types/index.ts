@@ -1,5 +1,4 @@
-// Provider types - only claude and codex are supported
-// v3.2.0: 改为 string 别名以兼容 ClientKind
+// Provider types - kept as string for backward compatibility with stored data.
 export type ProviderType = string
 
 // v3.2.0: ClientKind - 客户端类型 (替代 ProviderType)
@@ -12,9 +11,6 @@ export type IntegrationForm =
   | 'process_injection'   // 进程级: wrapper 注入 env (Claude Code)
   | 'config_takeover'     // 配置级: 改客户端配置文件指向本地代理 (Codex/Claude Desktop)
 
-// 协议格式 (网关内部用于路由与转换)
-export type ProtocolFormat = 'codex_responses' | 'openai_chat' | 'anthropic_messages'
-
 // 配置作用域 (只对 config_takeover 有意义)
 export type ConfigScope =
   | 'codex_user_config'        // ~/.codex/config.toml
@@ -25,7 +21,6 @@ export interface ClientKindConfig {
   kind: ClientKind
   label: string
   form: IntegrationForm
-  defaultProtocol: ProtocolFormat
   cliCommand?: string // 仅 process_injection 有值
 }
 
@@ -35,21 +30,18 @@ export const CLIENT_KIND_CONFIGS: ClientKindConfig[] = [
     kind: 'claude_code',
     label: 'Claude Code',
     form: 'process_injection',
-    defaultProtocol: 'anthropic_messages',
     cliCommand: 'claude',
   },
   {
     kind: 'codex',
     label: 'Codex Desktop',
     form: 'config_takeover',
-    defaultProtocol: 'codex_responses',
-    // cliCommand removed — Codex CLI no longer supported
+    // Desktop app config takeover; no terminal command.
   },
   {
     kind: 'claude_desktop',
     label: 'Claude Desktop',
     form: 'config_takeover',
-    defaultProtocol: 'anthropic_messages',
   },
 ]
 
@@ -75,6 +67,31 @@ export function clientKindToProviderType(kind: ClientKind): ProviderType | null 
   if (kind === 'claude_code') return 'claude_code'
   if (kind === 'codex') return 'codex'
   return null // claude_desktop 无对应 ProviderType
+}
+
+export const CLI_CLIENT_KINDS: ClientKind[] = ['claude_code']
+export const CONFIG_TAKEOVER_CLIENT_KINDS: ClientKind[] = ['codex', 'claude_desktop']
+
+export function isCliClientKind(kind: string): kind is ClientKind {
+  return kind === 'claude_code'
+}
+
+export function getClientKindLabel(kind: string): string {
+  switch (kind) {
+    case 'claude':
+    case 'claude_code':
+      return 'Claude Code'
+    case 'codex':
+      return 'Codex Desktop'
+    case 'claude_desktop':
+      return 'Claude Desktop'
+    default:
+      return kind
+  }
+}
+
+export function normalizeClientKind(type: string): ClientKind {
+  return providerTypeToClientKind(type)
 }
 
 export type PresetIcon =
@@ -113,9 +130,10 @@ export interface UsageData {
   expireAt?: string // Expiration time
 }
 
-// Provider type configuration for environment variable injection
+// CLI configuration for environment variable injection. Only Claude Code is a
+// process-launched client in 3.2.0; desktop clients use config takeover.
 export interface ProviderTypeConfig {
-  type: string // v3.2.0: 改为 string 以支持 ClientKind
+  type: string
   label: string
   envKeyName: string
   envBaseUrlName: string
@@ -123,31 +141,23 @@ export interface ProviderTypeConfig {
   cliCommand: string
 }
 
-// Predefined provider type configurations
 export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
   {
-    type: 'claude',
-    label: 'Claude',
+    type: 'claude_code',
+    label: 'Claude Code',
     envKeyName: 'ANTHROPIC_AUTH_TOKEN',
     envBaseUrlName: 'ANTHROPIC_BASE_URL',
     defaultBaseUrl: 'https://api.anthropic.com',
     cliCommand: 'claude',
   },
-  {
-    type: 'codex',
-    label: 'Codex',
-    envKeyName: 'OPENAI_API_KEY',
-    envBaseUrlName: 'OPENAI_BASE_URL',
-    defaultBaseUrl: 'https://api.openai.com',
-    cliCommand: 'codex',
-  },
 ]
 
 // Helper function to get provider type config
 export function getProviderTypeConfig(type: string): ProviderTypeConfig {
-  const config = PROVIDER_TYPE_CONFIGS.find((c) => c.type === type)
+  const normalized = normalizeClientKind(type)
+  const config = PROVIDER_TYPE_CONFIGS.find((c) => c.type === normalized)
   if (!config) {
-    return PROVIDER_TYPE_CONFIGS[0] // Default to claude
+    return PROVIDER_TYPE_CONFIGS[0]
   }
   return config
 }
@@ -159,7 +169,11 @@ export function generateTerminalCommand(
   useProxy: boolean = false,
   proxyPort: number = 12345,
 ): string {
-  const config = getProviderTypeConfig(provider.type)
+  const clientKind = normalizeClientKind(provider.type)
+  if (!isCliClientKind(clientKind)) {
+    throw new Error(`${getClientKindLabel(clientKind)} uses config takeover, not terminal launch`)
+  }
+  const config = getProviderTypeConfig(clientKind)
   const baseUrl = useProxy ? `http://localhost:${proxyPort}` : provider.baseUrl
   const key = useProxy ? 'proxy' : apiKey
 
@@ -198,9 +212,6 @@ export interface Provider {
   costMultiplier?: number
   isActive: boolean
   sortOrder: number
-  // v3.2.0: 格式转换
-  apiFormat?: string
-  transformEnabled: boolean
 }
 
 export interface CreateProviderInput {
@@ -220,17 +231,11 @@ export interface CreateProviderInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
-  // v3.2.0: 格式转换
-  apiFormat?: string
-  transformEnabled?: boolean
 }
 
 export interface UpdateProviderInput extends Partial<CreateProviderInput> {
   id: string
   isActive?: boolean
-  // v3.2.0: 格式转换
-  apiFormat?: string
-  transformEnabled?: boolean
 }
 
 // API Key types
@@ -239,7 +244,7 @@ export interface ApiKey {
   providerId: string
   alias: string | null
   value: string
-  types: string[] // v3.2.0: 改为 string[],supports multiple types including ClientKind
+  types: ClientKind[]
   priority: number
   isExhausted: boolean
   isActive: boolean
@@ -254,6 +259,7 @@ export interface ApiKey {
   // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
   costMultiplier: number
   modelMapping: string | null
+  clientConfigs?: Record<string, unknown>
   // Failover state — managed by the proxy's key_selector
   cooldownUntil: string | null
   lastErrorAt: string | null
@@ -265,7 +271,7 @@ export interface CreateApiKeyInput {
   providerId: string
   alias?: string
   value: string
-  types?: string[] // v3.2.0: 改为 string[],defaults to ['claude']
+  types?: ClientKind[]
   priority?: number
   isActive?: boolean
   config?: CliConfig
@@ -275,13 +281,14 @@ export interface CreateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   modelMapping?: string
+  clientConfigs?: Record<string, unknown>
 }
 
 export interface UpdateApiKeyInput {
   id: string
   alias?: string
   value?: string
-  types?: string[] // v3.2.0: 改为 string[]
+  types?: ClientKind[]
   priority?: number
   isExhausted?: boolean
   isActive?: boolean
@@ -292,6 +299,7 @@ export interface UpdateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   modelMapping?: string
+  clientConfigs?: Record<string, unknown>
 }
 
 // Project types

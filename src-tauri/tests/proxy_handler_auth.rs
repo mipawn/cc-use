@@ -101,6 +101,26 @@ async fn session_routed_request_without_claude_prefix_is_not_404() {
     }
 }
 
+#[tokio::test]
+async fn lowercase_bearer_session_token_is_session_routed() {
+    let state = create_proxy_state();
+    let request = Request::builder()
+        .uri("/claude-desktop/v1/models")
+        .header("authorization", "bearer session-deadbeefcafebabe")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await;
+
+    // Empty DB means the session lookup fails, but the lowercase bearer
+    // scheme must still be recognized as a session token rather than falling
+    // through to path-based passthrough routing.
+    match response {
+        Ok(_) => panic!("unexpected success on an empty-DB session lookup"),
+        Err(resp) => assert_ne!(resp.status(), StatusCode::NOT_FOUND),
+    }
+}
+
 /// PassThrough (no session token, just a raw provider key) still requires
 /// a family-hinting prefix since we don't know where to forward it.
 #[tokio::test]

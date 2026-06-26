@@ -139,23 +139,15 @@ pub fn import_all(
                 if ek.id.is_empty() {
                     continue;
                 }
-                let types_json = serde_json::to_string(
-                    &ek.types
-                        .clone()
-                        .unwrap_or_else(|| vec!["claude".to_string()]),
-                )
-                .unwrap_or_else(|_| "[\"claude\"]".to_string());
-
                 if let Err(e) = db.conn.execute(
                     "INSERT OR REPLACE INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                         config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 1, NULL, 'none', NULL, NULL, NULL, ?7)",
+                     VALUES (?1, ?2, ?3, ?4, '[]', ?5, 0, 1, NULL, 'none', NULL, NULL, NULL, ?6)",
                     rusqlite::params![
                         ek.id,
                         ep.id,
                         ek.alias,
                         ek.value,
-                        types_json,
                         ek.priority,
                         ek.cost_multiplier.unwrap_or(1.0),
                     ],
@@ -198,6 +190,9 @@ pub fn import_all(
                             is_active: Some(true),
                             config: None,
                             cost_multiplier: ek.cost_multiplier,
+                            api_format: None,
+                            transform_enabled: None,
+                            client_configs: None,
                             usage_type: None,
                             usage_url: None,
                             usage_path: None,

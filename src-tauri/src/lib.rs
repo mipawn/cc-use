@@ -1,11 +1,11 @@
-pub mod commands;
-pub mod shared_runtime;
 pub mod auto_launch;
+pub mod commands;
 pub mod daemon_client;
 pub mod db;
 pub mod models;
 pub mod proxy;
 pub mod services;
+pub mod shared_runtime;
 pub mod terminal;
 pub mod tray;
 pub mod usage_stats;
@@ -52,6 +52,9 @@ pub fn run() {
             // Settings commands
             commands::settings::settings_get,
             commands::settings::settings_update,
+            commands::settings::get_setting,
+            commands::settings::set_setting,
+            commands::settings::delete_setting,
             // System commands
             commands::system::system_get_platform,
             commands::system::system_open_external,
@@ -181,7 +184,11 @@ pub fn run() {
             log::info!(
                 "app booted; version {}, mode {}",
                 env!("CARGO_PKG_VERSION"),
-                if cfg!(debug_assertions) { "dev" } else { "prod" }
+                if cfg!(debug_assertions) {
+                    "dev"
+                } else {
+                    "prod"
+                }
             );
 
             // Start the realtime console SSE bridge to the daemon. Must happen
@@ -192,10 +199,8 @@ pub fn run() {
             {
                 let db_state = handle.state::<Arc<Mutex<Database>>>();
                 let db_for_bridge: Arc<Mutex<Database>> = (*db_state).clone();
-                let bridge_handle = services::console_bridge::spawn_console_bridge(
-                    handle.clone(),
-                    db_for_bridge,
-                );
+                let bridge_handle =
+                    services::console_bridge::spawn_console_bridge(handle.clone(), db_for_bridge);
                 handle.manage(bridge_handle);
             }
 
@@ -256,9 +261,7 @@ pub fn run() {
                 let current_version = env!("CARGO_PKG_VERSION").to_string();
                 let last_version = {
                     if let Ok(db) = db_state.lock() {
-                        db.settings_get_value("lastDaemonVersion")
-                            .ok()
-                            .flatten()
+                        db.settings_get_value("lastDaemonVersion").ok().flatten()
                     } else {
                         None
                     }
@@ -304,13 +307,14 @@ pub fn run() {
                                 log::error!("Daemon watchdog restart failed: {}", e);
                                 continue;
                             }
-                            let status = commands::proxy::proxy_status_inner(&*db_state)
-                                .unwrap_or(ProxyStatus {
+                            let status = commands::proxy::proxy_status_inner(&*db_state).unwrap_or(
+                                ProxyStatus {
                                     is_running: false,
                                     port: 12345,
                                     request_count: 0,
                                     last_error: None,
-                                });
+                                },
+                            );
                             let _ = handle_wd.emit("proxy:statusChanged", &status);
                             tray::refresh_tray_menu(&handle_wd);
                             log::info!("Daemon watchdog auto-restart succeeded");

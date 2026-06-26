@@ -3,13 +3,14 @@ import { Layout, Menu, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import {
   HomeOutlined,
-  KeyOutlined,
   BarChartOutlined,
   SettingOutlined,
   MonitorOutlined,
   CodeOutlined,
   DesktopOutlined,
   RocketOutlined,
+  AppstoreOutlined,
+  KeyOutlined,
 } from '@ant-design/icons'
 
 const { Sider } = Layout
@@ -38,8 +39,8 @@ export default function Sidebar() {
         },
         {
           key: '/codex',
-          icon: <CodeOutlined />,
-          label: 'Codex',
+          icon: <AppstoreOutlined />,
+          label: 'Codex Desktop',
         },
         {
           key: '/claude-desktop',
@@ -51,7 +52,7 @@ export default function Sidebar() {
     {
       key: '/keys',
       icon: <KeyOutlined />,
-      label: t('keys.title') || 'API 密钥',
+      label: '供应商密钥',
     },
     {
       key: '/stats',
@@ -74,6 +75,7 @@ export default function Sidebar() {
     const p = location.pathname
     if (p === '/statistics') return '/stats'
     if (p === '/projects' || p === '/instances' || p === '/sessions') return '/claude-code'
+    if (p === '/providers') return '/keys'
     return p
   })()
 

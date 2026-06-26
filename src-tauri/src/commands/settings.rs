@@ -49,3 +49,29 @@ pub async fn settings_update(
 
     Ok(new_settings)
 }
+
+#[tauri::command]
+pub fn get_setting(
+    db: State<'_, Arc<Mutex<Database>>>,
+    key: String,
+) -> Result<Option<String>, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.settings_get_value(&key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_setting(
+    db: State<'_, Arc<Mutex<Database>>>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.settings_set_value(&key, &value)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_setting(db: State<'_, Arc<Mutex<Database>>>, key: String) -> Result<(), String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.settings_delete_value(&key).map_err(|e| e.to_string())
+}

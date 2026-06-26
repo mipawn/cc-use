@@ -1,21 +1,37 @@
 /**
  * Claude Code 页面 — 进程级接入点
- * 三个 Tab: 项目 / 实例 / 会话
+ *
+ * Tab 1: 项目 (Projects / Instances / Sessions)
+ * Tab 2: 供应商密钥
  */
+import { useEffect } from 'react'
 import { Tabs } from 'antd'
 import { useTranslation } from 'react-i18next'
+import { useProviderStore } from '../stores/providerStore'
+import { useApiKeyStore } from '../stores/apiKeyStore'
 import Projects from './Projects'
 import Instances from './Instances'
 import Sessions from './Sessions'
+import GlobalConfigModal from '../components/providers/GlobalConfigModal'
 
 export default function ClaudeCodePage() {
   const { t } = useTranslation()
+
+  const { providers, fetchProviders } = useProviderStore()
+  const { fetchAllApiKeys } = useApiKeyStore()
+
+  useEffect(() => { fetchProviders() }, [fetchProviders])
+  useEffect(() => {
+    if (providers.length > 0) fetchAllApiKeys(providers.map(p => p.id))
+  }, [providers, fetchAllApiKeys])
 
   const items = [
     {
       key: 'projects',
       label: t('common.projects') || '项目',
-      children: <Projects />,
+      children: (
+        <Projects />
+      ),
     },
     {
       key: 'instances',
@@ -26,6 +42,11 @@ export default function ClaudeCodePage() {
       key: 'sessions',
       label: '会话',
       children: <Sessions />,
+    },
+    {
+      key: 'global-config',
+      label: '全局配置',
+      children: <GlobalConfigModal embedded />,
     },
   ]
 

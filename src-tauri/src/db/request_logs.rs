@@ -6,6 +6,30 @@ use crate::models::{
 };
 
 impl Database {
+    fn billable_request_logs_where(&self, col: &str, time_range: &str) -> String {
+        let usage_clause = "input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0";
+        match self.time_range_where(col, time_range) {
+            where_clause if where_clause.is_empty() => format!("WHERE {}", usage_clause),
+            where_clause => format!("{} AND ({})", where_clause, usage_clause),
+        }
+    }
+
+    fn billable_request_logs_where_with_alias(
+        &self,
+        alias: &str,
+        col: &str,
+        time_range: &str,
+    ) -> String {
+        let usage_clause = format!(
+            "{}.input_tokens > 0 OR {}.output_tokens > 0 OR {}.cache_read_tokens > 0 OR {}.cache_creation_tokens > 0",
+            alias, alias, alias, alias
+        );
+        match self.time_range_where(col, time_range) {
+            where_clause if where_clause.is_empty() => format!("WHERE {}", usage_clause),
+            where_clause => format!("{} AND ({})", where_clause, usage_clause),
+        }
+    }
+
     pub fn request_log_list_all(&self) -> Result<Vec<RequestLog>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT id, provider_id, api_key_id, project_id, session_id,
@@ -122,7 +146,9 @@ impl Database {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         let today_cost: f64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs WHERE DATE(created_at) = ?1",
+            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
+             WHERE DATE(created_at) = ?1
+               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
             [&today],
             |row| row.get(0),
         )?;
@@ -148,6 +174,7 @@ impl Database {
                     COALESCE(SUM(total_cost_usd), 0) as total_cost
              FROM request_logs
              WHERE api_key_id IS NOT NULL
+               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
              GROUP BY api_key_id"
         )?;
 
@@ -170,6 +197,7 @@ impl Database {
             "SELECT DATE(created_at) as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
                  FROM request_logs
                  WHERE created_at >= DATE('now', 'localtime', '-{} days')
+                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
             days
         ))?;
@@ -195,6 +223,7 @@ impl Database {
             "SELECT DATE(created_at) as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
                  FROM request_logs
                  WHERE strftime('%Y-%m', created_at) = ?1
+                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
         )?;
 
@@ -213,7 +242,9 @@ impl Database {
         &self,
         time_range: &str,
     ) -> Result<CostStatistics, rusqlite::Error> {
-        let where_clause = self.time_range_where("created_at", time_range);
+        let where_clause = self.billable_request_logs_where("created_at", time_range);
+        let r_where_clause =
+            self.billable_request_logs_where_with_alias("r", "r.created_at", time_range);
 
         // Summary
         let summary = self.conn.query_row(
@@ -246,10 +277,10 @@ impl Database {
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
                  {} GROUP BY r.api_key_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
-            if where_clause.is_empty() {
+            if r_where_clause.is_empty() {
                 ""
             } else {
-                &where_clause
+                &r_where_clause
             }
         ))?;
         let top_keys: Vec<TopKeyCostItem> = stmt
@@ -273,10 +304,10 @@ impl Database {
                  FROM request_logs r
                  LEFT JOIN providers p ON r.provider_id = p.id
                  {} GROUP BY r.provider_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
-            if where_clause.is_empty() {
+            if r_where_clause.is_empty() {
                 ""
             } else {
-                &where_clause
+                &r_where_clause
             }
         ))?;
         let top_providers: Vec<TopProviderCostItem> = stmt
@@ -292,17 +323,35 @@ impl Database {
             .filter_map(|r| r.ok())
             .collect();
 
-        // Top projects
+        // Top projects. Config-takeover clients such as Codex Desktop do not
+        // carry a project_id, so group them under a clear client bucket instead
+        // of surfacing an ambiguous "Unknown" project.
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.project_id, COALESCE(r.project_name, pr.name, 'Unknown'),
+            "SELECT
+                        CASE
+                            WHEN r.project_id IS NOT NULL THEN r.project_id
+                            WHEN ps.cli_type IS NOT NULL THEN '__client__' || ps.cli_type
+                            ELSE '__other__'
+                        END,
+                        COALESCE(
+                            r.project_name,
+                            pr.name,
+                            CASE ps.cli_type
+                                WHEN 'codex-app' THEN 'Codex Desktop'
+                                WHEN 'claude_desktop' THEN 'Claude Desktop'
+                                ELSE NULL
+                            END,
+                            'Other'
+                        ),
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN projects pr ON r.project_id = pr.id
-                 {} GROUP BY r.project_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
-            if where_clause.is_empty() {
+                 LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
+                 {} GROUP BY 1, 2 ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
+            if r_where_clause.is_empty() {
                 ""
             } else {
-                &where_clause
+                &r_where_clause
             }
         ))?;
         let top_projects: Vec<TopProjectCostItem> = stmt
@@ -360,7 +409,8 @@ impl Database {
         let page = page.max(1);
         let page_size = page_size.max(1).min(100);
         let offset = (page - 1) * page_size;
-        let where_clause = self.time_range_where("r.created_at", time_range);
+        let where_clause =
+            self.billable_request_logs_where_with_alias("r", "r.created_at", time_range);
 
         let total: i64 = self.conn.query_row(
             &format!(
@@ -381,13 +431,23 @@ impl Database {
         )?;
 
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.id, r.model, COALESCE(r.key_alias, k.alias), COALESCE(r.provider_name, p.name), COALESCE(r.project_name, pr.name),
+            "SELECT r.id, r.model, COALESCE(r.key_alias, k.alias), COALESCE(r.provider_name, p.name),
+                        COALESCE(
+                            r.project_name,
+                            pr.name,
+                            CASE ps.cli_type
+                                WHEN 'codex-app' THEN 'Codex Desktop'
+                                WHEN 'claude_desktop' THEN 'Claude Desktop'
+                                ELSE NULL
+                            END
+                        ),
                         r.total_cost_usd, r.input_tokens, r.output_tokens,
                         r.latency_ms, r.status_code, r.created_at
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
+                 LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
                  {} ORDER BY r.created_at DESC LIMIT ?1 OFFSET ?2",
             if where_clause.is_empty() {
                 ""
@@ -426,25 +486,32 @@ impl Database {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         let today_cost: f64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs WHERE DATE(created_at) = ?1",
+            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
+             WHERE DATE(created_at) = ?1
+               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
             [&today],
             |row| row.get(0),
         )?;
 
         let total_cost: f64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs",
+            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
+             WHERE input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0",
             [],
             |row| row.get(0),
         )?;
 
         let today_requests: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM request_logs WHERE DATE(created_at) = ?1",
+            "SELECT COUNT(*) FROM request_logs
+             WHERE DATE(created_at) = ?1
+               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
             [&today],
             |row| row.get(0),
         )?;
 
         let today_tokens: i64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM request_logs WHERE DATE(created_at) = ?1",
+            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM request_logs
+             WHERE DATE(created_at) = ?1
+               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
             [&today],
             |row| row.get(0),
         )?;
@@ -458,6 +525,7 @@ impl Database {
              FROM request_logs r
              LEFT JOIN api_keys k ON r.api_key_id = k.id
              LEFT JOIN providers p ON r.provider_id = p.id
+             WHERE r.input_tokens > 0 OR r.output_tokens > 0 OR r.cache_read_tokens > 0 OR r.cache_creation_tokens > 0
              GROUP BY r.api_key_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5",
         )?;
         let top_keys: Vec<TopKeyCostItem> = stmt
@@ -476,11 +544,28 @@ impl Database {
 
         // Top projects (all time, limit 5)
         let mut stmt = self.conn.prepare(
-            "SELECT r.project_id, COALESCE(r.project_name, pr.name, 'Unknown'),
+            "SELECT
+                    CASE
+                        WHEN r.project_id IS NOT NULL THEN r.project_id
+                        WHEN ps.cli_type IS NOT NULL THEN '__client__' || ps.cli_type
+                        ELSE '__other__'
+                    END,
+                    COALESCE(
+                        r.project_name,
+                        pr.name,
+                        CASE ps.cli_type
+                            WHEN 'codex-app' THEN 'Codex Desktop'
+                            WHEN 'claude_desktop' THEN 'Claude Desktop'
+                            ELSE NULL
+                        END,
+                        'Other'
+                    ),
                     SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
              FROM request_logs r
              LEFT JOIN projects pr ON r.project_id = pr.id
-             GROUP BY r.project_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5",
+             LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
+             WHERE r.input_tokens > 0 OR r.output_tokens > 0 OR r.cache_read_tokens > 0 OR r.cache_creation_tokens > 0
+             GROUP BY 1, 2 ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5",
         )?;
         let top_projects: Vec<TopProjectCostItem> = stmt
             .query_map([], |row| {
@@ -519,10 +604,7 @@ impl Database {
     /// Recalculate and update costs for all request_logs using current default + custom pricing.
     /// Returns the count of rows updated.
     pub fn request_log_repair_costs(&self) -> Result<i64, rusqlite::Error> {
-        let custom_pricing: std::collections::HashMap<
-            String,
-            crate::models::ModelPricing,
-        > = self
+        let custom_pricing: std::collections::HashMap<String, crate::models::ModelPricing> = self
             .settings_get_value("customModelPricing")
             .ok()
             .flatten()
@@ -535,15 +617,7 @@ impl Database {
              FROM request_logs WHERE model IS NOT NULL",
         )?;
 
-        let rows: Vec<(
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-            i64,
-            f64,
-        )> = stmt
+        let rows: Vec<(String, String, i64, i64, i64, i64, f64)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -594,6 +668,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ProxySession;
 
     #[test]
     fn cleanup_removes_old_logs() {
@@ -647,5 +722,174 @@ mod tests {
         let has_old = remaining.iter().any(|r| r.id == "old-1");
         assert!(has_recent);
         assert!(!has_old);
+    }
+
+    #[test]
+    fn cost_statistics_labels_codex_app_without_project_as_client_source() {
+        let db = Database::new_in_memory().unwrap();
+
+        let session = ProxySession {
+            session_token: "session-codex".into(),
+            provider_id: "provider-1".into(),
+            api_key_id: "key-1".into(),
+            project_id: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            cli_type: Some("codex-app".into()),
+        };
+        db.proxy_session_create(&session).unwrap();
+
+        let log = RequestLog {
+            id: "log-1".into(),
+            provider_id: None,
+            api_key_id: None,
+            project_id: None,
+            session_id: Some(session.session_token),
+            model: Some("gpt-5.5".into()),
+            request_model: Some("gpt-5.5".into()),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            input_cost_usd: 0.01,
+            output_cost_usd: 0.02,
+            cache_read_cost_usd: 0.0,
+            cache_creation_cost_usd: 0.0,
+            total_cost_usd: 0.03,
+            cost_multiplier: 1.0,
+            latency_ms: Some(100),
+            first_token_ms: None,
+            status_code: Some(200),
+            error_message: None,
+            is_streaming: false,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            key_alias: Some("codex-key".into()),
+            provider_name: Some("codex-provider".into()),
+            project_name: None,
+        };
+        db.request_log_create(&log).unwrap();
+
+        let stats = db.request_log_get_cost_statistics("all").unwrap();
+        assert_eq!(stats.top_projects.len(), 1);
+        assert_eq!(stats.top_projects[0].project_id, "__client__codex-app");
+        assert_eq!(stats.top_projects[0].project_name, "Codex Desktop");
+
+        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
+        assert_eq!(
+            recent.items[0].project_name.as_deref(),
+            Some("Codex Desktop")
+        );
+    }
+
+    #[test]
+    fn cost_statistics_labels_claude_desktop_without_project_as_client_source() {
+        let db = Database::new_in_memory().unwrap();
+
+        let session = ProxySession {
+            session_token: "session-claude-desktop".into(),
+            provider_id: "provider-1".into(),
+            api_key_id: "key-1".into(),
+            project_id: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            cli_type: Some("claude_desktop".into()),
+        };
+        db.proxy_session_create(&session).unwrap();
+
+        let log = RequestLog {
+            id: "log-1".into(),
+            provider_id: None,
+            api_key_id: None,
+            project_id: None,
+            session_id: Some(session.session_token),
+            model: Some("claude-sonnet-4".into()),
+            request_model: Some("claude-sonnet-4".into()),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            input_cost_usd: 0.01,
+            output_cost_usd: 0.02,
+            cache_read_cost_usd: 0.0,
+            cache_creation_cost_usd: 0.0,
+            total_cost_usd: 0.03,
+            cost_multiplier: 1.0,
+            latency_ms: Some(100),
+            first_token_ms: None,
+            status_code: Some(200),
+            error_message: None,
+            is_streaming: false,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            key_alias: Some("desktop-key".into()),
+            provider_name: Some("desktop-provider".into()),
+            project_name: None,
+        };
+        db.request_log_create(&log).unwrap();
+
+        let stats = db.request_log_get_cost_statistics("all").unwrap();
+        assert_eq!(stats.top_projects.len(), 1);
+        assert_eq!(stats.top_projects[0].project_id, "__client__claude_desktop");
+        assert_eq!(stats.top_projects[0].project_name, "Claude Desktop");
+
+        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
+        assert_eq!(
+            recent.items[0].project_name.as_deref(),
+            Some("Claude Desktop")
+        );
+    }
+
+    #[test]
+    fn cost_statistics_ignore_zero_usage_request_logs() {
+        let db = Database::new_in_memory().unwrap();
+
+        fn mk_log(id: &str, input_tokens: i64, output_tokens: i64) -> RequestLog {
+            RequestLog {
+                id: id.into(),
+                provider_id: None,
+                api_key_id: None,
+                project_id: None,
+                session_id: None,
+                model: Some("gpt-5.5".into()),
+                request_model: Some("gpt-5.5".into()),
+                input_tokens,
+                output_tokens,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                input_cost_usd: if input_tokens > 0 { 0.01 } else { 0.0 },
+                output_cost_usd: if output_tokens > 0 { 0.02 } else { 0.0 },
+                cache_read_cost_usd: 0.0,
+                cache_creation_cost_usd: 0.0,
+                total_cost_usd: if input_tokens > 0 || output_tokens > 0 {
+                    0.03
+                } else {
+                    0.0
+                },
+                cost_multiplier: 1.0,
+                latency_ms: Some(100),
+                first_token_ms: None,
+                status_code: Some(200),
+                error_message: None,
+                is_streaming: false,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                key_alias: Some("codex-key".into()),
+                provider_name: Some("codex-provider".into()),
+                project_name: Some("Codex Desktop".into()),
+            }
+        }
+
+        db.request_log_create(&mk_log("models-request", 0, 0))
+            .unwrap();
+        db.request_log_create(&mk_log("real-response", 10, 20))
+            .unwrap();
+
+        let stats = db.request_log_get_cost_statistics("all").unwrap();
+        assert_eq!(stats.summary.total_requests, 1);
+        assert_eq!(stats.summary.total_input_tokens, 10);
+        assert_eq!(stats.summary.total_output_tokens, 20);
+        assert_eq!(stats.top_models.len(), 1);
+        assert_eq!(stats.top_models[0].total_requests, 1);
+
+        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
+        assert_eq!(recent.total, 1);
+        assert_eq!(recent.items.len(), 1);
+        assert_eq!(recent.items[0].id, "real-response");
     }
 }

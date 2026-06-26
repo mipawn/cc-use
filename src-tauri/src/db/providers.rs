@@ -86,9 +86,11 @@ impl Database {
         // Auto-assign next sort_order (max + 1)
         let next_sort: i32 = self
             .conn
-            .query_row("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM providers", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM providers",
+                [],
+                |row| row.get(0),
+            )
             .unwrap_or(0);
         self.conn.execute(
             "INSERT INTO providers (id, name, base_url, type, website, remark, token, icon,

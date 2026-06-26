@@ -33,14 +33,18 @@ fn extract_session_token_prefers_authorization_over_x_api_key() {
 }
 
 #[test]
-fn extract_session_token_strips_exact_bearer_prefix_only() {
+fn extract_session_token_strips_bearer_prefix_case_insensitively() {
     assert_eq!(
         extract_session_token(Some("Bearer session-abc"), None),
         Some("session-abc")
     );
     assert_eq!(
         extract_session_token(Some("bearer session-abc"), None),
-        Some("bearer session-abc")
+        Some("session-abc")
+    );
+    assert_eq!(
+        extract_session_token(Some("  bearer   session-abc  "), None),
+        Some("session-abc")
     );
 }
 

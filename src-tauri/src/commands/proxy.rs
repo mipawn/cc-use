@@ -1,4 +1,6 @@
-use crate::daemon_client::{probe_tcp_port, read_daemon_status, restart_daemon, start_daemon, stop_daemon};
+use crate::daemon_client::{
+    probe_tcp_port, read_daemon_status, restart_daemon, start_daemon, stop_daemon,
+};
 use crate::db::Database;
 use crate::models::{ProxySession, ProxyStatus};
 use crate::shared_runtime::new_session_token;

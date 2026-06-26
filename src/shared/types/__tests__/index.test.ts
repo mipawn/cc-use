@@ -8,43 +8,29 @@ import {
 
 describe('Provider Type Config', () => {
   describe('PROVIDER_TYPE_CONFIGS', () => {
-    it('should have 2 predefined provider types', () => {
-      expect(PROVIDER_TYPE_CONFIGS).toHaveLength(2)
+    it('should only include process-launched clients', () => {
+      expect(PROVIDER_TYPE_CONFIGS).toHaveLength(1)
     })
 
-    it('should include claude config', () => {
-      const claude = PROVIDER_TYPE_CONFIGS.find((c) => c.type === 'claude')
+    it('should include Claude Code config', () => {
+      const claude = PROVIDER_TYPE_CONFIGS.find((c) => c.type === 'claude_code')
       expect(claude).toBeDefined()
       expect(claude?.envKeyName).toBe('ANTHROPIC_AUTH_TOKEN')
       expect(claude?.envBaseUrlName).toBe('ANTHROPIC_BASE_URL')
       expect(claude?.cliCommand).toBe('claude')
-    })
-
-    it('should include codex config', () => {
-      const codex = PROVIDER_TYPE_CONFIGS.find((c) => c.type === 'codex')
-      expect(codex).toBeDefined()
-      expect(codex?.envKeyName).toBe('OPENAI_API_KEY')
-      expect(codex?.envBaseUrlName).toBe('OPENAI_BASE_URL')
-      expect(codex?.cliCommand).toBe('codex')
     })
   })
 
   describe('getProviderTypeConfig', () => {
     it('should return claude config for claude type', () => {
       const config = getProviderTypeConfig('claude')
-      expect(config.type).toBe('claude')
+      expect(config.type).toBe('claude_code')
       expect(config.envKeyName).toBe('ANTHROPIC_AUTH_TOKEN')
-    })
-
-    it('should return codex config for codex type', () => {
-      const config = getProviderTypeConfig('codex')
-      expect(config.type).toBe('codex')
-      expect(config.envKeyName).toBe('OPENAI_API_KEY')
     })
 
     it('should fallback to claude config for unknown type', () => {
       const config = getProviderTypeConfig('unknown' as ProviderType)
-      expect(config.type).toBe('claude')
+      expect(config.type).toBe('claude_code')
     })
   })
 
@@ -61,15 +47,13 @@ describe('Provider Type Config', () => {
       )
     })
 
-    it('should generate correct command for codex provider in direct mode', () => {
+    it('should reject Codex Desktop terminal command generation', () => {
       const provider = {
         type: 'codex' as ProviderType,
         baseUrl: 'https://api.openai.com',
       }
-      const command = generateTerminalCommand(provider, 'sk-openai-key')
-
-      expect(command).toBe(
-        'OPENAI_BASE_URL="https://api.openai.com" OPENAI_API_KEY="sk-openai-key" codex',
+      expect(() => generateTerminalCommand(provider, 'sk-openai-key')).toThrow(
+        'uses config takeover',
       )
     })
 

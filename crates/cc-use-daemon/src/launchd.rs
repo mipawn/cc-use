@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -7,6 +8,11 @@ use std::process::Command;
 const LABEL: &str = "com.mipawn.cc-use.dev.daemon";
 #[cfg(not(debug_assertions))]
 const LABEL: &str = "com.mipawn.cc-use.daemon";
+
+#[cfg(debug_assertions)]
+const APP_SUPPORT_DIR: &str = "com.mipawn.cc-use.dev";
+#[cfg(not(debug_assertions))]
+const APP_SUPPORT_DIR: &str = "com.mipawn.cc-use";
 
 /// Labels we should proactively bootout + delete on every start, because
 /// they belong to older revisions of this app that no longer use them.
@@ -101,7 +107,7 @@ fn launch_agent_paths() -> Result<LaunchAgentPaths, String> {
     let launch_agents_dir = home.join("Library").join("LaunchAgents");
     let plist_path = launch_agents_dir.join(format!("{}.plist", LABEL));
     let plist_path_string = plist_path.display().to_string();
-    let binary_path = current_binary_path()?;
+    let binary_path = launchd_binary_path()?;
     let uid = current_uid();
     let domain_target = format!("gui/{}", uid);
     let service_target = format!("{}/{}", domain_target, LABEL);
@@ -126,6 +132,52 @@ fn ensure_launch_agent() -> Result<LaunchAgentPaths, String> {
 
 fn current_binary_path() -> Result<PathBuf, String> {
     std::env::current_exe().map_err(|e| format!("Failed to resolve daemon binary path: {}", e))
+}
+
+fn launchd_binary_path() -> Result<PathBuf, String> {
+    let source = current_binary_path()?;
+    let home = dirs::home_dir().ok_or_else(|| "Failed to resolve home directory".to_string())?;
+    let binary_name = source
+        .file_name()
+        .ok_or_else(|| "Daemon binary path has no filename".to_string())?;
+    let daemon_dir = home
+        .join("Library")
+        .join("Application Support")
+        .join(APP_SUPPORT_DIR)
+        .join("daemon");
+    let target = daemon_dir.join(binary_name);
+
+    if source == target {
+        return Ok(target);
+    }
+
+    fs::create_dir_all(&daemon_dir)
+        .map_err(|e| format!("Failed to create daemon support directory: {}", e))?;
+
+    let tmp = target.with_extension("tmp");
+    let _ = fs::remove_file(&tmp);
+    fs::copy(&source, &tmp).map_err(|e| {
+        format!(
+            "Failed to stage daemon binary from {} to {}: {}",
+            source.display(),
+            tmp.display(),
+            e
+        )
+    })?;
+
+    if let Ok(metadata) = fs::metadata(&source) {
+        let _ = fs::set_permissions(&tmp, metadata.permissions());
+    }
+
+    fs::rename(&tmp, &target).map_err(|e| {
+        format!(
+            "Failed to install staged daemon binary at {}: {}",
+            target.display(),
+            e
+        )
+    })?;
+
+    Ok(target)
 }
 
 fn current_uid() -> u32 {
@@ -189,6 +241,7 @@ fn cleanup_foreign_launch_agents() {
 }
 
 fn render_plist(binary_path: &Path) -> String {
+    let program_arguments = render_program_arguments(binary_path);
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -198,9 +251,7 @@ fn render_plist(binary_path: &Path) -> String {
   <string>{label}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{binary}</string>
-    <string>start</string>
-    <string>--foreground</string>
+{program_arguments}
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -209,9 +260,36 @@ fn render_plist(binary_path: &Path) -> String {
 </dict>
 </plist>
 "#,
-        label = LABEL,
-        binary = binary_path.display()
+        label = xml_escape(LABEL),
+        program_arguments = program_arguments
     )
+}
+
+#[cfg(debug_assertions)]
+fn render_program_arguments(binary_path: &Path) -> String {
+    let binary = xml_escape(&binary_path.display().to_string());
+    format!(
+        "    <string>/bin/sh</string>\n    <string>-c</string>\n    <string>exec \"$1\" start --foreground</string>\n    <string>cc-use-daemon-launcher</string>\n    <string>{}</string>",
+        binary
+    )
+}
+
+#[cfg(not(debug_assertions))]
+fn render_program_arguments(binary_path: &Path) -> String {
+    let binary = xml_escape(&binary_path.display().to_string());
+    format!(
+        "    <string>{}</string>\n    <string>start</string>\n    <string>--foreground</string>",
+        binary
+    )
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 fn classify_bootstrap_result(result: Result<String, String>) -> Result<(), String> {
@@ -318,6 +396,16 @@ mod tests {
         assert!(plist.contains(LABEL));
         assert!(plist.contains("/tmp/cc-use-daemon"));
         assert!(plist.contains("--foreground"));
+        if cfg!(debug_assertions) {
+            assert!(plist.contains("/bin/sh"));
+            assert!(plist.contains("cc-use-daemon-launcher"));
+        }
+    }
+
+    #[test]
+    fn render_plist_escapes_xml_special_characters() {
+        let plist = render_plist(Path::new("/tmp/a&b/cc-use-daemon"));
+        assert!(plist.contains("/tmp/a&amp;b/cc-use-daemon"));
     }
 
     #[test]

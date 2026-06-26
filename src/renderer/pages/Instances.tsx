@@ -143,14 +143,11 @@ export default function Instances() {
     }
   }
 
-  const filteredTreeData = (cliType: string) =>
+  const filteredTreeData = () =>
     treeData
       .map((group) => ({
         ...group,
-        children: group.children.filter((child) => {
-          const key = apiKeyMap.get(child.value)
-          return key?.types.includes(cliType as 'claude' | 'codex')
-        }),
+        children: group.children,
       }))
       .filter((group) => group.children.length > 0)
 
@@ -201,7 +198,7 @@ export default function Instances() {
           treeDefaultExpandAll
           placeholder={t('instances.selectKey')}
           value={record.apiKeyId || undefined}
-          treeData={filteredTreeData(record.cliType)}
+          treeData={filteredTreeData()}
           style={{ width: '100%' }}
           onChange={(value: string) => handleAssignmentChange(record, value)}
           treeNodeFilterProp='title'

@@ -121,10 +121,9 @@ export default function Projects() {
     return key.alias || `Key ${key.priority + 1}`
   }
 
-  // Check if the key supports the project's CLI type
-  const isKeyCompatible = (project: Project, apiKey: ApiKey | null): boolean => {
-    if (!apiKey) return false
-    return apiKey.types.includes(project.cliType || 'claude_code')
+  // All keys are compatible (types field removed in v3.2.0)
+  const isKeyCompatible = (_project: Project, apiKey: ApiKey | null): boolean => {
+    return !!apiKey
   }
 
   const formatDate = (timestamp: string | null) => {
@@ -254,11 +253,6 @@ export default function Projects() {
                   {key.alias || `Key ${key.priority + 1}`}
                 </span>
                 <div className={styles.keySwitchMenuItemMeta}>
-                  <Space size={2} className={styles.keySwitchMenuItemTypes}>
-                    {key.types.map((type) => (
-                      <CliTypeIcon key={type} type={type} size={12} />
-                    ))}
-                  </Space>
                   {isCurrent && (
                     <Badge
                       status='success'
@@ -447,11 +441,6 @@ export default function Projects() {
                             <Text type='secondary' className={styles.keyName}>
                               / {getKeyAlias(apiKey)}
                             </Text>
-                            <Space size={2} style={{ marginLeft: 4 }}>
-                              {apiKey?.types.map((type) => (
-                                <CliTypeIcon key={type} type={type} size={12} />
-                              ))}
-                            </Space>
                           </div>
                           <Dropdown
                             classNames={{ root: styles.keySwitchDropdown }}

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   ClientKind,
   IntegrationForm,
-  ProtocolFormat,
   CLIENT_KIND_CONFIGS,
   getClientKindConfig,
   providerTypeToClientKind,
@@ -20,11 +19,6 @@ describe('ClientKind types (v3.2.0)', () => {
     expect(forms).toHaveLength(2)
   })
 
-  it('should have correct protocol formats', () => {
-    const formats: ProtocolFormat[] = ['codex_responses', 'openai_chat', 'anthropic_messages']
-    expect(formats).toHaveLength(3)
-  })
-
   it('should have client kind configs', () => {
     expect(CLIENT_KIND_CONFIGS).toHaveLength(3)
 
@@ -32,20 +26,17 @@ describe('ClientKind types (v3.2.0)', () => {
     expect(claudeCodeConfig).toBeDefined()
     expect(claudeCodeConfig?.label).toBe('Claude Code')
     expect(claudeCodeConfig?.form).toBe('process_injection')
-    expect(claudeCodeConfig?.defaultProtocol).toBe('anthropic_messages')
     expect(claudeCodeConfig?.cliCommand).toBe('claude')
 
     const codexConfig = CLIENT_KIND_CONFIGS.find(c => c.kind === 'codex')
     expect(codexConfig).toBeDefined()
     expect(codexConfig?.label).toBe('Codex Desktop')
     expect(codexConfig?.form).toBe('config_takeover')
-    expect(codexConfig?.defaultProtocol).toBe('codex_responses')
 
     const desktopConfig = CLIENT_KIND_CONFIGS.find(c => c.kind === 'claude_desktop')
     expect(desktopConfig).toBeDefined()
     expect(desktopConfig?.label).toBe('Claude Desktop')
     expect(desktopConfig?.form).toBe('config_takeover')
-    expect(desktopConfig?.defaultProtocol).toBe('anthropic_messages')
   })
 
   it('should get client kind config', () => {

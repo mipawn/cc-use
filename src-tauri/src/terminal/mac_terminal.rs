@@ -8,6 +8,10 @@ use std::process::Command;
 
 pub struct MacTerminalStrategy;
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 impl TerminalStrategy for MacTerminalStrategy {
     fn name(&self) -> &str {
         "Terminal"
@@ -19,18 +23,23 @@ impl TerminalStrategy for MacTerminalStrategy {
 
     fn launch(
         &self,
-        wrapper_path: &str,
+        working_dir: &str,
         _env: &EnvObject,
-        _cli_command: &str,
+        wrapper_path: &str,
         _instance_label: Option<&str>,
     ) -> Result<(), String> {
         // v3.2.0: 直接执行 wrapper 脚本,不内联 env/command
+        let command = format!(
+            "cd {} && {}",
+            shell_quote(working_dir),
+            shell_quote(wrapper_path)
+        );
         let script = format!(
             r#"tell application "Terminal"
     activate
     do script "{}"
 end tell"#,
-            wrapper_path
+            command.replace('"', "\\\"")
         );
 
         let output = Command::new("osascript")

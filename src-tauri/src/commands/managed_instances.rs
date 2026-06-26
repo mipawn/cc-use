@@ -85,9 +85,7 @@ pub fn managed_instance_update_assignment(
 }
 
 #[tauri::command]
-pub fn managed_instance_cleanup(
-    db: State<'_, Arc<Mutex<Database>>>,
-) -> Result<usize, String> {
+pub fn managed_instance_cleanup(db: State<'_, Arc<Mutex<Database>>>) -> Result<usize, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     managed_instance_cleanup_inner(&db)
 }

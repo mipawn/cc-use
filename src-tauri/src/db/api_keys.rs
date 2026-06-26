@@ -2,13 +2,20 @@ use crate::db::Database;
 use crate::models::{ApiKey, CreateApiKeyInput, UpdateApiKeyInput, UsageData};
 
 fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
-    let types_str: Option<String> = row.get(4)?;
-    let types: Vec<String> = types_str
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| vec!["claude".to_string()]);
-
-    let config_str: Option<String> = row.get(8)?;
+    // SELECT: id(0), provider_id(1), alias(2), value(3), priority(4),
+    //         is_exhausted(5), is_active(6), config(7), usage_type(8),
+    //         usage_url(9), usage_path(10), usage_headers(11),
+    //         cached_usage(12), last_usage_checked_at(13), cost_multiplier(14), model_mapping(15),
+    //         types(16), api_format(17), transform_enabled(18), client_configs(19)
+    let config_str: Option<String> = row.get(7)?;
     let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
+    let client_configs_str: Option<String> = row.get(19)?;
+    let client_configs = client_configs_str.and_then(|s| serde_json::from_str(&s).ok());
+    let types = row
+        .get::<_, Option<String>>(16)?
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .filter(|types| !types.is_empty())
+        .unwrap_or_else(|| vec!["claude_code".to_string()]);
 
     Ok(ApiKey {
         id: row.get(0)?,
@@ -16,31 +23,35 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
         alias: row.get(2)?,
         value: row.get(3)?,
         types,
-        priority: row.get(5)?,
-        is_exhausted: row.get::<_, i32>(6)? != 0,
-        is_active: row.get::<_, i32>(7)? != 0,
+        priority: row.get(4)?,
+        is_exhausted: row.get::<_, i32>(5)? != 0,
+        is_active: row.get::<_, i32>(6)? != 0,
         config,
         usage_type: row
-            .get::<_, Option<String>>(9)?
+            .get::<_, Option<String>>(8)?
             .unwrap_or_else(|| "none".to_string()),
-        usage_url: row.get(10)?,
-        usage_path: row.get(11)?,
-        usage_headers: row.get(12)?,
+        usage_url: row.get(9)?,
+        usage_path: row.get(10)?,
+        usage_headers: row.get(11)?,
         cached_usage: row
-            .get::<_, Option<String>>(13)?
+            .get::<_, Option<String>>(12)?
             .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
-        last_usage_checked_at: row.get(14)?,
-        cost_multiplier: row.get::<_, Option<f64>>(15)?.unwrap_or(1.0),
-        model_mapping: row.get(16)?,
+        last_usage_checked_at: row.get(13)?,
+        cost_multiplier: row.get::<_, Option<f64>>(14)?.unwrap_or(1.0),
+        model_mapping: row.get(15)?,
+        api_format: row.get(17)?,
+        transform_enabled: row.get::<_, Option<i32>>(18)?.unwrap_or(0) != 0,
+        client_configs,
     })
 }
 
 impl Database {
     pub fn api_key_list(&self, provider_id: &str) -> Result<Vec<ApiKey>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
+            "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping
+                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
+                    api_format, transform_enabled, client_configs
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC",
         )?;
 
@@ -50,9 +61,10 @@ impl Database {
 
     pub fn api_key_get(&self, id: &str) -> Result<Option<ApiKey>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, provider_id, alias, value, types, priority, is_exhausted, is_active,
+            "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping
+                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
+                    api_format, transform_enabled, client_configs
              FROM api_keys WHERE id = ?1",
         )?;
 
@@ -67,22 +79,28 @@ impl Database {
 
     pub fn api_key_create(&self, input: &CreateApiKeyInput) -> Result<ApiKey, rusqlite::Error> {
         let id = nanoid::nanoid!();
-        let types_json = serde_json::to_string(
-            &input
-                .types
-                .clone()
-                .unwrap_or_else(|| vec!["claude".to_string()]),
-        )
-        .unwrap_or_else(|_| "[\"claude\"]".to_string());
         let config_json = input
             .config
+            .as_ref()
+            .map(|c| serde_json::to_string(c).unwrap_or_default());
+        let types = input
+            .types
+            .as_ref()
+            .filter(|types| !types.is_empty())
+            .cloned()
+            .unwrap_or_else(|| vec!["claude_code".to_string()]);
+        let types_json =
+            serde_json::to_string(&types).unwrap_or_else(|_| "[\"claude_code\"]".to_string());
+        let client_configs_json = input
+            .client_configs
             .as_ref()
             .map(|c| serde_json::to_string(c).unwrap_or_default());
 
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
-                config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping,
+                api_format, transform_enabled, client_configs)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             rusqlite::params![
                 id,
                 input.provider_id,
@@ -98,6 +116,9 @@ impl Database {
                 input.usage_headers,
                 input.cost_multiplier.unwrap_or(1.0),
                 input.model_mapping,
+                input.api_format.as_deref().unwrap_or("auto"),
+                input.transform_enabled.unwrap_or(false) as i32,
+                client_configs_json,
             ],
         )?;
 
@@ -124,10 +145,21 @@ impl Database {
             params
         );
         add_field!(input.model_mapping, "model_mapping", sets, params);
+        add_field!(input.api_format, "api_format", sets, params);
+        if let Some(ref val) = input.client_configs {
+            sets.push("client_configs = ?".to_string());
+            params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
+        }
+        if let Some(ref val) = input.transform_enabled {
+            sets.push("transform_enabled = ?".to_string());
+            params.push(Box::new(if *val { 1i32 } else { 0i32 }));
+        }
 
-        if let Some(ref types) = input.types {
+        if let Some(ref val) = input.types {
             sets.push("types = ?".to_string());
-            params.push(Box::new(serde_json::to_string(types).unwrap_or_default()));
+            params.push(Box::new(
+                serde_json::to_string(val).unwrap_or_else(|_| "[\"claude_code\"]".to_string()),
+            ));
         }
 
         if let Some(ref val) = input.is_exhausted {

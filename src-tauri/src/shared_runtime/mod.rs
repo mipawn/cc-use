@@ -15,6 +15,7 @@ pub use project_session::{
 };
 pub use route_plan::{classify_request_auth, decide_route_plan, RequestAuth, RoutePlan};
 pub use session_token::{
-    extract_session_token, is_session_token, new_session_token, SESSION_TOKEN_PREFIX,
+    extract_session_token, is_session_token, new_session_token, CODEX_SESSION_TOKEN_SETTING_KEY,
+    SESSION_TOKEN_PREFIX,
 };
 pub use upstream_routing::{infer_upstream_family_from_path, UpstreamFamily};

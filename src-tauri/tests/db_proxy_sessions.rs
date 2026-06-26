@@ -79,3 +79,31 @@ fn proxy_session_update_provider_key_updates_single_session() {
     assert_eq!(session_2.provider_id, "provider-b");
     assert_eq!(session_2.api_key_id, "key-b");
 }
+
+#[test]
+fn proxy_session_update_provider_key_cli_type_repairs_existing_session_kind() {
+    let fixture = TempDb::new();
+    create_proxy_session(
+        &fixture.db,
+        "session-1",
+        "provider-a",
+        "key-a",
+        Some("project-1"),
+    );
+
+    let changed = fixture
+        .db
+        .proxy_session_update_provider_key_cli_type(
+            "session-1",
+            "provider-new",
+            "key-new",
+            "codex-app",
+        )
+        .unwrap();
+
+    assert!(changed);
+    let session = fixture.db.proxy_session_get("session-1").unwrap().unwrap();
+    assert_eq!(session.provider_id, "provider-new");
+    assert_eq!(session.api_key_id, "key-new");
+    assert_eq!(session.cli_type.as_deref(), Some("codex-app"));
+}

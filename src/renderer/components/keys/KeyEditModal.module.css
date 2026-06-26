@@ -1,119 +1,81 @@
-/* KeyEditModal Styles */
-
-.modal :global(.ant-modal-content) {
-  border-radius: 16px;
+.modal {
+  top: 24px;
 }
 
 .scrollContainer {
-  max-height: calc(80vh - 120px);
+  max-height: calc(82vh - 120px);
   padding-right: var(--simplebar-gutter);
   margin-right: calc(-1 * var(--simplebar-gutter));
+  overflow-x: hidden;
 }
 
 .form {
-  padding-top: 8px;
+  padding-right: 2px;
 }
 
-/* Type Indicator */
-.typeIndicator {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.clientSelector {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+  border-radius: 8px;
+  background: var(--surface-default, #fff);
 }
 
-/* Type Segmented (edit mode) */
-.typeSegmented {
-  background: var(--surface-sunken, #f1f5f9) !important;
-  padding: 4px !important;
-  border-radius: var(--radius-ant, 8px) !important;
+.tabs {
+  min-height: 500px;
 }
 
-.typeSegmented :global(.ant-segmented-item) {
-  border-radius: 6px !important;
+.tabs :global(.ant-tabs-nav) {
+  margin-bottom: 16px;
 }
 
-.typeSegmented :global(.ant-segmented-item-selected) {
-  font-weight: 500 !important;
-}
-
-/* Config Section */
-.configSection {
+.tabPane {
+  min-height: 420px;
+  padding: 14px;
   background: var(--surface-sunken, #f8fafc);
-  border-radius: 10px;
-  padding: 16px;
-  margin-top: 8px;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+  border-radius: var(--radius-ant, 8px);
+}
+
+.templateBtn {
+  padding: 0;
+  height: auto;
+}
+
+.configSection {
+  padding: 0;
 }
 
 .configHeader {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 12px;
 }
 
 .copyButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 28px;
   height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  cursor: pointer;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-default, #fff);
   color: var(--ant-color-text-secondary);
-  transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .copyButton:hover {
-  background: var(--surface-elevated);
   color: var(--ant-color-primary);
+  border-color: var(--ant-color-primary);
 }
 
 .configTabs {
   margin-bottom: 12px;
-  background: var(--surface-base, #fff) !important;
-  padding: 4px !important;
-  border-radius: var(--radius-ant, 8px) !important;
-}
-
-.configTabs :global(.ant-segmented-item) {
-  border-radius: 6px !important;
-  transition: all 0.2s ease !important;
-}
-
-.configTabs :global(.ant-segmented-item-selected) {
-  background: var(--ant-color-primary) !important;
-  color: #fff !important;
-  font-weight: 500 !important;
-  box-shadow: var(--shadow-sm) !important;
-}
-
-.configTabs :global(.ant-segmented-item-selected .ant-segmented-item-label) {
-  color: #fff !important;
-}
-
-.globalToggle {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
 }
 
 .jsonEditor {
   font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
-  font-size: 13px !important;
+  font-size: 12px !important;
   line-height: 1.6 !important;
-  background: var(--surface-base, #fff) !important;
-  border-radius: 8px !important;
-  border: 1px solid var(--ant-color-border) !important;
-  transition: border-color 0.2s ease !important;
-}
-
-.jsonEditor:focus {
-  border-color: var(--ant-color-primary) !important;
 }
 
 .jsonEditorError {
@@ -122,51 +84,6 @@
 
 .errorText {
   display: block;
+  margin-top: 8px;
   font-size: 12px;
-  margin-top: 6px;
-}
-
-/* Dark mode */
-[data-theme='dark'] .configSection {
-  background: var(--surface-sunken, #0f172a);
-}
-
-[data-theme='dark'] .configTabs {
-  background: var(--surface-base, #1e293b) !important;
-}
-
-[data-theme='dark'] .jsonEditor {
-  background: var(--surface-base, #1e293b) !important;
-}
-
-/* Advanced Collapse */
-.advancedCollapse {
-  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
-  margin: 0;
-  padding: 0;
-}
-
-.advancedCollapse :global(.ant-collapse-header) {
-  padding: 16px 0 !important;
-  font-weight: 500;
-}
-
-.advancedCollapse :global(.ant-collapse-content-box) {
-  padding: 0 0 16px 0 !important;
-}
-
-.advancedContent {
-  background: var(--surface-sunken, #f8fafc);
-  border-radius: 10px;
-  padding: 16px;
-}
-
-.templateBtn {
-  font-size: 12px;
-  padding: 0;
-  height: auto;
-}
-
-[data-theme='dark'] .advancedContent {
-  background: var(--surface-sunken, #0f172a);
 }

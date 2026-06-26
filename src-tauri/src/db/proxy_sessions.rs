@@ -69,6 +69,22 @@ impl Database {
         Ok(changed > 0)
     }
 
+    pub fn proxy_session_update_provider_key_cli_type(
+        &self,
+        token: &str,
+        provider_id: &str,
+        api_key_id: &str,
+        cli_type: &str,
+    ) -> Result<bool, rusqlite::Error> {
+        let changed = self.conn.execute(
+            "UPDATE proxy_sessions
+             SET provider_id = ?1, api_key_id = ?2, cli_type = ?3
+             WHERE session_token = ?4",
+            rusqlite::params![provider_id, api_key_id, cli_type, token],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn proxy_session_delete(&self, token: &str) -> Result<bool, rusqlite::Error> {
         let changed = self.conn.execute(
             "DELETE FROM proxy_sessions WHERE session_token = ?1",

@@ -34,6 +34,7 @@ import type {
   MigrationCheck,
   MigrationResult,
   TerminalLaunchPreview,
+  ClientKind,
 } from '../../shared/types'
 
 export interface Api {
@@ -72,7 +73,7 @@ export interface Api {
       projectId?: string
       providerId?: string
       apiKeyId?: string
-      cliType: 'claude' | 'codex'
+      cliType: ClientKind | 'claude'
     }) => Promise<TerminalLaunchPreview>
   }
   proxy: {
@@ -123,6 +124,10 @@ export interface Api {
   settings: {
     get: () => Promise<GlobalSettings>
     update: (updates: Partial<GlobalSettings>) => Promise<GlobalSettings>
+  }
+  configTakeover: {
+    readCodex: () => Promise<string>
+    readClaudeDesktop: () => Promise<string>
   }
   icon: {
     upload: (buffer: ArrayBuffer, filename: string) => Promise<string>
