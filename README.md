@@ -1,10 +1,12 @@
 # CC Use
 
-专为 **Claude Code / Codex CLI** 打造的桌面配置管理工具。不同于通用的 API 管理平台，CC Use 只做一件事：让你更高效地管理和使用 CLI。
+专为 **Claude Code / Codex Desktop / Claude Desktop** 打造的桌面配置管理工具。CC Use 负责管理供应商、密钥、本地网关与桌面端配置接管，让不同客户端共用一套可观测的密钥体系。
 
 [English](./README_EN.md)
 
-> **🎉 3.0 重大更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。详见 [CHANGELOG](./CHANGELOG.md)。
+> **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
+>
+> **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >
 > **⚠️ 平台变更**：自 3.0 起**仅支持 macOS**，不再提供 Windows 构建，也不再维护 Windows 相关代码。
 >
@@ -26,16 +28,18 @@
 
 ## 功能
 
-- **供应商与密钥管理** - 在「密钥」页面统一管理供应商和 API 密钥，每个密钥可同时支持 Claude Code 和 Codex CLI，支持额度查询（NewAPI / 自定义接口），支持快速复制密钥配置
-- **项目管理** - 创建项目并绑定供应商、密钥和 CLI 类型，支持在项目卡片上快速切换绑定
-- **一键启动** - 点击项目即启动终端，自动注入环境变量，直接进入 CLI
-- **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，透明中转请求，支持费用追踪与热切换
-- **实例管理** - 「实例」页面展示每次启动的 managed instance，状态机涵盖 `launching / running / stale / stopped / failed`，支持实例级密钥热切换
-- **费用追踪** - 自动记录每次请求的 Token 用量和费用
-- **统计分析** - 仪表盘展示今日费用、请求量、每日趋势、Top 密钥/项目；统计页提供按密钥/供应商/项目/模型的详细分析和请求明细
+- **供应商与密钥管理** - 在「供应商密钥」页面统一管理供应商和 API 密钥；每个密钥可勾选 Claude Code、Codex Desktop、Claude Desktop，支持优先级排序、额度查询、费用倍率和模型映射
+- **Claude Code 工作区** - Claude Code 页面集中管理项目、实例、会话和全局配置；项目只负责进程级启动，不再承担 Codex CLI 类型切换
+- **Claude Code 一键启动** - 点击项目即启动终端，wrapper 自动注入 session token、实例标识和本地 daemon 地址，真实密钥不会进入终端环境
+- **Codex Desktop 配置接管** - 写入 `~/.codex/config.toml` 的 `cc-use` provider 和固定 `experimental_bearer_token`，保留 `auth.json`；首次接管后重启 Codex Desktop，后续切换密钥可直接更新 daemon 路由
+- **Claude Desktop 配置接管** - 写入 Claude 3P profile 和 configLibrary，网关地址指向 `http://127.0.0.1:<port>/claude-desktop`，支持配置预览、恢复官方配置和模型列表接管
+- **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，按 session token 路由到当前供应商/密钥，支持费用追踪与热切换
+- **实例管理** - 「实例」页面展示每次 Claude Code 启动的 managed instance，状态机涵盖 `launching / running / stale / stopped / failed`，支持实例级密钥热切换
+- **费用追踪** - 自动记录每次请求的 Token 用量和费用；统计会过滤无 usage 的探测请求，并把 Codex Desktop / Claude Desktop 归为独立客户端来源
+- **统计分析** - 仪表盘展示今日费用、请求量、每日趋势、Top 密钥/项目；统计页提供按密钥/供应商/客户端/模型的详细分析和请求明细
 - **系统托盘** - 关闭窗口时最小化到托盘，daemon 服务持续运行；托盘菜单支持服务控制和最近项目快速启动
 - **自动更新** - 应用内检测并下载新版本，支持下载进度显示（`tauri-plugin-updater` 签名校验）
-- **CLI 配置管理** - 支持全局配置和密钥级别的 CLI 配置（JSON），启动时自动合并注入
+- **Claude Code 配置管理** - 支持全局配置和密钥级别局部配置（JSON），启动时自动合并注入；配置编辑入口位于 Claude Code 页面
 - **国际化** - 中文 / 英文界面
 - **深色模式** - 亮色 / 深色主题切换
 
@@ -51,39 +55,54 @@
 
 ### 1. 添加供应商和密钥
 
-进入「密钥」页面：
+进入「供应商密钥」页面：
 
 1. 点击「添加供应商」，填写名称、Base URL，选择图标，可选配置 Token 和余额查询
-2. 在供应商分组下点击「添加密钥」，填写密钥值，选择支持的类型（Claude Code / Codex CLI），可选配置额度查询和 CLI 配置
+2. 在供应商分组下点击「添加密钥」，填写密钥值，选择适用客户端（Claude Code / Codex Desktop / Claude Desktop）
+3. 按需配置费用倍率、额度查询和模型映射；只有 Claude Code 会展示局部 CLI 配置
 
-### 2. 创建项目
+### 2. 使用 Claude Code
 
-进入「项目」页面，点击「添加项目」：
+进入「Claude Code」页面：
 
-1. 填写项目名称，通过浏览按钮选择项目文件夹路径
-2. 选择绑定的供应商和密钥（级联选择器）
-3. 选择 CLI 类型（Claude Code / Codex CLI）
+1. 在「项目」Tab 创建项目，选择项目文件夹、供应商和密钥
+2. 点击项目打开按钮启动终端，应用会创建 managed instance
+3. 在「实例」Tab 查看运行状态或切换当前实例密钥
+4. 在「全局配置」Tab 管理 Claude Code 全局配置
 
-创建后可在项目卡片上快速切换绑定的密钥或 CLI 类型。
+Claude Code 启动时会设置 `ANTHROPIC_BASE_URL` 和 session token，真实密钥保留在本地 daemon 中。
 
-### 3. 启动终端
+### 3. 接管 Codex Desktop
 
-在「项目」页面或「仪表盘」的最近项目中，点击打开按钮即可启动终端。应用会通过本地常驻 daemon 注入环境变量，并创建一个 managed instance：
+进入「Codex Desktop」页面：
 
-- **Claude Code**: 设置 `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`
-- **Codex CLI**: 设置 `OPENAI_BASE_URL` + `OPENAI_API_KEY`
+1. 选择支持 Codex Desktop 的密钥
+2. 点击接管，CC Use 会写入 `~/.codex/config.toml`，并备份 `config.toml` / `auth.json`
+3. 首次接管或恢复官方配置后，重启 Codex Desktop 让配置生效
 
-### 4. daemon 服务
+接管不会改写 `auth.json`，会保留官方 ChatGPT 登录和插件能力。已接管状态下切换密钥只更新 daemon session 指向，Codex Desktop 下一次请求即可走新密钥。
+
+### 4. 接管 Claude Desktop
+
+进入「Claude Desktop」页面：
+
+1. 选择支持 Claude Desktop 的密钥
+2. 点击接管，CC Use 会写入 Claude 3P profile、`_meta.json` 和对应配置文件
+3. 可随时查看配置预览或恢复官方配置
+
+Claude Desktop 接管前会探测本地 daemon 的模型列表接口；模型映射会同步到 Claude Desktop 的 inference model 展示。
+
+### 5. daemon 服务
 
 本地 daemon 服务随应用启动并常驻运行，终端总是经它中转：
 
 - 请求使用 session token 替代真实密钥
 - 自动记录每次请求的 Token 用量和费用
-- 支持不重启终端热切换密钥（在项目页修改下次默认值，在「实例」页切换当前运行实例）
+- 支持热切换密钥：Claude Code 在「实例」页切换当前运行实例；Codex Desktop / Claude Desktop 通过固定配置接管 token 更新 daemon 路由
 
 在「设置」页面可以查看服务运行状态和端口，异常时点击「重启服务」。
 
-### 5. 识别当前实例 · Claude Code Status Line
+### 6. 识别当前实例 · Claude Code Status Line
 
 启动终端时，cc-use 会给子进程注入一组环境变量，用来识别当前窗口对应的 managed instance：
 
@@ -113,18 +132,23 @@
 
 ## 工作原理
 
-应用启动时会自动拉起独立的 `cc-use-daemon` 进程作为本地网关。从项目页启动终端时，app 会生成 session token 并通过临时 wrapper 脚本注入：
+应用启动时会自动拉起独立的 `cc-use-daemon` 进程作为本地网关。不同客户端通过不同方式接入同一个 daemon：
 
 ```
-CLI → localhost:12345 (daemon) → 实际 API 供应商
+Claude Code wrapper → localhost:12345 (daemon) → 实际 API 供应商
+Codex Desktop config.toml → localhost:12345/v1 (daemon) → 实际 API 供应商
+Claude Desktop 3P gateway → localhost:12345/claude-desktop (daemon) → 实际 API 供应商
 ```
 
-daemon 做四件事：
+daemon 做这些事：
 
-- 用 session token 路由到对应供应商/密钥，不把真实密钥暴露给终端环境
+- 用 session token 路由到对应供应商/密钥，不把真实密钥暴露给客户端配置或终端环境
 - 自动记录每次请求的 Token 用量和费用
-- 支持不重启终端热切换密钥
+- 支持热切换密钥
 - 通过 wrapper 的 heartbeat + stop 上报追踪每个 managed instance 的生命周期
+- 按供应商类型补齐正确认证 Header，并透传客户端原始请求形态
+
+> 3.2.0 已移除旧的请求/响应格式转换层。上游供应商需要兼容对应客户端发出的 API 形态：Claude Code / Claude Desktop 使用 Anthropic Messages 风格，Codex Desktop 使用 OpenAI Responses 风格。
 
 ## 从源码构建与测试
 

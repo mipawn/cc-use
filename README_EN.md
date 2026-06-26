@@ -1,10 +1,12 @@
 # CC Use
 
-A desktop configuration manager built exclusively for **Claude Code / Codex CLI**. Unlike general-purpose API management tools, CC Use does one thing: make it easier to manage and use your CLI.
+A desktop configuration manager for **Claude Code / Codex Desktop / Claude Desktop**. CC Use manages providers, keys, the local gateway, and desktop config takeover so multiple clients can share one observable key system.
 
 [中文文档](./README.md)
 
-> **🎉 3.0 Major Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time. See [CHANGELOG](./CHANGELOG.md).
+> **🎉 3.2.0 Update**: The app is now organized around three clients: Claude Code, Codex Desktop, and Claude Desktop. Codex CLI launch support has been removed; Codex Desktop and Claude Desktop use config takeover instead. See [CHANGELOG](./CHANGELOG.md).
+>
+> **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
 > **⚠️ Platform change**: Starting from 3.0, **only macOS is supported** — Windows builds are no longer published, and Windows-specific code is no longer maintained.
 >
@@ -26,16 +28,18 @@ A desktop configuration manager built exclusively for **Claude Code / Codex CLI*
 
 ## Features
 
-- **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can support both Claude Code and Codex CLI, with balance/usage queries (NewAPI / custom endpoints) and quick key duplication
-- **Project Management** - Create projects bound to a provider, key, and CLI type; quickly switch bindings directly on the project card
-- **One-Click Launch** - Click a project to launch a terminal with environment variables auto-injected, dropping you straight into CLI
-- **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, transparently relaying requests and enabling cost tracking and hot-switching
-- **Instance Management** - The Instances page shows every managed instance launched from the app, with a state machine covering `launching / running / stale / stopped / failed` and per-instance key hot-switching
-- **Cost Tracking** - Automatically logs token usage and cost for every API request
-- **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/project/model with request history
+- **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can target Claude Code, Codex Desktop, and Claude Desktop, with priority ordering, balance/usage queries, cost multipliers, and model mapping
+- **Claude Code Workspace** - The Claude Code page groups Projects, Instances, Sessions, and global config; projects are only for process-level Claude Code launches, not Codex CLI switching
+- **Claude Code Launch** - Click a project to launch a terminal; the wrapper injects a session token, instance metadata, and the local daemon URL while keeping the real key out of the terminal environment
+- **Codex Desktop Config Takeover** - Writes a `cc-use` provider and stable `experimental_bearer_token` to `~/.codex/config.toml` while preserving `auth.json`; after the first restart, switching keys can update the daemon route without rewriting the desktop config
+- **Claude Desktop Config Takeover** - Writes a Claude 3P profile and configLibrary entries pointing to `http://127.0.0.1:<port>/claude-desktop`, with config preview, official restore, and model-list takeover
+- **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, routing by session token to the current provider/key and enabling cost tracking and hot-switching
+- **Instance Management** - The Instances page shows every Claude Code managed instance launched from the app, with a state machine covering `launching / running / stale / stopped / failed` and per-instance key hot-switching
+- **Cost Tracking** - Automatically logs token usage and cost for every API request; statistics ignore zero-usage probe requests and group Codex Desktop / Claude Desktop as client sources
+- **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/client/model with request history
 - **System Tray** - Minimize to tray on close while the daemon keeps running; tray menu supports service control and quick-launching recent projects
 - **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
-- **CLI Config Management** - Global and per-key CLI configuration (JSON), automatically merged and injected at launch
+- **Claude Code Config Management** - Global and per-key local configuration (JSON), automatically merged and injected at launch; the editor now lives on the Claude Code page
 - **Internationalization** - Chinese and English UI
 - **Dark Mode** - Light/dark theme switching
 
@@ -51,39 +55,54 @@ Download the macOS installer from [Releases](https://github.com/mipawn/cc-use/re
 
 ### 1. Add Providers and Keys
 
-Go to the Keys page:
+Go to the Provider Keys page:
 
 1. Click "Add Provider" - fill in name, Base URL, choose an icon, optionally configure token and balance query
-2. Click "Add Key" under a provider - enter the key value, select supported types (Claude Code / Codex CLI), optionally configure usage query and CLI config
+2. Click "Add Key" under a provider - enter the key value and select target clients (Claude Code / Codex Desktop / Claude Desktop)
+3. Configure cost multiplier, usage query, and model mapping as needed; only Claude Code shows local CLI config
 
-### 2. Create a Project
+### 2. Use Claude Code
 
-Go to the Projects page and click "Add Project":
+Go to the Claude Code page:
 
-1. Enter a project name and select the project folder via the browse button
-2. Select a provider and key to bind (cascading selector)
-3. Choose the CLI type (Claude Code / Codex CLI)
+1. Create a project from the Projects tab, selecting a project folder, provider, and key
+2. Click the project launch button to open a terminal and create a managed instance
+3. Use the Instances tab to inspect runtime state or switch the key for a running instance
+4. Use the Global Config tab to manage Claude Code global config
 
-After creation, you can quickly switch the bound key or CLI type directly on the project card.
+Claude Code launches with `ANTHROPIC_BASE_URL` and a session token. The real key stays inside the local daemon.
 
-### 3. Launch Terminal
+### 3. Take Over Codex Desktop
 
-On the Projects page or from the Dashboard's recent projects, click the open button to launch a terminal. The app injects environment variables via the local daemon and creates a managed instance for this launch:
+Go to the Codex Desktop page:
 
-- **Claude Code**: Sets `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY`
-- **Codex CLI**: Sets `OPENAI_BASE_URL` + `OPENAI_API_KEY`
+1. Select a key that supports Codex Desktop
+2. Apply takeover; CC Use writes `~/.codex/config.toml` and backs up `config.toml` / `auth.json`
+3. Restart Codex Desktop after first takeover or official restore
 
-### 4. Daemon Service
+Takeover does not rewrite `auth.json`, so official ChatGPT login and plugin capability are preserved. Once already taken over, switching keys only updates the daemon session route, so Codex Desktop's next request can use the new key.
+
+### 4. Take Over Claude Desktop
+
+Go to the Claude Desktop page:
+
+1. Select a key that supports Claude Desktop
+2. Apply takeover; CC Use writes the Claude 3P profile, `_meta.json`, and the related config files
+3. Preview the generated config or restore official config at any time
+
+Before takeover, CC Use probes the local daemon's model-list endpoint. Model mapping is also reflected in Claude Desktop's inference model list.
+
+### 5. Daemon Service
 
 The local daemon service is launched with the app and stays resident — terminals always go through it:
 
 - Requests use session tokens instead of real API keys
 - Token usage and cost are automatically logged for every request
-- Hot-switch keys without restarting the terminal (Projects page edits the *next launch* default; Instances page edits the *currently running* instance)
+- Hot-switch keys: Claude Code switches running instances from the Instances tab; Codex Desktop / Claude Desktop update daemon routing through stable config-takeover tokens
 
 Check service status and port on the Settings page; click "Restart Service" if anything goes wrong.
 
-### 5. Identify the Current Instance · Claude Code Status Line
+### 6. Identify the Current Instance · Claude Code Status Line
 
 When launching a terminal, cc-use injects a handful of environment variables so you can tell which managed instance the current window belongs to:
 
@@ -113,18 +132,23 @@ Don't want claude-hud? Any command that reads `$CC_USE_INSTANCE_LABEL` and print
 
 ## How It Works
 
-On startup, the app spawns a standalone `cc-use-daemon` process as the local gateway. When launching a terminal from a project, the app generates a session token and injects it via a temporary wrapper script:
+On startup, the app spawns a standalone `cc-use-daemon` process as the local gateway. Each client reaches the same daemon through a different integration form:
 
 ```
-CLI → localhost:12345 (daemon) → actual API provider
+Claude Code wrapper → localhost:12345 (daemon) → actual API provider
+Codex Desktop config.toml → localhost:12345/v1 (daemon) → actual API provider
+Claude Desktop 3P gateway → localhost:12345/claude-desktop (daemon) → actual API provider
 ```
 
-The daemon handles four things:
+The daemon handles:
 
-- Routes to the right provider/key via session token, so real API keys never reach the terminal environment
+- Routing to the right provider/key via session token, so real API keys never reach client config or terminal environment
 - Automatically logs token usage and cost for every request
-- Supports hot-switching keys without restarting the terminal
+- Hot-switching keys
 - Tracks the lifecycle of every managed instance via wrapper heartbeat and stop reporting
+- Adds the correct upstream auth header by provider type and forwards the client's native request shape
+
+> The old request/response format conversion layer has been removed in 3.2.0. Upstream providers need to support the API shape emitted by the target client: Claude Code / Claude Desktop use Anthropic Messages style, while Codex Desktop uses OpenAI Responses style.
 
 ## Building from Source & Testing
 

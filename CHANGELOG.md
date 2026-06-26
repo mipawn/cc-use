@@ -5,6 +5,60 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.0] - 2026-06-26
+
+### ⚠️ Breaking
+
+- **移除 Codex CLI 启动链路**：应用入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三客户端；旧的 `/launch`、`/launchpad`、`/projects`、`/instances`、`/sessions` 路由统一重定向到 Claude Code 页面
+- **移除请求/响应格式转换层**：删除 `proxy/transform/*` 与 `transform_bridge`，不再提供 Anthropic Messages / OpenAI Chat / Codex Responses 之间的运行时转换；上游供应商需要兼容目标客户端的原生 API 形态
+- **供应商不再承担客户端适用性配置**：客户端适用性收敛到 API Key 的 `types`，供应商侧格式转换配置 UI 下线，遗留 DB 字段仅用于兼容旧数据
+
+### Added
+
+- **三客户端主导航**：Sidebar 直接提供 Claude Code、Codex Desktop、Claude Desktop 三个入口，另有统一的「供应商密钥」页面
+- **Codex Desktop 配置接管重做**：
+  - 写入 `~/.codex/config.toml` 的 `cc-use` provider、`wire_api = "responses"` 与稳定 `experimental_bearer_token`
+  - 接管时备份 `config.toml` / `auth.json`，但不改写 `auth.json`，保留官方 ChatGPT 登录和插件能力
+  - 固定 session token 持久化到 settings；已接管后切换密钥只更新 daemon session 指向，无需重启 Codex Desktop
+  - 新增配置预览命令与页面按钮
+- **Claude Desktop 配置接管重做**：
+  - 写入 Claude 3P profile、`_meta.json` 和相关配置，网关地址指向 `/claude-desktop`
+  - 写入 `inferenceModels`，支持 haiku / sonnet / opus / fable 默认路由，并把 API Key 模型映射同步为 `labelOverride`
+  - 接管前探测本地 daemon 的模型列表接口，失败时阻止写入无效配置
+  - 清理 Claude 3P 配置中的旧 `isHardwareAccelerationDisabled` 字段，避免新版 Claude Desktop 启动卡住
+- **Claude Code 页面重组**：项目、实例、会话和全局配置收敛到 Claude Code 页面 Tabs；全局配置编辑从「供应商密钥」页移出
+- **密钥编辑体验重做**：密钥弹窗改为基础 / 模型映射 / Claude Code 局部配置 Tabs，客户端适用性使用 Claude Code / Codex Desktop / Claude Desktop 多选
+- **配置接管通用组件**：Codex Desktop 与 Claude Desktop 共享按供应商分组的密钥选择、当前接管状态、供应商/密钥排序和配置预览
+- **统计对桌面客户端更友好**：无项目的 Codex Desktop / Claude Desktop 请求在 Top Projects 和请求明细中显示为对应客户端，而不是 Unknown
+- **价格与模型识别扩充**：新增 Claude fable/mythos、Claude 4.x 细分版本、GPT 5.x / chat-latest 等默认价格；模型价格匹配支持去除 `models/`、`anthropic.`、`openai.`、`bedrock.` 等前缀
+
+### Changed
+
+- `ApiKey.types` 默认值从旧 `claude` 迁移为 `claude_code`，并支持 `claude_code / codex / claude_desktop` 三种 `ClientKind`
+- Claude Code 仍是唯一进程级启动客户端；`ProviderTypeConfig` 只保留 Claude Code 终端注入配置
+- 代理层改为直透客户端原始请求形态，并按供应商类型 / URL 判断使用 `Authorization: Bearer` 还是 `x-api-key`
+- 代理层移除请求头中的 `content-length`，响应转发过滤 hop-by-hop header，避免代理转发时长度与流式响应不一致
+- 上游 URL 拼接避免 `/v1` 等路径重复；Claude Desktop 请求会剥离本地 `/claude-desktop` 前缀后再转发
+- Claude Desktop `/claude-desktop/v1/models` 由本地 daemon 直接返回模型列表，避免依赖上游模型接口
+- Codex Desktop 的 `/v1/responses` 请求在缺少显式 session token 时，会回退到 settings 中保存的接管 session
+- 用量解析支持 OpenAI Responses 的嵌套 `response.usage` 和 streaming 事件；响应缺少 model 时使用请求 model 兜底
+- 统计和仪表盘过滤 0 usage 的探测请求，避免模型列表或健康检查污染费用数据
+- 托盘菜单、设置、控制台日志与 daemon 管理文案同步三客户端/配置接管语义
+
+### Removed
+
+- 删除旧 Quick Add 弹窗、供应商预设派生逻辑、独立 Providers 页面和相关测试
+- 删除 Codex CLI 相关的前端拷贝命令展示；桌面客户端统一引导到对应页面执行配置接管
+- 删除供应商层 API 格式选择与「启用格式转换」开关
+
+### Fixed
+
+- 修复 API Key DB 读取列顺序与 `types` 迁移不一致导致的密钥字段错位风险
+- 修复 Codex Desktop 接管后恢复官方配置时没有同步恢复 `auth.json` 备份的问题
+- 修复 Codex Desktop 已接管后切换密钥仍提示必须重启的问题
+- 修复 Claude Desktop 模型列表、模型映射和 1M 支持信息缺失导致的接管后模型不可见问题
+- 修复 OpenAI Responses streaming usage 无法入账、费用明细显示 unknown model 的问题
+
 ## [3.1.4] - 2026-05-25
 
 ### Added
