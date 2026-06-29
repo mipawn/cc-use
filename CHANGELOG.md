@@ -5,6 +5,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.1] - 2026-06-29
+
+### Added
+
+- Claude Code 项目新增「启动前命令」配置，wrapper 会在进入项目目录后、执行 `claude` 前运行该命令；失败时中止启动并上报 `prelaunch_failed`
+- Codex Desktop / Claude Desktop 启动台支持拖拽调整供应商和同供应商下的密钥顺序
+
+### Changed
+
+- 托盘 badge 收敛为只显示今日消耗，不再显示代理异常、活跃实例数或今日请求数
+- 新增供应商不再默认 DeepSeek，改为 Claude 类型且余额查询默认关闭
+- Codex Desktop / Claude Desktop 接管表格精简为「密钥 / 状态 / 操作」，移除无实际数据的级别和延迟列，接管操作左对齐
+- Claude Code 启动前命令从全局/key 配置收敛到项目编辑中；历史 `prelaunchCommand` 字段仅过滤保留，不再参与启动或导出为环境变量
+
+### Fixed
+
+- 停用供应商或密钥时，桌面接管按钮禁用并显示明确状态原因
+
 ## [3.2.0] - 2026-06-26
 
 ### ⚠️ Breaking

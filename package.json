@@ -1,6 +1,6 @@
 {
   "name": "cc-use",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "description": "Desktop configuration manager for Claude Code, Codex Desktop, and Claude Desktop",
   "type": "module",
   "scripts": {
