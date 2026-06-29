@@ -1,13 +1,27 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button, Empty, Tag, Tooltip, Typography } from 'antd'
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
   CheckCircleOutlined,
+  HolderOutlined,
   QuestionCircleOutlined,
   StarOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import type { Provider, ApiKey, ClientKind } from '@shared/types'
 import { supportsKeyClient } from '../../utils/clientSupport'
@@ -15,6 +29,8 @@ import claudeIcon from '../../assets/provider-icons/claude.svg'
 import openaiIcon from '../../assets/provider-icons/openai.svg'
 import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
 import newapiIcon from '../../assets/provider-icons/newapi.svg'
+import { useAppMessage } from '../../hooks/useAppMessage'
+import { computeVisibleReorder } from './reorder'
 import styles from './TakeoverConfigTab.module.css'
 
 const { Text } = Typography
@@ -85,49 +101,136 @@ function getProviderIconSrc(provider: Provider): string {
   return `file://${provider.icon}`
 }
 
-function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
-  const next = [...items]
-  const [item] = next.splice(fromIndex, 1)
-  next.splice(toIndex, 0, item)
-  return next
-}
-
-function mergeVisibleOrder(allIds: string[], visibleIds: string[], nextVisibleIds: string[]) {
-  const visibleSet = new Set(visibleIds)
-  let visibleIndex = 0
-  return allIds.map((id) => {
-    if (!visibleSet.has(id)) return id
-    const nextId = nextVisibleIds[visibleIndex]
-    visibleIndex += 1
-    return nextId
-  })
-}
-
 function displayKeyName(apiKey: ApiKey) {
   return apiKey.alias || `${apiKey.value.slice(0, 10)}...${apiKey.value.slice(-4)}`
 }
 
-function KeyStatusTag({ apiKey, isSelected }: { apiKey: ApiKey; isSelected: boolean }) {
+function KeyStatusTag({
+  provider,
+  apiKey,
+  isSelected,
+}: {
+  provider: Provider
+  apiKey: ApiKey
+  isSelected: boolean
+}) {
+  if (!provider.isActive) {
+    return (
+      <Tag className={styles.statusTag} color='warning'>
+        <span className={styles.dot} />
+        服务商停用
+      </Tag>
+    )
+  }
   if (!apiKey.isActive) {
     return (
       <Tag className={styles.statusTag} color='red'>
         <span className={styles.dot} />
-        Offline
+        密钥停用
       </Tag>
     )
   }
   if (isSelected) {
     return (
       <Tag className={styles.statusTag} color='green'>
-        <span className={styles.dot} />P{apiKey.priority} Active
+        <span className={styles.dot} />
+        已接管
       </Tag>
     )
   }
   return (
-    <Tag className={styles.statusTag} color='default'>
+    <Tag className={styles.statusTag} color='blue'>
       <span className={styles.dot} />
-      Standby
+      可接管
     </Tag>
+  )
+}
+
+type SortableChildrenArgs = {
+  attributes: ReturnType<typeof useSortable>['attributes']
+  listeners: ReturnType<typeof useSortable>['listeners']
+  setActivatorNodeRef: ReturnType<typeof useSortable>['setActivatorNodeRef']
+}
+
+function DragHandle({
+  label,
+  attributes,
+  listeners,
+  setActivatorNodeRef,
+}: SortableChildrenArgs & { label: string }) {
+  return (
+    <Tooltip title={label}>
+      <span
+        ref={setActivatorNodeRef}
+        className={styles.dragHandle}
+        {...attributes}
+        {...listeners}
+        aria-label={label}
+      >
+        <HolderOutlined />
+      </span>
+    </Tooltip>
+  )
+}
+
+function SortableProviderPanel({
+  providerId,
+  children,
+}: {
+  providerId: string
+  children: (args: SortableChildrenArgs) => ReactNode
+}) {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `provider:${providerId}`,
+  })
+  return (
+    <section
+      ref={setNodeRef}
+      className={clsx(styles.providerPanel, isDragging && styles.dragging)}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+    >
+      {children({ attributes, listeners, setActivatorNodeRef })}
+    </section>
+  )
+}
+
+function SortableKeyRow({
+  keyId,
+  selected,
+  children,
+}: {
+  keyId: string
+  selected: boolean
+  children: (args: SortableChildrenArgs) => ReactNode
+}) {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `key:${keyId}`,
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      className={clsx(styles.tableRow, selected && styles.selectedRow, isDragging && styles.dragging)}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      role='row'
+    >
+      {children({ attributes, listeners, setActivatorNodeRef })}
+    </div>
   )
 }
 
@@ -142,7 +245,12 @@ export default function TakeoverConfigTab({
   onReorderProviders,
   onReorderApiKeys,
 }: TakeoverConfigTabProps) {
+  const message = useAppMessage()
   const [movingId, setMovingId] = useState<string | null>(null)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
   const filteredProviders =
     compatibleProviderType && !targetClientKind
       ? providers.filter((p) => p.type === compatibleProviderType)
@@ -159,49 +267,73 @@ export default function TakeoverConfigTab({
     }))
     .filter((group) => group.keys.length > 0)
 
-  const moveProvider = async (providerId: string, direction: -1 | 1) => {
+  const reorderVisibleProviders = async (activeProviderId: string, overProviderId: string) => {
     if (!onReorderProviders) return
     const visibleIds = grouped.map(({ provider }) => provider.id)
-    const index = visibleIds.indexOf(providerId)
-    const nextIndex = index + direction
-    if (index < 0 || nextIndex < 0 || nextIndex >= visibleIds.length) return
-
-    const nextVisibleIds = moveItem(visibleIds, index, nextIndex)
-    const nextProviderIds = mergeVisibleOrder(
+    const nextProviderIds = computeVisibleReorder(
       providers.map((provider) => provider.id),
       visibleIds,
-      nextVisibleIds,
+      activeProviderId,
+      overProviderId,
     )
-    setMovingId(`provider:${providerId}`)
+    if (!nextProviderIds) return
+    setMovingId(`provider:${activeProviderId}`)
     try {
       await onReorderProviders(nextProviderIds)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '服务商排序保存失败')
     } finally {
       setMovingId(null)
     }
   }
 
-  const moveKey = async (providerId: string, keyId: string, direction: -1 | 1) => {
+  const reorderVisibleKeys = async (providerId: string, activeKeyId: string, overKeyId: string) => {
     if (!onReorderApiKeys) return
     const providerKeys = allKeys.filter((key) => key.providerId === providerId)
     const group = grouped.find(({ provider }) => provider.id === providerId)
     if (!group) return
 
     const visibleIds = group.keys.map((key) => key.id)
-    const index = visibleIds.indexOf(keyId)
-    const nextIndex = index + direction
-    if (index < 0 || nextIndex < 0 || nextIndex >= visibleIds.length) return
-
-    const nextVisibleIds = moveItem(visibleIds, index, nextIndex)
-    const nextKeyIds = mergeVisibleOrder(
+    const nextKeyIds = computeVisibleReorder(
       providerKeys.map((key) => key.id),
       visibleIds,
-      nextVisibleIds,
+      activeKeyId,
+      overKeyId,
     )
-    setMovingId(`key:${keyId}`)
+    if (!nextKeyIds) return
+    setMovingId(`key:${activeKeyId}`)
     try {
       await onReorderApiKeys(providerId, nextKeyIds)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '密钥排序保存失败')
     } finally {
       setMovingId(null)
+    }
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const activeId = String(event.active.id)
+    const overId = event.over ? String(event.over.id) : ''
+    if (!overId || activeId === overId) return
+
+    if (activeId.startsWith('provider:') && overId.startsWith('provider:')) {
+      void reorderVisibleProviders(
+        activeId.replace('provider:', ''),
+        overId.replace('provider:', ''),
+      )
+      return
+    }
+
+    if (activeId.startsWith('key:') && overId.startsWith('key:')) {
+      const activeKeyId = activeId.replace('key:', '')
+      const overKeyId = overId.replace('key:', '')
+      const providerId = grouped.find(({ keys }) => keys.some((key) => key.id === activeKeyId))
+        ?.provider.id
+      const overProviderId = grouped.find(({ keys }) => keys.some((key) => key.id === overKeyId))
+        ?.provider.id
+      if (providerId && providerId === overProviderId) {
+        void reorderVisibleKeys(providerId, activeKeyId, overKeyId)
+      }
     }
   }
 
@@ -222,129 +354,121 @@ export default function TakeoverConfigTab({
           style={{ marginTop: 60 }}
         />
       ) : (
-        grouped.map(({ provider, keys }, providerIndex) => {
-          return (
-            <section key={provider.id} className={styles.providerPanel}>
-              <div className={styles.providerHeader}>
-                <div className={styles.providerTitle}>
-                  <span className={styles.iconFrame}>
-                    <img
-                      src={getProviderIconSrc(provider)}
-                      alt=''
-                      className={styles.providerIcon}
-                    />
-                  </span>
-                  <Text strong className={styles.providerName}>
-                    {provider.name}
-                  </Text>
-                  <Text type='secondary' className={styles.keyCount}>
-                    {keys.length} 个密钥
-                  </Text>
-                </div>
-                {onReorderProviders && grouped.length > 1 && (
-                  <div className={styles.sortControls}>
-                    <Tooltip title='上移服务商'>
-                      <Button
-                        type='text'
-                        size='small'
-                        icon={<ArrowUpOutlined />}
-                        disabled={providerIndex === 0}
-                        loading={movingId === `provider:${provider.id}`}
-                        onClick={() => void moveProvider(provider.id, -1)}
-                      />
-                    </Tooltip>
-                    <Tooltip title='下移服务商'>
-                      <Button
-                        type='text'
-                        size='small'
-                        icon={<ArrowDownOutlined />}
-                        disabled={providerIndex === grouped.length - 1}
-                        loading={movingId === `provider:${provider.id}`}
-                        onClick={() => void moveProvider(provider.id, 1)}
-                      />
-                    </Tooltip>
-                  </div>
-                )}
-              </div>
-              <div className={styles.table} role='table' aria-label={`${provider.name} 密钥`}>
-                <div className={styles.tableHead} role='row'>
-                  <div role='columnheader'>名称 (Name)</div>
-                  <div role='columnheader'>级别 (Tier)</div>
-                  <div role='columnheader'>延迟 (Latency)</div>
-                  <div role='columnheader'>操作 (Action)</div>
-                </div>
-                {keys.map((key, keyIndex) => {
-                  const isSelected = activeKeyId === key.id
-                  const canTakeover = key.isActive
-                  return (
-                    <div
-                      key={key.id}
-                      className={clsx(styles.tableRow, isSelected && styles.selectedRow)}
-                      role='row'
-                    >
-                      <div className={styles.nameCell} role='cell'>
-                        <div className={styles.keyNameLine}>
-                          <Tooltip title={displayKeyName(key)}>
-                            <Text strong={isSelected} ellipsis className={styles.keyName}>
-                              {displayKeyName(key)}
-                            </Text>
-                          </Tooltip>
-                          {isSelected && <StarOutlined className={styles.starIcon} />}
-                        </div>
-                        {!provider.isActive && (
-                          <Text type='secondary' className={styles.note}>
-                            服务商已停用
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <SortableContext
+            items={grouped.map(({ provider }) => `provider:${provider.id}`)}
+            strategy={verticalListSortingStrategy}
+          >
+            {grouped.map(({ provider, keys }) => {
+              return (
+                <SortableProviderPanel key={provider.id} providerId={provider.id}>
+                  {(handleProps) => (
+                    <>
+                      <div className={styles.providerHeader}>
+                        <div className={styles.providerTitle}>
+                          {onReorderProviders && grouped.length > 1 && (
+                            <DragHandle label='拖拽排序服务商' {...handleProps} />
+                          )}
+                          <span className={styles.iconFrame}>
+                            <img
+                              src={getProviderIconSrc(provider)}
+                              alt=''
+                              className={styles.providerIcon}
+                            />
+                          </span>
+                          <Text strong className={styles.providerName}>
+                            {provider.name}
                           </Text>
+                          <Text type='secondary' className={styles.keyCount}>
+                            {keys.length} 个密钥
+                          </Text>
+                        </div>
+                        {movingId === `provider:${provider.id}` && (
+                          <Tag color='processing' className={styles.savingTag}>
+                            保存中
+                          </Tag>
                         )}
                       </div>
-                      <div className={styles.tierCell} role='cell'>
-                        <KeyStatusTag apiKey={key} isSelected={isSelected} />
-                      </div>
-                      <div className={styles.latencyCell} role='cell'>
-                        --
-                      </div>
-                      <div className={styles.actionCell} role='cell'>
-                        {onReorderApiKeys && keys.length > 1 && (
-                          <div className={styles.sortControls}>
-                            <Tooltip title='上移密钥'>
-                              <Button
-                                type='text'
-                                size='small'
-                                icon={<ArrowUpOutlined />}
-                                disabled={keyIndex === 0}
-                                loading={movingId === `key:${key.id}`}
-                                onClick={() => void moveKey(provider.id, key.id, -1)}
-                              />
-                            </Tooltip>
-                            <Tooltip title='下移密钥'>
-                              <Button
-                                type='text'
-                                size='small'
-                                icon={<ArrowDownOutlined />}
-                                disabled={keyIndex === keys.length - 1}
-                                loading={movingId === `key:${key.id}`}
-                                onClick={() => void moveKey(provider.id, key.id, 1)}
-                              />
-                            </Tooltip>
-                          </div>
-                        )}
-                        <Button
-                          size='small'
-                          type={isSelected ? 'default' : 'primary'}
-                          variant={isSelected ? 'outlined' : undefined}
-                          disabled={!canTakeover}
-                          onClick={() => void onTakeover(key.id)}
+                      <div
+                        className={styles.table}
+                        role='table'
+                        aria-label={`${provider.name} 密钥`}
+                      >
+                        <div className={styles.tableHead} role='row'>
+                          <div role='columnheader'>密钥</div>
+                          <div role='columnheader'>状态</div>
+                          <div role='columnheader'>操作</div>
+                        </div>
+                        <SortableContext
+                          items={keys.map((key) => `key:${key.id}`)}
+                          strategy={verticalListSortingStrategy}
                         >
-                          {isSelected ? '已接管' : '接管'}
-                        </Button>
+                          {keys.map((key) => {
+                            const isSelected = activeKeyId === key.id
+                            const canTakeover = provider.isActive && key.isActive
+                            return (
+                              <SortableKeyRow key={key.id} keyId={key.id} selected={isSelected}>
+                                {(keyHandleProps) => (
+                                  <>
+                                    <div className={styles.nameCell} role='cell'>
+                                      <div className={styles.keyNameLine}>
+                                        {onReorderApiKeys && keys.length > 1 && (
+                                          <DragHandle label='拖拽排序密钥' {...keyHandleProps} />
+                                        )}
+                                        <Tooltip title={displayKeyName(key)}>
+                                          <Text
+                                            strong={isSelected}
+                                            ellipsis
+                                            className={styles.keyName}
+                                          >
+                                            {displayKeyName(key)}
+                                          </Text>
+                                        </Tooltip>
+                                        {isSelected && <StarOutlined className={styles.starIcon} />}
+                                      </div>
+                                      {!provider.isActive && (
+                                        <Text type='secondary' className={styles.note}>
+                                          服务商已停用
+                                        </Text>
+                                      )}
+                                    </div>
+                                    <div className={styles.statusCell} role='cell'>
+                                      <KeyStatusTag
+                                        provider={provider}
+                                        apiKey={key}
+                                        isSelected={isSelected}
+                                      />
+                                      {movingId === `key:${key.id}` && (
+                                        <Tag color='processing' className={styles.savingTag}>
+                                          保存中
+                                        </Tag>
+                                      )}
+                                    </div>
+                                    <div className={styles.actionCell} role='cell'>
+                                      <Button
+                                        size='small'
+                                        type={isSelected ? 'default' : 'primary'}
+                                        variant={isSelected ? 'outlined' : undefined}
+                                        disabled={!canTakeover}
+                                        onClick={() => void onTakeover(key.id)}
+                                      >
+                                        {isSelected ? '已接管' : '接管'}
+                                      </Button>
+                                    </div>
+                                  </>
+                                )}
+                              </SortableKeyRow>
+                            )
+                          })}
+                        </SortableContext>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
-          )
-        })
+                    </>
+                  )}
+                </SortableProviderPanel>
+              )
+            })}
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   )

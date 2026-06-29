@@ -312,6 +312,7 @@ export interface Project {
   apiKeyId: string | null
   cliType: ProviderType // CLI type for launching terminal
   terminalType: TerminalType
+  prelaunchCommand: string | null
   lastOpenedAt: string | null
 }
 
@@ -323,6 +324,7 @@ export interface CreateProjectInput {
   apiKeyId?: string
   cliType?: ProviderType
   terminalType?: TerminalType
+  prelaunchCommand?: string
 }
 
 export interface UpdateProjectInput {
@@ -333,6 +335,7 @@ export interface UpdateProjectInput {
   apiKeyId?: string
   cliType?: ProviderType
   terminalType?: TerminalType
+  prelaunchCommand?: string
 }
 
 // Proxy types
@@ -404,6 +407,7 @@ export interface TerminalLaunchPreview {
   cliType: ProviderType
   env: Record<string, string>
   command: string
+  prelaunchCommand?: string | null
 }
 
 // Global settings types

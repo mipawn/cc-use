@@ -34,7 +34,9 @@ export default function GlobalConfigModal({ open = true, onClose, embedded = fal
 
   useEffect(() => {
     if (open || embedded) {
-      setClaudeJson(JSON.stringify(globalSettings.claudeConfig || {}, null, 2))
+      const config = { ...(globalSettings.claudeConfig || {}) }
+      delete config.prelaunchCommand
+      setClaudeJson(JSON.stringify(config, null, 2))
       setClaudeError(null)
     }
   }, [open, embedded, globalSettings])
@@ -56,7 +58,9 @@ export default function GlobalConfigModal({ open = true, onClose, embedded = fal
     setClaudeError(null)
     setClaudeSaving(true)
     try {
-      await updateGlobalSettings({ claudeConfig: config })
+      const nextConfig: CliConfig = { ...config }
+      delete nextConfig.prelaunchCommand
+      await updateGlobalSettings({ claudeConfig: nextConfig })
       message.success(t('globalConfig.claudeConfigSaved'))
     } catch {
       message.error(t('globalConfig.saveFailed'))
@@ -88,6 +92,9 @@ export default function GlobalConfigModal({ open = true, onClose, embedded = fal
       </Space>
 
       <div className={styles.editorSection}>
+        <Text strong className={styles.fieldLabel}>
+          环境变量 JSON
+        </Text>
         <TextArea
           value={claudeJson}
           onChange={(e) => handleClaudeChange(e.target.value)}

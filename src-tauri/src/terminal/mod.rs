@@ -24,6 +24,7 @@ struct ProjectLaunchContext {
     api_key_id: String,
     cli_type: String,
     terminal_type: String,
+    prelaunch_command: Option<String>,
 }
 
 struct PreparedManagedLaunch {
@@ -129,6 +130,7 @@ fn resolve_launch_preview(
     api_key_id: &str,
     session_token: &str,
     proxy_port: i32,
+    prelaunch_command: Option<String>,
 ) -> Result<TerminalLaunchPreview, String> {
     let settings = db.settings_get().map_err(|e| e.to_string())?;
     let api_key = db
@@ -151,6 +153,7 @@ fn resolve_launch_preview(
         cli_type: preview.cli_type,
         command: preview.command,
         env: preview.env,
+        prelaunch_command,
     };
 
     Ok(preview)
@@ -184,6 +187,9 @@ fn resolve_project_launch_context(
         api_key_id,
         cli_type: project.cli_type,
         terminal_type: project.terminal_type,
+        prelaunch_command: project
+            .prelaunch_command
+            .filter(|value| !value.trim().is_empty()),
     })
 }
 
@@ -224,6 +230,10 @@ fn write_managed_launch_script(
     script.push_str(&format!(
         "CC_USE_LAUNCH_COMMAND={}\n",
         shell_quote(&preview.command)
+    ));
+    script.push_str(&format!(
+        "CC_USE_PRELAUNCH_COMMAND={}\n",
+        shell_quote(preview.prelaunch_command.as_deref().unwrap_or(""))
     ));
     script.push_str("CC_USE_STOP_SENT=0\n");
     script.push_str("CC_USE_SCRIPT_PATH=\"$0\"\n\n");
@@ -275,6 +285,15 @@ cc_use_heartbeat_loop() {
   done
 }
 
+if [ -n "${CC_USE_PRELAUNCH_COMMAND}" ]; then
+  eval "$CC_USE_PRELAUNCH_COMMAND"
+  CC_USE_PRELAUNCH_EXIT_CODE=$?
+  if [ "${CC_USE_PRELAUNCH_EXIT_CODE}" -ne 0 ]; then
+    cc_use_stop_once "${CC_USE_PRELAUNCH_EXIT_CODE}" prelaunch_failed
+    exit "${CC_USE_PRELAUNCH_EXIT_CODE}"
+  fi
+fi
+
 eval "$CC_USE_LAUNCH_COMMAND" &
 CC_USE_CHILD_PID=$!
 cc_use_send_heartbeat
@@ -313,6 +332,7 @@ fn prepare_managed_launch(
         &context.api_key_id,
         &session_token,
         settings.proxy_port,
+        context.prelaunch_command.clone(),
     )?;
     let management_token = resolve_management_token()?;
     let script_path = runtime_script_dir()?.join(format!("{}.sh", instance_id));
@@ -416,6 +436,7 @@ pub fn get_launch_preview(
             &context.api_key_id,
             "preview-session-token",
             settings.proxy_port,
+            context.prelaunch_command,
         );
     }
 
@@ -427,6 +448,7 @@ pub fn get_launch_preview(
         api_key_id,
         "preview-session-token",
         settings.proxy_port,
+        None,
     )
 }
 
@@ -489,6 +511,7 @@ pub fn launch_terminal_path_only(default_terminal_type: &str, path: &str) -> Res
         cli_type: "claude".to_string(),
         env: EnvObject::new(),
         command: "claude".to_string(),
+        prelaunch_command: None,
     };
     launch_with_preview(strategy.as_ref(), path, &preview, None)
 }

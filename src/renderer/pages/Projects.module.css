@@ -350,6 +350,12 @@
   padding-top: 8px;
 }
 
+.commandEditor {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+
 .pathInfo {
   padding: 12px;
   background: var(--surface-sunken);

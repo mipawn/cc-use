@@ -1,6 +1,6 @@
 mod support;
 
-use cc_use_lib::models::CreateApiKeyInput;
+use cc_use_lib::models::{CreateApiKeyInput, CreateProjectInput};
 use cc_use_lib::terminal::get_launch_preview;
 use serde_json::json;
 use support::{create_api_key, create_project, create_provider, TempDb};
@@ -22,7 +22,7 @@ fn merges_global_key_and_runtime_for_claude_preview() {
     let api_key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
-            provider_id: provider.id,
+            provider_id: provider.id.clone(),
             alias: Some("test".to_string()),
             value: "sk-test".to_string(),
             types: None,
@@ -137,7 +137,7 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
     let api_key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
-            provider_id: provider.id,
+            provider_id: provider.id.clone(),
             alias: Some("test".to_string()),
             value: "sk-test".to_string(),
             types: None,
@@ -169,5 +169,71 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
     assert_eq!(
         preview.env.get("JSON_VALUE"),
         Some(&"{\"mode\":\"relaxed\"}".to_string()),
+    );
+}
+
+#[test]
+fn project_preview_returns_project_prelaunch_command_and_keeps_it_out_of_env() {
+    let fixture = TempDb::new();
+    fixture
+        .db
+        .settings_update(&json!({
+          "claudeConfig": {
+            "prelaunchCommand": "source .venv/bin/activate",
+            "ANTHROPIC_MODEL": "global-model"
+          }
+        }))
+        .unwrap();
+
+    let provider = create_provider(&fixture.db, "Claude Provider", "claude");
+    let api_key = fixture
+        .db
+        .api_key_create(&CreateApiKeyInput {
+            provider_id: provider.id.clone(),
+            alias: Some("test".to_string()),
+            value: "sk-test".to_string(),
+            types: None,
+            priority: Some(0),
+            is_active: Some(true),
+            config: Some(json!({
+              "prelaunchCommand": "direnv allow",
+              "ANTHROPIC_MODEL": "key-model"
+            })),
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: None,
+            api_format: None,
+            transform_enabled: None,
+            client_configs: None,
+        })
+        .unwrap();
+
+    let project = fixture
+        .db
+        .project_create(&CreateProjectInput {
+            name: "prelaunch project".to_string(),
+            path: "/tmp/prelaunch-project".to_string(),
+            remark: None,
+            provider_id: Some(provider.id),
+            api_key_id: Some(api_key.id),
+            cli_type: Some("claude".to_string()),
+            terminal_type: Some("terminal".to_string()),
+            prelaunch_command: Some("mise exec -- claude-ready".to_string()),
+        })
+        .unwrap();
+
+    let preview = get_launch_preview(&fixture.db, Some(&project.id), None, None, "claude").unwrap();
+
+    assert_eq!(
+        preview.prelaunch_command.as_deref(),
+        Some("mise exec -- claude-ready")
+    );
+    assert_eq!(preview.env.get("prelaunchCommand"), None);
+    assert_eq!(
+        preview.env.get("ANTHROPIC_MODEL"),
+        Some(&"key-model".to_string())
     );
 }

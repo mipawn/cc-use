@@ -134,6 +134,7 @@ impl Database {
                 api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
                 cli_type TEXT DEFAULT 'claude_code',
                 terminal_type TEXT DEFAULT 'iterm2',
+                prelaunch_command TEXT,
                 last_opened_at TEXT
             );
 
@@ -327,6 +328,7 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
             "ALTER TABLE projects ADD COLUMN remark TEXT",
             "ALTER TABLE projects ADD COLUMN cli_type TEXT DEFAULT 'claude_code'",
+            "ALTER TABLE projects ADD COLUMN prelaunch_command TEXT",
             // Snapshot columns on request_logs — preserve display names after entity deletion
             "ALTER TABLE request_logs ADD COLUMN key_alias TEXT",
             "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",

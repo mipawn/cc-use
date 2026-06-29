@@ -15,14 +15,15 @@ fn row_to_project(row: &rusqlite::Row) -> Result<Project, rusqlite::Error> {
         terminal_type: row
             .get::<_, Option<String>>(7)?
             .unwrap_or_else(|| "iterm2".to_string()),
-        last_opened_at: row.get(8)?,
+        prelaunch_command: row.get(8)?,
+        last_opened_at: row.get(9)?,
     })
 }
 
 impl Database {
     pub fn project_list(&self) -> Result<Vec<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, last_opened_at
+            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
              FROM projects ORDER BY last_opened_at DESC NULLS LAST"
         )?;
 
@@ -32,7 +33,7 @@ impl Database {
 
     pub fn project_get(&self, id: &str) -> Result<Option<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, last_opened_at
+            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
              FROM projects WHERE id = ?1"
         )?;
 
@@ -47,7 +48,7 @@ impl Database {
 
     pub fn project_get_by_path(&self, path: &str) -> Result<Option<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, last_opened_at
+            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
              FROM projects WHERE path = ?1"
         )?;
 
@@ -63,8 +64,8 @@ impl Database {
     pub fn project_create(&self, input: &CreateProjectInput) -> Result<Project, rusqlite::Error> {
         let id = nanoid::nanoid!();
         self.conn.execute(
-            "INSERT INTO projects (id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO projects (id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
                 id,
                 input.name,
@@ -74,6 +75,7 @@ impl Database {
                 input.api_key_id,
                 input.cli_type.as_deref().unwrap_or("claude"),
                 input.terminal_type.as_deref().unwrap_or("iterm2"),
+                input.prelaunch_command,
             ],
         )?;
 
@@ -91,6 +93,7 @@ impl Database {
         add_field!(input.api_key_id, "api_key_id", sets, params);
         add_field!(input.cli_type, "cli_type", sets, params);
         add_field!(input.terminal_type, "terminal_type", sets, params);
+        add_field!(input.prelaunch_command, "prelaunch_command", sets, params);
 
         if sets.is_empty() {
             return self

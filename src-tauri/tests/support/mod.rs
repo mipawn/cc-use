@@ -93,6 +93,7 @@ pub fn create_project(
         api_key_id,
         cli_type: Some(cli_type.to_string()),
         terminal_type: Some("terminal".to_string()),
+        prelaunch_command: None,
     })
     .expect("create project")
 }

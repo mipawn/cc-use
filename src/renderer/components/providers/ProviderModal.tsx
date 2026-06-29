@@ -79,13 +79,11 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
       } else {
         form.resetFields()
         form.setFieldsValue({
-          name: 'DeepSeek',
-          baseUrl: 'https://api.deepseek.com',
-          type: 'deepseek',
-          walletBalanceType: 'deepseek',
+          type: 'claude',
+          walletBalanceType: 'none',
         })
-        setBalanceType('deepseek')
-        setSelectedIcon('deepseek')
+        setBalanceType('none')
+        setSelectedIcon('claude')
         setCustomIconPath(null)
         setShowAdvanced(false)
       }

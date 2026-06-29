@@ -179,6 +179,7 @@ export default function Projects() {
       remark: project.remark,
       key: project.providerId && project.apiKeyId ? [project.providerId, project.apiKeyId] : null,
       cliType: project.cliType || 'claude_code',
+      prelaunchCommand: project.prelaunchCommand || '',
     })
     setModalOpen(true)
   }
@@ -279,6 +280,7 @@ export default function Projects() {
     try {
       const values = await form.validateFields()
       const remark = values.remark?.trim()
+      const prelaunchCommand = values.prelaunchCommand?.trim()
 
       if (editingProject) {
         // Update existing project
@@ -291,6 +293,7 @@ export default function Projects() {
           providerId,
           apiKeyId,
           cliType: values.cliType as ProviderType,
+          prelaunchCommand: prelaunchCommand || '',
         })
         message.success(t('projects.projectUpdated'))
       } else {
@@ -302,6 +305,7 @@ export default function Projects() {
           providerId: values.key?.[0],
           apiKeyId: values.key?.[1],
           cliType: values.cliType as ProviderType,
+          prelaunchCommand: prelaunchCommand || '',
         })
         message.success(t('projects.projectCreated'))
       }
@@ -587,6 +591,18 @@ export default function Projects() {
 
           <Form.Item name='remark' label={t('projects.remark')}>
             <TextArea rows={2} placeholder={t('projects.remarkPlaceholder')} />
+          </Form.Item>
+
+          <Form.Item
+            name='prelaunchCommand'
+            label='启动前命令'
+            extra='进入项目目录后、执行 Claude Code 前运行；留空则不执行。'
+          >
+            <TextArea
+              rows={3}
+              placeholder='例如: source .venv/bin/activate'
+              className={styles.commandEditor}
+            />
           </Form.Item>
 
           <Form.Item

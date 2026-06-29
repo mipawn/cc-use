@@ -82,3 +82,44 @@ fn resolve_launch_preview_key_config_null_unsets_and_stringifies_values() {
         Some(&"global-model".to_string())
     );
 }
+
+#[test]
+fn resolve_launch_preview_filters_prelaunch_command_without_exporting_it() {
+    let preview = resolve_launch_preview_from_configs(
+        "claude",
+        Some(&json!({
+            "prelaunchCommand": "source .venv/bin/activate",
+            "ANTHROPIC_MODEL": "global-model"
+        })),
+        Some(&json!({
+            "prelaunchCommand": "mise exec -- claude-ready"
+        })),
+        "session-abc",
+        12345,
+    );
+
+    assert_eq!(preview.prelaunch_command, None);
+    assert_eq!(preview.env.get("prelaunchCommand"), None);
+    assert_eq!(
+        preview.env.get("ANTHROPIC_MODEL"),
+        Some(&"global-model".to_string())
+    );
+}
+
+#[test]
+fn resolve_launch_preview_ignores_legacy_prelaunch_command_values() {
+    let preview = resolve_launch_preview_from_configs(
+        "claude",
+        Some(&json!({
+            "prelaunchCommand": "source .venv/bin/activate"
+        })),
+        Some(&json!({
+            "prelaunchCommand": ""
+        })),
+        "session-abc",
+        12345,
+    );
+
+    assert_eq!(preview.prelaunch_command, None);
+    assert_eq!(preview.env.get("prelaunchCommand"), None);
+}

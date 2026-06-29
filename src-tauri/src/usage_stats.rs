@@ -2,13 +2,10 @@
 //!
 //! 实现费用统计的聚合逻辑和托盘徽章内容计算。
 //!
-//! ## 徽章优先级
+//! ## 徽章口径
 //!
-//! 1. 代理异常: `!`
-//! 2. 活跃 Claude Code 实例: 实例数量 (如 `2`)
-//! 3. 今日费用: 简短金额 (如 `$0.8`)
-//! 4. 今日请求: 请求量 (如 `42`)
-//! 5. 无活动: 空
+//! v3.2.1 起托盘只显示今日费用。代理状态、活跃实例数和请求数仍可
+//! 在菜单或页面中展示,但不再参与 badge 内容选择。
 
 use serde::{Deserialize, Serialize};
 
@@ -104,24 +101,11 @@ pub struct UsageAggregator;
 impl UsageAggregator {
     /// 计算托盘徽章
     pub fn calculate_badge(
-        proxy_running: bool,
-        active_instances: u32,
+        _proxy_running: bool,
+        _active_instances: u32,
         today_cost: f64,
-        today_requests: u32,
+        _today_requests: u32,
     ) -> TrayBadge {
-        // 1. 代理异常
-        if !proxy_running {
-            return TrayBadge::ProxyError;
-        }
-
-        // 2. 活跃实例
-        if active_instances > 0 {
-            return TrayBadge::ActiveInstances {
-                count: active_instances,
-            };
-        }
-
-        // 3. 今日费用
         if today_cost > 0.0 {
             return TrayBadge::TodayCost {
                 amount: today_cost,
@@ -129,14 +113,6 @@ impl UsageAggregator {
             };
         }
 
-        // 4. 今日请求
-        if today_requests > 0 {
-            return TrayBadge::TodayRequests {
-                count: today_requests,
-            };
-        }
-
-        // 5. 无活动
         TrayBadge::None
     }
 
@@ -201,17 +177,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_badge_priority_proxy_error() {
+    fn test_badge_ignores_proxy_error_when_today_cost_exists() {
         let badge = UsageAggregator::calculate_badge(false, 2, 10.0, 100);
-        assert_eq!(badge, TrayBadge::ProxyError);
-        assert_eq!(badge.to_display_text(), "!");
+        assert_eq!(
+            badge,
+            TrayBadge::TodayCost {
+                amount: 10.0,
+                currency: "USD".to_string()
+            }
+        );
+        assert_eq!(badge.to_display_text(), "$10.0");
     }
 
     #[test]
-    fn test_badge_priority_active_instances() {
+    fn test_badge_ignores_active_instances_when_today_cost_exists() {
         let badge = UsageAggregator::calculate_badge(true, 2, 10.0, 100);
-        assert_eq!(badge, TrayBadge::ActiveInstances { count: 2 });
-        assert_eq!(badge.to_display_text(), "2");
+        assert_eq!(
+            badge,
+            TrayBadge::TodayCost {
+                amount: 10.0,
+                currency: "USD".to_string()
+            }
+        );
+        assert_eq!(badge.to_display_text(), "$10.0");
     }
 
     #[test]
@@ -228,10 +216,10 @@ mod tests {
     }
 
     #[test]
-    fn test_badge_priority_today_requests() {
+    fn test_badge_does_not_fallback_to_today_requests() {
         let badge = UsageAggregator::calculate_badge(true, 0, 0.0, 42);
-        assert_eq!(badge, TrayBadge::TodayRequests { count: 42 });
-        assert_eq!(badge.to_display_text(), "42");
+        assert_eq!(badge, TrayBadge::None);
+        assert_eq!(badge.to_display_text(), "");
     }
 
     #[test]

@@ -181,6 +181,7 @@ pub struct Project {
     pub api_key_id: Option<String>,
     pub cli_type: String,
     pub terminal_type: String,
+    pub prelaunch_command: Option<String>,
     pub last_opened_at: Option<String>,
 }
 
@@ -194,6 +195,7 @@ pub struct CreateProjectInput {
     pub api_key_id: Option<String>,
     pub cli_type: Option<String>,
     pub terminal_type: Option<String>,
+    pub prelaunch_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,6 +208,7 @@ pub struct UpdateProjectInput {
     pub api_key_id: Option<String>,
     pub cli_type: Option<String>,
     pub terminal_type: Option<String>,
+    pub prelaunch_command: Option<String>,
 }
 
 // ── Settings ──
@@ -263,6 +266,7 @@ pub struct TerminalLaunchPreview {
     pub cli_type: String,
     pub env: std::collections::HashMap<String, String>,
     pub command: String,
+    pub prelaunch_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

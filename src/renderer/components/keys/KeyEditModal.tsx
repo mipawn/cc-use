@@ -126,7 +126,9 @@ export default function KeyEditModal({
       const nextTypes = (apiKey.types?.length ? apiKey.types : ['claude_code'])
         .map((type) => (type === 'claude' ? 'claude_code' : type)) as ClientKind[]
       setSelectedTypes(nextTypes)
-      setClaudeConfigJson(JSON.stringify(apiKey.config || {}, null, 2))
+      const config = { ...(apiKey.config || {}) }
+      delete config.prelaunchCommand
+      setClaudeConfigJson(JSON.stringify(config, null, 2))
     } else {
       form.resetFields()
       form.setFieldsValue({ alias: '', value: '' })
@@ -242,6 +244,9 @@ export default function KeyEditModal({
       }
 
       const localConfig = selectedTypes.includes('claude_code') ? parseConfig(claudeConfigJson) : undefined
+      if (localConfig) {
+        delete localConfig.prelaunchCommand
+      }
       await onSave({
         id: apiKey?.id,
         providerId,

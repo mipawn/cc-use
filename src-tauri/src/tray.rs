@@ -229,7 +229,10 @@ fn collect_desktop_key_menu_items(app: &AppHandle, client_kind: &str) -> Vec<Des
                 provider_id: provider.id.clone(),
                 provider_name: provider.name.clone(),
                 key_id: key.id.clone(),
-                key_label: key.alias.clone().unwrap_or_else(|| mask_key_value(&key.value)),
+                key_label: key
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| mask_key_value(&key.value)),
                 is_current: current_key_id.as_deref() == Some(key.id.as_str()),
             });
         }
@@ -518,10 +521,8 @@ fn restore_desktop_config(app: &AppHandle, client_kind: &str) {
     let client_kind = client_kind.to_string();
     tauri::async_runtime::spawn(async move {
         let result = match client_kind.as_str() {
-            "codex" => {
-                crate::commands::codex_config::codex_config_restore_inner()
-                    .map(|_| CODEX_LAST_API_KEY_SETTING_KEY)
-            }
+            "codex" => crate::commands::codex_config::codex_config_restore_inner()
+                .map(|_| CODEX_LAST_API_KEY_SETTING_KEY),
             "claude_desktop" => {
                 crate::commands::claude_desktop_config::claude_desktop_config_restore_inner()
                     .map(|_| CLAUDE_DESKTOP_LAST_API_KEY_SETTING_KEY)
@@ -597,32 +598,17 @@ fn apply_tray_badge(app: &AppHandle) {
 fn calculate_tray_badge_text(app: &AppHandle) -> String {
     let db_state = app.state::<Arc<Mutex<Database>>>();
     let db_arc = db_state.inner().clone();
-    let proxy_running = crate::commands::proxy::is_proxy_running(&db_arc);
 
-    let (active_instances, today_cost, today_requests) = {
+    let today_cost = {
         let Ok(db) = db_arc.lock() else {
-            return UsageAggregator::calculate_badge(proxy_running, 0, 0.0, 0).to_display_text();
+            return UsageAggregator::calculate_badge(true, 0, 0.0, 0).to_display_text();
         };
-        let active_instances = db
-            .managed_instance_list_active()
-            .map(|instances| instances.len() as u32)
-            .unwrap_or(0);
-        let stats = db.request_log_get_dashboard_stats().ok();
-        let today_cost = stats.as_ref().map(|s| s.today_cost).unwrap_or(0.0);
-        let today_requests = stats
-            .as_ref()
-            .map(|s| s.today_requests.max(0) as u32)
-            .unwrap_or(0);
-        (active_instances, today_cost, today_requests)
+        db.request_log_get_dashboard_stats()
+            .map(|stats| stats.today_cost)
+            .unwrap_or(0.0)
     };
 
-    UsageAggregator::calculate_badge(
-        proxy_running,
-        active_instances,
-        today_cost,
-        today_requests,
-    )
-    .to_display_text()
+    UsageAggregator::calculate_badge(true, 0, today_cost, 0).to_display_text()
 }
 
 /// Handle close-to-tray behavior. Returns true if the window should be hidden instead of closed.

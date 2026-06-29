@@ -9,6 +9,7 @@ pub struct TerminalLaunchPreview {
     pub cli_type: String,
     pub env: EnvObject,
     pub command: String,
+    pub prelaunch_command: Option<String>,
 }
 
 fn merge_json_objects(base: Option<&Value>, overlay: Option<&Value>) -> Map<String, Value> {
@@ -62,6 +63,9 @@ pub fn resolve_launch_preview_from_configs(
     let mut env = EnvObject::new();
 
     for (key, value) in merged.iter() {
+        if key == "prelaunchCommand" {
+            continue;
+        }
         if let Some(env_value) = json_value_to_env_string(value) {
             env.insert(key.clone(), env_value);
         } else {
@@ -90,5 +94,6 @@ pub fn resolve_launch_preview_from_configs(
         cli_type: cli_type.to_string(),
         command: build_cli_command(cli_type, &env),
         env,
+        prelaunch_command: None,
     }
 }
