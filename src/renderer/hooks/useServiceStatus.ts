@@ -41,6 +41,7 @@ export function useServiceStatus() {
         ...prev,
         isRunning: data.isRunning,
         port: data.port,
+        lastError: data.lastError ?? null,
       }))
     })
 

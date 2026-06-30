@@ -1,5 +1,5 @@
 use crate::models::ProxyStatus;
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -53,7 +53,27 @@ pub fn read_daemon_status(proxy_port: i32) -> Result<ProxyStatus, String> {
         }
     }
 
+    // When the daemon isn't up, try to bind the port ourselves to tell apart
+    // "port is free, daemon just isn't running" from "port is taken by another
+    // process" (EADDRINUSE) — the latter is the most common reason a daemon
+    // start silently fails, and the user needs the real reason.
+    if !status.is_running && port_is_occupied(proxy_port) {
+        status.last_error = Some(format!(
+            "Port {} is already in use by another process (EADDRINUSE)",
+            proxy_port
+        ));
+    }
+
     Ok(status)
+}
+
+/// Returns true if binding 127.0.0.1:port fails because the address is already
+/// in use. A successful bind (then immediate drop) means the port is free.
+fn port_is_occupied(port: i32) -> bool {
+    match TcpListener::bind(format!("127.0.0.1:{}", port)) {
+        Ok(_) => false,
+        Err(e) => e.kind() == std::io::ErrorKind::AddrInUse,
+    }
 }
 
 fn run_daemon_command<const N: usize>(args: [&str; N]) -> Result<String, String> {

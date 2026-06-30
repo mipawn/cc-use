@@ -105,7 +105,7 @@ export default function ClaudeDesktopPage() {
           </Title>
           <Text type='secondary'>配置级接管 — 选择密钥接管 Claude Desktop 配置</Text>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <ConfigPreviewButton clientKind='claude_desktop' />
           {status === 'taken_over' && (
             <Button danger icon={<ReloadOutlined />} onClick={handleRestore} size='small'>

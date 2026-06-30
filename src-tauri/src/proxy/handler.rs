@@ -87,26 +87,6 @@ impl<'a> EmitCtx<'a> {
         ));
     }
 
-    fn ok(
-        &self,
-        status: u16,
-        upstream: &str,
-        provider: Option<&str>,
-        key_alias: Option<&str>,
-        is_streaming: bool,
-    ) {
-        self.state.emit_console(ConsoleEvent::ok(
-            self.method,
-            self.path,
-            status,
-            self.elapsed_ms(),
-            upstream,
-            provider,
-            key_alias,
-            is_streaming,
-        ));
-    }
-
     fn ws_upgraded(&self, upstream: &str, provider: Option<&str>, key_alias: Option<&str>) {
         self.state.emit_console(ConsoleEvent::ws_upgraded(
             self.path,
@@ -373,6 +353,7 @@ pub async fn proxy_handler(
         .to_lowercase();
 
     if content_type.contains("text/event-stream") {
+        let detail_capture = state.detail_mode.load(std::sync::atomic::Ordering::Relaxed);
         let accumulator = usage_parser::StreamUsageAccumulator::new();
         let tracking_stream = UsageTrackingStream {
             inner: upstream_resp.bytes_stream(),
@@ -402,8 +383,14 @@ pub async fn proxy_handler(
                 status: status.as_u16(),
                 provider_name: provider_snapshot.clone(),
                 key_alias: key_snapshot.clone(),
+                request_headers: headers.clone(),
+                request_body: body_bytes.to_vec(),
+                response_headers: resp_headers.clone(),
             }),
             finished: false,
+            content_encoding: content_encoding.clone(),
+            detail_capture,
+            raw_buffer: Vec::new(),
         };
 
         let mut response = Response::builder().status(status.as_u16());
@@ -468,7 +455,7 @@ pub async fn proxy_handler(
             record_usage(&log_ctx, u, model.as_deref(), is_streaming);
         }
     } else if route_execution.log_ctx.is_some() {
-        log::warn!(
+        log::debug!(
             "Usage not recorded: no usage parsed from response; path={}, status={}, content_type={}",
             req_path,
             status.as_u16(),
@@ -476,13 +463,47 @@ pub async fn proxy_handler(
         );
     }
 
-    emit.ok(
+    let detail_mode = state.detail_mode.load(std::sync::atomic::Ordering::Relaxed);
+    let request_content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let (req_h, req_b, resp_h, resp_b) =
+        crate::proxy::console::build_detail_fields_with_content_type(
+            &headers,
+            &body_bytes,
+            &resp_headers,
+            &decoded,
+            request_content_type,
+            &content_type,
+            detail_mode,
+        );
+    let mut evt = ConsoleEvent::ok(
+        &method_str,
+        &req_path,
         status.as_u16(),
+        start_time.elapsed().as_millis() as u64,
         &route_execution.upstream_url,
         provider_snapshot.as_deref(),
         key_snapshot.as_deref(),
         false,
     );
+    if detail_mode {
+        if let ConsoleEvent::Request {
+            ref mut request_headers,
+            ref mut request_body,
+            ref mut response_headers,
+            ref mut response_body,
+            ..
+        } = evt
+        {
+            *request_headers = req_h;
+            *request_body = req_b;
+            *response_headers = resp_h;
+            *response_body = resp_b;
+        }
+    }
+    state.emit_console(evt);
 
     let mut response = Response::builder().status(status.as_u16());
     for (name, value) in &resp_headers {
@@ -994,6 +1015,12 @@ struct StreamConsoleCtx {
     status: u16,
     provider_name: Option<String>,
     key_alias: Option<String>,
+    /// Request headers captured at entry, for detail-mode emission.
+    request_headers: hyper::HeaderMap,
+    /// Request body captured at entry, for detail-mode emission.
+    request_body: Vec<u8>,
+    /// Upstream response headers captured before body streaming begins.
+    response_headers: hyper::HeaderMap,
 }
 
 fn record_usage(
@@ -1067,6 +1094,16 @@ struct UsageTrackingStream<S> {
     log_ctx: Option<LogContext>,
     console_ctx: Option<StreamConsoleCtx>,
     finished: bool,
+    /// Upstream `Content-Encoding` (gzip/br/deflate or empty). reqwest is built
+    /// without auto-decompression, so the streaming path must decompress itself.
+    content_encoding: String,
+    /// Snapshot of detail-mode at stream start. If it was enabled, buffer enough
+    /// bytes to render response details even for non-billable streams.
+    detail_capture: bool,
+    /// Raw upstream bytes buffered for usage parsing. Only filled when we need
+    /// to record usage (`log_ctx.is_some()`) or render detail-mode fields; the
+    /// bytes forwarded to the client are always the untouched originals.
+    raw_buffer: Vec<u8>,
 }
 
 impl<S> Stream for UsageTrackingStream<S>
@@ -1084,20 +1121,32 @@ where
 
         match Pin::new(&mut this.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(bytes))) => {
-                if let Ok(text) = std::str::from_utf8(&bytes) {
-                    this.accumulator.process_chunk(text);
+                // Buffer raw upstream bytes for parsing only when we need to
+                // record usage. Decompression + lossy decoding happen once at
+                // stream end (mirrors the non-streaming path), because reqwest
+                // does not auto-decompress and compressed/utf8-split chunks
+                // cannot be parsed incrementally with strict from_utf8.
+                if this.log_ctx.is_some() || this.detail_capture {
+                    this.raw_buffer.extend_from_slice(&bytes);
                 }
                 Poll::Ready(Some(Ok(bytes)))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(std::io::Error::other(e)))),
             Poll::Ready(None) => {
                 this.finished = true;
+                let decoded = if this.raw_buffer.is_empty() {
+                    Vec::new()
+                } else {
+                    decompress(&this.raw_buffer, &this.content_encoding)
+                };
                 if let Some(ctx) = this.log_ctx.take() {
+                    let text = String::from_utf8_lossy(&decoded);
+                    this.accumulator.process_chunk(&text);
                     this.accumulator.flush();
                     if let Some(usage) = this.accumulator.get_usage() {
                         record_usage(&ctx, &usage, this.accumulator.model.as_deref(), true);
                     } else {
-                        log::warn!(
+                        log::debug!(
                             "Usage not recorded: no usage parsed from streaming response; path={}, status={}, content_type={}, diagnostics={}",
                             ctx.path,
                             ctx.status_code,
@@ -1107,7 +1156,31 @@ where
                     }
                 }
                 if let Some(ctx) = this.console_ctx.take() {
-                    ctx.state.emit_console(ConsoleEvent::ok(
+                    let detail_mode = ctx
+                        .state
+                        .detail_mode
+                        .load(std::sync::atomic::Ordering::Relaxed);
+                    let request_content_type = ctx
+                        .request_headers
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    let response_content_type = ctx
+                        .response_headers
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    let (req_h, req_b, _resp_h, _resp_b) =
+                        crate::proxy::console::build_detail_fields_with_content_type(
+                            &ctx.request_headers,
+                            &ctx.request_body,
+                            &ctx.response_headers,
+                            &decoded,
+                            request_content_type,
+                            response_content_type,
+                            detail_mode,
+                        );
+                    let mut evt = ConsoleEvent::ok(
                         &ctx.method,
                         &ctx.path,
                         ctx.status,
@@ -1116,7 +1189,23 @@ where
                         ctx.provider_name.as_deref(),
                         ctx.key_alias.as_deref(),
                         true,
-                    ));
+                    );
+                    if detail_mode {
+                        if let ConsoleEvent::Request {
+                            ref mut request_headers,
+                            ref mut request_body,
+                            ref mut response_headers,
+                            ref mut response_body,
+                            ..
+                        } = evt
+                        {
+                            *request_headers = req_h;
+                            *request_body = req_b;
+                            *response_headers = _resp_h;
+                            *response_body = _resp_b;
+                        }
+                    }
+                    ctx.state.emit_console(evt);
                 }
                 Poll::Ready(None)
             }
@@ -1234,9 +1323,12 @@ mod tests {
     use super::{
         effective_session_cli_type, is_codex_responses_request_path, record_usage,
         route_plan_with_codex_takeover_fallback, should_forward_response_header, LogContext,
+        StreamConsoleCtx, UsageTrackingStream,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
+    use crate::proxy::console::ConsoleEvent;
+    use crate::proxy::usage_parser;
     use crate::shared_runtime::{RequestAuth, RoutePlan, CODEX_SESSION_TOKEN_SETTING_KEY};
 
     #[test]
@@ -1408,5 +1500,256 @@ mod tests {
         assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
         assert_eq!(rows[0].request_model.as_deref(), Some("gpt-5.5"));
         assert!((rows[0].total_cost_usd - 35.0).abs() < 1e-6);
+    }
+
+    // ---- Streaming usage recording (Claude) regression tests ----
+
+    fn claude_sse_sample() -> String {
+        // Minimal Claude streaming response: input tokens in message_start,
+        // output tokens in message_delta. Includes CJK text to exercise
+        // multibyte UTF-8 handling.
+        concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-3-5-sonnet\",\"usage\":{\"input_tokens\":1234,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"你好，世界🌏\"}}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":567}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        )
+        .to_string()
+    }
+
+    fn gzip_compress(data: &[u8]) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// Split a byte slice into chunks of `size` bytes — deliberately ignores
+    /// UTF-8 boundaries so multibyte codepoints get cut across chunks.
+    fn chunk_bytes(data: &[u8], size: usize) -> Vec<axum::body::Bytes> {
+        data.chunks(size)
+            .map(|c| axum::body::Bytes::copy_from_slice(c))
+            .collect()
+    }
+
+    fn streaming_log_ctx(
+        db: &std::sync::Arc<std::sync::Mutex<Database>>,
+        provider_id: &str,
+        api_key_id: &str,
+    ) -> LogContext {
+        LogContext {
+            db: db.clone(),
+            session_token: "session-claude".to_string(),
+            provider_id: provider_id.to_string(),
+            api_key_id: api_key_id.to_string(),
+            project_id: None,
+            request_model: Some("claude-3-5-sonnet".to_string()),
+            cost_multiplier: 1.0,
+            status_code: 200,
+            start_time: std::time::Instant::now(),
+            path: "/v1/messages".to_string(),
+            response_content_type: "text/event-stream".to_string(),
+            key_alias: Some("claude-key".to_string()),
+            provider_name: Some("claude-provider".to_string()),
+            project_name: None,
+        }
+    }
+
+    async fn drive_stream(chunks: Vec<axum::body::Bytes>, content_encoding: &str, ctx: LogContext) {
+        let inner = futures::stream::iter(
+            chunks
+                .into_iter()
+                .map(Ok::<_, reqwest::Error>)
+                .collect::<Vec<_>>(),
+        );
+        let mut stream = UsageTrackingStream {
+            inner,
+            accumulator: usage_parser::StreamUsageAccumulator::new(),
+            log_ctx: Some(ctx),
+            console_ctx: None,
+            finished: false,
+            content_encoding: content_encoding.to_string(),
+            detail_capture: false,
+            raw_buffer: Vec::new(),
+        };
+        // Drain to completion so the stream-end recording path runs.
+        while futures::StreamExt::next(&mut stream).await.is_some() {}
+    }
+
+    async fn drive_detail_stream(
+        chunks: Vec<axum::body::Bytes>,
+        content_encoding: &str,
+        state: std::sync::Arc<crate::proxy::ProxyState>,
+        resp_headers: hyper::HeaderMap,
+    ) -> crate::proxy::console::ConsoleEvent {
+        let mut rx = state.console_tx.subscribe();
+        let inner = futures::stream::iter(
+            chunks
+                .into_iter()
+                .map(Ok::<_, reqwest::Error>)
+                .collect::<Vec<_>>(),
+        );
+        let mut stream = UsageTrackingStream {
+            inner,
+            accumulator: usage_parser::StreamUsageAccumulator::new(),
+            log_ctx: None,
+            console_ctx: Some(StreamConsoleCtx {
+                state: state.clone(),
+                method: "POST".to_string(),
+                path: "/v1/messages".to_string(),
+                upstream_url: "https://example.com/v1/messages".to_string(),
+                start_time: std::time::Instant::now(),
+                status: 200,
+                provider_name: Some("claude-provider".to_string()),
+                key_alias: Some("claude-key".to_string()),
+                request_headers: hyper::HeaderMap::new(),
+                request_body: br#"{"model":"claude-3-5-sonnet"}"#.to_vec(),
+                response_headers: resp_headers,
+            }),
+            finished: false,
+            content_encoding: content_encoding.to_string(),
+            detail_capture: true,
+            raw_buffer: Vec::new(),
+        };
+        while futures::StreamExt::next(&mut stream).await.is_some() {}
+        tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("console event should be emitted")
+            .expect("console event should be readable")
+    }
+
+    /// Returns (db, provider_id, api_key_id) with a real provider+key so the
+    /// request_logs foreign keys resolve.
+    fn billing_db() -> (std::sync::Arc<std::sync::Mutex<Database>>, String, String) {
+        let raw_db = Database::new_in_memory().unwrap();
+        let provider = raw_db
+            .provider_create(&CreateProviderInput {
+                name: "claude-provider".to_string(),
+                base_url: "https://example.com".to_string(),
+                provider_type: Some("claude".to_string()),
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                api_format: None,
+                transform_enabled: None,
+            })
+            .unwrap();
+        let api_key = raw_db
+            .api_key_create(&CreateApiKeyInput {
+                provider_id: provider.id.clone(),
+                alias: Some("claude-key".to_string()),
+                value: "sk-test".to_string(),
+                types: Some(vec!["claude".to_string()]),
+                priority: None,
+                is_active: None,
+                config: None,
+                cost_multiplier: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                model_mapping: None,
+                api_format: None,
+                transform_enabled: None,
+                client_configs: None,
+            })
+            .unwrap();
+        let provider_id = provider.id.clone();
+        let api_key_id = api_key.id.clone();
+        (
+            std::sync::Arc::new(std::sync::Mutex::new(raw_db)),
+            provider_id,
+            api_key_id,
+        )
+    }
+
+    #[tokio::test]
+    async fn streaming_records_usage_for_plain_sse_split_across_utf8_boundaries() {
+        let (db, provider_id, api_key_id) = billing_db();
+        let sample = claude_sse_sample();
+        // 3-byte chunks slice through the multibyte CJK/emoji codepoints.
+        let chunks = chunk_bytes(sample.as_bytes(), 3);
+        drive_stream(
+            chunks,
+            "",
+            streaming_log_ctx(&db, &provider_id, &api_key_id),
+        )
+        .await;
+
+        let rows = db.lock().unwrap().request_log_list_all().unwrap();
+        assert_eq!(rows.len(), 1, "expected one billed row");
+        assert_eq!(rows[0].input_tokens, 1234);
+        assert_eq!(rows[0].output_tokens, 567);
+    }
+
+    #[tokio::test]
+    async fn streaming_records_usage_for_gzip_encoded_sse() {
+        let (db, provider_id, api_key_id) = billing_db();
+        let sample = claude_sse_sample();
+        let compressed = gzip_compress(sample.as_bytes());
+        let chunks = chunk_bytes(&compressed, 5);
+        drive_stream(
+            chunks,
+            "gzip",
+            streaming_log_ctx(&db, &provider_id, &api_key_id),
+        )
+        .await;
+
+        let rows = db.lock().unwrap().request_log_list_all().unwrap();
+        assert_eq!(rows.len(), 1, "expected one billed row from gzip stream");
+        assert_eq!(rows[0].input_tokens, 1234);
+        assert_eq!(rows[0].output_tokens, 567);
+    }
+
+    #[tokio::test]
+    async fn streaming_detail_mode_emits_response_headers_and_decoded_body() {
+        let (console_tx, _rx) = tokio::sync::broadcast::channel(8);
+        let state = std::sync::Arc::new(crate::proxy::ProxyState {
+            db: std::sync::Arc::new(std::sync::Mutex::new(Database::new_in_memory().unwrap())),
+            sessions: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            request_count: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            console_tx,
+            detail_mode: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        });
+        let sample = claude_sse_sample();
+        let compressed = gzip_compress(sample.as_bytes());
+        let mut resp_headers = hyper::HeaderMap::new();
+        resp_headers.insert("content-type", "text/event-stream".parse().unwrap());
+        resp_headers.insert("content-encoding", "gzip".parse().unwrap());
+
+        let event =
+            drive_detail_stream(chunk_bytes(&compressed, 5), "gzip", state, resp_headers).await;
+
+        match event {
+            ConsoleEvent::Request {
+                response_headers,
+                response_body,
+                ..
+            } => {
+                let headers = response_headers.expect("response headers should be present");
+                assert!(headers.iter().any(|h| h == "content-encoding: gzip"));
+                let body = response_body.expect("response body should be present");
+                assert!(!body.contains("message_start"));
+                assert!(body.contains("你好，世界"));
+            }
+            _ => panic!("expected request event"),
+        }
     }
 }

@@ -18,6 +18,7 @@ impl Database {
                     "proxyPort" => settings.proxy_port = val.parse().unwrap_or(12345),
                     "defaultTerminalType" => settings.default_terminal_type = val,
                     "closeToTray" => settings.close_to_tray = val == "true",
+                    "daemonEnabled" => settings.daemon_enabled = val == "true",
                     "claudeConfig" => settings.claude_config = serde_json::from_str(&val).ok(),
                     "codexConfig" => settings.codex_config = serde_json::from_str(&val).ok(),
                     _ => {}

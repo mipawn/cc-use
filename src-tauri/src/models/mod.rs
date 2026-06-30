@@ -220,6 +220,9 @@ pub struct GlobalSettings {
     pub proxy_port: i32,
     pub default_terminal_type: String,
     pub close_to_tray: bool,
+    /// Whether the local daemon should run. When false, the daemon is not
+    /// started on launch and is not auto-restarted by the watchdog.
+    pub daemon_enabled: bool,
     pub claude_config: Option<serde_json::Value>,
     pub codex_config: Option<serde_json::Value>,
 }
@@ -231,6 +234,7 @@ impl Default for GlobalSettings {
             proxy_port: 12345,
             default_terminal_type: "iterm2".to_string(),
             close_to_tray: true,
+            daemon_enabled: true,
             claude_config: None,
             codex_config: None,
         }

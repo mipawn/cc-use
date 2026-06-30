@@ -10,6 +10,7 @@ use cc_use_lib::shared_runtime::{
     ensure_management_token, read_management_token, validate_management_token, ManagementTokenPaths,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -46,6 +47,10 @@ pub fn management_routes() -> Router<DaemonState> {
     Router::new()
         .route("/_management/health", get(management_health))
         .route(
+            "/_management/console/detail-mode",
+            post(management_console_detail_mode),
+        )
+        .route(
             "/_management/instances/heartbeat",
             post(management_instance_heartbeat),
         )
@@ -57,6 +62,25 @@ pub fn management_routes() -> Router<DaemonState> {
             "/_management/console/stream",
             get(crate::console_stream::console_stream),
         )
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagementConsoleDetailModeInput {
+    enabled: bool,
+}
+
+async fn management_console_detail_mode(
+    State(state): State<DaemonState>,
+    headers: HeaderMap,
+    Json(input): Json<ManagementConsoleDetailModeInput>,
+) -> Result<Json<ManagementHealthResponse>, Response> {
+    require_management_token(&state, &headers)?;
+    state
+        .proxy_state
+        .detail_mode
+        .store(input.enabled, Ordering::Relaxed);
+    Ok(Json(ManagementHealthResponse { ok: true }))
 }
 
 pub fn resolve_management_token() -> Result<String, String> {

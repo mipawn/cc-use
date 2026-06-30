@@ -1,7 +1,8 @@
 use crate::db::Database;
 use crate::models::ProxySession;
 use std::collections::HashMap;
-use std::sync::{atomic::AtomicU64, Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 pub mod console;
@@ -25,6 +26,10 @@ pub struct ProxyState {
     /// Fan-out channel for realtime console events. Always present; if
     /// no subscriber is listening, `send` is a cheap no-op (Err dropped).
     pub console_tx: broadcast::Sender<ConsoleEvent>,
+    /// Whether the console detail mode is enabled. When true, the handler
+    /// captures request/response body + headers (desensitised) and attaches
+    /// them to ConsoleEvent::Request. Toggled via the management endpoint.
+    pub detail_mode: Arc<AtomicBool>,
 }
 
 impl ProxyState {
@@ -55,6 +60,7 @@ pub fn build_proxy_state(db: Arc<Mutex<Database>>) -> Result<Arc<ProxyState>, St
         request_count: Arc::new(AtomicU64::new(0)),
         last_error: Arc::new(Mutex::new(None)),
         console_tx,
+        detail_mode: Arc::new(AtomicBool::new(false)),
     }))
 }
 

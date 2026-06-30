@@ -20,6 +20,7 @@ import {
   Progress,
   message,
   Checkbox,
+  Tooltip,
 } from 'antd'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -474,6 +475,19 @@ export default function Settings() {
                       {t('settings.proxyStatusDesc')}
                     </Text>
                   </div>
+                </Space>
+                <Space>
+                  <Space size={6}>
+                    <Text strong>{t('settings.daemonEnabled')}</Text>
+                    <Tooltip title={t('settings.daemonEnabledDesc')}>
+                      <InfoCircleOutlined style={{ color: token.colorTextTertiary }} />
+                    </Tooltip>
+                  </Space>
+                  <Switch
+                    checked={globalSettings.daemonEnabled}
+                    onChange={(checked) => updateGlobalSettings({ daemonEnabled: checked })}
+                    size='small'
+                  />
                 </Space>
                 <Space>
                   <Tag color={proxyStatus.isRunning ? 'success' : 'default'}>

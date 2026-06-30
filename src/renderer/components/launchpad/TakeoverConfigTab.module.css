@@ -42,6 +42,14 @@
   gap: 12px;
 }
 
+.providerTools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .iconFrame {
   display: inline-flex;
   width: 34px;
@@ -222,6 +230,8 @@
 @media (max-width: 720px) {
   .providerHeader {
     min-height: 62px;
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .providerName {

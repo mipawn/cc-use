@@ -123,16 +123,8 @@ function AppContent() {
             <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
             <Route path='/keys' element={<Keys />} />
             <Route path='/stats' element={<Statistics />} />
-            <Route path='/statistics' element={<Navigate to='/stats' replace />} />
             <Route path='/console' element={<Console />} />
             <Route path='/settings' element={<Settings />} />
-            {/* 旧路由兼容 */}
-            <Route path='/projects' element={<Navigate to='/claude-code' replace />} />
-            <Route path='/instances' element={<Navigate to='/claude-code' replace />} />
-            <Route path='/sessions' element={<Navigate to='/claude-code' replace />} />
-            <Route path='/launch' element={<Navigate to='/claude-code' replace />} />
-            <Route path='/launchpad' element={<Navigate to='/claude-code' replace />} />
-            <Route path='/providers' element={<Navigate to='/keys' replace />} />
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>
         </Content>

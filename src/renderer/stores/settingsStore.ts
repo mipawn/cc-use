@@ -38,6 +38,7 @@ const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   proxyPort: 12345,
   defaultTerminalType: getDefaultTerminalType(),
   closeToTray: true,
+  daemonEnabled: true,
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -90,6 +91,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     } catch (error) {
       console.error('Failed to update global settings:', error)
       message.error(i18n.t('settings.updateFailed'))
+      throw error
     }
   },
 }))

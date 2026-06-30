@@ -106,6 +106,7 @@ pub fn build_proxy_state(db: Database) -> Arc<ProxyState> {
         request_count: Arc::new(AtomicU64::new(0)),
         last_error: Arc::new(Mutex::new(None)),
         console_tx,
+        detail_mode: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     })
 }
 

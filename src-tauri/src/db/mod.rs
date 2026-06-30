@@ -283,13 +283,24 @@ impl Database {
     }
 
     pub fn time_range_where(&self, col: &str, time_range: &str) -> String {
+        let local_date = Self::local_date_expr(col);
         match time_range {
-            "today" => format!("WHERE DATE({}) = DATE('now', 'localtime')", col),
-            "yesterday" => format!("WHERE DATE({}) = DATE('now', 'localtime', '-1 day')", col),
-            "week" => format!("WHERE {} >= DATE('now', 'localtime', '-7 days')", col),
-            "month" => format!("WHERE {} >= DATE('now', 'localtime', '-30 days')", col),
+            "today" => format!("WHERE {} = DATE('now', 'localtime')", local_date),
+            "yesterday" => format!("WHERE {} = DATE('now', 'localtime', '-1 day')", local_date),
+            "week" => format!(
+                "WHERE {} >= DATE('now', 'localtime', '-7 days')",
+                local_date
+            ),
+            "month" => format!(
+                "WHERE {} >= DATE('now', 'localtime', '-30 days')",
+                local_date
+            ),
             _ => String::new(), // "all"
         }
+    }
+
+    pub fn local_date_expr(col: &str) -> String {
+        format!("DATE({}, 'localtime')", col)
     }
 
     fn run_alter_migrations(&self) {

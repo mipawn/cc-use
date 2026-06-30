@@ -93,7 +93,8 @@ impl Database {
 
         let mut by_date_stmt = self.conn.prepare(
             &format!(
-                "SELECT DATE(launched_at) as d, COUNT(*) as cnt FROM usage_logs {} GROUP BY d ORDER BY d DESC LIMIT 30",
+                "SELECT {} as d, COUNT(*) as cnt FROM usage_logs {} GROUP BY d ORDER BY d DESC LIMIT 30",
+                Self::local_date_expr("launched_at"),
                 where_clause
             )
         )?;
@@ -144,21 +145,31 @@ impl Database {
 
     pub fn usage_log_today_quick_stats(&self) -> Result<serde_json::Value, rusqlite::Error> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let launched_date = Self::local_date_expr("launched_at");
 
         let launches: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM usage_logs WHERE DATE(launched_at) = ?1",
+            &format!(
+                "SELECT COUNT(*) FROM usage_logs WHERE {} = ?1",
+                launched_date
+            ),
             [&today],
             |row| row.get(0),
         )?;
 
         let unique_projects: i64 = self.conn.query_row(
-            "SELECT COUNT(DISTINCT project_id) FROM usage_logs WHERE DATE(launched_at) = ?1",
+            &format!(
+                "SELECT COUNT(DISTINCT project_id) FROM usage_logs WHERE {} = ?1",
+                launched_date
+            ),
             [&today],
             |row| row.get(0),
         )?;
 
         let unique_keys: i64 = self.conn.query_row(
-            "SELECT COUNT(DISTINCT api_key_id) FROM usage_logs WHERE DATE(launched_at) = ?1",
+            &format!(
+                "SELECT COUNT(DISTINCT api_key_id) FROM usage_logs WHERE {} = ?1",
+                launched_date
+            ),
             [&today],
             |row| row.get(0),
         )?;

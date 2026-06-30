@@ -148,6 +148,9 @@ fn emit_record(handle: &AppHandle, record: &str) {
         };
         match serde_json::from_str::<ConsoleEvent>(payload) {
             Ok(event) => {
+                if is_billable_request_event(&event) {
+                    crate::tray::refresh_tray_badge(handle);
+                }
                 let _ = handle.emit(CONSOLE_EVENT_NAME, event);
             }
             Err(err) => {
@@ -155,6 +158,17 @@ fn emit_record(handle: &AppHandle, record: &str) {
             }
         }
     }
+}
+
+fn is_billable_request_event(event: &ConsoleEvent) -> bool {
+    matches!(
+        event,
+        ConsoleEvent::Request {
+            kind,
+            status: Some(status),
+            ..
+        } if kind == "ok" && *status < 400
+    )
 }
 
 async fn wait_for_next(restart: &Notify, backoff: Duration) {
@@ -218,6 +232,39 @@ mod tests {
         let records = collect(&mut buf);
         assert!(records.is_empty());
         assert_eq!(buf, "data: still buffering");
+    }
+
+    #[test]
+    fn billable_request_event_matches_successful_request() {
+        let event = ConsoleEvent::ok(
+            "POST",
+            "/v1/messages",
+            200,
+            123,
+            "http://127.0.0.1/upstream",
+            Some("provider"),
+            Some("key"),
+            false,
+        );
+
+        assert!(is_billable_request_event(&event));
+    }
+
+    #[test]
+    fn billable_request_event_ignores_logs_and_errors() {
+        let log_event = ConsoleEvent::log("info", "daemon", None, "ready");
+        let error_event = ConsoleEvent::upstream_error(
+            "POST",
+            "/v1/messages",
+            123,
+            "http://127.0.0.1/upstream",
+            Some("provider"),
+            Some("key"),
+            "boom",
+        );
+
+        assert!(!is_billable_request_event(&log_event));
+        assert!(!is_billable_request_event(&error_event));
     }
 
     #[test]

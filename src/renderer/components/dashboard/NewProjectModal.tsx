@@ -219,6 +219,9 @@ export default function NewProjectModal({
             options={apiKeyOptions}
             onChange={handleApiKeyChange}
             className={styles.select}
+            listHeight={320}
+            popupMatchSelectWidth={false}
+            styles={{ popup: { root: { minWidth: 360 } } }}
             notFoundContent={
               <div className={styles.emptyKeys}>
                 <Text type='secondary'>

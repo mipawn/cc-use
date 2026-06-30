@@ -53,9 +53,15 @@ function buildApi(): Api {
     proxy: {
       restart: () => invoke('proxy_restart'),
       status: () => invoke('proxy_status'),
+      start: () => invoke('proxy_start'),
+      stop: () => invoke('proxy_stop'),
+      latencyProbe: (upstreamBaseUrl?: string) =>
+        invoke('latency_probe', { upstreamBaseUrl: upstreamBaseUrl ?? null }),
+      setDetailMode: (enabled: boolean) =>
+        invoke('console_detail_mode_set', { enabled }),
       onStatusChanged: (callback) => {
         let unlisten: UnlistenFn | null = null
-        listen<{ isRunning: boolean; port: number; source?: string }>(
+        listen<{ isRunning: boolean; port: number; lastError?: string | null; source?: string }>(
           'proxy:statusChanged',
           callback,
         ).then((fn) => {

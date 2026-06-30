@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useSyncExternalStore } from 'react'
-import { Button, Space, Typography, theme } from 'antd'
-import { ClearOutlined } from '@ant-design/icons'
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Button, Space, Switch, Typography, theme } from 'antd'
+import { ClearOutlined, DownOutlined, RightOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import type {
   ConsoleEvent,
@@ -13,6 +13,7 @@ import {
   getConsoleEvents,
   subscribeConsoleStore,
 } from '../api/consoleStore'
+import { getApi } from '../api'
 
 /// Terminal palette (VS Code Dark+ inspired). Intentionally not tied to
 /// AntD tokens — the console should read like a real terminal regardless
@@ -158,6 +159,26 @@ function formatLatency(ms: number | null): string {
   return `${padStart(String(ms), 4)}ms`
 }
 
+/// Whether an event represents an error worth highlighting in the stream:
+/// upstream errors, rejections, any 4xx/5xx status, or error-level logs.
+function isErrorEvent(event: ConsoleEvent): boolean {
+  if (event.category === 'request') {
+    if (event.kind === 'upstream_error' || event.kind === 'rejected') return true
+    if (event.status != null && event.status >= 400) return true
+    return false
+  }
+  return event.level === 'error'
+}
+
+/// Block-level highlight applied to error rows so they stand out against the
+/// stream of normal lines. Keeps the terminal look — just a red accent.
+const ERROR_ROW_STYLE: React.CSSProperties = {
+  background: 'rgba(244, 135, 113, 0.12)',
+  borderLeft: '2px solid #f48771',
+  paddingLeft: 6,
+  marginLeft: -8,
+}
+
 function RequestLine({ event }: { event: ConsoleRequestEvent }) {
   const kc = kindColor(event.kind)
   const mc = methodColor(event.method)
@@ -214,11 +235,63 @@ function LogLine({ event }: { event: ConsoleLogEvent }) {
   )
 }
 
-function EventLine({ event }: { event: ConsoleEvent }) {
-  return event.category === 'request' ? (
-    <RequestLine event={event} />
-  ) : (
-    <LogLine event={event} />
+function DetailSection({ label, headers, body }: { label: string; headers?: string[] | null; body?: string | null }) {
+  if (!headers?.length && !body) return null
+  return (
+    <div style={{ paddingLeft: 24, marginTop: 2 }}>
+      <span style={{ color: PALETTE.prompt, fontSize: 11 }}>{label}</span>
+      {headers?.length ? (
+        <div style={{ color: PALETTE.dim, fontSize: 11, whiteSpace: 'pre-wrap', marginTop: 2 }}>
+          {headers.map((h, i) => (
+            <div key={i}>{h}</div>
+          ))}
+        </div>
+      ) : null}
+      {body ? (
+        <div style={{ color: PALETTE.text, fontSize: 11, whiteSpace: 'pre-wrap', marginTop: 4, maxHeight: 120, overflowY: 'auto' }}>
+          {body}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function EventLine({ event, expanded, onToggle }: { event: ConsoleEvent; expanded: boolean; onToggle: () => void }) {
+  const { t } = useTranslation()
+  const errorStyle = isErrorEvent(event) ? ERROR_ROW_STYLE : undefined
+  const hasDetail = event.category === 'request' && (
+    event.requestHeaders?.length ||
+    event.requestBody ||
+    event.responseHeaders?.length ||
+    event.responseBody
+  )
+  return (
+    <div style={errorStyle}>
+      <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+        {hasDetail ? (
+          <span style={{ cursor: 'pointer', color: PALETTE.dim, marginRight: 4, flexShrink: 0 }} onClick={onToggle}>
+            {expanded ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
+          </span>
+        ) : (
+          <span style={{ width: 14, flexShrink: 0 }} />
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {event.category === 'request' ? (
+            <>
+              <RequestLine event={event} />
+              {expanded && hasDetail && (
+                <>
+                  <DetailSection label={t('console.reqHeaders')} headers={event.requestHeaders} body={event.requestBody} />
+                  <DetailSection label={t('console.respHeaders')} headers={event.responseHeaders} body={event.responseBody} />
+                </>
+              )}
+            </>
+          ) : (
+            <LogLine event={event} />
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -226,6 +299,29 @@ export default function Console() {
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const events = useSyncExternalStore(subscribeConsoleStore, getConsoleEvents)
+  const [errorsOnly, setErrorsOnly] = useState(false)
+  const [detailMode, setDetailMode] = useState(false)
+  const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set())
+  const visibleEvents = useMemo(
+    () => (errorsOnly ? events.filter(isErrorEvent) : events),
+    [events, errorsOnly],
+  )
+
+  const toggleExpanded = (idx: number) => {
+    setExpandedIdx((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  const handleDetailMode = (checked: boolean) => {
+    setDetailMode(checked)
+    getApi().proxy.setDetailMode(checked).catch(() => {
+      setDetailMode(!checked)
+    })
+  }
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   // Track whether the user is "parked" at the bottom; if they've scrolled
@@ -236,7 +332,7 @@ export default function Console() {
     if (stickBottomRef.current && scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight
     }
-  }, [events.length])
+  }, [visibleEvents.length])
 
   const onScrollerScroll = () => {
     const el = scrollerRef.current
@@ -258,6 +354,18 @@ export default function Console() {
           </Typography.Text>
         </Space>
         <Space>
+          <Space size={6}>
+            <Switch size='small' checked={detailMode} onChange={handleDetailMode} />
+            <Typography.Text type='secondary' style={{ fontSize: 12 }}>
+              {t('console.detailMode')}
+            </Typography.Text>
+          </Space>
+          <Space size={6}>
+            <Switch size='small' checked={errorsOnly} onChange={setErrorsOnly} />
+            <Typography.Text type='secondary' style={{ fontSize: 12 }}>
+              {t('console.errorsOnly')}
+            </Typography.Text>
+          </Space>
           <Typography.Text type='secondary' style={{ fontSize: 12 }}>
             {t('console.bufferInfo', { count: events.length, max: CONSOLE_BUFFER_LIMIT })}
           </Typography.Text>
@@ -293,8 +401,14 @@ export default function Console() {
           <div style={{ color: PALETTE.dim, lineHeight: '20px' }}>
             <span style={{ color: PALETTE.prompt }}>▸</span> {t('console.emptyHint')}
           </div>
+        ) : visibleEvents.length === 0 ? (
+          <div style={{ color: PALETTE.dim, lineHeight: '20px' }}>
+            <span style={{ color: PALETTE.prompt }}>▸</span> {t('console.noErrors')}
+          </div>
         ) : (
-          events.map((e, i) => <EventLine key={i} event={e} />)
+          visibleEvents.map((e, i) => (
+            <EventLine key={i} event={e} expanded={expandedIdx.has(i)} onToggle={() => toggleExpanded(i)} />
+          ))
         )}
       </div>
     </div>

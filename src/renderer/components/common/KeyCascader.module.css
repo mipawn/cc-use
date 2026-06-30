@@ -77,7 +77,13 @@
 .treeSelectPopup {
   border-radius: var(--radius-ant-lg) !important;
   box-shadow: var(--shadow-lg) !important;
-  overflow: hidden;
+  overflow: visible;
+}
+
+.treeSelectPopup :global(.rc-virtual-list-holder),
+.treeSelectPopup :global(.ant-select-tree-list-holder) {
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
 }
 
 .treeSelectPopup :global(.ant-select-tree) {

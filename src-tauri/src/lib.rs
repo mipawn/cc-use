@@ -89,6 +89,10 @@ pub fn run() {
             // Proxy commands
             commands::proxy::proxy_restart,
             commands::proxy::proxy_status,
+            commands::proxy::proxy_start,
+            commands::proxy::proxy_stop,
+            commands::proxy::latency_probe,
+            commands::proxy::console_detail_mode_set,
             commands::proxy::session_create,
             commands::proxy::session_get,
             commands::proxy::session_update_key,
@@ -215,6 +219,7 @@ pub fn run() {
             if let Err(e) = tray::setup_tray(&handle) {
                 log::error!("Failed to setup tray: {}", e);
             }
+            tray::start_badge_maintenance_loop(handle.clone());
 
             // Re-arm the user's previously chosen "show window" global
             // shortcut (if any) so it works immediately after a cold boot,
@@ -244,7 +249,8 @@ pub fn run() {
                 }
             }
 
-            // Ensure daemon is running — always, no toggle
+            // Ensure daemon is running unless the user disabled it via the
+            // daemon toggle (daemonEnabled defaults to true).
             let handle2 = handle.clone();
             tauri::async_runtime::spawn(async move {
                 let db_state = handle2.state::<Arc<Mutex<Database>>>();
@@ -255,6 +261,20 @@ pub fn run() {
                     let _ = db.proxy_session_cleanup_stale(30);
                     let _ = db.request_log_cleanup_old(90);
                     let _ = db.usage_log_cleanup_old(90);
+                }
+
+                let daemon_enabled = {
+                    if let Ok(db) = db_state.lock() {
+                        db.settings_get().map(|s| s.daemon_enabled).unwrap_or(true)
+                    } else {
+                        true
+                    }
+                };
+
+                if !daemon_enabled {
+                    log::info!("Daemon disabled by setting; skipping auto-start");
+                    tray::refresh_tray_menu(&handle2);
+                    return;
                 }
 
                 // Version-based restart: if app version changed, restart daemon
@@ -301,6 +321,20 @@ pub fn run() {
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                         let db_state = handle_wd.state::<Arc<Mutex<Database>>>();
+
+                        // Respect the daemon toggle: never resurrect a daemon
+                        // the user has explicitly turned off.
+                        let daemon_enabled = {
+                            if let Ok(db) = db_state.lock() {
+                                db.settings_get().map(|s| s.daemon_enabled).unwrap_or(true)
+                            } else {
+                                true
+                            }
+                        };
+                        if !daemon_enabled {
+                            continue;
+                        }
+
                         if !commands::proxy::is_proxy_running(&*db_state) {
                             log::warn!("Daemon watchdog detected stopped daemon, auto-restarting");
                             if let Err(e) = commands::proxy::proxy_start_inner(&*db_state).await {

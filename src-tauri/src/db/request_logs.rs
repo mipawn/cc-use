@@ -144,11 +144,15 @@ impl Database {
 
     pub fn request_log_get_cost_stats(&self) -> Result<serde_json::Value, rusqlite::Error> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let created_date = Self::local_date_expr("created_at");
 
         let today_cost: f64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
-             WHERE DATE(created_at) = ?1
-               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+            &format!(
+                "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
+                 WHERE {} = ?1
+                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+                created_date
+            ),
             [&today],
             |row| row.get(0),
         )?;
@@ -167,16 +171,18 @@ impl Database {
 
     pub fn request_log_get_key_costs(&self) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let created_date = Self::local_date_expr("created_at");
 
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT api_key_id,
-                    COALESCE(SUM(CASE WHEN DATE(created_at) = ?1 THEN total_cost_usd ELSE 0 END), 0) as today_cost,
+                    COALESCE(SUM(CASE WHEN {} = ?1 THEN total_cost_usd ELSE 0 END), 0) as today_cost,
                     COALESCE(SUM(total_cost_usd), 0) as total_cost
              FROM request_logs
              WHERE api_key_id IS NOT NULL
                AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
-             GROUP BY api_key_id"
-        )?;
+             GROUP BY api_key_id",
+            created_date
+        ))?;
 
         let rows = stmt.query_map([&today], |row| {
             Ok(serde_json::json!({
@@ -193,12 +199,15 @@ impl Database {
         &self,
         days: i64,
     ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
+        let created_date = Self::local_date_expr("created_at");
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT DATE(created_at) as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
+            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
                  FROM request_logs
-                 WHERE created_at >= DATE('now', 'localtime', '-{} days')
+                 WHERE {} >= DATE('now', 'localtime', '-{} days')
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
+            created_date,
+            created_date,
             days
         ))?;
 
@@ -219,13 +228,15 @@ impl Database {
         month: i64,
     ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
         let ym = format!("{:04}-{:02}", year, month);
-        let mut stmt = self.conn.prepare(
-            "SELECT DATE(created_at) as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
+        let created_date = Self::local_date_expr("created_at");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
                  FROM request_logs
-                 WHERE strftime('%Y-%m', created_at) = ?1
+                 WHERE strftime('%Y-%m', {}) = ?1
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
-        )?;
+            created_date, created_date
+        ))?;
 
         let rows = stmt.query_map([&ym], |row| {
             Ok(DailyCostTrendItem {
@@ -484,11 +495,15 @@ impl Database {
 
     pub fn request_log_get_dashboard_stats(&self) -> Result<DashboardCostStats, rusqlite::Error> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let created_date = Self::local_date_expr("created_at");
 
         let today_cost: f64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
-             WHERE DATE(created_at) = ?1
-               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+            &format!(
+                "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
+                 WHERE {} = ?1
+                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+                created_date
+            ),
             [&today],
             |row| row.get(0),
         )?;
@@ -501,17 +516,23 @@ impl Database {
         )?;
 
         let today_requests: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM request_logs
-             WHERE DATE(created_at) = ?1
-               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+            &format!(
+                "SELECT COUNT(*) FROM request_logs
+                 WHERE {} = ?1
+                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+                created_date
+            ),
             [&today],
             |row| row.get(0),
         )?;
 
         let today_tokens: i64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM request_logs
-             WHERE DATE(created_at) = ?1
-               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+            &format!(
+                "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM request_logs
+                 WHERE {} = ?1
+                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+                created_date
+            ),
             [&today],
             |row| row.get(0),
         )?;
@@ -670,6 +691,37 @@ mod tests {
     use super::*;
     use crate::models::ProxySession;
 
+    fn mk_billable_log(id: &str, created_at: String, total_cost_usd: f64) -> RequestLog {
+        RequestLog {
+            id: id.into(),
+            provider_id: None,
+            api_key_id: None,
+            project_id: None,
+            session_id: None,
+            model: Some("gpt-5.5".into()),
+            request_model: Some("gpt-5.5".into()),
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            input_cost_usd: 0.01,
+            output_cost_usd: 0.02,
+            cache_read_cost_usd: 0.0,
+            cache_creation_cost_usd: 0.0,
+            total_cost_usd,
+            cost_multiplier: 1.0,
+            latency_ms: Some(100),
+            first_token_ms: None,
+            status_code: Some(200),
+            error_message: None,
+            is_streaming: false,
+            created_at,
+            key_alias: Some("codex-key".into()),
+            provider_name: Some("codex-provider".into()),
+            project_name: Some("Codex Desktop".into()),
+        }
+    }
+
     #[test]
     fn cleanup_removes_old_logs() {
         let db = Database::new_in_memory().unwrap();
@@ -722,6 +774,53 @@ mod tests {
         let has_old = remaining.iter().any(|r| r.id == "old-1");
         assert!(has_recent);
         assert!(!has_old);
+    }
+
+    #[test]
+    fn dashboard_today_cost_uses_local_day_for_utc_logs() {
+        let db = Database::new_in_memory().unwrap();
+        let now = chrono::Local::now();
+        let today_log =
+            mk_billable_log("today", now.with_timezone(&chrono::Utc).to_rfc3339(), 0.03);
+        let yesterday_log = mk_billable_log(
+            "yesterday",
+            (now - chrono::Duration::days(1))
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339(),
+            9.99,
+        );
+
+        db.request_log_create(&today_log).unwrap();
+        db.request_log_create(&yesterday_log).unwrap();
+
+        let stats = db.request_log_get_dashboard_stats().unwrap();
+        assert!((stats.today_cost - 0.03).abs() < 1e-6);
+        assert_eq!(stats.today_requests, 1);
+        assert_eq!(stats.today_tokens, 30);
+    }
+
+    #[test]
+    fn cost_stats_today_uses_local_day_for_utc_logs() {
+        let db = Database::new_in_memory().unwrap();
+        let now = chrono::Local::now();
+
+        db.request_log_create(&mk_billable_log(
+            "today",
+            now.with_timezone(&chrono::Utc).to_rfc3339(),
+            0.03,
+        ))
+        .unwrap();
+        db.request_log_create(&mk_billable_log(
+            "yesterday",
+            (now - chrono::Duration::days(1))
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339(),
+            9.99,
+        ))
+        .unwrap();
+
+        let stats = db.request_log_get_cost_stats().unwrap();
+        assert!((stats["todayCost"].as_f64().unwrap() - 0.03).abs() < 1e-6);
     }
 
     #[test]

@@ -71,13 +71,7 @@ export default function Sidebar() {
     },
   ]
 
-  const selectedKey = (() => {
-    const p = location.pathname
-    if (p === '/statistics') return '/stats'
-    if (p === '/projects' || p === '/instances' || p === '/sessions') return '/claude-code'
-    if (p === '/providers') return '/keys'
-    return p
-  })()
+  const selectedKey = location.pathname
 
   return (
     <Sider

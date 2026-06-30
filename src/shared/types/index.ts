@@ -346,6 +346,16 @@ export interface ProxyStatus {
   lastError: string | null
 }
 
+/// Result of a latency probe round (daemon + optional upstream base URL).
+/// Mirrors `commands::proxy::LatencyReport` on the Rust side.
+export interface LatencyReport {
+  daemonLatencyMs: number | null
+  daemonReachable: boolean
+  upstreamLatencyMs: number | null
+  upstreamReachable: boolean
+  upstreamError: string | null
+}
+
 /// Realtime console event — a discriminated union carried over one transport.
 /// Mirrors the Rust `proxy::console::ConsoleEvent` tagged serde enum.
 /// - `category: "request"` — a proxy request crossing the handler
@@ -375,9 +385,13 @@ export interface ConsoleRequestEvent {
   /// API key alias; null for passthrough or rejection.
   keyAlias: string | null
   /// Classification tag.
-  kind: 'ok' | 'upstream_error' | 'rejected' | 'ws' | string
-  /// Optional human-readable note (error text, "streaming", ...).
-  message: string | null
+  kind: string
+  message?: string | null
+  /// Detail-mode fields (only present when detail mode is on).
+  requestHeaders?: string[] | null
+  requestBody?: string | null
+  responseHeaders?: string[] | null
+  responseBody?: string | null
 }
 
 export interface ConsoleLogEvent {
@@ -416,6 +430,7 @@ export interface GlobalSettings {
   proxyPort: number
   defaultTerminalType: TerminalType
   closeToTray: boolean
+  daemonEnabled: boolean
   claudeConfig?: CliConfig
   codexConfig?: CliConfig
 }
