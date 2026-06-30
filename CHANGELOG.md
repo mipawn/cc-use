@@ -5,6 +5,29 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.2] - 2026-06-30
+
+### Added
+
+- 控制台新增错误过滤、请求/响应详细模式与敏感信息脱敏，支持查看代理请求头、请求体、响应头和解析后的响应内容
+- Codex Desktop / Claude Desktop 供应商列表支持按供应商探测上游延迟；当前接管供应商自动探测，其余供应商可手动刷新
+- 设置页新增 daemon 启用开关，关闭后不再由启动流程或 watchdog 自动拉起
+
+### Changed
+
+- 控制台流式响应详情改为优先展示 SSE 中的实际模型输出，不再把 `message_start` / usage 元数据当作响应正文展示
+- 设置页本地代理服务区域收敛文案，daemon 开关说明改为问号悬浮提示
+- 顶栏与托盘的代理状态在 daemon 启停、端口变更后立即刷新
+
+### Fixed
+
+- 修复 Claude Code / Claude 兼容流式响应在 gzip 压缩或 UTF-8 chunk 边界拆分时 usage 无法入账的问题
+- 修复费用统计、今日消耗和趋势在 UTC 入库、本地日期展示时的跨日错位问题
+- 修复控制台详细模式中响应头缺失、gzip SSE 响应体显示乱码或只显示元数据的问题
+- 修复响应详情脱敏把 `input_tokens` / `output_tokens` 等普通字段误打码的问题
+- 修复 daemon 开关关闭后 UI 仍显示运行中、顶栏状态保留旧错误的问题；关闭时会等待端口真正释放，失败则回滚设置
+- 修复 Claude Code 项目密钥选择下拉无法滚动的问题
+
 ## [3.2.1] - 2026-06-29
 
 ### Added
