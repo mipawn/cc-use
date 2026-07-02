@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.4] - 2026-07-02
+
+### Fixed
+
+- 修复 Claude Code 项目卡片密钥切换下拉在 antd v6 分组菜单中点击不生效的问题
+- 修复项目卡片密钥切换下拉长列表无法稳定查看底部密钥的问题；下拉改为固定高度容器内滚动，并补齐边角裁切
+
 ## [3.2.3] - 2026-07-02
 
 ### Added
