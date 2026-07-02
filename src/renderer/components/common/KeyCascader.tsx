@@ -138,8 +138,8 @@ export default function KeyCascader({
       disabled={disabled}
       treeDefaultExpandAll
       showSearch
-      listHeight={320}
-      dropdownStyle={{ maxHeight: 360, overflowY: 'auto' }}
+      listHeight={400}
+      dropdownStyle={{ maxHeight: 500 }}
       filterTreeNode={(input, node) => {
         const searchText = (node as TreeDataNode).searchText || ''
         return searchText.toLowerCase().includes(input.toLowerCase())

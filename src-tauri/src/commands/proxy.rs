@@ -153,8 +153,17 @@ const UPSTREAM_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 pub async fn latency_probe(
     db: State<'_, Arc<Mutex<Database>>>,
     upstream_base_url: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<LatencyReport, String> {
-    let port = read_proxy_port(&*db)?;
+    let (port, provider) = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let settings = db.settings_get().map_err(|e| e.to_string())?;
+        let provider = match provider_id.as_deref().filter(|id| !id.trim().is_empty()) {
+            Some(id) => db.provider_get(id).map_err(|e| e.to_string())?,
+            None => None,
+        };
+        (settings.proxy_port, provider)
+    };
 
     // Daemon probe: blocking TCP connect on the blocking pool, timed.
     let daemon_start = Instant::now();
@@ -171,26 +180,36 @@ pub async fn latency_probe(
         upstream_error: None,
     };
 
-    if let Some(url) = upstream_base_url.filter(|u| !u.trim().is_empty()) {
-        match reqwest::Client::builder()
-            .timeout(UPSTREAM_PROBE_TIMEOUT)
-            .build()
-        {
-            Ok(client) => {
-                let start = Instant::now();
-                // HEAD without auth headers — we only want connectivity + RTT.
-                match client.head(&url).send().await {
-                    Ok(_) => {
-                        report.upstream_latency_ms = Some(start.elapsed().as_millis() as u64);
-                        report.upstream_reachable = true;
-                    }
-                    Err(e) => {
-                        report.upstream_error = Some(e.to_string());
+    let upstream_url = provider
+        .as_ref()
+        .map(|provider| provider.base_url.clone())
+        .or(upstream_base_url)
+        .filter(|u| !u.trim().is_empty());
+
+    if let Some(url) = upstream_url {
+        match crate::services::http_client::outbound_client_builder_for_proxy(
+            provider.as_ref().and_then(|p| p.http_proxy.as_deref()),
+        ) {
+            Ok(builder) => match builder.timeout(UPSTREAM_PROBE_TIMEOUT).build() {
+                Ok(client) => {
+                    let start = Instant::now();
+                    // HEAD without auth headers — we only want connectivity + RTT.
+                    match client.head(&url).send().await {
+                        Ok(_) => {
+                            report.upstream_latency_ms = Some(start.elapsed().as_millis() as u64);
+                            report.upstream_reachable = true;
+                        }
+                        Err(e) => {
+                            report.upstream_error = Some(e.to_string());
+                        }
                     }
                 }
-            }
+                Err(e) => {
+                    report.upstream_error = Some(e.to_string());
+                }
+            },
             Err(e) => {
-                report.upstream_error = Some(e.to_string());
+                report.upstream_error = Some(e);
             }
         }
     }

@@ -72,7 +72,7 @@ pub async fn key_usage_refresh(
     db: State<'_, Arc<Mutex<Database>>>,
     key_id: String,
 ) -> Result<serde_json::Value, String> {
-    let (key, provider_base_url) = {
+    let (key, provider) = {
         let db = db.lock().map_err(|e| e.to_string())?;
         let key = db
             .api_key_get(&key_id)
@@ -82,10 +82,10 @@ pub async fn key_usage_refresh(
             .provider_get(&key.provider_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Provider not found".to_string())?;
-        (key, provider.base_url)
+        (key, provider)
     };
 
-    let result = crate::services::usage_service::refresh_key_usage(&key, &provider_base_url).await;
+    let result = crate::services::usage_service::refresh_key_usage(&key, &provider).await;
 
     // Update cached usage in DB
     if let Ok(ref res) = result {

@@ -57,7 +57,7 @@ export default function ProviderCard({
   const handleCopyCommand = async () => {
     const apiKey = firstApiKey || provider.token || 'YOUR_API_KEY'
     const command = generateTerminalCommand(
-      { type: provider.type ?? 'claude', baseUrl: provider.baseUrl },
+      { type: 'custom', baseUrl: provider.baseUrl },
       apiKey,
     )
     try {
@@ -70,17 +70,12 @@ export default function ProviderCard({
   }
 
   const getTypeLabel = () => {
-    const config = getProviderTypeConfig(provider.type ?? 'claude')
+    const config = getProviderTypeConfig('custom')
     return config.label
   }
 
   const getTypeColor = () => {
-    switch (provider.type) {
-      case 'codex':
-        return 'green'
-      default:
-        return 'blue'
-    }
+    return 'blue'
   }
 
   const formatBalance = (balance: number | null) => {
@@ -96,7 +91,7 @@ export default function ProviderCard({
 
   const getIconSrc = () => {
     if (!provider.icon) {
-      return PRESET_ICON_MAP[provider.type ?? 'claude'] || PRESET_ICON_MAP.claude
+      return PRESET_ICON_MAP['custom'] || PRESET_ICON_MAP.claude
     }
     if (PRESET_ICON_MAP[provider.icon]) {
       return PRESET_ICON_MAP[provider.icon]

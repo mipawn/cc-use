@@ -6,10 +6,10 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
     //         is_exhausted(5), is_active(6), config(7), usage_type(8),
     //         usage_url(9), usage_path(10), usage_headers(11),
     //         cached_usage(12), last_usage_checked_at(13), cost_multiplier(14), model_mapping(15),
-    //         types(16), api_format(17), transform_enabled(18), client_configs(19)
+    //         types(16), client_configs(17)
     let config_str: Option<String> = row.get(7)?;
     let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
-    let client_configs_str: Option<String> = row.get(19)?;
+    let client_configs_str: Option<String> = row.get(17)?;
     let client_configs = client_configs_str.and_then(|s| serde_json::from_str(&s).ok());
     let types = row
         .get::<_, Option<String>>(16)?
@@ -39,8 +39,6 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
         last_usage_checked_at: row.get(13)?,
         cost_multiplier: row.get::<_, Option<f64>>(14)?.unwrap_or(1.0),
         model_mapping: row.get(15)?,
-        api_format: row.get(17)?,
-        transform_enabled: row.get::<_, Option<i32>>(18)?.unwrap_or(0) != 0,
         client_configs,
     })
 }
@@ -51,7 +49,7 @@ impl Database {
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
-                    api_format, transform_enabled, client_configs
+                    client_configs
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC",
         )?;
 
@@ -64,7 +62,7 @@ impl Database {
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
-                    api_format, transform_enabled, client_configs
+                    client_configs
              FROM api_keys WHERE id = ?1",
         )?;
 
@@ -99,8 +97,8 @@ impl Database {
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
                 config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping,
-                api_format, transform_enabled, client_configs)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                client_configs)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 id,
                 input.provider_id,
@@ -116,8 +114,6 @@ impl Database {
                 input.usage_headers,
                 input.cost_multiplier.unwrap_or(1.0),
                 input.model_mapping,
-                input.api_format.as_deref().unwrap_or("auto"),
-                input.transform_enabled.unwrap_or(false) as i32,
                 client_configs_json,
             ],
         )?;
@@ -145,14 +141,9 @@ impl Database {
             params
         );
         add_field!(input.model_mapping, "model_mapping", sets, params);
-        add_field!(input.api_format, "api_format", sets, params);
         if let Some(ref val) = input.client_configs {
             sets.push("client_configs = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
-        }
-        if let Some(ref val) = input.transform_enabled {
-            sets.push("transform_enabled = ?".to_string());
-            params.push(Box::new(if *val { 1i32 } else { 0i32 }));
         }
 
         if let Some(ref val) = input.types {

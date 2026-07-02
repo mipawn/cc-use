@@ -97,7 +97,7 @@ function statusBadge(status: TakeoverStatus) {
 
 function getProviderIconSrc(provider: Provider): string {
   if (!provider.icon) {
-    return PRESET_ICON_MAP[provider.type ?? 'claude'] || PRESET_ICON_MAP.claude
+    return PRESET_ICON_MAP['custom'] || PRESET_ICON_MAP.claude
   }
   if (PRESET_ICON_MAP[provider.icon]) {
     return PRESET_ICON_MAP[provider.icon]
@@ -243,7 +243,6 @@ export default function TakeoverConfigTab({
   providers,
   allKeys,
   activeKeyId,
-  compatibleProviderType,
   targetClientKind,
   onTakeover,
   onReorderProviders,
@@ -259,10 +258,7 @@ export default function TakeoverConfigTab({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
-  const filteredProviders =
-    compatibleProviderType && !targetClientKind
-      ? providers.filter((p) => p.type === compatibleProviderType)
-      : providers
+  const filteredProviders = providers
 
   const grouped = filteredProviders
     .map((provider) => ({
@@ -283,7 +279,7 @@ export default function TakeoverConfigTab({
   const probeProviderLatency = async (provider: Provider) => {
     setProbingProviderId(provider.id)
     try {
-      const report = await getApi().proxy.latencyProbe(provider.baseUrl)
+      const report = await getApi().proxy.latencyProbe(provider.baseUrl, provider.id)
       setLatencyByProvider((prev) => ({ ...prev, [provider.id]: report }))
     } catch (error) {
       message.error(error instanceof Error ? error.message : '延迟探测失败')

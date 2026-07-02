@@ -18,15 +18,15 @@ pub async fn refresh_usage(
 
 pub async fn refresh_key_usage(
     key: &ApiKey,
-    provider_base_url: &str,
+    provider: &Provider,
 ) -> Result<serde_json::Value, String> {
     match key.usage_type.as_str() {
         "none" => Ok(serde_json::json!({
             "usage": null,
             "error": "Usage checking not configured",
         })),
-        "newapi" => fetch_newapi_key_usage(provider_base_url, &key.value).await,
-        "custom" => fetch_custom_key_usage(key, provider_base_url).await,
+        "newapi" => fetch_newapi_key_usage(provider, &key.value).await,
+        "custom" => fetch_custom_key_usage(key, provider).await,
         _ => Err("Unknown usage type".to_string()),
     }
 }
@@ -47,7 +47,7 @@ async fn fetch_newapi_usage(
         "{}/api/usage/token",
         provider.base_url.trim_end_matches('/')
     );
-    let resp = reqwest::Client::new()
+    let resp = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
@@ -104,7 +104,7 @@ async fn fetch_custom_usage(provider: &Provider) -> Result<serde_json::Value, St
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Custom usage path not configured".to_string())?;
 
-    let mut req = reqwest::Client::new()
+    let mut req = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(url)
         .header("Content-Type", "application/json");
 
@@ -133,14 +133,14 @@ async fn fetch_custom_usage(provider: &Provider) -> Result<serde_json::Value, St
 }
 
 async fn fetch_newapi_key_usage(
-    provider_base_url: &str,
+    provider: &Provider,
     key_value: &str,
 ) -> Result<serde_json::Value, String> {
     let url = format!(
         "{}/api/usage/token/",
-        provider_base_url.trim_end_matches('/')
+        provider.base_url.trim_end_matches('/')
     );
-    let resp = reqwest::Client::new()
+    let resp = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&url)
         .header("Authorization", format!("Bearer {}", key_value))
         .header("Content-Type", "application/json")
@@ -185,7 +185,7 @@ async fn fetch_newapi_key_usage(
 
 async fn fetch_custom_key_usage(
     key: &ApiKey,
-    provider_base_url: &str,
+    provider: &Provider,
 ) -> Result<serde_json::Value, String> {
     let usage_url = key
         .usage_url
@@ -198,12 +198,12 @@ async fn fetch_custom_key_usage(
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Custom usage path not configured".to_string())?;
 
-    let base_url = provider_base_url.trim_end_matches('/');
+    let base_url = provider.base_url.trim_end_matches('/');
     let resolved_url = usage_url
         .replace("{baseUrl}", base_url)
         .replace("{key}", &key.value);
 
-    let mut req = reqwest::Client::new()
+    let mut req = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&resolved_url)
         .header("Content-Type", "application/json");
 

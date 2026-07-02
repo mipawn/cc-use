@@ -66,7 +66,7 @@ function getProviderIconSrc(provider: Provider | null): string {
     return PRESET_ICON_MAP.claude
   }
   if (!provider.icon) {
-    return PRESET_ICON_MAP[provider.type ?? 'claude'] || PRESET_ICON_MAP.claude
+    return PRESET_ICON_MAP['custom'] || PRESET_ICON_MAP.claude
   }
   if (PRESET_ICON_MAP[provider.icon]) {
     return PRESET_ICON_MAP[provider.icon]

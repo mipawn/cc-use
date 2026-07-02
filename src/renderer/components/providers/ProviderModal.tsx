@@ -51,7 +51,8 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         form.setFieldsValue({
           name: provider.name,
           baseUrl: provider.baseUrl,
-          type: provider.type ?? 'deepseek',
+          httpProxy: provider.httpProxy,
+          type: 'custom',
           website: provider.website,
           remark: provider.remark,
           token: provider.token,
@@ -71,7 +72,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
             setCustomIconPath(provider.icon)
           }
         } else {
-          setSelectedIcon(provider.type === 'codex' ? 'openai' : 'claude')
+          setSelectedIcon(false ? 'openai' : 'claude')
           setCustomIconPath(null)
         }
         // Show advanced if there's balance config
@@ -100,7 +101,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         id: provider?.id,
         name: values.name?.trim(),
         baseUrl: values.baseUrl?.trim(),
-        type: values.type,
+        httpProxy: values.httpProxy === undefined ? undefined : values.httpProxy.trim(),
         website: values.website?.trim(),
         remark: values.remark?.trim(),
         token: values.token?.trim(),
@@ -193,6 +194,20 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                 >
                   <Input
                     placeholder={t('providers.baseUrlPlaceholder')}
+                    size='large'
+                    className={styles.input}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name='httpProxy'
+                  label={t('providers.httpProxy')}
+                  rules={[{ type: 'url', message: t('providers.invalidUrl') }]}
+                  extra={t('providers.httpProxyHint')}
+                >
+                  <Input
+                    allowClear
+                    placeholder={t('providers.httpProxyPlaceholder')}
                     size='large'
                     className={styles.input}
                   />

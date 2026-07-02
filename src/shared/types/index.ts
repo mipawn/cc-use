@@ -188,7 +188,7 @@ export interface Provider {
   id: string
   name: string
   baseUrl: string
-  type?: string // v3.2.0: 改为 string,兼容 ProviderType 和 ClientKind (Deprecated - type is now on ApiKey, kept for backward compatibility)
+  httpProxy: string | null
   website: string | null
   remark: string | null
   token: string | null
@@ -217,7 +217,7 @@ export interface Provider {
 export interface CreateProviderInput {
   name: string
   baseUrl: string
-  type?: string // v3.2.0: 改为 string,支持 ClientKind
+  httpProxy?: string
   website?: string
   remark?: string
   token?: string
@@ -449,6 +449,7 @@ export interface ExportProvider {
   name: string
   type: ProviderType
   baseUrl: string
+  httpProxy?: string
   website?: string
   remark?: string
   icon?: string

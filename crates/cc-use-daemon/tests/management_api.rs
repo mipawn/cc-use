@@ -33,6 +33,7 @@ fn seed_managed_instance(db: &Database) -> String {
         .provider_create(&CreateProviderInput {
             name: "Managed Provider".to_string(),
             base_url: "https://example.com".to_string(),
+            http_proxy: None,
             provider_type: Some("claude".to_string()),
             website: None,
             remark: None,

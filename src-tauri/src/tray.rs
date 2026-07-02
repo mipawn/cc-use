@@ -663,8 +663,6 @@ mod tests {
             last_usage_checked_at: None,
             cost_multiplier: 1.0,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: false,
             client_configs: None,
         }
     }

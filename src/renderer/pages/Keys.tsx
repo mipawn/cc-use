@@ -133,7 +133,7 @@ const PRESET_ICON_MAP: Record<string, string> = {
 // Get provider icon src
 function getProviderIconSrc(provider: Provider): string {
   if (!provider.icon) {
-    return PRESET_ICON_MAP[provider.type ?? 'claude'] || PRESET_ICON_MAP.claude
+    return PRESET_ICON_MAP['custom'] || PRESET_ICON_MAP.claude
   }
   if (PRESET_ICON_MAP[provider.icon]) {
     return PRESET_ICON_MAP[provider.icon]

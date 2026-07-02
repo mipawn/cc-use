@@ -37,6 +37,7 @@ pub fn create_provider(db: &Database, name: &str, provider_type: &str) -> Provid
     db.provider_create(&CreateProviderInput {
         name: name.to_string(),
         base_url: "https://example.com".to_string(),
+        http_proxy: None,
         provider_type: Some(provider_type.to_string()),
         website: None,
         remark: None,

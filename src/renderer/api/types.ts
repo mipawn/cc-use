@@ -82,7 +82,7 @@ export interface Api {
     status: () => Promise<ProxyStatus>
     start: () => Promise<void>
     stop: () => Promise<void>
-    latencyProbe: (upstreamBaseUrl?: string) => Promise<LatencyReport>
+    latencyProbe: (upstreamBaseUrl?: string, providerId?: string) => Promise<LatencyReport>
     setDetailMode: (enabled: boolean) => Promise<void>
     onStatusChanged: (
       callback: (data: { isRunning: boolean; port: number; lastError?: string | null; source?: string }) => void,
