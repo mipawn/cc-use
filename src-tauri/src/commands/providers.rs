@@ -82,10 +82,12 @@ pub async fn provider_model_list(
         })
         .ok_or_else(|| "No available token or API key for this provider".to_string())?;
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let client = crate::services::http_client::outbound_client_builder_for_proxy(
+        provider.http_proxy.as_deref(),
+    )?
+    .timeout(std::time::Duration::from_secs(15))
+    .build()
+    .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     let resp = client
         .get(format!("{}/v1/models", base_url))

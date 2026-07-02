@@ -54,6 +54,11 @@ export function getClientKindConfig(kind: ClientKind): ClientKindConfig {
   return config
 }
 
+// ClientConfig - 客户端专用配置 (存储在 ApiKey.clientConfigs 中)
+export interface ClientConfig {
+  baseUrl?: string // 覆盖 provider.baseUrl
+}
+
 // 临时兼容: ProviderType -> ClientKind 映射
 export function providerTypeToClientKind(type: ProviderType): ClientKind {
   if (type === 'claude' || type === 'claude_code') return 'claude_code'
@@ -188,7 +193,7 @@ export interface Provider {
   id: string
   name: string
   baseUrl: string
-  type?: string // v3.2.0: 改为 string,兼容 ProviderType 和 ClientKind (Deprecated - type is now on ApiKey, kept for backward compatibility)
+  httpProxy: string | null
   website: string | null
   remark: string | null
   token: string | null
@@ -217,7 +222,7 @@ export interface Provider {
 export interface CreateProviderInput {
   name: string
   baseUrl: string
-  type?: string // v3.2.0: 改为 string,支持 ClientKind
+  httpProxy?: string
   website?: string
   remark?: string
   token?: string
@@ -259,7 +264,7 @@ export interface ApiKey {
   // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
   costMultiplier: number
   modelMapping: string | null
-  clientConfigs?: Record<string, unknown>
+  clientConfigs?: Record<ClientKind, ClientConfig>
   // Failover state — managed by the proxy's key_selector
   cooldownUntil: string | null
   lastErrorAt: string | null
@@ -281,7 +286,7 @@ export interface CreateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   modelMapping?: string
-  clientConfigs?: Record<string, unknown>
+  clientConfigs?: Record<ClientKind, ClientConfig>
 }
 
 export interface UpdateApiKeyInput {
@@ -299,7 +304,7 @@ export interface UpdateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   modelMapping?: string
-  clientConfigs?: Record<string, unknown>
+  clientConfigs?: Record<ClientKind, ClientConfig>
 }
 
 // Project types
@@ -449,6 +454,7 @@ export interface ExportProvider {
   name: string
   type: ProviderType
   baseUrl: string
+  httpProxy?: string
   website?: string
   remark?: string
   icon?: string

@@ -297,7 +297,15 @@ pub async fn proxy_handler(
 
     let body_bytes = apply_model_mapping(body_bytes, &route_execution);
 
-    let client = reqwest::Client::new();
+    let client = match crate::services::http_client::outbound_client_for_provider(
+        route_execution.provider.as_ref(),
+    ) {
+        Ok(client) => client,
+        Err(e) => {
+            emit.reject(&e);
+            return Err(error_response(StatusCode::BAD_GATEWAY, &e));
+        }
+    };
     let mut req_builder = client.request(method, &route_execution.upstream_url);
 
     for (name, value) in &headers {
@@ -578,8 +586,16 @@ fn build_route_execution(
             } else {
                 req_path.to_string()
             };
+            // Resolve base_url: clientConfigs[cli_type].baseUrl > provider.baseUrl
+            let resolved_base_url = api_key
+                .client_configs
+                .as_ref()
+                .and_then(|configs| configs.get(cli_type.as_deref().unwrap_or("claude_code")))
+                .and_then(|cfg| cfg.get("baseUrl"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(&provider.base_url);
             let upstream_url =
-                build_provider_upstream_url(&provider.base_url, &upstream_req_path, emit)?;
+                build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
@@ -884,19 +900,14 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     strip_one_m_suffix(body_bytes)
 }
 
-fn provider_uses_bearer_auth(provider: &Provider, url_lower: &str) -> bool {
+fn provider_uses_bearer_auth(_provider: &Provider, url_lower: &str) -> bool {
+    // Anthropic API uses x-api-key authentication
     if url_lower.contains("anthropic") {
         return false;
     }
 
-    match provider.provider_type.as_deref() {
-        Some("claude" | "claude_code" | "claude_desktop" | "anthropic") => false,
-        Some(
-            "openai" | "codex" | "deepseek" | "newapi" | "zhipu" | "siliconflow" | "minimax"
-            | "kimi" | "moonshot" | "xiaomi",
-        ) => true,
-        _ => url_lower.contains("/v1") || url_lower.contains("openai"),
-    }
+    // All other providers (OpenAI, Codex, new-api, aggregators, etc.) use Bearer auth
+    true
 }
 
 /// Strips the [1M] suffix that Claude Code appends to model names for 1M context.
@@ -1431,7 +1442,7 @@ mod tests {
             .provider_create(&CreateProviderInput {
                 name: "codex-provider".to_string(),
                 base_url: "https://example.com/v1".to_string(),
-                provider_type: Some("codex".to_string()),
+                http_proxy: None,
                 website: None,
                 remark: None,
                 token: None,
@@ -1445,8 +1456,6 @@ mod tests {
                 usage_url: None,
                 usage_path: None,
                 usage_headers: None,
-                api_format: None,
-                transform_enabled: None,
             })
             .unwrap();
         let api_key = raw_db
@@ -1464,8 +1473,6 @@ mod tests {
                 usage_path: None,
                 usage_headers: None,
                 model_mapping: None,
-                api_format: None,
-                transform_enabled: None,
                 client_configs: None,
             })
             .unwrap();
@@ -1632,7 +1639,7 @@ mod tests {
             .provider_create(&CreateProviderInput {
                 name: "claude-provider".to_string(),
                 base_url: "https://example.com".to_string(),
-                provider_type: Some("claude".to_string()),
+                http_proxy: None,
                 website: None,
                 remark: None,
                 token: None,
@@ -1646,8 +1653,6 @@ mod tests {
                 usage_url: None,
                 usage_path: None,
                 usage_headers: None,
-                api_format: None,
-                transform_enabled: None,
             })
             .unwrap();
         let api_key = raw_db
@@ -1665,8 +1670,6 @@ mod tests {
                 usage_path: None,
                 usage_headers: None,
                 model_mapping: None,
-                api_format: None,
-                transform_enabled: None,
                 client_configs: None,
             })
             .unwrap();

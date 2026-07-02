@@ -8,8 +8,7 @@ pub struct Provider {
     pub id: String,
     pub name: String,
     pub base_url: String,
-    #[serde(rename = "type")]
-    pub provider_type: Option<String>,
+    pub http_proxy: Option<String>,
     pub website: Option<String>,
     pub remark: Option<String>,
     pub token: Option<String>,
@@ -33,9 +32,6 @@ pub struct Provider {
     pub cost_multiplier: Option<f64>,
     pub is_active: bool,
     pub sort_order: i32,
-    // Legacy compatibility fields. Runtime request conversion has been removed.
-    pub api_format: Option<String>,
-    pub transform_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,8 +39,7 @@ pub struct Provider {
 pub struct CreateProviderInput {
     pub name: String,
     pub base_url: String,
-    #[serde(rename = "type")]
-    pub provider_type: Option<String>,
+    pub http_proxy: Option<String>,
     pub website: Option<String>,
     pub remark: Option<String>,
     pub token: Option<String>,
@@ -58,9 +53,6 @@ pub struct CreateProviderInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
-    // Legacy compatibility fields. Runtime request conversion has been removed.
-    pub api_format: Option<String>,
-    pub transform_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,8 +61,7 @@ pub struct UpdateProviderInput {
     pub id: String,
     pub name: Option<String>,
     pub base_url: Option<String>,
-    #[serde(rename = "type")]
-    pub provider_type: Option<String>,
+    pub http_proxy: Option<String>,
     pub website: Option<String>,
     pub remark: Option<String>,
     pub token: Option<String>,
@@ -90,9 +81,6 @@ pub struct UpdateProviderInput {
     pub last_balance_checked_at: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
-    // Legacy compatibility fields. Runtime request conversion has been removed.
-    pub api_format: Option<String>,
-    pub transform_enabled: Option<bool>,
 }
 
 // ── API Key ──
@@ -118,8 +106,6 @@ pub struct ApiKey {
     pub last_usage_checked_at: Option<String>,
     pub cost_multiplier: f64,
     pub model_mapping: Option<String>,
-    pub api_format: Option<String>,
-    pub transform_enabled: bool,
     pub client_configs: Option<serde_json::Value>,
 }
 
@@ -139,8 +125,6 @@ pub struct CreateApiKeyInput {
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
     pub model_mapping: Option<String>,
-    pub api_format: Option<String>,
-    pub transform_enabled: Option<bool>,
     pub client_configs: Option<serde_json::Value>,
 }
 
@@ -163,8 +147,6 @@ pub struct UpdateApiKeyInput {
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
     pub model_mapping: Option<String>,
-    pub api_format: Option<String>,
-    pub transform_enabled: Option<bool>,
     pub client_configs: Option<serde_json::Value>,
 }
 
@@ -564,6 +546,7 @@ pub struct ExportProvider {
     #[serde(rename = "type")]
     pub provider_type: String,
     pub base_url: String,
+    pub http_proxy: Option<String>,
     pub website: Option<String>,
     pub remark: Option<String>,
     pub icon: Option<String>,

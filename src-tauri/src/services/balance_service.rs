@@ -28,7 +28,7 @@ async fn fetch_newapi_balance(
     fallback_api_keys: &[ApiKey],
 ) -> Result<serde_json::Value, String> {
     let base_url = provider.base_url.trim_end_matches('/');
-    let client = reqwest::Client::new();
+    let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
 
     if let (Some(token), Some(user_id)) = (
         provider.token.as_deref().filter(|s| !s.trim().is_empty()),
@@ -178,7 +178,7 @@ async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, 
     let base_url = provider.base_url.trim_end_matches('/');
     let url = raw_url.replace("{baseUrl}", base_url);
 
-    let client = reqwest::Client::new();
+    let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
     let mut req = client.get(&url).header("Content-Type", "application/json");
 
     if let Some(headers_str) = provider.wallet_balance_headers.as_deref() {
@@ -209,13 +209,13 @@ async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, 
 }
 
 async fn fetch_deepseek_balance(
-    _provider: &Provider,
+    provider: &Provider,
     fallback_api_keys: &[ApiKey],
 ) -> Result<serde_json::Value, String> {
     let api_key = pick_first_available_key(fallback_api_keys)
         .ok_or_else(|| "No available API keys for DeepSeek balance check".to_string())?;
 
-    let client = reqwest::Client::new();
+    let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
     let url = "https://api.deepseek.com/user/balance";
     let resp = client
         .get(url)

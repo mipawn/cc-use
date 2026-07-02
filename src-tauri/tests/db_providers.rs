@@ -12,6 +12,7 @@ fn provider_crud() {
         .provider_create(&CreateProviderInput {
             name: "Test Provider".to_string(),
             base_url: "https://api.test.com".to_string(),
+            http_proxy: None,
             provider_type: Some("claude".to_string()),
             website: Some("https://test.com".to_string()),
             remark: None,
@@ -52,6 +53,7 @@ fn provider_create_returns_proper_result() {
     let result = fixture.db.provider_create(&CreateProviderInput {
         name: "Test".to_string(),
         base_url: "https://api.test.com".to_string(),
+        http_proxy: None,
         provider_type: None,
         website: None,
         remark: None,
@@ -88,6 +90,7 @@ fn provider_get_direct_query() {
             .provider_create(&CreateProviderInput {
                 name: format!("Provider {}", index),
                 base_url: format!("https://api{}.test.com", index),
+                http_proxy: None,
                 provider_type: None,
                 website: None,
                 remark: None,
@@ -125,6 +128,7 @@ fn provider_update_no_changes() {
         .provider_create(&CreateProviderInput {
             name: "Test".to_string(),
             base_url: "https://api.test.com".to_string(),
+            http_proxy: None,
             provider_type: None,
             website: None,
             remark: None,
@@ -148,6 +152,7 @@ fn provider_update_no_changes() {
         id: provider.id.clone(),
         name: None,
         base_url: None,
+        http_proxy: None,
         provider_type: None,
         website: None,
         remark: None,
@@ -177,6 +182,74 @@ fn provider_update_no_changes() {
 }
 
 #[test]
+fn provider_http_proxy_can_be_created_updated_and_cleared() {
+    let fixture = TempDb::new();
+    let provider = fixture
+        .db
+        .provider_create(&CreateProviderInput {
+            name: "Proxy Provider".to_string(),
+            base_url: "https://api.test.com".to_string(),
+            http_proxy: Some(" http://127.0.0.1:7890 ".to_string()),
+            provider_type: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            api_format: None,
+            transform_enabled: None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        provider.http_proxy.as_deref(),
+        Some("http://127.0.0.1:7890")
+    );
+
+    let updated = fixture
+        .db
+        .provider_update(&UpdateProviderInput {
+            id: provider.id.clone(),
+            name: None,
+            base_url: None,
+            http_proxy: Some("   ".to_string()),
+            provider_type: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            cached_wallet_balance: None,
+            last_balance_checked_at: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            cached_usage: None,
+            last_usage_checked_at: None,
+            cost_multiplier: None,
+            is_active: None,
+            api_format: None,
+            transform_enabled: None,
+        })
+        .unwrap();
+
+    assert_eq!(updated.http_proxy, None);
+}
+
+#[test]
 fn provider_reorder_sequence() {
     let fixture = TempDb::new();
 
@@ -185,6 +258,7 @@ fn provider_reorder_sequence() {
         .provider_create(&CreateProviderInput {
             name: "Alpha".to_string(),
             base_url: "https://alpha.test.com".to_string(),
+            http_proxy: None,
             provider_type: None,
             website: None,
             remark: None,
@@ -209,6 +283,7 @@ fn provider_reorder_sequence() {
         .provider_create(&CreateProviderInput {
             name: "Beta".to_string(),
             base_url: "https://beta.test.com".to_string(),
+            http_proxy: None,
             provider_type: None,
             website: None,
             remark: None,
@@ -233,6 +308,7 @@ fn provider_reorder_sequence() {
         .provider_create(&CreateProviderInput {
             name: "Gamma".to_string(),
             base_url: "https://gamma.test.com".to_string(),
+            http_proxy: None,
             provider_type: None,
             website: None,
             remark: None,

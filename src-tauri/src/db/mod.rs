@@ -78,7 +78,7 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 base_url TEXT NOT NULL,
-                type TEXT DEFAULT 'claude',
+                http_proxy TEXT,
                 website TEXT,
                 remark TEXT,
                 token TEXT,
@@ -120,8 +120,6 @@ impl Database {
                 cached_usage TEXT,
                 last_usage_checked_at TEXT,
                 cost_multiplier REAL DEFAULT 1,
-                api_format TEXT DEFAULT 'auto',
-                transform_enabled INTEGER DEFAULT 0,
                 client_configs TEXT
             );
 
@@ -306,7 +304,7 @@ impl Database {
     fn run_alter_migrations(&self) {
         // These are safe to run even if columns already exist — we just ignore errors
         let alter_statements = [
-            "ALTER TABLE providers ADD COLUMN type TEXT DEFAULT 'claude'",
+            "ALTER TABLE providers ADD COLUMN http_proxy TEXT",
             "ALTER TABLE providers ADD COLUMN website TEXT",
             "ALTER TABLE providers ADD COLUMN remark TEXT",
             "ALTER TABLE providers ADD COLUMN token TEXT",
@@ -332,8 +330,6 @@ impl Database {
             "ALTER TABLE api_keys ADD COLUMN cached_usage TEXT",
             "ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT",
             "ALTER TABLE api_keys ADD COLUMN cost_multiplier REAL DEFAULT 1",
-            "ALTER TABLE api_keys ADD COLUMN api_format TEXT DEFAULT 'auto'",
-            "ALTER TABLE api_keys ADD COLUMN transform_enabled INTEGER DEFAULT 0",
             "ALTER TABLE api_keys ADD COLUMN client_configs TEXT",
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
@@ -345,9 +341,6 @@ impl Database {
             "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",
             "ALTER TABLE request_logs ADD COLUMN project_name TEXT",
             "ALTER TABLE api_keys ADD COLUMN model_mapping TEXT",
-            // Legacy compatibility fields retained for existing databases.
-            "ALTER TABLE providers ADD COLUMN api_format TEXT DEFAULT 'auto'",
-            "ALTER TABLE providers ADD COLUMN transform_enabled INTEGER DEFAULT 0",
             // proxy_sessions records the client marker for config-takeover routing.
             "ALTER TABLE proxy_sessions ADD COLUMN cli_type TEXT",
         ];
@@ -360,6 +353,9 @@ impl Database {
         // Codex terminal launch removed; only 3 clients: claude_code / codex / claude_desktop.
         self.migrate_api_key_types_to_client_kind();
         self.migrate_projects_cli_type_to_client_kind();
+
+        // v3.2.3: Drop transform-related columns (provider_type, api_format, transform_enabled).
+        self.drop_transform_columns();
     }
 
     /// Migrate api_keys.types: replace 'claude' with 'claude_code' (v3.2.0 ClientKind).
@@ -385,6 +381,22 @@ impl Database {
             "#,
             [],
         );
+    }
+
+    /// v3.2.3: Drop transform-related columns (provider_type, api_format, transform_enabled).
+    /// SQLite 3.35.0+ supports DROP COLUMN; older versions silently ignore the error.
+    fn drop_transform_columns(&self) {
+        let drop_statements = [
+            "ALTER TABLE providers DROP COLUMN type",
+            "ALTER TABLE providers DROP COLUMN api_format",
+            "ALTER TABLE providers DROP COLUMN transform_enabled",
+            "ALTER TABLE api_keys DROP COLUMN api_format",
+            "ALTER TABLE api_keys DROP COLUMN transform_enabled",
+        ];
+
+        for stmt in &drop_statements {
+            let _ = self.conn.execute(stmt, []);
+        }
     }
 }
 

@@ -142,7 +142,6 @@ export default function KeyDetailModal({
             <Space size={8} className={styles.headerMeta}>
               <CloudServerOutlined style={{ color: token.colorTextSecondary }} />
               <Text type='secondary'>{provider.name}</Text>
-              <Tag color='cyan'>{provider.type}</Tag>
             </Space>
           )}
         </div>

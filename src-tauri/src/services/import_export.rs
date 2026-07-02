@@ -30,10 +30,9 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
             export_providers.push(ExportProvider {
                 id: provider.id,
                 name: provider.name,
-                provider_type: provider
-                    .provider_type
-                    .unwrap_or_else(|| "claude".to_string()),
+                provider_type: "custom".to_string(),
                 base_url: provider.base_url,
+                http_proxy: provider.http_proxy,
                 website: provider.website,
                 remark: provider.remark,
                 icon: provider.icon,
@@ -108,14 +107,15 @@ pub fn import_all(
         if preserve_ids && !ep.id.is_empty() {
             // NOTE: we preserve IDs from export so that logs keep relationships.
             if let Err(e) = db.conn.execute(
-                "INSERT OR REPLACE INTO providers (id, name, base_url, type, website, remark, token, icon,
+                "INSERT OR REPLACE INTO providers (id, name, base_url, http_proxy, type, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                     wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?16, 1)",
                 rusqlite::params![
                     ep.id,
                     ep.name,
                     ep.base_url,
+                    ep.http_proxy,
                     ep.provider_type,
                     ep.website,
                     ep.remark,
@@ -162,7 +162,7 @@ pub fn import_all(
             match db.provider_create(&CreateProviderInput {
                 name: ep.name.clone(),
                 base_url: ep.base_url.clone(),
-                provider_type: Some(ep.provider_type.clone()),
+                http_proxy: ep.http_proxy.clone(),
                 website: ep.website.clone(),
                 remark: ep.remark.clone(),
                 token: None,
@@ -176,8 +176,6 @@ pub fn import_all(
                 usage_url: ep.usage_url.clone(),
                 usage_path: ep.usage_path.clone(),
                 usage_headers: ep.usage_headers.clone(),
-                api_format: None,
-                transform_enabled: None,
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {
@@ -190,8 +188,6 @@ pub fn import_all(
                             is_active: Some(true),
                             config: None,
                             cost_multiplier: ek.cost_multiplier,
-                            api_format: None,
-                            transform_enabled: None,
                             client_configs: None,
                             usage_type: None,
                             usage_url: None,

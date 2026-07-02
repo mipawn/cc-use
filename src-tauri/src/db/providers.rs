@@ -6,7 +6,7 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         id: row.get(0)?,
         name: row.get(1)?,
         base_url: row.get(2)?,
-        provider_type: row.get(3)?,
+        http_proxy: row.get(3)?,
         website: row.get(4)?,
         remark: row.get(5)?,
         token: row.get(6)?,
@@ -33,22 +33,26 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         cost_multiplier: row.get(21)?,
         is_active: row.get::<_, i32>(22)? != 0,
         sort_order: row.get(23)?,
-        api_format: row.get::<_, Option<String>>(24)?,
-        transform_enabled: row.get::<_, i32>(25)? != 0,
     })
+}
+
+fn normalize_optional_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 impl Database {
     pub fn provider_list(&self) -> Result<Vec<Provider>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, base_url, type, website, remark, token, icon,
+            "SELECT id, name, base_url, http_proxy, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path,
                     wallet_balance_headers, wallet_balance_user_id,
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order,
-                    api_format, transform_enabled
+                    cost_multiplier, is_active, sort_order
              FROM providers ORDER BY sort_order ASC, name ASC",
         )?;
 
@@ -58,14 +62,13 @@ impl Database {
 
     pub fn provider_get(&self, id: &str) -> Result<Option<Provider>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, base_url, type, website, remark, token, icon,
+            "SELECT id, name, base_url, http_proxy, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path,
                     wallet_balance_headers, wallet_balance_user_id,
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order,
-                    api_format, transform_enabled
+                    cost_multiplier, is_active, sort_order
              FROM providers WHERE id = ?1",
         )?;
 
@@ -93,16 +96,16 @@ impl Database {
             )
             .unwrap_or(0);
         self.conn.execute(
-            "INSERT INTO providers (id, name, base_url, type, website, remark, token, icon,
+            "INSERT INTO providers (id, name, base_url, http_proxy, website, remark, token, icon,
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                sort_order, api_format, transform_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20)",
+                sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18)",
             rusqlite::params![
                 id,
                 input.name,
                 input.base_url,
-                input.provider_type.as_deref().unwrap_or("claude"),
+                normalize_optional_string(input.http_proxy.as_deref()),
                 input.website,
                 input.remark,
                 input.token,
@@ -117,8 +120,6 @@ impl Database {
                 input.usage_path,
                 input.usage_headers,
                 next_sort,
-                input.api_format.as_deref().unwrap_or("auto"),
-                input.transform_enabled.unwrap_or(false) as i32,
             ],
         )?;
 
@@ -136,7 +137,12 @@ impl Database {
 
         add_field!(input.name, "name", sets, params);
         add_field!(input.base_url, "base_url", sets, params);
-        add_field!(input.provider_type, "type", sets, params);
+        if input.http_proxy.is_some() {
+            sets.push("http_proxy = ?".to_string());
+            params.push(Box::new(normalize_optional_string(
+                input.http_proxy.as_deref(),
+            )));
+        }
         add_field!(input.website, "website", sets, params);
         add_field!(input.remark, "remark", sets, params);
         add_field!(input.token, "token", sets, params);
@@ -198,12 +204,6 @@ impl Database {
         if let Some(ref val) = input.cached_usage {
             sets.push("cached_usage = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
-        }
-
-        add_field!(input.api_format, "api_format", sets, params);
-        if let Some(ref val) = input.transform_enabled {
-            sets.push("transform_enabled = ?".to_string());
-            params.push(Box::new(if *val { 1i32 } else { 0i32 }));
         }
 
         if sets.is_empty() {

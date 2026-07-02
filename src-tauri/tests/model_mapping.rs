@@ -60,6 +60,7 @@ fn setup_provider_with_mapping(
         .provider_create(&cc_use_lib::models::CreateProviderInput {
             name: "test-provider".to_string(),
             base_url: format!("http://127.0.0.1:{}", upstream_port),
+            http_proxy: None,
             provider_type: Some(provider_type.to_string()),
             website: None,
             remark: None,
