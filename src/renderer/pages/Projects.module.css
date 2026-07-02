@@ -149,9 +149,27 @@
 /* Key Switch Dropdown */
 .keySwitchDropdown {
   min-width: 260px;
+  border-radius: var(--radius-ant);
+  overflow: hidden;
+  background: var(--ant-color-bg-elevated);
+}
+
+.keySwitchMenuFrame {
+  border-radius: var(--radius-ant);
+  overflow: hidden;
+  background: var(--ant-color-bg-elevated);
+}
+
+.keySwitchMenuScroller {
+  height: min(320px, calc(100vh - 96px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .keySwitchMenu {
+  border-radius: 0 !important;
+  box-shadow: none !important;
   padding: 8px !important;
 }
 

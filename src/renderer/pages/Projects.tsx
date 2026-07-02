@@ -80,6 +80,25 @@ const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => {
   return <img src={icon} alt={type} style={{ width: size, height: size }} />
 }
 
+const getKeySwitchItemKey = (providerId: string, keyId: string) => JSON.stringify([providerId, keyId])
+
+const parseKeySwitchItemKey = (itemKey: string) => {
+  try {
+    const parsed = JSON.parse(itemKey)
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === 'string' &&
+      typeof parsed[1] === 'string'
+    ) {
+      return { providerId: parsed[0], keyId: parsed[1] }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 export default function Projects() {
   const { t } = useTranslation()
   const { token } = theme.useToken()
@@ -209,6 +228,12 @@ export default function Projects() {
     }
   }
 
+  const handleKeySwitchMenuClick = (project: Project): MenuProps['onClick'] => ({ key }) => {
+    const target = parseKeySwitchItemKey(String(key))
+    if (!target || target.keyId === project.apiKeyId) return
+    handleSwitchKey(project, target.providerId, target.keyId)
+  }
+
   // Build key switch menu items for a project
   const getKeySwitchMenuItems = (project: Project): NonNullable<MenuProps['items']> => {
     const items: NonNullable<MenuProps['items']> = []
@@ -245,7 +270,7 @@ export default function Projects() {
           const isCurrent = project.apiKeyId === key.id
 
           return {
-            key: `${provider.id}:${key.id}`,
+            key: getKeySwitchItemKey(provider.id, key.id),
             label: (
               <div className={styles.keySwitchMenuItemContent}>
                 <span
@@ -266,7 +291,6 @@ export default function Projects() {
             ),
             className: isCurrent ? styles.keySwitchMenuItemCurrent : undefined,
             disabled: isCurrent,
-            onClick: () => handleSwitchKey(project, provider.id, key.id),
           }
         }),
       })
@@ -450,15 +474,18 @@ export default function Projects() {
                             classNames={{ root: styles.keySwitchDropdown }}
                             menu={{
                               items: getKeySwitchMenuItems(project),
+                              onClick: handleKeySwitchMenuClick(project),
                               classNames: {
                                 root: styles.keySwitchMenu,
-                              },
-                              styles: {
-                                root: { maxHeight: 320, overflow: 'auto' },
                               },
                             }}
                             trigger={['click']}
                             placement='bottomRight'
+                            popupRender={(menus) => (
+                              <div className={styles.keySwitchMenuFrame}>
+                                <div className={styles.keySwitchMenuScroller}>{menus}</div>
+                              </div>
+                            )}
                           >
                             <Button type='text' size='small' icon={<SwapOutlined />} />
                           </Dropdown>
