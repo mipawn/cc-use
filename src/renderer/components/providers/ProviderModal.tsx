@@ -101,7 +101,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         id: provider?.id,
         name: values.name?.trim(),
         baseUrl: values.baseUrl?.trim(),
-        httpProxy: values.httpProxy === undefined ? undefined : values.httpProxy.trim(),
+        httpProxy: values.httpProxy?.trim(),
         website: values.website?.trim(),
         remark: values.remark?.trim(),
         token: values.token?.trim(),
