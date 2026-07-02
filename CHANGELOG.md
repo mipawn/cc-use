@@ -5,6 +5,19 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.3] - 2026-07-02
+
+### Added
+
+- 供应商新增 HTTP 代理配置，支持为每个供应商单独配置代理地址（如 `http://127.0.0.1:7890`）
+- API 密钥新增客户端专用 Base URL 覆盖，支持为 Claude Code、Codex、Claude Desktop 分别配置不同的端点
+
+### Fixed
+
+- 修复密钥选择下拉框（KeyCascader）在多密钥场景下无法滚动导致底部密钥无法选中的问题
+- 修复供应商编辑时 HTTP 代理字段为空值时保存报错的问题
+- 删除 providers 和 api_keys 表中废弃的格式转换字段（type、api_format、transform_enabled），简化代理鉴权逻辑
+
 ## [3.2.2] - 2026-06-30
 
 ### Added
