@@ -586,8 +586,16 @@ fn build_route_execution(
             } else {
                 req_path.to_string()
             };
+            // Resolve base_url: clientConfigs[cli_type].baseUrl > provider.baseUrl
+            let resolved_base_url = api_key
+                .client_configs
+                .as_ref()
+                .and_then(|configs| configs.get(cli_type.as_deref().unwrap_or("claude_code")))
+                .and_then(|cfg| cfg.get("baseUrl"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(&provider.base_url);
             let upstream_url =
-                build_provider_upstream_url(&provider.base_url, &upstream_req_path, emit)?;
+                build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),

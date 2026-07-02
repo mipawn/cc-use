@@ -19,6 +19,7 @@ import {
   Select,
   Tabs,
   Button,
+  Badge,
 } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import {
@@ -36,8 +37,9 @@ import type {
   ClientKind,
   CliConfig,
   TerminalLaunchPreview,
+  ClientConfig,
 } from '@shared/types'
-import { CLIENT_KIND_CONFIGS } from '@shared/types'
+import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import styles from './KeyEditModal.module.css'
 
@@ -63,6 +65,7 @@ interface KeyEditModalProps {
     usagePath?: string
     usageHeaders?: string
     modelMapping?: string
+    clientConfigs?: Record<ClientKind, ClientConfig>
   }) => Promise<void>
 }
 
@@ -97,6 +100,7 @@ export default function KeyEditModal({
   const [sonnetModel, setSonnetModel] = useState('')
   const [opusModel, setOpusModel] = useState('')
   const [defaultModel, setDefaultModel] = useState('')
+  const [clientConfigs, setClientConfigs] = useState<Record<ClientKind, ClientConfig>>({} as Record<ClientKind, ClientConfig>)
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -170,6 +174,7 @@ export default function KeyEditModal({
       } else {
         setUsageHeaders('')
       }
+      setClientConfigs(apiKey.clientConfigs || ({} as Record<ClientKind, ClientConfig>))
     } else {
       setUsageType('none')
       setUsageUrl('')
@@ -180,6 +185,7 @@ export default function KeyEditModal({
       setSonnetModel('')
       setOpusModel('')
       setDefaultModel('')
+      setClientConfigs({} as Record<ClientKind, ClientConfig>)
     }
 
     setJsonError(null)
@@ -260,6 +266,7 @@ export default function KeyEditModal({
         usagePath: usageType === 'custom' ? usagePath?.trim() : undefined,
         usageHeaders: usageType === 'custom' ? usageHeaders?.trim() : undefined,
         modelMapping: buildModelMappingJson(),
+        clientConfigs,
       })
 
       message.success(apiKey?.id ? t('apiKeys.keyUpdated') || '密钥已更新' : t('apiKeys.keyAdded') || '密钥已添加')
@@ -569,6 +576,51 @@ export default function KeyEditModal({
                     ),
                   }]
                 : []),
+              {
+                key: 'clientConfigs',
+                label: '客户端配置',
+                children: (
+                  <div className={styles.tabPane}>
+                    <Text type='secondary' style={{ marginBottom: 16, display: 'block', fontSize: 12 }}>
+                      为不同客户端指定专用 URL,留空则使用供应商默认地址
+                    </Text>
+                    <Space direction='vertical' style={{ width: '100%' }} size={16}>
+                      {selectedTypes.map((clientKind) => {
+                        const config = getClientKindConfig(clientKind)
+                        const currentValue = clientConfigs[clientKind]?.baseUrl || ''
+                        const isOverridden = !!currentValue
+                        return (
+                          <Form.Item
+                            key={clientKind}
+                            label={
+                              <Space>
+                                <span>{config.label}</span>
+                                {isOverridden && <Badge status='processing' text='已覆盖' />}
+                              </Space>
+                            }
+                            extra={`默认: ${currentProvider?.baseUrl || '(未设置)'}`}
+                          >
+                            <Input
+                              value={currentValue}
+                              onChange={(e) => {
+                                const newConfigs = { ...clientConfigs }
+                                if (e.target.value.trim()) {
+                                  newConfigs[clientKind] = { baseUrl: e.target.value.trim() }
+                                } else {
+                                  delete newConfigs[clientKind]
+                                }
+                                setClientConfigs(newConfigs)
+                              }}
+                              placeholder={currentProvider?.baseUrl || 'https://api.example.com/v1'}
+                              size='large'
+                            />
+                          </Form.Item>
+                        )
+                      })}
+                    </Space>
+                  </div>
+                ),
+              },
             ]}
           />
         </Form>
