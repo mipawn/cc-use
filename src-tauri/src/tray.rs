@@ -577,16 +577,6 @@ pub fn refresh_tray_badge(app: &AppHandle) {
     apply_tray_badge(app);
 }
 
-pub fn start_badge_maintenance_loop(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(600));
-        loop {
-            interval.tick().await;
-            apply_tray_badge(&app);
-        }
-    });
-}
-
 fn refresh_tray(app: &AppHandle) {
     refresh_tray_menu(app);
 }
