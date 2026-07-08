@@ -33,12 +33,11 @@ impl Drop for TempDb {
     }
 }
 
-pub fn create_provider(db: &Database, name: &str, provider_type: &str) -> Provider {
+pub fn create_provider(db: &Database, name: &str, _provider_type: &str) -> Provider {
     db.provider_create(&CreateProviderInput {
         name: name.to_string(),
         base_url: "https://example.com".to_string(),
         http_proxy: None,
-        provider_type: Some(provider_type.to_string()),
         website: None,
         remark: None,
         token: None,
@@ -52,8 +51,6 @@ pub fn create_provider(db: &Database, name: &str, provider_type: &str) -> Provid
         usage_url: None,
         usage_path: None,
         usage_headers: None,
-        api_format: None,
-        transform_enabled: None,
     })
     .expect("create provider")
 }
@@ -73,8 +70,6 @@ pub fn create_api_key(db: &Database, provider_id: &str, cli_type: &str) -> ApiKe
         usage_path: None,
         usage_headers: None,
         model_mapping: None,
-        api_format: None,
-        transform_enabled: None,
         client_configs: None,
     })
     .expect("create api key")

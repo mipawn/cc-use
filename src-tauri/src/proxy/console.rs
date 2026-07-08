@@ -253,9 +253,13 @@ pub enum ConsoleEvent {
     /// A single proxy request crossing the handler.
     #[serde(rename_all = "camelCase")]
     Request {
+        /// Stable id for one proxied request. Present for handler-emitted
+        /// events so the renderer can update a pending row in place.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
         /// UTC timestamp `YYYY-MM-DD HH:MM:SS`.
         timestamp: String,
-        /// Classification: "ok" | "upstream_error" | "rejected" | "ws".
+        /// Classification: "pending" | "ok" | "upstream_error" | "rejected" | "ws".
         kind: String,
         /// HTTP method, or "WS" for websocket upgrades.
         method: String,
@@ -299,8 +303,42 @@ pub enum ConsoleEvent {
 }
 
 impl ConsoleEvent {
+    /// Request has entered the proxy and is about to contact upstream.
+    pub fn pending(
+        request_id: impl Into<String>,
+        method: &str,
+        path: &str,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        is_streaming: bool,
+    ) -> Self {
+        Self::Request {
+            request_id: Some(request_id.into()),
+            timestamp: now_timestamp(),
+            kind: "pending".to_string(),
+            method: method.to_string(),
+            path: path.to_string(),
+            status: None,
+            latency_ms: None,
+            upstream: Some(upstream.to_string()),
+            provider: provider.map(String::from),
+            key_alias: key_alias.map(String::from),
+            message: if is_streaming {
+                Some("streaming".to_string())
+            } else {
+                Some("pending".to_string())
+            },
+            request_headers: None,
+            request_body: None,
+            response_headers: None,
+            response_body: None,
+        }
+    }
+
     /// Successful non-streaming or streaming response.
     pub fn ok(
+        request_id: impl Into<String>,
         method: &str,
         path: &str,
         status: u16,
@@ -311,6 +349,7 @@ impl ConsoleEvent {
         is_streaming: bool,
     ) -> Self {
         Self::Request {
+            request_id: Some(request_id.into()),
             timestamp: now_timestamp(),
             kind: "ok".to_string(),
             method: method.to_string(),
@@ -334,6 +373,7 @@ impl ConsoleEvent {
 
     /// Upstream contact failed or response could not be read.
     pub fn upstream_error(
+        request_id: impl Into<String>,
         method: &str,
         path: &str,
         latency_ms: u64,
@@ -343,6 +383,7 @@ impl ConsoleEvent {
         error: &str,
     ) -> Self {
         Self::Request {
+            request_id: Some(request_id.into()),
             timestamp: now_timestamp(),
             kind: "upstream_error".to_string(),
             method: method.to_string(),
@@ -361,8 +402,9 @@ impl ConsoleEvent {
     }
 
     /// Rejection before we could dispatch (auth missing, unknown path, ...).
-    pub fn rejected(method: &str, path: &str, latency_ms: u64, reason: &str) -> Self {
+    pub fn rejected(request_id: impl Into<String>, method: &str, path: &str, latency_ms: u64, reason: &str) -> Self {
         Self::Request {
+            request_id: Some(request_id.into()),
             timestamp: now_timestamp(),
             kind: "rejected".to_string(),
             method: method.to_string(),
@@ -382,6 +424,7 @@ impl ConsoleEvent {
 
     /// Websocket upgrade accepted; relay continues in a spawned task.
     pub fn ws_upgraded(
+        request_id: impl Into<String>,
         path: &str,
         latency_ms: u64,
         upstream: &str,
@@ -389,6 +432,7 @@ impl ConsoleEvent {
         key_alias: Option<&str>,
     ) -> Self {
         Self::Request {
+            request_id: Some(request_id.into()),
             timestamp: now_timestamp(),
             kind: "ws".to_string(),
             method: "WS".to_string(),
@@ -415,6 +459,17 @@ impl ConsoleEvent {
             target: target.map(String::from),
             message: message.to_string(),
         }
+    }
+
+    pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
+        if let Self::Request {
+            request_id: ref mut target,
+            ..
+        } = self
+        {
+            *target = Some(request_id.into());
+        }
+        self
     }
 }
 

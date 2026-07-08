@@ -154,7 +154,6 @@ fn setup_session_with_type(
             name: format!("{}-provider", provider_type),
             base_url: format!("http://127.0.0.1:{}", upstream_port),
             http_proxy: None,
-            provider_type: Some(provider_type.to_string()),
             website: None,
             remark: None,
             token: None,
@@ -168,14 +167,24 @@ fn setup_session_with_type(
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .expect("create provider");
 
     let api_key = create_api_key(&db, &provider.id, provider_type);
     let session_token = format!("session-{}", nanoid::nanoid!(16));
-    create_proxy_session(&db, &session_token, &provider.id, &api_key.id, None);
+    db.proxy_session_create(&ProxySession {
+        session_token: session_token.clone(),
+        provider_id: provider.id.clone(),
+        api_key_id: api_key.id.clone(),
+        project_id: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        cli_type: Some(match provider_type {
+            "codex" => "codex-app".to_string(),
+            "claude" => "claude_code".to_string(),
+            other => other.to_string(),
+        }),
+    })
+    .expect("create proxy session");
 
     let state = build_proxy_state(db);
     (state, session_token)
@@ -250,7 +259,6 @@ async fn provider_type_none_defaults_to_x_api_key() {
             name: "no-type-provider".to_string(),
             base_url: format!("http://127.0.0.1:{}", mock.port),
             http_proxy: None,
-            provider_type: None,
             website: None,
             remark: None,
             token: None,
@@ -264,8 +272,6 @@ async fn provider_type_none_defaults_to_x_api_key() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .expect("create provider");
 
@@ -312,7 +318,6 @@ async fn codex_app_responses_request_uses_session_and_passes_responses_through()
             name: "openai-provider".to_string(),
             base_url: format!("http://127.0.0.1:{}/v1", mock.port),
             http_proxy: None,
-            provider_type: Some("openai".to_string()),
             website: None,
             remark: None,
             token: None,
@@ -326,8 +331,6 @@ async fn codex_app_responses_request_uses_session_and_passes_responses_through()
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .expect("create provider");
 
@@ -387,7 +390,6 @@ async fn codex_responses_request_with_legacy_session_type_passes_responses_throu
             name: "DeepSeek".to_string(),
             base_url: format!("http://127.0.0.1:{}", mock.port),
             http_proxy: None,
-            provider_type: Some("deepseek".to_string()),
             website: None,
             remark: None,
             token: None,
@@ -401,8 +403,6 @@ async fn codex_responses_request_with_legacy_session_type_passes_responses_throu
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: Some("auto".to_string()),
-            transform_enabled: Some(true),
         })
         .expect("create provider");
 
@@ -457,7 +457,6 @@ async fn codex_responses_request_with_non_session_auth_uses_takeover_session() {
             name: "DeepSeek".to_string(),
             base_url: format!("http://127.0.0.1:{}", mock.port),
             http_proxy: None,
-            provider_type: Some("deepseek".to_string()),
             website: None,
             remark: None,
             token: None,
@@ -471,8 +470,6 @@ async fn codex_responses_request_with_non_session_auth_uses_takeover_session() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: Some("auto".to_string()),
-            transform_enabled: Some(true),
         })
         .expect("create provider");
 
@@ -538,7 +535,6 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
             name: "DeepSeek".to_string(),
             base_url: format!("http://127.0.0.1:{}", mock.port),
             http_proxy: None,
-            provider_type: Some("custom".to_string()),
             website: None,
             remark: None,
             token: None,
@@ -552,8 +548,6 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: Some("codex_responses".to_string()),
-            transform_enabled: Some(true),
         })
         .expect("create provider");
 
@@ -572,8 +566,6 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: Some("codex_responses".to_string()),
-            transform_enabled: Some(true),
             client_configs: None,
         })
         .expect("create api key");
@@ -631,7 +623,6 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
             name: "DeepSeek".to_string(),
             base_url: format!("http://127.0.0.1:{}", mock.port),
             http_proxy: None,
-            provider_type: Some("deepseek".to_string()),
             website: None,
             remark: None,
             token: None,
@@ -645,8 +636,6 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: Some("auto".to_string()),
-            transform_enabled: Some(false),
         })
         .expect("create provider");
 
@@ -665,8 +654,6 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: Some("auto".to_string()),
-            transform_enabled: Some(false),
             client_configs: None,
         })
         .expect("create api key");

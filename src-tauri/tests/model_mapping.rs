@@ -7,10 +7,10 @@ use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::Router;
 use cc_use_lib::db::Database;
-use cc_use_lib::models::CreateApiKeyInput;
+use cc_use_lib::models::{CreateApiKeyInput, ProxySession};
 use cc_use_lib::proxy::handler::proxy_handler;
 use std::sync::{Arc, Mutex};
-use support::{build_proxy_state, create_proxy_session};
+use support::build_proxy_state;
 use tokio::net::TcpListener;
 
 struct MockUpstream {
@@ -61,7 +61,6 @@ fn setup_provider_with_mapping(
             name: "test-provider".to_string(),
             base_url: format!("http://127.0.0.1:{}", upstream_port),
             http_proxy: None,
-            provider_type: Some(provider_type.to_string()),
             website: None,
             remark: None,
             token: None,
@@ -75,8 +74,6 @@ fn setup_provider_with_mapping(
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .expect("create provider");
 
@@ -95,14 +92,24 @@ fn setup_provider_with_mapping(
             usage_path: None,
             usage_headers: None,
             model_mapping: model_mapping.map(|s| s.to_string()),
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .expect("create api key");
 
     let session_token = format!("session-{}", nanoid::nanoid!(16));
-    create_proxy_session(&db, &session_token, &provider.id, &api_key.id, None);
+    db.proxy_session_create(&ProxySession {
+        session_token: session_token.clone(),
+        provider_id: provider.id.clone(),
+        api_key_id: api_key.id.clone(),
+        project_id: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        cli_type: Some(match provider_type {
+            "codex" => "codex-app".to_string(),
+            "claude" => "claude_code".to_string(),
+            other => other.to_string(),
+        }),
+    })
+    .expect("create proxy session");
 
     let state = build_proxy_state(db);
     (state, session_token)

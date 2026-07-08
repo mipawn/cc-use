@@ -34,7 +34,6 @@ fn seed_managed_instance(db: &Database) -> String {
             name: "Managed Provider".to_string(),
             base_url: "https://example.com".to_string(),
             http_proxy: None,
-            provider_type: Some("claude".to_string()),
             website: None,
             remark: None,
             token: None,
@@ -48,8 +47,6 @@ fn seed_managed_instance(db: &Database) -> String {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .expect("create provider");
     let api_key = db
@@ -67,8 +64,6 @@ fn seed_managed_instance(db: &Database) -> String {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .expect("create api key");

@@ -50,6 +50,7 @@ struct ResolvedSessionContext {
 /// 4 extra parameters through every helper signature.
 struct EmitCtx<'a> {
     state: &'a ProxyState,
+    request_id: &'a str,
     method: &'a str,
     path: &'a str,
     start_time: std::time::Instant,
@@ -62,6 +63,7 @@ impl<'a> EmitCtx<'a> {
 
     fn reject(&self, reason: &str) {
         self.state.emit_console(ConsoleEvent::rejected(
+            self.request_id,
             self.method,
             self.path,
             self.elapsed_ms(),
@@ -77,6 +79,7 @@ impl<'a> EmitCtx<'a> {
         error: &str,
     ) {
         self.state.emit_console(ConsoleEvent::upstream_error(
+            self.request_id,
             self.method,
             self.path,
             self.elapsed_ms(),
@@ -89,12 +92,43 @@ impl<'a> EmitCtx<'a> {
 
     fn ws_upgraded(&self, upstream: &str, provider: Option<&str>, key_alias: Option<&str>) {
         self.state.emit_console(ConsoleEvent::ws_upgraded(
+            self.request_id,
             self.path,
             self.elapsed_ms(),
             upstream,
             provider,
             key_alias,
         ));
+    }
+
+    fn pending(
+        &self,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        is_streaming: bool,
+        request_headers: Option<Vec<String>>,
+        request_body: Option<String>,
+    ) {
+        let mut evt = ConsoleEvent::pending(
+            self.request_id,
+            self.method,
+            self.path,
+            upstream,
+            provider,
+            key_alias,
+            is_streaming,
+        );
+        if let ConsoleEvent::Request {
+            request_headers: ref mut target_headers,
+            request_body: ref mut target_body,
+            ..
+        } = evt
+        {
+            *target_headers = request_headers;
+            *target_body = request_body;
+        }
+        self.state.emit_console(evt);
     }
 }
 
@@ -107,6 +141,7 @@ pub async fn proxy_handler(
         .request_count
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let start_time = std::time::Instant::now();
+    let request_id = nanoid::nanoid!();
 
     let method_str = req.method().as_str().to_string();
 
@@ -146,6 +181,7 @@ pub async fn proxy_handler(
 
     let emit = EmitCtx {
         state: &state,
+        request_id: &request_id,
         method: &method_str,
         path: &req_path,
         start_time,
@@ -216,6 +252,23 @@ pub async fn proxy_handler(
             route_execution.model_mapping.as_deref(),
         );
         let response_body = serde_json::to_vec(&body).unwrap_or_else(|_| b"{}".to_vec());
+        state.emit_console(ConsoleEvent::ok(
+            &request_id,
+            &method_str,
+            &req_path,
+            StatusCode::OK.as_u16(),
+            start_time.elapsed().as_millis() as u64,
+            "cc-use://local/claude-desktop/v1/models",
+            route_execution
+                .log_ctx
+                .as_ref()
+                .and_then(|c| c.provider_name.as_deref()),
+            route_execution
+                .log_ctx
+                .as_ref()
+                .and_then(|c| c.key_alias.as_deref()),
+            false,
+        ));
         return Ok(Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "application/json")
@@ -232,15 +285,7 @@ pub async fn proxy_handler(
     let mut headers = req.headers().clone();
 
     if let Some(real_api_key) = route_execution.real_api_key.as_deref() {
-        let upstream_url_lower = route_execution.upstream_url.to_ascii_lowercase();
-        let is_openai = route_execution
-            .provider
-            .as_ref()
-            .map(|provider| provider_uses_bearer_auth(provider, &upstream_url_lower))
-            .unwrap_or(false)
-            && !upstream_url_lower.contains("anthropic");
-
-        if is_openai {
+        if route_uses_bearer_auth(&route_execution, &req_path) {
             let bearer = format!("Bearer {}", real_api_key);
             match HeaderValue::from_str(&bearer) {
                 Ok(v) => {
@@ -287,13 +332,16 @@ pub async fn proxy_handler(
         }
     };
 
-    let request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
-        .ok()
-        .and_then(|v| {
-            v.get("model")
-                .and_then(|m| m.as_str())
-                .map(|s| s.to_string())
-        });
+    let request_json = serde_json::from_slice::<serde_json::Value>(&body_bytes).ok();
+    let request_model = request_json
+        .as_ref()
+        .and_then(|v| v.get("model").and_then(|m| m.as_str()))
+        .map(|s| s.to_string());
+    let request_declares_stream = request_json
+        .as_ref()
+        .and_then(|v| v.get("stream"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let body_bytes = apply_model_mapping(body_bytes, &route_execution);
 
@@ -326,6 +374,30 @@ pub async fn proxy_handler(
         .log_ctx
         .as_ref()
         .and_then(|c| c.key_alias.clone());
+
+    let detail_mode_at_dispatch = state.detail_mode.load(std::sync::atomic::Ordering::Relaxed);
+    let request_content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let (pending_req_h, pending_req_b, _, _) =
+        crate::proxy::console::build_detail_fields_with_content_type(
+            &headers,
+            &body_bytes,
+            &hyper::HeaderMap::new(),
+            &[],
+            request_content_type,
+            "",
+            detail_mode_at_dispatch,
+        );
+    emit.pending(
+        &route_execution.upstream_url,
+        provider_snapshot.as_deref(),
+        key_snapshot.as_deref(),
+        request_declares_stream,
+        pending_req_h,
+        pending_req_b,
+    );
 
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
@@ -361,7 +433,7 @@ pub async fn proxy_handler(
         .to_lowercase();
 
     if content_type.contains("text/event-stream") {
-        let detail_capture = state.detail_mode.load(std::sync::atomic::Ordering::Relaxed);
+        let detail_capture = detail_mode_at_dispatch;
         let accumulator = usage_parser::StreamUsageAccumulator::new();
         let tracking_stream = UsageTrackingStream {
             inner: upstream_resp.bytes_stream(),
@@ -384,6 +456,7 @@ pub async fn proxy_handler(
             }),
             console_ctx: Some(StreamConsoleCtx {
                 state: state.clone(),
+                request_id: request_id.clone(),
                 method: method_str.clone(),
                 path: req_path.clone(),
                 upstream_url: route_execution.upstream_url.clone(),
@@ -443,7 +516,7 @@ pub async fn proxy_handler(
         usage_parser::parse_usage_from_response_data(&response_text, &content_type);
 
     if let (Some(u), Some(ctx)) = (usage.as_ref(), route_execution.log_ctx.as_ref()) {
-        if u.input_tokens > 0 || u.output_tokens > 0 {
+        if has_billable_usage(u) {
             let log_ctx = LogContext {
                 db: state.db.clone(),
                 session_token: ctx.session_token.clone(),
@@ -471,7 +544,7 @@ pub async fn proxy_handler(
         );
     }
 
-    let detail_mode = state.detail_mode.load(std::sync::atomic::Ordering::Relaxed);
+    let detail_mode = detail_mode_at_dispatch;
     let request_content_type = headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
@@ -487,6 +560,7 @@ pub async fn proxy_handler(
             detail_mode,
         );
     let mut evt = ConsoleEvent::ok(
+        &request_id,
         &method_str,
         &req_path,
         status.as_u16(),
@@ -827,15 +901,7 @@ fn build_official_upstream_url(upstream_family: UpstreamFamily, req_path: &str) 
 }
 
 fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) -> axum::body::Bytes {
-    let is_claude_like_provider = route
-        .provider
-        .as_ref()
-        .map(|provider| {
-            !provider_uses_bearer_auth(provider, &provider.base_url.to_ascii_lowercase())
-        })
-        .unwrap_or(true);
-
-    if !is_claude_like_provider {
+    if route_uses_openai_payload(route) {
         return body_bytes;
     }
 
@@ -900,14 +966,24 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     strip_one_m_suffix(body_bytes)
 }
 
-fn provider_uses_bearer_auth(_provider: &Provider, url_lower: &str) -> bool {
-    // Anthropic API uses x-api-key authentication
-    if url_lower.contains("anthropic") {
-        return false;
-    }
+fn route_uses_openai_payload(route: &RouteExecution) -> bool {
+    matches!(route.cli_type.as_deref(), Some("codex") | Some("codex-app"))
+}
 
-    // All other providers (OpenAI, Codex, new-api, aggregators, etc.) use Bearer auth
-    true
+fn route_uses_bearer_auth(route: &RouteExecution, req_path: &str) -> bool {
+    match route.cli_type.as_deref() {
+        Some("codex") | Some("codex-app") => true,
+        Some("claude") | Some("claude_code") | Some("claude_desktop") => false,
+        Some(_) => false,
+        None if is_codex_responses_request_path(req_path) => true,
+        None => {
+            let upstream_url_lower = route.upstream_url.to_ascii_lowercase();
+            !upstream_url_lower.contains("anthropic")
+                && (upstream_url_lower.contains("openai")
+                    || upstream_url_lower.contains("/responses")
+                    || req_path.contains("/responses"))
+        }
+    }
 }
 
 /// Strips the [1M] suffix that Claude Code appends to model names for 1M context.
@@ -1019,6 +1095,7 @@ struct LogContext {
 /// emit a console event even though there's nothing to record in `request_logs`.
 struct StreamConsoleCtx {
     state: Arc<ProxyState>,
+    request_id: String,
     method: String,
     path: String,
     upstream_url: String,
@@ -1032,6 +1109,13 @@ struct StreamConsoleCtx {
     request_body: Vec<u8>,
     /// Upstream response headers captured before body streaming begins.
     response_headers: hyper::HeaderMap,
+}
+
+fn has_billable_usage(usage: &usage_parser::TokenUsage) -> bool {
+    usage.input_tokens > 0
+        || usage.output_tokens > 0
+        || usage.cache_read_tokens > 0
+        || usage.cache_creation_tokens > 0
 }
 
 fn record_usage(
@@ -1142,7 +1226,32 @@ where
                 }
                 Poll::Ready(Some(Ok(bytes)))
             }
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(std::io::Error::other(e)))),
+            Poll::Ready(Some(Err(e))) => {
+                this.finished = true;
+
+                // Flush accumulated usage before reporting error
+                this.accumulator.flush();
+                if let (Some(usage), Some(log_ctx)) = (this.accumulator.get_usage(), this.log_ctx.as_ref()) {
+                    if has_billable_usage(&usage) {
+                        record_usage(log_ctx, &usage, this.accumulator.model.as_deref(), true);
+                    }
+                }
+
+                let err_text = e.to_string();
+                if let Some(ctx) = this.console_ctx.take() {
+                    ctx.state.emit_console(ConsoleEvent::upstream_error(
+                        &ctx.request_id,
+                        &ctx.method,
+                        &ctx.path,
+                        ctx.start_time.elapsed().as_millis() as u64,
+                        &ctx.upstream_url,
+                        ctx.provider_name.as_deref(),
+                        ctx.key_alias.as_deref(),
+                        &err_text,
+                    ));
+                }
+                Poll::Ready(Some(Err(std::io::Error::other(err_text))))
+            }
             Poll::Ready(None) => {
                 this.finished = true;
                 let decoded = if this.raw_buffer.is_empty() {
@@ -1167,10 +1276,7 @@ where
                     }
                 }
                 if let Some(ctx) = this.console_ctx.take() {
-                    let detail_mode = ctx
-                        .state
-                        .detail_mode
-                        .load(std::sync::atomic::Ordering::Relaxed);
+                    let detail_mode = this.detail_capture;
                     let request_content_type = ctx
                         .request_headers
                         .get("content-type")
@@ -1192,6 +1298,7 @@ where
                             detail_mode,
                         );
                     let mut evt = ConsoleEvent::ok(
+                        &ctx.request_id,
                         &ctx.method,
                         &ctx.path,
                         ctx.status,
@@ -1332,9 +1439,10 @@ fn extract_host(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        effective_session_cli_type, is_codex_responses_request_path, record_usage,
-        route_plan_with_codex_takeover_fallback, should_forward_response_header, LogContext,
-        StreamConsoleCtx, UsageTrackingStream,
+        effective_session_cli_type, has_billable_usage, is_codex_responses_request_path,
+        record_usage, route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
+        should_forward_response_header, LogContext, RouteExecution, StreamConsoleCtx,
+        UsageTrackingStream,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
@@ -1397,6 +1505,52 @@ mod tests {
             Some("claude_desktop")
         );
         assert_eq!(effective_session_cli_type(None, "/v1/messages"), None);
+    }
+
+    fn route_for_auth(cli_type: Option<&str>, upstream_url: &str) -> RouteExecution {
+        RouteExecution {
+            upstream_url: upstream_url.to_string(),
+            real_api_key: Some("sk-test".to_string()),
+            model_mapping: None,
+            log_ctx: None,
+            provider: None,
+            cli_type: cli_type.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn claude_clients_use_x_api_key_even_for_custom_base_urls() {
+        for cli_type in ["claude_code", "claude_desktop"] {
+            let route = route_for_auth(Some(cli_type), "https://gateway.example.com/v1/messages");
+            assert!(
+                !route_uses_bearer_auth(&route, "/v1/messages"),
+                "{cli_type} should use x-api-key"
+            );
+        }
+    }
+
+    #[test]
+    fn codex_clients_use_bearer_even_for_non_openai_base_urls() {
+        let route = route_for_auth(
+            Some("codex-app"),
+            "https://gateway.example.com/v1/responses",
+        );
+        assert!(route_uses_bearer_auth(&route, "/v1/responses"));
+
+        let legacy_route = route_for_auth(None, "https://gateway.example.com/v1/responses");
+        assert!(route_uses_bearer_auth(&legacy_route, "/v1/responses"));
+    }
+
+    #[test]
+    fn cache_only_usage_is_billable_for_request_logs() {
+        let usage = usage_parser::TokenUsage {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 42,
+            cache_creation_tokens: 0,
+        };
+
+        assert!(has_billable_usage(&usage));
     }
 
     #[test]
@@ -1608,6 +1762,7 @@ mod tests {
             log_ctx: None,
             console_ctx: Some(StreamConsoleCtx {
                 state: state.clone(),
+                request_id: "request-test".to_string(),
                 method: "POST".to_string(),
                 path: "/v1/messages".to_string(),
                 upstream_url: "https://example.com/v1/messages".to_string(),

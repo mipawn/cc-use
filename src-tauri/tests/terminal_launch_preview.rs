@@ -38,8 +38,6 @@ fn merges_global_key_and_runtime_for_claude_preview() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();
@@ -155,8 +153,6 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();
@@ -205,8 +201,6 @@ fn project_preview_returns_project_prelaunch_command_and_keeps_it_out_of_env() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();

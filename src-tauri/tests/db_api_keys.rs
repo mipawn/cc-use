@@ -24,8 +24,6 @@ fn api_key_crud() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();
@@ -63,8 +61,6 @@ fn cascade_delete_removes_api_keys() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();
@@ -97,8 +93,6 @@ fn api_key_create_returns_proper_result() {
         usage_path: None,
         usage_headers: None,
         model_mapping: None,
-        api_format: None,
-        transform_enabled: None,
         client_configs: None,
     });
 
@@ -125,8 +119,6 @@ fn api_key_update_no_changes() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();
@@ -148,8 +140,6 @@ fn api_key_update_no_changes() {
         cached_usage: None,
         last_usage_checked_at: None,
         model_mapping: None,
-        api_format: None,
-        transform_enabled: None,
         client_configs: None,
     });
 
@@ -181,8 +171,6 @@ fn api_key_types_round_trip() {
             usage_path: None,
             usage_headers: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();
@@ -215,8 +203,6 @@ fn api_key_types_round_trip() {
             cached_usage: None,
             last_usage_checked_at: None,
             model_mapping: None,
-            api_format: None,
-            transform_enabled: None,
             client_configs: None,
         })
         .unwrap();

@@ -13,7 +13,6 @@ fn provider_crud() {
             name: "Test Provider".to_string(),
             base_url: "https://api.test.com".to_string(),
             http_proxy: None,
-            provider_type: Some("claude".to_string()),
             website: Some("https://test.com".to_string()),
             remark: None,
             token: Some("test-token".to_string()),
@@ -27,8 +26,6 @@ fn provider_crud() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .unwrap();
 
@@ -54,7 +51,6 @@ fn provider_create_returns_proper_result() {
         name: "Test".to_string(),
         base_url: "https://api.test.com".to_string(),
         http_proxy: None,
-        provider_type: None,
         website: None,
         remark: None,
         token: None,
@@ -68,8 +64,6 @@ fn provider_create_returns_proper_result() {
         usage_url: None,
         usage_path: None,
         usage_headers: None,
-        api_format: None,
-        transform_enabled: None,
     });
     assert!(result.is_ok());
 }
@@ -91,7 +85,6 @@ fn provider_get_direct_query() {
                 name: format!("Provider {}", index),
                 base_url: format!("https://api{}.test.com", index),
                 http_proxy: None,
-                provider_type: None,
                 website: None,
                 remark: None,
                 token: None,
@@ -105,8 +98,6 @@ fn provider_get_direct_query() {
                 usage_url: None,
                 usage_path: None,
                 usage_headers: None,
-                api_format: None,
-                transform_enabled: None,
             })
             .unwrap();
     }
@@ -129,7 +120,6 @@ fn provider_update_no_changes() {
             name: "Test".to_string(),
             base_url: "https://api.test.com".to_string(),
             http_proxy: None,
-            provider_type: None,
             website: None,
             remark: None,
             token: None,
@@ -143,8 +133,6 @@ fn provider_update_no_changes() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .unwrap();
 
@@ -153,7 +141,6 @@ fn provider_update_no_changes() {
         name: None,
         base_url: None,
         http_proxy: None,
-        provider_type: None,
         website: None,
         remark: None,
         token: None,
@@ -173,8 +160,6 @@ fn provider_update_no_changes() {
         last_usage_checked_at: None,
         cost_multiplier: None,
         is_active: None,
-        api_format: None,
-        transform_enabled: None,
     });
 
     assert!(result.is_ok());
@@ -190,7 +175,6 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             name: "Proxy Provider".to_string(),
             base_url: "https://api.test.com".to_string(),
             http_proxy: Some(" http://127.0.0.1:7890 ".to_string()),
-            provider_type: None,
             website: None,
             remark: None,
             token: None,
@@ -204,8 +188,6 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .unwrap();
 
@@ -221,7 +203,6 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             name: None,
             base_url: None,
             http_proxy: Some("   ".to_string()),
-            provider_type: None,
             website: None,
             remark: None,
             token: None,
@@ -241,8 +222,6 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             last_usage_checked_at: None,
             cost_multiplier: None,
             is_active: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .unwrap();
 
@@ -259,7 +238,6 @@ fn provider_reorder_sequence() {
             name: "Alpha".to_string(),
             base_url: "https://alpha.test.com".to_string(),
             http_proxy: None,
-            provider_type: None,
             website: None,
             remark: None,
             token: None,
@@ -273,8 +251,6 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .unwrap();
 
@@ -284,7 +260,6 @@ fn provider_reorder_sequence() {
             name: "Beta".to_string(),
             base_url: "https://beta.test.com".to_string(),
             http_proxy: None,
-            provider_type: None,
             website: None,
             remark: None,
             token: None,
@@ -298,8 +273,6 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .unwrap();
 
@@ -309,7 +282,6 @@ fn provider_reorder_sequence() {
             name: "Gamma".to_string(),
             base_url: "https://gamma.test.com".to_string(),
             http_proxy: None,
-            provider_type: None,
             website: None,
             remark: None,
             token: None,
@@ -323,8 +295,6 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
-            api_format: None,
-            transform_enabled: None,
         })
         .unwrap();
 
