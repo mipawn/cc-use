@@ -2,11 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from
 import { Button, Space, Switch, Typography, theme } from 'antd'
 import { ClearOutlined, DownOutlined, RightOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import type {
-  ConsoleEvent,
-  ConsoleLogEvent,
-  ConsoleRequestEvent,
-} from '../../shared/types'
+import type { ConsoleEvent, ConsoleLogEvent, ConsoleRequestEvent } from '../../shared/types'
 import {
   CONSOLE_BUFFER_LIMIT,
   clearConsoleEvents,
@@ -53,6 +49,8 @@ function kindGlyph(kind: string): string {
       return '⚠'
     case 'ws':
       return '↔'
+    case 'pending':
+      return '…'
     default:
       return '·'
   }
@@ -68,6 +66,8 @@ function kindColor(kind: string): string {
       return PALETTE.upstreamError
     case 'ws':
       return PALETTE.ws
+    case 'pending':
+      return PALETTE.dim
     default:
       return PALETTE.text
   }
@@ -120,7 +120,14 @@ function parseUtcTimestamp(ts: string): Date | null {
 
   const [, year, month, day, hour, minute, second] = match
   return new Date(
-    Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)),
+    Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+    ),
   )
 }
 
@@ -148,6 +155,8 @@ function formatStatus(s: number | null, kind: string): string {
       return 'ERR'
     case 'ws':
       return 'UPG'
+    case 'pending':
+      return '...'
     default:
       return '---'
   }
@@ -196,11 +205,11 @@ function RequestLine({ event }: { event: ConsoleRequestEvent }) {
     <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: '20px' }}>
       <span style={{ color: PALETTE.dim }}>{`[${time}] `}</span>
       <span style={{ color: kc, fontWeight: 600 }}>{kindGlyph(event.kind)}</span>
-      <span>{' '}</span>
+      <span> </span>
       <span style={{ color: mc }}>{method}</span>
-      <span>{' '}</span>
+      <span> </span>
       <span style={{ color: kc, fontWeight: 500 }}>{status}</span>
-      <span>{' '}</span>
+      <span> </span>
       <span style={{ color: PALETTE.dim }}>{latency}</span>
       <span>{'  '}</span>
       {event.upstream ? (
@@ -209,9 +218,7 @@ function RequestLine({ event }: { event: ConsoleRequestEvent }) {
         <span style={{ color: PALETTE.text }}>{event.path}</span>
       )}
       {whoSuffix ? <span style={{ color: PALETTE.accent }}>{whoSuffix}</span> : null}
-      {event.message ? (
-        <span style={{ color: PALETTE.note }}>{`  · ${event.message}`}</span>
-      ) : null}
+      {event.message ? <span style={{ color: PALETTE.note }}>{`  · ${event.message}`}</span> : null}
     </div>
   )
 }
@@ -227,7 +234,7 @@ function LogLine({ event }: { event: ConsoleLogEvent }) {
     <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: '20px' }}>
       <span style={{ color: PALETTE.dim }}>{`[${time}] `}</span>
       <span style={{ color: lc, fontWeight: 600 }}>{lvl}</span>
-      <span>{' '}</span>
+      <span> </span>
       <span style={{ color: sc }}>{origin}</span>
       <span style={{ color: PALETTE.dim }}>{': '}</span>
       <span style={{ color: PALETTE.text }}>{event.message}</span>
@@ -235,7 +242,15 @@ function LogLine({ event }: { event: ConsoleLogEvent }) {
   )
 }
 
-function DetailSection({ label, headers, body }: { label: string; headers?: string[] | null; body?: string | null }) {
+function DetailSection({
+  label,
+  headers,
+  body,
+}: {
+  label: string
+  headers?: string[] | null
+  body?: string | null
+}) {
   if (!headers?.length && !body) return null
   return (
     <div style={{ paddingLeft: 24, marginTop: 2 }}>
@@ -248,7 +263,16 @@ function DetailSection({ label, headers, body }: { label: string; headers?: stri
         </div>
       ) : null}
       {body ? (
-        <div style={{ color: PALETTE.text, fontSize: 11, whiteSpace: 'pre-wrap', marginTop: 4, maxHeight: 120, overflowY: 'auto' }}>
+        <div
+          style={{
+            color: PALETTE.text,
+            fontSize: 11,
+            whiteSpace: 'pre-wrap',
+            marginTop: 4,
+            maxHeight: 120,
+            overflowY: 'auto',
+          }}
+        >
           {body}
         </div>
       ) : null}
@@ -256,21 +280,36 @@ function DetailSection({ label, headers, body }: { label: string; headers?: stri
   )
 }
 
-function EventLine({ event, expanded, onToggle }: { event: ConsoleEvent; expanded: boolean; onToggle: () => void }) {
+function EventLine({
+  event,
+  expanded,
+  onToggle,
+}: {
+  event: ConsoleEvent
+  expanded: boolean
+  onToggle: () => void
+}) {
   const { t } = useTranslation()
   const errorStyle = isErrorEvent(event) ? ERROR_ROW_STYLE : undefined
-  const hasDetail = event.category === 'request' && (
-    event.requestHeaders?.length ||
-    event.requestBody ||
-    event.responseHeaders?.length ||
-    event.responseBody
-  )
+  const hasDetail =
+    event.category === 'request' &&
+    (event.requestHeaders?.length ||
+      event.requestBody ||
+      event.responseHeaders?.length ||
+      event.responseBody)
   return (
     <div style={errorStyle}>
       <div style={{ display: 'flex', alignItems: 'flex-start' }}>
         {hasDetail ? (
-          <span style={{ cursor: 'pointer', color: PALETTE.dim, marginRight: 4, flexShrink: 0 }} onClick={onToggle}>
-            {expanded ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
+          <span
+            style={{ cursor: 'pointer', color: PALETTE.dim, marginRight: 4, flexShrink: 0 }}
+            onClick={onToggle}
+          >
+            {expanded ? (
+              <DownOutlined style={{ fontSize: 10 }} />
+            ) : (
+              <RightOutlined style={{ fontSize: 10 }} />
+            )}
           </span>
         ) : (
           <span style={{ width: 14, flexShrink: 0 }} />
@@ -281,8 +320,16 @@ function EventLine({ event, expanded, onToggle }: { event: ConsoleEvent; expande
               <RequestLine event={event} />
               {expanded && hasDetail && (
                 <>
-                  <DetailSection label={t('console.reqHeaders')} headers={event.requestHeaders} body={event.requestBody} />
-                  <DetailSection label={t('console.respHeaders')} headers={event.responseHeaders} body={event.responseBody} />
+                  <DetailSection
+                    label={t('console.reqHeaders')}
+                    headers={event.requestHeaders}
+                    body={event.requestBody}
+                  />
+                  <DetailSection
+                    label={t('console.respHeaders')}
+                    headers={event.responseHeaders}
+                    body={event.responseBody}
+                  />
                 </>
               )}
             </>
@@ -318,9 +365,11 @@ export default function Console() {
 
   const handleDetailMode = (checked: boolean) => {
     setDetailMode(checked)
-    getApi().proxy.setDetailMode(checked).catch(() => {
-      setDetailMode(!checked)
-    })
+    getApi()
+      .proxy.setDetailMode(checked)
+      .catch(() => {
+        setDetailMode(!checked)
+      })
   }
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
@@ -369,11 +418,7 @@ export default function Console() {
           <Typography.Text type='secondary' style={{ fontSize: 12 }}>
             {t('console.bufferInfo', { count: events.length, max: CONSOLE_BUFFER_LIMIT })}
           </Typography.Text>
-          <Button
-            icon={<ClearOutlined />}
-            onClick={clearConsoleEvents}
-            disabled={!events.length}
-          >
+          <Button icon={<ClearOutlined />} onClick={clearConsoleEvents} disabled={!events.length}>
             {t('console.clear')}
           </Button>
         </Space>
@@ -407,7 +452,12 @@ export default function Console() {
           </div>
         ) : (
           visibleEvents.map((e, i) => (
-            <EventLine key={i} event={e} expanded={expandedIdx.has(i)} onToggle={() => toggleExpanded(i)} />
+            <EventLine
+              key={e.category === 'request' && e.requestId ? e.requestId : i}
+              event={e}
+              expanded={expandedIdx.has(i)}
+              onToggle={() => toggleExpanded(i)}
+            />
           ))
         )}
       </div>

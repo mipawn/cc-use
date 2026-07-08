@@ -373,6 +373,9 @@ export type ConsoleEvent = ConsoleRequestEvent | ConsoleLogEvent
 
 export interface ConsoleRequestEvent {
   category: 'request'
+  /// Stable id for one proxied request. Pending and final events with the
+  /// same id should be merged by the renderer.
+  requestId?: string | null
   /// UTC timestamp formatted `YYYY-MM-DD HH:MM:SS` (seconds resolution).
   timestamp: string
   /// HTTP method, or "WS" for websocket upgrades.

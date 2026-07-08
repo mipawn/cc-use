@@ -29,8 +29,39 @@ function commit(next: ConsoleEvent[]) {
 }
 
 function append(event: ConsoleEvent) {
-  const next = events.concat(event)
+  const next = mergeConsoleEventList(events, event)
   commit(next.length > BUFFER_LIMIT ? next.slice(next.length - BUFFER_LIMIT) : next)
+}
+
+export function mergeConsoleEventList(
+  current: ConsoleEvent[],
+  event: ConsoleEvent,
+): ConsoleEvent[] {
+  if (event.category !== 'request' || !event.requestId) {
+    return current.concat(event)
+  }
+
+  const existingIndex = current.findIndex(
+    (item) => item.category === 'request' && item.requestId === event.requestId,
+  )
+  if (existingIndex === -1) {
+    return current.concat(event)
+  }
+
+  const next = current.slice()
+  const previous = current[existingIndex]
+  next[existingIndex] =
+    previous.category === 'request'
+      ? {
+          ...previous,
+          ...event,
+          requestHeaders: event.requestHeaders ?? previous.requestHeaders,
+          requestBody: event.requestBody ?? previous.requestBody,
+          responseHeaders: event.responseHeaders ?? previous.responseHeaders,
+          responseBody: event.responseBody ?? previous.responseBody,
+        }
+      : event
+  return next
 }
 
 export function getConsoleEvents(): ConsoleEvent[] {
