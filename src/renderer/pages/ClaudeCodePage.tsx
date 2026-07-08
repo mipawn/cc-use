@@ -13,6 +13,7 @@ import Projects from './Projects'
 import Instances from './Instances'
 import Sessions from './Sessions'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
+import styles from './ClaudeCodePage.module.css'
 
 export default function ClaudeCodePage() {
   const { t } = useTranslation()
@@ -20,18 +21,18 @@ export default function ClaudeCodePage() {
   const { providers, fetchProviders } = useProviderStore()
   const { fetchAllApiKeys } = useApiKeyStore()
 
-  useEffect(() => { fetchProviders() }, [fetchProviders])
   useEffect(() => {
-    if (providers.length > 0) fetchAllApiKeys(providers.map(p => p.id))
+    fetchProviders()
+  }, [fetchProviders])
+  useEffect(() => {
+    if (providers.length > 0) fetchAllApiKeys(providers.map((p) => p.id))
   }, [providers, fetchAllApiKeys])
 
   const items = [
     {
       key: 'projects',
       label: t('common.projects') || '项目',
-      children: (
-        <Projects />
-      ),
+      children: <Projects />,
     },
     {
       key: 'instances',
@@ -51,8 +52,8 @@ export default function ClaudeCodePage() {
   ]
 
   return (
-    <div className='page-container'>
-      <Tabs defaultActiveKey='projects' items={items} />
+    <div className={styles.container}>
+      <Tabs defaultActiveKey='projects' items={items} className={styles.tabs} />
     </div>
   )
 }

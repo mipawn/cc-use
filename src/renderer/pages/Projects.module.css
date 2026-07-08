@@ -5,6 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -20,10 +21,12 @@
 /* Content - Scrollable */
 .content {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
 .scrollContent {
+  height: 100%;
   padding-right: var(--simplebar-gutter);
   margin-right: calc(-1 * var(--simplebar-gutter));
   padding-bottom: 24px;
@@ -204,7 +207,8 @@
   margin-top: 2px !important;
 }
 
-.keySwitchMenu :global(.ant-dropdown-menu-item-group-list .ant-dropdown-menu-item + .ant-dropdown-menu-item) {
+.keySwitchMenu
+  :global(.ant-dropdown-menu-item-group-list .ant-dropdown-menu-item + .ant-dropdown-menu-item) {
   margin-top: 2px !important;
 }
 
@@ -302,7 +306,11 @@
 }
 
 .keySwitchMenuItemCurrent {
-  background: linear-gradient(90deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.04) 100%) !important;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.12) 0%,
+    rgba(59, 130, 246, 0.04) 100%
+  ) !important;
   box-shadow: inset 2px 0 0 var(--color-accent-primary);
 }
 

@@ -1,0 +1,36 @@
+.container {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tabs {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs :global(.ant-tabs-nav) {
+  flex: 0 0 auto;
+}
+
+.tabs :global(.ant-tabs-content-holder) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tabs :global(.ant-tabs-content) {
+  height: 100%;
+  min-height: 0;
+}
+
+.tabs :global(.ant-tabs-tabpane) {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
