@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.5] - 2026-07-06
+
+### Fixed
+
+- 修复 provider_type 移除后代理认证头按 URL 误判的问题；Claude Code / Claude Desktop 恢复使用 `x-api-key`，Codex Desktop Responses 使用 `Authorization: Bearer`
+- 修复 cache-only usage 不进入请求日志的问题，并补齐 OpenAI `prompt_tokens_details.cached_tokens` 解析
+- 控制台请求新增稳定 requestId 与 pending/final 合并；流式请求开始时即可显示，完成后原地更新并保留详细模式内容
+- 流式响应中途错误时，控制台会把 pending 请求更新为 upstream_error，不再静默丢失
+- 托盘今日费用改为窗口获焦时立即刷新，并移除冗余的定时刷新循环
+- 修复 Claude Code 项目 Tab 内项目列表无法滚动的问题
+
 ## [3.2.4] - 2026-07-02
 
 ### Fixed
