@@ -61,6 +61,11 @@ fn parse_usage_value(usage: &serde_json::Value) -> Option<TokenUsage> {
                 .get("input_tokens_details")
                 .and_then(|details| details.get("cached_tokens"))
         })
+        .or_else(|| {
+            usage
+                .get("prompt_tokens_details")
+                .and_then(|details| details.get("cached_tokens"))
+        })
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
@@ -94,7 +99,7 @@ fn parse_usage_value(usage: &serde_json::Value) -> Option<TokenUsage> {
                 .get("completion_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0),
-            cache_read_tokens: 0,
+            cache_read_tokens,
             cache_creation_tokens: 0,
         });
     }
@@ -286,7 +291,11 @@ impl StreamUsageAccumulator {
     }
 
     pub fn get_usage(&self) -> Option<TokenUsage> {
-        if self.input_tokens == 0 && self.output_tokens == 0 {
+        if self.input_tokens == 0
+            && self.output_tokens == 0
+            && self.cache_read_tokens == 0
+            && self.cache_creation_tokens == 0
+        {
             return None;
         }
         Some(TokenUsage {

@@ -27,6 +27,30 @@ fn parse_openai_response() {
 }
 
 #[test]
+fn parse_openai_prompt_token_details_cache() {
+    let body = r#"{"usage":{"prompt_tokens":200,"completion_tokens":100,"prompt_tokens_details":{"cached_tokens":75}},"model":"gpt-4o"}"#;
+    let (usage, _) = parse_usage_from_response(body);
+    let usage = usage.unwrap();
+
+    assert_eq!(usage.input_tokens, 200);
+    assert_eq!(usage.output_tokens, 100);
+    assert_eq!(usage.cache_read_tokens, 75);
+}
+
+#[test]
+fn parse_cache_only_usage_is_billable_usage() {
+    let chunk = "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4\",\"usage\":{\"input_tokens\":0,\"cache_read_input_tokens\":42}}}\n\n";
+    let mut accumulator = StreamUsageAccumulator::new();
+    accumulator.process_chunk(chunk);
+    accumulator.flush();
+    let usage = accumulator.get_usage().unwrap();
+
+    assert_eq!(usage.input_tokens, 0);
+    assert_eq!(usage.output_tokens, 0);
+    assert_eq!(usage.cache_read_tokens, 42);
+}
+
+#[test]
 fn parse_openai_responses_nested_usage() {
     let body = r#"{"type":"response.completed","response":{"id":"resp-test","model":"gpt-5.5","usage":{"input_tokens":200,"output_tokens":100,"input_tokens_details":{"cached_tokens":25}}}}"#;
     let (usage, model) = parse_usage_from_response(body);
