@@ -219,7 +219,6 @@ pub fn run() {
             if let Err(e) = tray::setup_tray(&handle) {
                 log::error!("Failed to setup tray: {}", e);
             }
-            tray::start_badge_maintenance_loop(handle.clone());
 
             // Re-arm the user's previously chosen "show window" global
             // shortcut (if any) so it works immediately after a cold boot,
@@ -357,22 +356,29 @@ pub fn run() {
                 });
             }
 
-            // Handle close-to-tray: intercept window close event
+            // Handle close-to-tray and window focus events
             let handle3 = handle.clone();
             if let Some(win) = app.get_webview_window("main") {
                 win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        if tray::should_close_to_tray(&handle3) {
-                            api.prevent_close();
-                            if let Some(w) = handle3.get_webview_window("main") {
-                                #[cfg(target_os = "macos")]
-                                {
-                                    let _ = handle3.set_dock_visibility(false);
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            if tray::should_close_to_tray(&handle3) {
+                                api.prevent_close();
+                                if let Some(w) = handle3.get_webview_window("main") {
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        let _ = handle3.set_dock_visibility(false);
+                                    }
+                                    let _ = w.hide();
                                 }
-                                let _ = w.hide();
+                                tray::refresh_tray_menu(&handle3);
                             }
-                            tray::refresh_tray_menu(&handle3);
                         }
+                        tauri::WindowEvent::Focused(true) => {
+                            // Refresh tray badge when window gains focus
+                            tray::refresh_tray_badge(&handle3);
+                        }
+                        _ => {}
                     }
                 });
             }
