@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.6] - 2026-07-09
+
+### Added
+
+- API 密钥客户端配置新增「上游认证方式」覆盖，可为单个客户端强制走 `x-api-key` / `Authorization: Bearer` / 不发认证头，兼容默认头部不匹配的自建网关（如只认 `ANTHROPIC_AUTH_TOKEN` 的 Claude 兼容网关）；不配置时行为与之前一致
+
 ## [3.2.5] - 2026-07-06
 
 ### Fixed
