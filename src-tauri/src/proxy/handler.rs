@@ -26,9 +26,17 @@ struct RouteExecution {
     upstream_url: String,
     real_api_key: Option<String>,
     model_mapping: Option<String>,
+    auth_scheme: Option<UpstreamAuthScheme>,
     log_ctx: Option<ResolvedSessionContext>,
     provider: Option<Provider>,
     cli_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpstreamAuthScheme {
+    XApiKey,
+    Bearer,
+    None,
 }
 
 #[derive(Clone)]
@@ -285,7 +293,12 @@ pub async fn proxy_handler(
     let mut headers = req.headers().clone();
 
     if let Some(real_api_key) = route_execution.real_api_key.as_deref() {
-        if route_uses_bearer_auth(&route_execution, &req_path) {
+        // auth_scheme=None 时回退到 route_uses_bearer_auth 的默认判断。
+        if route_execution.auth_scheme == Some(UpstreamAuthScheme::None) {
+            // 不发送任何认证头,让上游依赖环境变量或其他鉴权方式
+            headers.remove("x-api-key");
+            headers.remove("authorization");
+        } else if route_uses_bearer_auth(&route_execution, &req_path) {
             let bearer = format!("Bearer {}", real_api_key);
             match HeaderValue::from_str(&bearer) {
                 Ok(v) => {
@@ -668,12 +681,17 @@ fn build_route_execution(
                 .and_then(|cfg| cfg.get("baseUrl"))
                 .and_then(|v| v.as_str())
                 .unwrap_or(&provider.base_url);
+            let client_config = api_key
+                .client_configs
+                .as_ref()
+                .and_then(|configs| configs.get(cli_type.as_deref().unwrap_or("claude_code")));
             let upstream_url =
                 build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
                 model_mapping: mapping,
+                auth_scheme: client_config.and_then(read_auth_scheme),
                 log_ctx: Some(ResolvedSessionContext {
                     session_token: session.session_token,
                     provider_id: session.provider_id,
@@ -704,6 +722,7 @@ fn build_route_execution(
                 upstream_url,
                 real_api_key: None,
                 model_mapping: None,
+                auth_scheme: None,
                 log_ctx: None,
                 provider: None,
                 cli_type: None,
@@ -971,6 +990,13 @@ fn route_uses_openai_payload(route: &RouteExecution) -> bool {
 }
 
 fn route_uses_bearer_auth(route: &RouteExecution, req_path: &str) -> bool {
+    match route.auth_scheme {
+        Some(UpstreamAuthScheme::Bearer) => return true,
+        Some(UpstreamAuthScheme::XApiKey) => return false,
+        Some(UpstreamAuthScheme::None) => return false,
+        None => {}
+    }
+
     match route.cli_type.as_deref() {
         Some("codex") | Some("codex-app") => true,
         Some("claude") | Some("claude_code") | Some("claude_desktop") => false,
@@ -983,6 +1009,15 @@ fn route_uses_bearer_auth(route: &RouteExecution, req_path: &str) -> bool {
                     || upstream_url_lower.contains("/responses")
                     || req_path.contains("/responses"))
         }
+    }
+}
+
+fn read_auth_scheme(config: &serde_json::Value) -> Option<UpstreamAuthScheme> {
+    match config.get("authScheme").and_then(|value| value.as_str()) {
+        Some("bearer") => Some(UpstreamAuthScheme::Bearer),
+        Some("x-api-key") => Some(UpstreamAuthScheme::XApiKey),
+        Some("none") => Some(UpstreamAuthScheme::None),
+        _ => None,
     }
 }
 
@@ -1442,7 +1477,7 @@ mod tests {
         effective_session_cli_type, has_billable_usage, is_codex_responses_request_path,
         record_usage, route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
         should_forward_response_header, LogContext, RouteExecution, StreamConsoleCtx,
-        UsageTrackingStream,
+        UpstreamAuthScheme, UsageTrackingStream,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
@@ -1512,9 +1547,21 @@ mod tests {
             upstream_url: upstream_url.to_string(),
             real_api_key: Some("sk-test".to_string()),
             model_mapping: None,
+            auth_scheme: None,
             log_ctx: None,
             provider: None,
             cli_type: cli_type.map(str::to_string),
+        }
+    }
+
+    fn route_for_auth_with_scheme(
+        cli_type: Option<&str>,
+        upstream_url: &str,
+        auth_scheme: UpstreamAuthScheme,
+    ) -> RouteExecution {
+        RouteExecution {
+            auth_scheme: Some(auth_scheme),
+            ..route_for_auth(cli_type, upstream_url)
         }
     }
 
@@ -1539,6 +1586,23 @@ mod tests {
 
         let legacy_route = route_for_auth(None, "https://gateway.example.com/v1/responses");
         assert!(route_uses_bearer_auth(&legacy_route, "/v1/responses"));
+    }
+
+    #[test]
+    fn client_auth_scheme_override_wins_over_default() {
+        let claude_route = route_for_auth_with_scheme(
+            Some("claude_code"),
+            "https://gateway.example.com/v1/messages",
+            UpstreamAuthScheme::Bearer,
+        );
+        assert!(route_uses_bearer_auth(&claude_route, "/v1/messages"));
+
+        let codex_route = route_for_auth_with_scheme(
+            Some("codex-app"),
+            "https://gateway.example.com/v1/responses",
+            UpstreamAuthScheme::XApiKey,
+        );
+        assert!(!route_uses_bearer_auth(&codex_route, "/v1/responses"));
     }
 
     #[test]

@@ -237,6 +237,7 @@ mod tests {
     #[test]
     fn billable_request_event_matches_successful_request() {
         let event = ConsoleEvent::ok(
+            "request-test",
             "POST",
             "/v1/messages",
             200,
@@ -254,6 +255,7 @@ mod tests {
     fn billable_request_event_ignores_logs_and_errors() {
         let log_event = ConsoleEvent::log("info", "daemon", None, "ready");
         let error_event = ConsoleEvent::upstream_error(
+            "request-test",
             "POST",
             "/v1/messages",
             123,

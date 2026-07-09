@@ -55,8 +55,11 @@ export function getClientKindConfig(kind: ClientKind): ClientKindConfig {
 }
 
 // ClientConfig - 客户端专用配置 (存储在 ApiKey.clientConfigs 中)
+export type UpstreamAuthScheme = 'x-api-key' | 'bearer' | 'none'
+
 export interface ClientConfig {
   baseUrl?: string // 覆盖 provider.baseUrl
+  authScheme?: UpstreamAuthScheme // 覆盖上游认证头
 }
 
 // 临时兼容: ProviderType -> ClientKind 映射

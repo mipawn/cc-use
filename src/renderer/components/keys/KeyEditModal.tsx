@@ -38,6 +38,7 @@ import type {
   CliConfig,
   TerminalLaunchPreview,
   ClientConfig,
+  UpstreamAuthScheme,
 } from '@shared/types'
 import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -106,6 +107,27 @@ export default function KeyEditModal({
     const pid = defaultProviderId || apiKey?.providerId
     return pid ? providers.find((p) => p.id === pid) : null
   }, [defaultProviderId, apiKey, providers])
+
+  const getDefaultAuthSchemeLabel = (clientKind: ClientKind) =>
+    clientKind === 'codex' ? 'Authorization: Bearer' : 'x-api-key'
+
+  const updateClientConfig = (clientKind: ClientKind, patch: Partial<ClientConfig>) => {
+    setClientConfigs((prev) => {
+      const next = { ...prev }
+      const merged: ClientConfig = { ...(next[clientKind] || {}), ...patch }
+
+      if (!merged.baseUrl?.trim()) delete merged.baseUrl
+      if (!merged.authScheme) delete merged.authScheme
+
+      if (!merged.baseUrl && !merged.authScheme) {
+        delete next[clientKind]
+      } else {
+        next[clientKind] = merged
+      }
+
+      return next
+    })
+  }
 
   const claudeGlobalConfig = useMemo(
     () => globalSettings.claudeConfig || {},
@@ -581,40 +603,66 @@ export default function KeyEditModal({
                 label: '客户端配置',
                 children: (
                   <div className={styles.tabPane}>
-                    <Text type='secondary' style={{ marginBottom: 16, display: 'block', fontSize: 12 }}>
-                      为不同客户端指定专用 URL,留空则使用供应商默认地址
+                    <Text
+                      type='secondary'
+                      style={{ marginBottom: 16, display: 'block', fontSize: 12 }}
+                    >
+                      为不同客户端指定专用 URL 和上游认证方式,留空则使用默认配置
                     </Text>
                     <Space direction='vertical' style={{ width: '100%' }} size={16}>
                       {selectedTypes.map((clientKind) => {
                         const config = getClientKindConfig(clientKind)
                         const currentValue = clientConfigs[clientKind]?.baseUrl || ''
-                        const isOverridden = !!currentValue
+                        const currentAuthScheme = clientConfigs[clientKind]?.authScheme
+                        const isOverridden = !!currentValue || !!currentAuthScheme
                         return (
-                          <Form.Item
-                            key={clientKind}
-                            label={
-                              <Space>
-                                <span>{config.label}</span>
-                                {isOverridden && <Badge status='processing' text='已覆盖' />}
-                              </Space>
-                            }
-                            extra={`默认: ${currentProvider?.baseUrl || '(未设置)'}`}
-                          >
-                            <Input
-                              value={currentValue}
-                              onChange={(e) => {
-                                const newConfigs = { ...clientConfigs }
-                                if (e.target.value.trim()) {
-                                  newConfigs[clientKind] = { baseUrl: e.target.value.trim() }
-                                } else {
-                                  delete newConfigs[clientKind]
-                                }
-                                setClientConfigs(newConfigs)
-                              }}
-                              placeholder={currentProvider?.baseUrl || 'https://api.example.com/v1'}
-                              size='large'
-                            />
-                          </Form.Item>
+                          <div key={clientKind}>
+                            <Space style={{ marginBottom: 8 }}>
+                              <Text strong>{config.label}</Text>
+                              {isOverridden && <Badge status='processing' text='已覆盖' />}
+                            </Space>
+                            <Space direction='vertical' style={{ width: '100%' }} size={8}>
+                              <Form.Item
+                                label='Base URL'
+                                extra={`默认: ${currentProvider?.baseUrl || '(未设置)'}`}
+                                style={{ marginBottom: 0 }}
+                              >
+                                <Input
+                                  value={currentValue}
+                                  onChange={(e) =>
+                                    updateClientConfig(clientKind, {
+                                      baseUrl: e.target.value.trim(),
+                                    })
+                                  }
+                                  placeholder={
+                                    currentProvider?.baseUrl || 'https://api.example.com/v1'
+                                  }
+                                  size='large'
+                                />
+                              </Form.Item>
+                              <Form.Item
+                                label='上游认证方式'
+                                extra={`默认: ${getDefaultAuthSchemeLabel(clientKind)}`}
+                                style={{ marginBottom: 0 }}
+                              >
+                                <Select
+                                  value={currentAuthScheme || 'default'}
+                                  onChange={(value: 'default' | UpstreamAuthScheme) => {
+                                    updateClientConfig(clientKind, {
+                                      authScheme: value === 'default' ? undefined : value,
+                                    })
+                                  }}
+                                  options={[
+                                    { label: '默认', value: 'default' },
+                                    { label: 'x-api-key', value: 'x-api-key' },
+                                    { label: 'Authorization: Bearer', value: 'bearer' },
+                                    { label: '不发认证头', value: 'none' },
+                                  ]}
+                                  size='large'
+                                />
+                              </Form.Item>
+                            </Space>
+                          </div>
                         )
                       })}
                     </Space>

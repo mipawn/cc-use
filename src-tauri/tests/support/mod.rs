@@ -156,3 +156,11 @@ pub fn create_managed_instance(
         .expect("create managed instance");
     instance
 }
+
+/// 辅助函数：快速创建 provider + key + project 三联
+pub async fn setup_provider_key_project(db: &Database, name: &str) -> (String, String, String) {
+    let provider = create_provider(db, name, "claude_code");
+    let key = create_api_key(db, &provider.id, "claude_code");
+    let project = create_project(db, Some(provider.id.clone()), Some(key.id.clone()), "claude_code");
+    (provider.id, key.id, project.id)
+}
