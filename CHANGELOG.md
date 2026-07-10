@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.7] - 2026-07-10
+
+### Fixed
+
+- 修复 API 密钥「客户端配置」中的上游认证方式保存后丢失，导致 `Authorization: Bearer` / `x-api-key` / 不发认证头覆盖不生效的问题
+
 ## [3.2.6] - 2026-07-09
 
 ### Added
