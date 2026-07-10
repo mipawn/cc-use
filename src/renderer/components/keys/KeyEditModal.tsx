@@ -42,6 +42,7 @@ import type {
 } from '@shared/types'
 import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
+import type { ApiKeyEditorInput } from '../../utils/apiKeyEditor'
 import styles from './KeyEditModal.module.css'
 
 const { Text } = Typography
@@ -53,21 +54,7 @@ interface KeyEditModalProps {
   providers: Provider[]
   defaultProviderId?: string
   onClose: () => void
-  onSave: (input: {
-    id?: string
-    providerId: string
-    alias?: string
-    value: string
-    types: ClientKind[]
-    config?: CliConfig
-    costMultiplier?: number
-    usageType?: 'none' | 'newapi' | 'custom'
-    usageUrl?: string
-    usagePath?: string
-    usageHeaders?: string
-    modelMapping?: string
-    clientConfigs?: Record<ClientKind, ClientConfig>
-  }) => Promise<void>
+  onSave: (input: ApiKeyEditorInput) => Promise<void>
 }
 
 export default function KeyEditModal({
@@ -101,7 +88,7 @@ export default function KeyEditModal({
   const [sonnetModel, setSonnetModel] = useState('')
   const [opusModel, setOpusModel] = useState('')
   const [defaultModel, setDefaultModel] = useState('')
-  const [clientConfigs, setClientConfigs] = useState<Record<ClientKind, ClientConfig>>({} as Record<ClientKind, ClientConfig>)
+  const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -196,7 +183,7 @@ export default function KeyEditModal({
       } else {
         setUsageHeaders('')
       }
-      setClientConfigs(apiKey.clientConfigs || ({} as Record<ClientKind, ClientConfig>))
+      setClientConfigs(apiKey.clientConfigs || {})
     } else {
       setUsageType('none')
       setUsageUrl('')
@@ -207,7 +194,7 @@ export default function KeyEditModal({
       setSonnetModel('')
       setOpusModel('')
       setDefaultModel('')
-      setClientConfigs({} as Record<ClientKind, ClientConfig>)
+      setClientConfigs({})
     }
 
     setJsonError(null)

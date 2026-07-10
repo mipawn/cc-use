@@ -209,3 +209,68 @@ fn api_key_types_round_trip() {
 
     assert_eq!(updated.types, vec!["claude_desktop".to_string()]);
 }
+
+#[test]
+fn api_key_client_configs_round_trip() {
+    let fixture = TempDb::new();
+    let provider = create_provider(&fixture.db, "Test", "claude");
+    let key = fixture
+        .db
+        .api_key_create(&CreateApiKeyInput {
+            provider_id: provider.id,
+            alias: Some("Company account".to_string()),
+            value: "employee-id".to_string(),
+            types: Some(vec!["claude_code".to_string()]),
+            priority: None,
+            is_active: None,
+            config: None,
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: None,
+            client_configs: None,
+        })
+        .unwrap();
+
+    let client_configs = serde_json::json!({
+        "claude_code": {
+            "baseUrl": "https://gateway.example.com",
+            "authScheme": "bearer"
+        }
+    });
+    let updated = fixture
+        .db
+        .api_key_update(&UpdateApiKeyInput {
+            id: key.id.clone(),
+            alias: None,
+            value: None,
+            types: None,
+            priority: None,
+            is_exhausted: None,
+            is_active: None,
+            config: None,
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            cached_usage: None,
+            last_usage_checked_at: None,
+            model_mapping: None,
+            client_configs: Some(client_configs.clone()),
+        })
+        .unwrap();
+
+    assert_eq!(updated.client_configs, Some(client_configs.clone()));
+    assert_eq!(
+        fixture
+            .db
+            .api_key_get(&key.id)
+            .unwrap()
+            .unwrap()
+            .client_configs,
+        Some(client_configs)
+    );
+}

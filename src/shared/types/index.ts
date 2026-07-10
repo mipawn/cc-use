@@ -267,7 +267,7 @@ export interface ApiKey {
   // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
   costMultiplier: number
   modelMapping: string | null
-  clientConfigs?: Record<ClientKind, ClientConfig>
+  clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
   // Failover state — managed by the proxy's key_selector
   cooldownUntil: string | null
   lastErrorAt: string | null
@@ -289,7 +289,7 @@ export interface CreateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   modelMapping?: string
-  clientConfigs?: Record<ClientKind, ClientConfig>
+  clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
 }
 
 export interface UpdateApiKeyInput {
@@ -307,7 +307,7 @@ export interface UpdateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   modelMapping?: string
-  clientConfigs?: Record<ClientKind, ClientConfig>
+  clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
 }
 
 // Project types

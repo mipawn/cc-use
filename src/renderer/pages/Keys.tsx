@@ -57,6 +57,11 @@ import {
 } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
+import {
+  toCreateApiKeyInput,
+  toUpdateApiKeyInput,
+  type ApiKeyEditorInput,
+} from '../utils/apiKeyEditor'
 import styles from './Keys.module.css'
 
 // dnd-kit sortable wrapper — defined at module level to avoid hook issues
@@ -153,7 +158,14 @@ export default function Keys() {
     deleteProvider,
     updateProvider,
   } = useProviderStore()
-  const { apiKeys, fetchAllApiKeys, getAllApiKeys, updateApiKey, deleteApiKey } = useApiKeyStore()
+  const {
+    apiKeys,
+    fetchAllApiKeys,
+    getAllApiKeys,
+    createApiKey,
+    updateApiKey,
+    deleteApiKey,
+  } = useApiKeyStore()
   const { globalSettings } = useSettingsStore()
   const terminalType = globalSettings.defaultTerminalType
 
@@ -463,50 +475,12 @@ export default function Keys() {
   }
 
   // Handle key save
-  const handleSaveKey = async (input: {
-    id?: string
-    providerId: string
-    alias?: string
-    value: string
-    types: string[] // v3.2.0: 改为 string[] 以支持 ClientKind
-    config?: Record<string, unknown>
-    costMultiplier?: number
-    usageType?: 'none' | 'newapi' | 'custom'
-    usageUrl?: string
-    usagePath?: string
-    usageHeaders?: string
-    modelMapping?: string
-  }) => {
+  const handleSaveKey = async (input: ApiKeyEditorInput) => {
     if (input.id) {
-      await getApi().apiKey.update({
-        id: input.id,
-        alias: input.alias,
-        value: input.value,
-        types: input.types as any,
-        config: input.config,
-        costMultiplier: input.costMultiplier,
-        usageType: input.usageType,
-        usageUrl: input.usageUrl,
-        usagePath: input.usagePath,
-        usageHeaders: input.usageHeaders,
-        modelMapping: input.modelMapping,
-      })
+      await updateApiKey(toUpdateApiKeyInput(input))
     } else {
-      await getApi().apiKey.create({
-        providerId: input.providerId,
-        alias: input.alias,
-        value: input.value,
-        types: input.types as any,
-        config: input.config,
-        costMultiplier: input.costMultiplier,
-        usageType: input.usageType,
-        usageUrl: input.usageUrl,
-        usagePath: input.usagePath,
-        usageHeaders: input.usageHeaders,
-        modelMapping: input.modelMapping,
-      })
+      await createApiKey(toCreateApiKeyInput(input))
     }
-    fetchAllApiKeys(providers.map((p) => p.id))
   }
 
   return (

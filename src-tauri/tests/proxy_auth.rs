@@ -144,6 +144,7 @@ async fn start_codex_mock_upstream() -> CodexMockUpstream {
 fn setup_session_with_type(
     provider_type: &str,
     upstream_port: u16,
+    auth_scheme: Option<&str>,
 ) -> (Arc<cc_use_lib::proxy::ProxyState>, String) {
     let path =
         std::env::temp_dir().join(format!("cc-use-proxy-auth-type-{}.db", nanoid::nanoid!(8)));
@@ -171,6 +172,26 @@ fn setup_session_with_type(
         .expect("create provider");
 
     let api_key = create_api_key(&db, &provider.id, provider_type);
+    if let Some(auth_scheme) = auth_scheme {
+        let client_kind = match provider_type {
+            "claude" => "claude_code",
+            other => other,
+        };
+        let client_configs = serde_json::Value::Object(
+            [(
+                client_kind.to_string(),
+                serde_json::json!({ "authScheme": auth_scheme }),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        db.conn
+            .execute(
+                "UPDATE api_keys SET client_configs = ?1 WHERE id = ?2",
+                rusqlite::params![client_configs.to_string(), api_key.id],
+            )
+            .expect("persist client auth scheme");
+    }
     let session_token = format!("session-{}", nanoid::nanoid!(16));
     db.proxy_session_create(&ProxySession {
         session_token: session_token.clone(),
@@ -193,7 +214,7 @@ fn setup_session_with_type(
 #[tokio::test]
 async fn claude_provider_only_sends_x_api_key() {
     let mock = start_mock_upstream().await;
-    let (state, session_token) = setup_session_with_type("claude", mock.port);
+    let (state, session_token) = setup_session_with_type("claude", mock.port, None);
 
     let request = Request::builder()
         .method("POST")
@@ -219,9 +240,37 @@ async fn claude_provider_only_sends_x_api_key() {
 }
 
 #[tokio::test]
+async fn claude_bearer_override_replaces_session_token_with_saved_key() {
+    let mock = start_mock_upstream().await;
+    let (state, session_token) = setup_session_with_type("claude", mock.port, Some("bearer"));
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"claude-sonnet-4-6","messages":[]}"#))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await;
+    assert!(response.is_ok(), "proxy should forward successfully");
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let headers = mock.received_headers.lock().unwrap();
+    assert_eq!(
+        headers.get("authorization").map(|s| s.as_str()),
+        Some("Bearer sk-claude")
+    );
+    assert!(
+        !headers.contains_key("x-api-key"),
+        "x-api-key header should be removed for bearer override"
+    );
+}
+
+#[tokio::test]
 async fn codex_provider_only_sends_authorization_bearer() {
     let mock = start_mock_upstream().await;
-    let (state, session_token) = setup_session_with_type("codex", mock.port);
+    let (state, session_token) = setup_session_with_type("codex", mock.port, None);
 
     let request = Request::builder()
         .method("POST")
