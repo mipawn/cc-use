@@ -6,7 +6,6 @@ use cc_use_lib::models::{
     Provider, ProxySession,
 };
 use cc_use_lib::proxy::ProxyState;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
@@ -98,7 +97,6 @@ pub fn build_proxy_state(db: Database) -> Arc<ProxyState> {
     let (console_tx, _rx) = tokio::sync::broadcast::channel(256);
     Arc::new(ProxyState {
         db: Arc::new(Mutex::new(db)),
-        sessions: Arc::new(Mutex::new(HashMap::new())),
         request_count: Arc::new(AtomicU64::new(0)),
         last_error: Arc::new(Mutex::new(None)),
         console_tx,
@@ -113,12 +111,18 @@ pub fn create_proxy_session(
     api_key_id: &str,
     project_id: Option<&str>,
 ) {
+    let now = chrono::Utc::now().to_rfc3339();
     db.proxy_session_create(&ProxySession {
         session_token: session_token.to_string(),
         provider_id: provider_id.to_string(),
         api_key_id: api_key_id.to_string(),
         project_id: project_id.map(|id| id.to_string()),
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: now.clone(),
+        session_kind: "manual".to_string(),
+        last_seen_at: now,
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: None,
     })
     .expect("create proxy session")

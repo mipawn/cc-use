@@ -207,7 +207,7 @@ pub async fn proxy_handler(
             }
         };
         let route_plan = route_plan_with_codex_takeover_fallback(&db, &req_path, &request_auth);
-        match build_route_execution(&db, &state, &req_path, route_plan, &emit) {
+        match build_route_execution(&db, &req_path, route_plan, &emit) {
             Ok(re) => re,
             Err(resp) => return Err(resp),
         }
@@ -652,15 +652,13 @@ fn route_plan_with_codex_takeover_fallback(
 
 fn build_route_execution(
     db: &Database,
-    state: &Arc<ProxyState>,
     req_path: &str,
     route_plan: RoutePlan,
     emit: &EmitCtx,
 ) -> Result<RouteExecution, Response<Body>> {
     match route_plan {
         RoutePlan::ExplicitSession { session_token } => {
-            let (session, provider, api_key) =
-                resolve_session_resources(db, state, &session_token, emit)?;
+            let (session, provider, api_key) = resolve_session_resources(db, &session_token, emit)?;
             let project_name = session
                 .project_id
                 .as_deref()
@@ -754,67 +752,102 @@ fn is_codex_responses_request_path(req_path: &str) -> bool {
 
 fn resolve_session_resources(
     db: &Database,
-    state: &Arc<ProxyState>,
     session_token: &str,
     emit: &EmitCtx,
 ) -> Result<(ProxySession, Provider, ApiKey), Response<Body>> {
-    let resolved = db
-        .proxy_session_get(session_token)
-        .ok()
-        .flatten()
-        .and_then(|session| {
-            let provider = db.provider_get(&session.provider_id).ok().flatten();
-            let api_key = db.api_key_get(&session.api_key_id).ok().flatten();
-            Some((session, provider, api_key))
-        });
+    let session = match db.proxy_session_get(session_token) {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            let reason = "Session not found";
+            emit.reject(reason);
+            return Err(error_response(StatusCode::UNAUTHORIZED, reason));
+        }
+        Err(error) => {
+            emit.reject("Failed to read session");
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to read session: {}", error),
+            ));
+        }
+    };
 
-    let (session, provider, api_key) = if let Some((s, p, k)) = resolved {
-        let mut sessions = match state.sessions.lock() {
-            Ok(g) => g,
-            Err(_) => {
-                emit.reject("Session lock failed");
-                return Err(error_response(
+    if session.revoked_at.is_some() {
+        let reason = session
+            .revoked_reason
+            .as_deref()
+            .map(|reason| format!("Session revoked: {}", reason))
+            .unwrap_or_else(|| "Session revoked".to_string());
+        emit.reject(&reason);
+        return Err(error_response(StatusCode::UNAUTHORIZED, &reason));
+    }
+
+    if session
+        .expires_at
+        .as_deref()
+        .is_some_and(session_time_has_passed)
+    {
+        let reason = "Session expired";
+        emit.reject(reason);
+        return Err(error_response(StatusCode::UNAUTHORIZED, reason));
+    }
+
+    if session.session_kind == "managed" {
+        let instance = db
+            .managed_instance_get_by_session_token(session_token)
+            .map_err(|error| {
+                error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Session lock failed",
-                ));
-            }
-        };
-        sessions.insert(s.session_token.clone(), s.clone());
-        (s, p, k)
-    } else {
-        let cached = {
-            let sessions = match state.sessions.lock() {
-                Ok(g) => g,
-                Err(_) => {
-                    emit.reject("Session lock failed");
-                    return Err(error_response(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Session lock failed",
-                    ));
-                }
-            };
-            sessions.get(session_token).cloned()
-        };
-        match cached {
-            Some(s) => {
-                let provider = db.provider_get(&s.provider_id).ok().flatten();
-                let api_key = db.api_key_get(&s.api_key_id).ok().flatten();
-                (s, provider, api_key)
+                    &format!("Failed to read managed instance: {}", error),
+                )
+            })?;
+        match instance {
+            Some(instance)
+                if matches!(instance.status.as_str(), "launching" | "running" | "stale") => {}
+            Some(_) => {
+                let reason = "Managed session is no longer active";
+                emit.reject(reason);
+                return Err(error_response(StatusCode::UNAUTHORIZED, reason));
             }
             None => {
-                let reason = "Session not found or expired";
+                let reason = "Managed session has no instance";
                 emit.reject(reason);
                 return Err(error_response(StatusCode::UNAUTHORIZED, reason));
             }
         }
-    };
+    }
 
+    let provider = match db.provider_get(&session.provider_id) {
+        Ok(provider) => provider,
+        Err(error) => {
+            emit.reject("Failed to read provider");
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to read provider: {}", error),
+            ));
+        }
+    };
     let provider = match provider {
         Some(p) => p,
         None => {
             let reason = "Provider not found";
             emit.reject(reason);
             return Err(error_response(StatusCode::NOT_FOUND, reason));
+        }
+    };
+    if !provider.is_active {
+        let reason = "Provider is disabled";
+        emit.reject(reason);
+        return Err(error_response(StatusCode::FORBIDDEN, reason));
+    }
+
+    let api_key = match db.api_key_get(&session.api_key_id) {
+        Ok(api_key) => api_key,
+        Err(error) => {
+            emit.reject("Failed to read API key");
+            return Err(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to read API key: {}", error),
+            ));
         }
     };
     let api_key = match api_key {
@@ -825,7 +858,55 @@ fn resolve_session_resources(
             return Err(error_response(StatusCode::NOT_FOUND, reason));
         }
     };
+
+    if api_key.provider_id != provider.id {
+        let reason = "API key does not belong to session provider";
+        emit.reject(reason);
+        return Err(error_response(StatusCode::FORBIDDEN, reason));
+    }
+    if !api_key.is_active {
+        let reason = "API key is disabled";
+        emit.reject(reason);
+        return Err(error_response(StatusCode::FORBIDDEN, reason));
+    }
+    if api_key.is_exhausted {
+        let reason = "API key is marked exhausted";
+        emit.reject(reason);
+        return Err(error_response(StatusCode::FORBIDDEN, reason));
+    }
+    if !api_key_supports_session_client(&api_key, session.cli_type.as_deref()) {
+        let reason = "API key does not support this client";
+        emit.reject(reason);
+        return Err(error_response(StatusCode::FORBIDDEN, reason));
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    if let Err(error) = db.proxy_session_touch(session_token, &now) {
+        emit.reject("Failed to update session activity");
+        return Err(error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to update session activity: {}", error),
+        ));
+    }
     Ok((session, provider, api_key))
+}
+
+fn session_time_has_passed(value: &str) -> bool {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|time| time.with_timezone(&chrono::Utc) <= chrono::Utc::now())
+        .unwrap_or(true)
+}
+
+fn api_key_supports_session_client(api_key: &ApiKey, cli_type: Option<&str>) -> bool {
+    let required_type = match cli_type {
+        Some("codex" | "codex-app") => Some("codex"),
+        Some("claude_desktop") => Some("claude_desktop"),
+        Some("claude" | "claude_code") => Some("claude_code"),
+        Some(_) => return false,
+        None => None,
+    };
+
+    required_type.is_none_or(|required| api_key.types.iter().any(|kind| kind == required))
 }
 
 fn build_provider_upstream_url(
@@ -1629,6 +1710,11 @@ mod tests {
             api_key_id: "key".to_string(),
             project_id: None,
             created_at: chrono::Utc::now().to_rfc3339(),
+            session_kind: "desktop".to_string(),
+            last_seen_at: chrono::Utc::now().to_rfc3339(),
+            expires_at: None,
+            revoked_at: None,
+            revoked_reason: None,
             cli_type: Some("codex-app".to_string()),
         })
         .unwrap();
@@ -1944,7 +2030,6 @@ mod tests {
         let (console_tx, _rx) = tokio::sync::broadcast::channel(8);
         let state = std::sync::Arc::new(crate::proxy::ProxyState {
             db: std::sync::Arc::new(std::sync::Mutex::new(Database::new_in_memory().unwrap())),
-            sessions: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             request_count: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
             console_tx,

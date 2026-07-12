@@ -242,6 +242,11 @@ pub struct ProxySession {
     pub api_key_id: String,
     pub project_id: Option<String>,
     pub created_at: String,
+    pub session_kind: String,
+    pub last_seen_at: String,
+    pub expires_at: Option<String>,
+    pub revoked_at: Option<String>,
+    pub revoked_reason: Option<String>,
     // Client marker used by config-takeover routing and request logging.
     pub cli_type: Option<String>,
 }

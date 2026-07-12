@@ -538,11 +538,14 @@ fn restore_desktop_config(app: &AppHandle, client_kind: &str) {
     let app_handle = app.clone();
     let client_kind = client_kind.to_string();
     tauri::async_runtime::spawn(async move {
+        let db_state = app_handle.state::<Arc<Mutex<Database>>>();
+        let db_arc = db_state.inner().clone();
+        drop(db_state);
         let result = match client_kind.as_str() {
-            "codex" => crate::commands::codex_config::codex_config_restore_inner()
+            "codex" => crate::commands::codex_config::codex_config_restore_inner(&db_arc)
                 .map(|_| CODEX_LAST_API_KEY_SETTING_KEY),
             "claude_desktop" => {
-                crate::commands::claude_desktop_config::claude_desktop_config_restore_inner()
+                crate::commands::claude_desktop_config::claude_desktop_config_restore_inner(&db_arc)
                     .map(|_| CLAUDE_DESKTOP_LAST_API_KEY_SETTING_KEY)
             }
             _ => Err("Unsupported desktop client".to_string()),

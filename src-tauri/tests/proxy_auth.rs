@@ -172,6 +172,14 @@ fn setup_session_with_type(
         .expect("create provider");
 
     let api_key = create_api_key(&db, &provider.id, provider_type);
+    if provider_type == "claude" {
+        db.conn
+            .execute(
+                "UPDATE api_keys SET types = '[\"claude_code\"]' WHERE id = ?1",
+                [&api_key.id],
+            )
+            .expect("normalize Claude key type");
+    }
     if let Some(auth_scheme) = auth_scheme {
         let client_kind = match provider_type {
             "claude" => "claude_code",
@@ -199,6 +207,11 @@ fn setup_session_with_type(
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        session_kind: "manual".to_string(),
+        last_seen_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: Some(match provider_type {
             "codex" => "codex-app".to_string(),
             "claude" => "claude_code".to_string(),
@@ -391,6 +404,11 @@ async fn codex_app_responses_request_uses_session_and_passes_responses_through()
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        session_kind: "manual".to_string(),
+        last_seen_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
     })
     .expect("create proxy session");
@@ -463,6 +481,11 @@ async fn codex_responses_request_with_legacy_session_type_passes_responses_throu
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        session_kind: "manual".to_string(),
+        last_seen_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: None,
     })
     .expect("create legacy proxy session");
@@ -535,6 +558,11 @@ async fn codex_responses_request_with_non_session_auth_uses_takeover_session() {
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        session_kind: "desktop".to_string(),
+        last_seen_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
     })
     .expect("create takeover proxy session");
@@ -626,6 +654,11 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        session_kind: "manual".to_string(),
+        last_seen_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
     })
     .expect("create proxy session");
@@ -714,6 +747,11 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        session_kind: "manual".to_string(),
+        last_seen_at: chrono::Utc::now().to_rfc3339(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
     })
     .expect("create proxy session");

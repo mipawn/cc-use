@@ -74,6 +74,11 @@ fn seed_managed_instance(db: &Database) -> String {
         api_key_id: api_key.id.clone(),
         project_id: None,
         created_at: "2026-04-14T16:00:00Z".to_string(),
+        session_kind: "managed".to_string(),
+        last_seen_at: "2026-04-14T16:00:00Z".to_string(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: None,
     })
     .expect("create proxy session");
@@ -233,6 +238,12 @@ async fn stop_marks_managed_instance_as_stopped() {
     assert_eq!(instance.status, "stopped");
     assert_eq!(instance.stop_reason, Some("process_exit".to_string()));
     assert_eq!(instance.exit_code, Some(0));
+    let session = db
+        .proxy_session_get(&instance.session_token)
+        .expect("query session")
+        .expect("session exists");
+    assert!(session.revoked_at.is_some());
+    assert_eq!(session.revoked_reason.as_deref(), Some("stopped"));
 }
 
 /// The console SSE endpoint must require the same management token auth

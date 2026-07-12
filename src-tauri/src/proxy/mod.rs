@@ -1,6 +1,4 @@
 use crate::db::Database;
-use crate::models::ProxySession;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
@@ -20,7 +18,6 @@ const CONSOLE_CHANNEL_CAPACITY: usize = 256;
 /// Shared state for the proxy server
 pub struct ProxyState {
     pub db: Arc<Mutex<Database>>,
-    pub sessions: Arc<Mutex<HashMap<String, ProxySession>>>,
     pub request_count: Arc<AtomicU64>,
     pub last_error: Arc<Mutex<Option<String>>>,
     /// Fan-out channel for realtime console events. Always present; if
@@ -42,21 +39,10 @@ impl ProxyState {
 }
 
 pub fn build_proxy_state(db: Arc<Mutex<Database>>) -> Result<Arc<ProxyState>, String> {
-    let sessions = {
-        let db = db.lock().map_err(|e| e.to_string())?;
-        let db_sessions = db.proxy_session_list().map_err(|e| e.to_string())?;
-        let mut map = HashMap::new();
-        for session in db_sessions {
-            map.insert(session.session_token.clone(), session);
-        }
-        Arc::new(Mutex::new(map))
-    };
-
     let (console_tx, _rx) = broadcast::channel(CONSOLE_CHANNEL_CAPACITY);
 
     Ok(Arc::new(ProxyState {
         db,
-        sessions,
         request_count: Arc::new(AtomicU64::new(0)),
         last_error: Arc::new(Mutex::new(None)),
         console_tx,

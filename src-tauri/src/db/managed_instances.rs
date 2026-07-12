@@ -77,6 +77,26 @@ impl Database {
         }
     }
 
+    pub fn managed_instance_get_by_session_token(
+        &self,
+        session_token: &str,
+    ) -> Result<Option<ManagedInstance>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,
+                    project_path, shell_pid, process_pid, status, assignment_source, last_seen_at,
+                    launched_at, stopped_at, stop_reason, exit_code
+             FROM managed_instances
+             WHERE session_token = ?1",
+        )?;
+
+        let mut rows = stmt.query_map([session_token], row_to_managed_instance)?;
+        match rows.next() {
+            Some(Ok(instance)) => Ok(Some(instance)),
+            Some(Err(error)) => Err(error),
+            None => Ok(None),
+        }
+    }
+
     pub fn managed_instance_list_active(&self) -> Result<Vec<ManagedInstance>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,

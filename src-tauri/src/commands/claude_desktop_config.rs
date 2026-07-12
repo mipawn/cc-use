@@ -691,12 +691,18 @@ pub fn claude_desktop_config_takeover_inner(
             .map_err(|e| format!("读取密钥失败: {}", e))?
             .ok_or_else(|| "密钥不存在".to_string())?;
         let session_token = get_or_create_gateway_session_token(&db)?;
+        let now = chrono::Utc::now().to_rfc3339();
         let session = ProxySession {
             session_token: session_token.clone(),
             provider_id: provider_id.clone(),
             api_key_id: api_key_id.clone(),
             project_id: None,
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: now.clone(),
+            session_kind: "desktop".to_string(),
+            last_seen_at: now,
+            expires_at: None,
+            revoked_at: None,
+            revoked_reason: None,
             cli_type: Some("claude_desktop".to_string()),
         };
         db.proxy_session_create(&session)
@@ -717,14 +723,24 @@ pub fn claude_desktop_config_takeover_inner(
 
 #[tauri::command]
 pub fn claude_desktop_config_restore(
-    _db: State<'_, Arc<Mutex<Database>>>,
+    db: State<'_, Arc<Mutex<Database>>>,
 ) -> Result<String, String> {
-    claude_desktop_config_restore_inner()
+    claude_desktop_config_restore_inner(db.inner())
 }
 
-pub fn claude_desktop_config_restore_inner() -> Result<String, String> {
+pub fn claude_desktop_config_restore_inner(db: &Arc<Mutex<Database>>) -> Result<String, String> {
     let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
     mgr.restore().map_err(|e| e.to_string())?;
+    let db = db.lock().map_err(|e| e.to_string())?;
+    if let Some(token) = db
+        .settings_get_value(GATEWAY_TOKEN_SETTING_KEY)
+        .map_err(|e| e.to_string())?
+    {
+        db.proxy_session_revoke(&token, "desktop_restore", &chrono::Utc::now().to_rfc3339())
+            .map_err(|e| e.to_string())?;
+    }
+    db.settings_delete_value(GATEWAY_TOKEN_SETTING_KEY)
+        .map_err(|e| e.to_string())?;
     Ok("已恢复官方配置".to_string())
 }
 

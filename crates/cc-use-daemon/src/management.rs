@@ -151,6 +151,11 @@ async fn management_instance_stop(
         .db
         .lock()
         .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "Database lock failed"))?;
+    let session_token = db
+        .managed_instance_get(&input.instance_id)
+        .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
+        .map(|instance| instance.session_token);
+    let now = chrono::Utc::now().to_rfc3339();
     let updated = db
         .managed_instance_mark_stopped(
             &input.instance_id,
@@ -159,7 +164,7 @@ async fn management_instance_stop(
             status,
             input.stop_reason.as_deref(),
             input.exit_code,
-            &chrono::Utc::now().to_rfc3339(),
+            &now,
         )
         .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
 
@@ -168,6 +173,11 @@ async fn management_instance_stop(
             StatusCode::NOT_FOUND,
             "Managed instance not found",
         ));
+    }
+
+    if let Some(session_token) = session_token {
+        db.proxy_session_revoke(&session_token, status, &now)
+            .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
     }
 
     Ok(Json(ManagementHealthResponse { ok: true }))

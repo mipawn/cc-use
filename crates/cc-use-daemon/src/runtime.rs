@@ -88,6 +88,7 @@ fn spawn_managed_instance_sweeper(db: Arc<Mutex<Database>>) {
             if let Ok(db) = db.lock() {
                 let _ = db.managed_instance_mark_stale_older_than(&stale_cutoff.to_rfc3339());
                 let _ = db.managed_instance_stop_stale_older_than(&stop_cutoff.to_rfc3339());
+                let _ = db.proxy_session_revoke_stopped_managed(&chrono::Utc::now().to_rfc3339());
             }
         }
     });

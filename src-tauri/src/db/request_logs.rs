@@ -833,6 +833,11 @@ mod tests {
             api_key_id: "key-1".into(),
             project_id: None,
             created_at: chrono::Utc::now().to_rfc3339(),
+            session_kind: "desktop".into(),
+            last_seen_at: chrono::Utc::now().to_rfc3339(),
+            expires_at: None,
+            revoked_at: None,
+            revoked_reason: None,
             cli_type: Some("codex-app".into()),
         };
         db.proxy_session_create(&session).unwrap();
@@ -889,6 +894,11 @@ mod tests {
             api_key_id: "key-1".into(),
             project_id: None,
             created_at: chrono::Utc::now().to_rfc3339(),
+            session_kind: "desktop".into(),
+            last_seen_at: chrono::Utc::now().to_rfc3339(),
+            expires_at: None,
+            revoked_at: None,
+            revoked_reason: None,
             cli_type: Some("claude_desktop".into()),
         };
         db.proxy_session_create(&session).unwrap();

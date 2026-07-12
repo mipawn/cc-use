@@ -293,12 +293,18 @@ pub fn session_create(
     api_key_id: String,
 ) -> Result<ProxySession, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now();
     let session = ProxySession {
         session_token: new_session_token(),
         provider_id,
         api_key_id,
         project_id: None,
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: now.to_rfc3339(),
+        session_kind: "manual".to_string(),
+        last_seen_at: now.to_rfc3339(),
+        expires_at: Some((now + chrono::Duration::hours(24)).to_rfc3339()),
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: None,
     };
     db.proxy_session_create(&session)

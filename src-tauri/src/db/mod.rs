@@ -186,7 +186,12 @@ impl Database {
                 api_key_id TEXT NOT NULL,
                 project_id TEXT,
                 created_at TEXT NOT NULL,
-                cli_type TEXT
+                cli_type TEXT,
+                session_kind TEXT NOT NULL DEFAULT 'managed',
+                last_seen_at TEXT NOT NULL,
+                expires_at TEXT,
+                revoked_at TEXT,
+                revoked_reason TEXT
             );
 
             CREATE TABLE IF NOT EXISTS managed_instances (
@@ -343,11 +348,29 @@ impl Database {
             "ALTER TABLE api_keys ADD COLUMN model_mapping TEXT",
             // proxy_sessions records the client marker for config-takeover routing.
             "ALTER TABLE proxy_sessions ADD COLUMN cli_type TEXT",
+            "ALTER TABLE proxy_sessions ADD COLUMN session_kind TEXT NOT NULL DEFAULT 'managed'",
+            "ALTER TABLE proxy_sessions ADD COLUMN last_seen_at TEXT",
+            "ALTER TABLE proxy_sessions ADD COLUMN expires_at TEXT",
+            "ALTER TABLE proxy_sessions ADD COLUMN revoked_at TEXT",
+            "ALTER TABLE proxy_sessions ADD COLUMN revoked_reason TEXT",
         ];
 
         for stmt in &alter_statements {
             let _ = self.conn.execute(stmt, []);
         }
+
+        // Backfill lifecycle metadata for sessions created before v3.3.0.
+        let _ = self.conn.execute(
+            "UPDATE proxy_sessions
+             SET session_kind = CASE
+                   WHEN project_id IS NULL AND cli_type IN ('codex', 'codex-app', 'claude_desktop')
+                     THEN 'desktop'
+                   WHEN project_id IS NULL THEN 'manual'
+                   ELSE 'managed'
+                 END,
+                 last_seen_at = COALESCE(last_seen_at, created_at)",
+            [],
+        );
 
         // v3.2.0: Migrate api_keys.types from legacy 'claude' to ClientKind 'claude_code'.
         // Codex terminal launch removed; only 3 clients: claude_code / codex / claude_desktop.

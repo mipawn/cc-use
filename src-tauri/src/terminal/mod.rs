@@ -352,6 +352,11 @@ fn prepare_managed_launch(
         api_key_id: context.api_key_id.clone(),
         project_id: Some(context.project_id.clone()),
         created_at: launched_at.clone(),
+        session_kind: "managed".to_string(),
+        last_seen_at: launched_at.clone(),
+        expires_at: None,
+        revoked_at: None,
+        revoked_reason: None,
         cli_type: Some(context.cli_type.clone()),
     };
     if let Err(error) = db.proxy_session_create(&session) {
@@ -400,6 +405,12 @@ fn prepare_managed_launch(
 }
 
 fn mark_launch_failed(db: &Database, instance_id: &str, stop_reason: &str) {
+    let session_token = db
+        .managed_instance_get(instance_id)
+        .ok()
+        .flatten()
+        .map(|instance| instance.session_token);
+    let now = chrono::Utc::now().to_rfc3339();
     let _ = db.managed_instance_mark_stopped(
         instance_id,
         None,
@@ -407,8 +418,11 @@ fn mark_launch_failed(db: &Database, instance_id: &str, stop_reason: &str) {
         "failed",
         Some(stop_reason),
         None,
-        &chrono::Utc::now().to_rfc3339(),
+        &now,
     );
+    if let Some(session_token) = session_token {
+        let _ = db.proxy_session_revoke(&session_token, stop_reason, &now);
+    }
 }
 
 fn launch_with_preview(
