@@ -7,7 +7,6 @@ use cc_use_lib::models::{
 };
 use cc_use_lib::proxy::ProxyState;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 pub struct TempDb {
@@ -94,14 +93,8 @@ pub fn create_project(
 }
 
 pub fn build_proxy_state(db: Database) -> Arc<ProxyState> {
-    let (console_tx, _rx) = tokio::sync::broadcast::channel(256);
-    Arc::new(ProxyState {
-        db: Arc::new(Mutex::new(db)),
-        request_count: Arc::new(AtomicU64::new(0)),
-        last_error: Arc::new(Mutex::new(None)),
-        console_tx,
-        detail_mode: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    })
+    cc_use_lib::proxy::build_proxy_state(Arc::new(Mutex::new(db)))
+        .expect("build proxy state")
 }
 
 pub fn create_proxy_session(

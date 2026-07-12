@@ -128,3 +128,16 @@ fn flush_incomplete_final_line() {
     assert_eq!(usage.input_tokens, 100);
     assert_eq!(usage.output_tokens, 50);
 }
+
+#[test]
+fn oversized_sse_line_is_discarded_without_losing_following_usage() {
+    let mut accumulator = StreamUsageAccumulator::new();
+    accumulator.process_bytes(b"data: ");
+    accumulator.process_bytes(&vec![b'a'; 1024 * 1024 + 1]);
+    accumulator.process_bytes(
+        b"\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":77}}\n\n",
+    );
+    accumulator.flush();
+
+    assert_eq!(accumulator.get_usage().unwrap().output_tokens, 77);
+}

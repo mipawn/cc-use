@@ -1,7 +1,8 @@
 use crate::db::Database;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 
 pub mod console;
 pub mod handler;
@@ -14,6 +15,14 @@ pub use console::{now_timestamp, ConsoleEvent};
 /// requests while a subscriber catches up, but small enough that a
 /// disconnected subscriber just loses history rather than pinning memory.
 const CONSOLE_CHANNEL_CAPACITY: usize = 256;
+const GLOBAL_CONCURRENCY_LIMIT: usize = 64;
+const SESSION_CONCURRENCY_LIMIT: usize = 16;
+
+#[derive(Debug)]
+pub struct RequestPermits {
+    _global: OwnedSemaphorePermit,
+    _session: Option<OwnedSemaphorePermit>,
+}
 
 /// Shared state for the proxy server
 pub struct ProxyState {
@@ -27,6 +36,8 @@ pub struct ProxyState {
     /// captures request/response body + headers (desensitised) and attaches
     /// them to ConsoleEvent::Request. Toggled via the management endpoint.
     pub detail_mode: Arc<AtomicBool>,
+    global_concurrency: Arc<Semaphore>,
+    session_concurrency: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
 }
 
 impl ProxyState {
@@ -35,6 +46,45 @@ impl ProxyState {
     /// is dropped on purpose; the console never tries to replay history.
     pub fn emit_console(&self, event: ConsoleEvent) {
         let _ = self.console_tx.send(event);
+    }
+
+    pub fn try_acquire_request_permits(
+        &self,
+        session_token: Option<&str>,
+    ) -> Result<RequestPermits, &'static str> {
+        let global = self
+            .global_concurrency
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "Local gateway global concurrency limit reached")?;
+
+        let session = if let Some(session_token) = session_token {
+            let semaphore = {
+                let mut semaphores = self
+                    .session_concurrency
+                    .lock()
+                    .map_err(|_| "Local gateway concurrency state unavailable")?;
+                if semaphores.len() >= 1024 {
+                    semaphores.retain(|_, semaphore| Arc::strong_count(semaphore) > 1);
+                }
+                semaphores
+                    .entry(session_token.to_string())
+                    .or_insert_with(|| Arc::new(Semaphore::new(SESSION_CONCURRENCY_LIMIT)))
+                    .clone()
+            };
+            Some(
+                semaphore
+                    .try_acquire_owned()
+                    .map_err(|_| "Local gateway session concurrency limit reached")?,
+            )
+        } else {
+            None
+        };
+
+        Ok(RequestPermits {
+            _global: global,
+            _session: session,
+        })
     }
 }
 
@@ -47,6 +97,8 @@ pub fn build_proxy_state(db: Arc<Mutex<Database>>) -> Result<Arc<ProxyState>, St
         last_error: Arc::new(Mutex::new(None)),
         console_tx,
         detail_mode: Arc::new(AtomicBool::new(false)),
+        global_concurrency: Arc::new(Semaphore::new(GLOBAL_CONCURRENCY_LIMIT)),
+        session_concurrency: Arc::new(Mutex::new(HashMap::new())),
     }))
 }
 
@@ -54,4 +106,48 @@ pub fn build_proxy_router(state: Arc<ProxyState>) -> axum::Router {
     axum::Router::new()
         .fallback(axum::routing::any(crate::proxy::handler::proxy_handler))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrency_limits_are_bounded_and_release_with_permits() {
+        let state =
+            build_proxy_state(Arc::new(Mutex::new(Database::new_in_memory().unwrap()))).unwrap();
+
+        let mut session_permits = Vec::new();
+        for _ in 0..SESSION_CONCURRENCY_LIMIT {
+            session_permits.push(
+                state
+                    .try_acquire_request_permits(Some("session-one"))
+                    .unwrap(),
+            );
+        }
+        assert!(state
+            .try_acquire_request_permits(Some("session-one"))
+            .is_err());
+        assert!(state
+            .try_acquire_request_permits(Some("session-two"))
+            .is_ok());
+
+        session_permits.pop();
+        assert!(state
+            .try_acquire_request_permits(Some("session-one"))
+            .is_ok());
+    }
+
+    #[test]
+    fn global_concurrency_limit_applies_to_passthrough_requests() {
+        let state =
+            build_proxy_state(Arc::new(Mutex::new(Database::new_in_memory().unwrap()))).unwrap();
+        let permits = (0..GLOBAL_CONCURRENCY_LIMIT)
+            .map(|_| state.try_acquire_request_permits(None).unwrap())
+            .collect::<Vec<_>>();
+
+        assert!(state.try_acquire_request_permits(None).is_err());
+        drop(permits);
+        assert!(state.try_acquire_request_permits(None).is_ok());
+    }
 }

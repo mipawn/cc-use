@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+const MAX_SSE_LINE_BUFFER_BYTES: usize = 1024 * 1024;
+
 /// Token usage from API response
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TokenUsage {
@@ -120,8 +122,10 @@ pub struct StreamUsageAccumulator {
     invalid_json_count: usize,
     event_types: Vec<String>,
     top_level_keys: Vec<String>,
-    /// Buffer for incomplete lines that span across TCP chunks
-    line_buffer: String,
+    /// Raw bytes for an incomplete SSE line spanning transport chunks.
+    /// Bytes preserve JSON when a UTF-8 codepoint is split across chunks.
+    line_buffer: Vec<u8>,
+    discarding_oversized_line: bool,
 }
 
 impl StreamUsageAccumulator {
@@ -136,33 +140,48 @@ impl StreamUsageAccumulator {
             invalid_json_count: 0,
             event_types: Vec::new(),
             top_level_keys: Vec::new(),
-            line_buffer: String::new(),
+            line_buffer: Vec::new(),
+            discarding_oversized_line: false,
         }
     }
 
     pub fn process_chunk(&mut self, chunk: &str) {
-        // Prepend any buffered incomplete line from previous chunk
-        let data_to_process = if self.line_buffer.is_empty() {
-            chunk.to_string()
+        self.process_bytes(chunk.as_bytes());
+    }
+
+    pub fn process_bytes(&mut self, chunk: &[u8]) {
+        let chunk = if self.discarding_oversized_line {
+            let Some(line_end) = chunk.iter().position(|byte| *byte == b'\n') else {
+                return;
+            };
+            self.discarding_oversized_line = false;
+            &chunk[line_end + 1..]
         } else {
-            let combined = format!("{}{}", self.line_buffer, chunk);
-            self.line_buffer.clear();
-            combined
+            chunk
         };
+        self.line_buffer.extend_from_slice(chunk);
 
-        // If the chunk doesn't end with a newline, the last line is incomplete
-        let ends_with_newline = data_to_process.ends_with('\n');
-        let lines: Vec<&str> = data_to_process.lines().collect();
-
-        for (i, line) in lines.iter().enumerate() {
-            // If this is the last line and chunk didn't end with newline,
-            // buffer it for the next chunk
-            if i == lines.len() - 1 && !ends_with_newline {
-                self.line_buffer = line.to_string();
-                break;
+        while let Some(line_end) = self.line_buffer.iter().position(|byte| *byte == b'\n') {
+            if line_end > MAX_SSE_LINE_BUFFER_BYTES {
+                self.line_buffer.drain(..=line_end);
+                self.invalid_json_count += 1;
+                continue;
             }
+            let mut line = self.line_buffer.drain(..=line_end).collect::<Vec<_>>();
+            if line.last() == Some(&b'\n') {
+                line.pop();
+            }
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            let line = String::from_utf8_lossy(&line);
+            self.process_sse_line(&line);
+        }
 
-            self.process_sse_line(line);
+        if self.line_buffer.len() > MAX_SSE_LINE_BUFFER_BYTES {
+            self.line_buffer.clear();
+            self.discarding_oversized_line = true;
+            self.invalid_json_count += 1;
         }
     }
 
@@ -286,6 +305,7 @@ impl StreamUsageAccumulator {
     pub fn flush(&mut self) {
         if !self.line_buffer.is_empty() {
             let line = std::mem::take(&mut self.line_buffer);
+            let line = String::from_utf8_lossy(&line);
             self.process_sse_line(&line);
         }
     }

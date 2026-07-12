@@ -2,7 +2,7 @@ use crate::db::Database;
 use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
 use crate::proxy::usage_parser;
-use crate::proxy::ProxyState;
+use crate::proxy::{ProxyState, RequestPermits};
 use crate::services::cost_calculator;
 use crate::shared_runtime::{
     classify_request_auth, decide_route_plan, infer_upstream_family_from_path, RequestAuth,
@@ -21,6 +21,12 @@ use futures::{SinkExt, Stream, StreamExt};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+
+const MAX_REQUEST_BODY_BYTES: usize = 50 * 1024 * 1024;
+const MAX_NON_STREAM_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_DECOMPRESSED_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_COMPRESSED_STREAM_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_STREAM_DETAIL_CAPTURE_BYTES: usize = 256 * 1024;
 
 struct RouteExecution {
     upstream_url: String,
@@ -195,6 +201,17 @@ pub async fn proxy_handler(
         start_time,
     };
 
+    let request_permits = match state.try_acquire_request_permits(match &request_auth {
+        RequestAuth::SessionToken(token) => Some(token.as_str()),
+        _ => None,
+    }) {
+        Ok(permits) => permits,
+        Err(reason) => {
+            emit.reject(reason);
+            return Err(error_response(StatusCode::TOO_MANY_REQUESTS, reason));
+        }
+    };
+
     let route_execution = {
         let db = match state.db.lock() {
             Ok(db) => db,
@@ -246,7 +263,10 @@ pub async fn proxy_handler(
                 .and_then(|c| c.key_alias.as_deref()),
         );
         return Ok(ws_upgrade
-            .on_upgrade(move |socket| ws_relay(socket, ws_url, route_execution.real_api_key))
+            .on_upgrade(move |socket| async move {
+                let _request_permits = request_permits;
+                ws_relay(socket, ws_url, route_execution.real_api_key).await;
+            })
             .into_response());
     }
 
@@ -334,13 +354,13 @@ pub async fn proxy_handler(
     headers.remove("accept-encoding");
     headers.remove("content-length");
 
-    let body_bytes = match axum::body::to_bytes(req.into_body(), 50 * 1024 * 1024).await {
+    let body_bytes = match axum::body::to_bytes(req.into_body(), MAX_REQUEST_BODY_BYTES).await {
         Ok(b) => b,
         Err(_) => {
             emit.reject("Failed to read request body");
             return Err(error_response(
-                StatusCode::BAD_REQUEST,
-                "Failed to read request body",
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Request body exceeds local size limit or could not be read",
             ));
         }
     };
@@ -478,13 +498,19 @@ pub async fn proxy_handler(
                 provider_name: provider_snapshot.clone(),
                 key_alias: key_snapshot.clone(),
                 request_headers: headers.clone(),
-                request_body: body_bytes.to_vec(),
+                request_body: if detail_capture {
+                    body_bytes.to_vec()
+                } else {
+                    Vec::new()
+                },
                 response_headers: resp_headers.clone(),
             }),
             finished: false,
             content_encoding: content_encoding.clone(),
             detail_capture,
-            raw_buffer: Vec::new(),
+            capture_buffer: Vec::new(),
+            capture_truncated: false,
+            _request_permits: Some(request_permits),
         };
 
         let mut response = Response::builder().status(status.as_u16());
@@ -506,24 +532,54 @@ pub async fn proxy_handler(
             }));
     }
 
-    let resp_bytes = match upstream_resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => {
-            let err_text = e.to_string();
+    if resp_headers
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+        .is_some_and(|length| length > MAX_NON_STREAM_RESPONSE_BYTES)
+    {
+        let reason = "Upstream response exceeds local size limit";
+        emit.upstream_error(
+            &route_execution.upstream_url,
+            provider_snapshot.as_deref(),
+            key_snapshot.as_deref(),
+            reason,
+        );
+        return Err(error_response(StatusCode::BAD_GATEWAY, reason));
+    }
+
+    let resp_bytes = match collect_response_body_limited(
+        upstream_resp.bytes_stream(),
+        MAX_NON_STREAM_RESPONSE_BYTES,
+    )
+    .await
+    {
+        Ok(bytes) => bytes,
+        Err(err_text) => {
             emit.upstream_error(
                 &route_execution.upstream_url,
                 provider_snapshot.as_deref(),
                 key_snapshot.as_deref(),
                 &err_text,
             );
-            return Err(error_response(
-                StatusCode::BAD_GATEWAY,
-                &format!("Failed to read response: {}", err_text),
-            ));
+            return Err(error_response(StatusCode::BAD_GATEWAY, &err_text));
         }
     };
 
-    let decoded = decompress(&resp_bytes, &content_encoding);
+    let decoded = match decompress_limited(
+        &resp_bytes,
+        &content_encoding,
+        MAX_DECOMPRESSED_CAPTURE_BYTES,
+    ) {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            log::warn!(
+                "Skipping oversized decompressed response capture: {}",
+                error
+            );
+            Vec::new()
+        }
+    };
     let response_text = String::from_utf8_lossy(&decoded);
     let (usage, model, is_streaming) =
         usage_parser::parse_usage_from_response_data(&response_text, &content_type);
@@ -1159,33 +1215,49 @@ fn should_forward_response_header(name: &str) -> bool {
     )
 }
 
-fn decompress(data: &[u8], encoding: &str) -> Vec<u8> {
-    if encoding.contains("gzip") {
-        use flate2::read::GzDecoder;
-        use std::io::Read;
-        let mut decoder = GzDecoder::new(data);
-        let mut decoded = Vec::new();
-        if decoder.read_to_end(&mut decoded).is_ok() {
-            return decoded;
+async fn collect_response_body_limited<S>(mut stream: S, limit: usize) -> Result<Vec<u8>, String>
+where
+    S: Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Unpin,
+{
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("Failed to read response: {}", error))?;
+        if body.len().saturating_add(chunk.len()) > limit {
+            return Err("Upstream response exceeds local size limit".to_string());
         }
-    } else if encoding.contains("br") {
-        use brotli::Decompressor;
-        use std::io::Read;
-        let mut decoder = Decompressor::new(data, 4096);
-        let mut decoded = Vec::new();
-        if decoder.read_to_end(&mut decoded).is_ok() {
-            return decoded;
-        }
-    } else if encoding.contains("deflate") {
-        use flate2::read::DeflateDecoder;
-        use std::io::Read;
-        let mut decoder = DeflateDecoder::new(data);
-        let mut decoded = Vec::new();
-        if decoder.read_to_end(&mut decoded).is_ok() {
-            return decoded;
-        }
+        body.extend_from_slice(&chunk);
     }
-    data.to_vec()
+    Ok(body)
+}
+
+fn decompress_limited(data: &[u8], encoding: &str, limit: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+
+    if encoding.is_empty() {
+        return if data.len() <= limit {
+            Ok(data.to_vec())
+        } else {
+            Err("Decoded response exceeds local capture limit".to_string())
+        };
+    }
+
+    let reader: Box<dyn Read> = if encoding.contains("gzip") {
+        Box::new(flate2::read::GzDecoder::new(data))
+    } else if encoding.contains("br") {
+        Box::new(brotli::Decompressor::new(data, 4096))
+    } else if encoding.contains("deflate") {
+        Box::new(flate2::read::DeflateDecoder::new(data))
+    } else {
+        return Ok(data.to_vec());
+    };
+
+    let mut decoded = Vec::new();
+    match reader.take(limit as u64 + 1).read_to_end(&mut decoded) {
+        Ok(_) if decoded.len() <= limit => Ok(decoded),
+        Ok(_) => Err("Decoded response exceeds local capture limit".to_string()),
+        Err(_) if data.len() <= limit => Ok(data.to_vec()),
+        Err(error) => Err(format!("Failed to decode bounded response: {}", error)),
+    }
 }
 
 struct LogContext {
@@ -1311,10 +1383,11 @@ struct UsageTrackingStream<S> {
     /// Snapshot of detail-mode at stream start. If it was enabled, buffer enough
     /// bytes to render response details even for non-billable streams.
     detail_capture: bool,
-    /// Raw upstream bytes buffered for usage parsing. Only filled when we need
-    /// to record usage (`log_ctx.is_some()`) or render detail-mode fields; the
-    /// bytes forwarded to the client are always the untouched originals.
-    raw_buffer: Vec<u8>,
+    /// Bounded capture used for compressed usage parsing or Console details.
+    /// Bytes forwarded to the client are always the untouched originals.
+    capture_buffer: Vec<u8>,
+    capture_truncated: bool,
+    _request_permits: Option<RequestPermits>,
 }
 
 impl<S> Stream for UsageTrackingStream<S>
@@ -1332,13 +1405,30 @@ where
 
         match Pin::new(&mut this.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(bytes))) => {
-                // Buffer raw upstream bytes for parsing only when we need to
-                // record usage. Decompression + lossy decoding happen once at
-                // stream end (mirrors the non-streaming path), because reqwest
-                // does not auto-decompress and compressed/utf8-split chunks
-                // cannot be parsed incrementally with strict from_utf8.
-                if this.log_ctx.is_some() || this.detail_capture {
-                    this.raw_buffer.extend_from_slice(&bytes);
+                if this.content_encoding.is_empty() {
+                    if this.log_ctx.is_some() {
+                        this.accumulator.process_bytes(&bytes);
+                    }
+                    if this.detail_capture {
+                        append_bounded_tail(
+                            &mut this.capture_buffer,
+                            &bytes,
+                            MAX_STREAM_DETAIL_CAPTURE_BYTES,
+                        );
+                    }
+                } else if !this.capture_truncated && (this.log_ctx.is_some() || this.detail_capture)
+                {
+                    if this.capture_buffer.len().saturating_add(bytes.len())
+                        <= MAX_COMPRESSED_STREAM_CAPTURE_BYTES
+                    {
+                        this.capture_buffer.extend_from_slice(&bytes);
+                    } else {
+                        this.capture_buffer.clear();
+                        this.capture_truncated = true;
+                        log::warn!(
+                            "Compressed stream capture exceeded local limit; usage/details skipped"
+                        );
+                    }
                 }
                 Poll::Ready(Some(Ok(bytes)))
             }
@@ -1370,14 +1460,25 @@ where
             }
             Poll::Ready(None) => {
                 this.finished = true;
-                let decoded = if this.raw_buffer.is_empty() {
+                let decoded = if this.capture_buffer.is_empty() {
                     Vec::new()
+                } else if this.content_encoding.is_empty() {
+                    std::mem::take(&mut this.capture_buffer)
                 } else {
-                    decompress(&this.raw_buffer, &this.content_encoding)
+                    decompress_limited(
+                        &this.capture_buffer,
+                        &this.content_encoding,
+                        MAX_DECOMPRESSED_CAPTURE_BYTES,
+                    )
+                    .unwrap_or_else(|error| {
+                        log::warn!("Skipping compressed stream capture: {}", error);
+                        Vec::new()
+                    })
                 };
                 if let Some(ctx) = this.log_ctx.take() {
-                    let text = String::from_utf8_lossy(&decoded);
-                    this.accumulator.process_chunk(&text);
+                    if !this.content_encoding.is_empty() && !decoded.is_empty() {
+                        this.accumulator.process_bytes(&decoded);
+                    }
                     this.accumulator.flush();
                     if let Some(usage) = this.accumulator.get_usage() {
                         record_usage(&ctx, &usage, this.accumulator.model.as_deref(), true);
@@ -1446,6 +1547,23 @@ where
             Poll::Pending => Poll::Pending,
         }
     }
+}
+
+fn append_bounded_tail(buffer: &mut Vec<u8>, chunk: &[u8], limit: usize) {
+    if chunk.len() >= limit {
+        buffer.clear();
+        buffer.extend_from_slice(&chunk[chunk.len() - limit..]);
+        return;
+    }
+
+    let overflow = buffer
+        .len()
+        .saturating_add(chunk.len())
+        .saturating_sub(limit);
+    if overflow > 0 {
+        buffer.drain(..overflow);
+    }
+    buffer.extend_from_slice(chunk);
 }
 
 fn to_ws_url(http_url: &str) -> String {
@@ -1555,6 +1673,7 @@ fn extract_host(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
+        append_bounded_tail, collect_response_body_limited, decompress_limited,
         effective_session_cli_type, has_billable_usage, is_codex_responses_request_path,
         record_usage, route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
         should_forward_response_header, LogContext, RouteExecution, StreamConsoleCtx,
@@ -1590,6 +1709,27 @@ mod tests {
         for header in ["content-type", "server", "x-request-id"] {
             assert!(should_forward_response_header(header), "{header}");
         }
+    }
+
+    #[tokio::test]
+    async fn non_stream_response_collection_rejects_limit_overflow() {
+        let stream = futures::stream::iter(vec![
+            Ok::<_, reqwest::Error>(axum::body::Bytes::from_static(b"1234")),
+            Ok::<_, reqwest::Error>(axum::body::Bytes::from_static(b"5678")),
+        ]);
+
+        let error = collect_response_body_limited(stream, 7).await.unwrap_err();
+        assert!(error.contains("size limit"));
+    }
+
+    #[test]
+    fn decompression_and_detail_tail_are_bounded() {
+        let compressed = gzip_compress(&vec![b'a'; 1024]);
+        assert!(decompress_limited(&compressed, "gzip", 100).is_err());
+
+        let mut tail = b"1234".to_vec();
+        append_bounded_tail(&mut tail, b"56789", 6);
+        assert_eq!(tail, b"456789");
     }
 
     #[test]
@@ -1887,7 +2027,9 @@ mod tests {
             finished: false,
             content_encoding: content_encoding.to_string(),
             detail_capture: false,
-            raw_buffer: Vec::new(),
+            capture_buffer: Vec::new(),
+            capture_truncated: false,
+            _request_permits: None,
         };
         // Drain to completion so the stream-end recording path runs.
         while futures::StreamExt::next(&mut stream).await.is_some() {}
@@ -1927,7 +2069,9 @@ mod tests {
             finished: false,
             content_encoding: content_encoding.to_string(),
             detail_capture: true,
-            raw_buffer: Vec::new(),
+            capture_buffer: Vec::new(),
+            capture_truncated: false,
+            _request_permits: None,
         };
         while futures::StreamExt::next(&mut stream).await.is_some() {}
         tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
@@ -2034,6 +2178,10 @@ mod tests {
             last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
             console_tx,
             detail_mode: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            global_concurrency: std::sync::Arc::new(tokio::sync::Semaphore::new(64)),
+            session_concurrency: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
         });
         let sample = claude_sse_sample();
         let compressed = gzip_compress(sample.as_bytes());
