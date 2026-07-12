@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button, Empty, Tag, Tooltip, Typography } from 'antd'
 import {
   CheckCircleOutlined,
   HolderOutlined,
   QuestionCircleOutlined,
-  ReloadOutlined,
   StarOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
@@ -31,11 +30,8 @@ import openaiIcon from '../../assets/provider-icons/openai.svg'
 import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
 import newapiIcon from '../../assets/provider-icons/newapi.svg'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import { getApi } from '../../api'
 import { computeVisibleReorder } from './reorder'
-import LatencyIndicator from './LatencyIndicator'
 import styles from './TakeoverConfigTab.module.css'
-import type { LatencyReport } from '../../../shared/types'
 
 const { Text } = Typography
 
@@ -250,10 +246,6 @@ export default function TakeoverConfigTab({
 }: TakeoverConfigTabProps) {
   const message = useAppMessage()
   const [movingId, setMovingId] = useState<string | null>(null)
-  const [latencyByProvider, setLatencyByProvider] = useState<Record<string, LatencyReport | null>>(
-    {},
-  )
-  const [probingProviderId, setProbingProviderId] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -270,30 +262,6 @@ export default function TakeoverConfigTab({
       ),
     }))
     .filter((group) => group.keys.length > 0)
-
-  const activeProviderId = useMemo(() => {
-    const activeKey = allKeys.find((key) => key.id === activeKeyId)
-    return activeKey?.providerId
-  }, [allKeys, activeKeyId])
-
-  const probeProviderLatency = async (provider: Provider) => {
-    setProbingProviderId(provider.id)
-    try {
-      const report = await getApi().proxy.latencyProbe(provider.baseUrl, provider.id)
-      setLatencyByProvider((prev) => ({ ...prev, [provider.id]: report }))
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '延迟探测失败')
-      setLatencyByProvider((prev) => ({ ...prev, [provider.id]: null }))
-    } finally {
-      setProbingProviderId(null)
-    }
-  }
-
-  useEffect(() => {
-    if (!activeProviderId || latencyByProvider[activeProviderId] !== undefined) return
-    const provider = filteredProviders.find((p) => p.id === activeProviderId)
-    if (provider) void probeProviderLatency(provider)
-  }, [activeProviderId, filteredProviders, latencyByProvider])
 
   const reorderVisibleProviders = async (activeProviderId: string, overProviderId: string) => {
     if (!onReorderProviders) return
@@ -412,18 +380,6 @@ export default function TakeoverConfigTab({
                           </Text>
                         </div>
                         <div className={styles.providerTools}>
-                          {latencyByProvider[provider.id] !== undefined && (
-                            <LatencyIndicator report={latencyByProvider[provider.id]} />
-                          )}
-                          <Tooltip title='探测上游延迟'>
-                            <Button
-                              type='text'
-                              size='small'
-                              icon={<ReloadOutlined />}
-                              loading={probingProviderId === provider.id}
-                              onClick={() => void probeProviderLatency(provider)}
-                            />
-                          </Tooltip>
                           {movingId === `provider:${provider.id}` && (
                             <Tag color='processing' className={styles.savingTag}>
                               保存中

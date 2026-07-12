@@ -22,7 +22,6 @@ import type {
   ImportResult,
   ProxySession,
   ProxyStatus,
-  LatencyReport,
   ConsoleEvent,
   ManagedInstance,
   UpdateManagedInstanceAssignmentInput,
@@ -83,7 +82,6 @@ export interface Api {
     status: () => Promise<ProxyStatus>
     start: () => Promise<void>
     stop: () => Promise<void>
-    latencyProbe: (upstreamBaseUrl?: string, providerId?: string) => Promise<LatencyReport>
     setDetailMode: (enabled: boolean) => Promise<void>
     onStatusChanged: (
       callback: (data: { isRunning: boolean; port: number; lastError?: string | null; source?: string }) => void,

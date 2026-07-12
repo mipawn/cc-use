@@ -55,11 +55,6 @@ function buildApi(): Api {
       status: () => invoke('proxy_status'),
       start: () => invoke('proxy_start'),
       stop: () => invoke('proxy_stop'),
-      latencyProbe: (upstreamBaseUrl?: string, providerId?: string) =>
-        invoke('latency_probe', {
-          upstreamBaseUrl: upstreamBaseUrl ?? null,
-          providerId: providerId ?? null,
-        }),
       setDetailMode: (enabled: boolean) =>
         invoke('console_detail_mode_set', { enabled }),
       onStatusChanged: (callback) => {

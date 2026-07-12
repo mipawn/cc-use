@@ -354,16 +354,6 @@ export interface ProxyStatus {
   lastError: string | null
 }
 
-/// Result of a latency probe round (daemon + optional upstream base URL).
-/// Mirrors `commands::proxy::LatencyReport` on the Rust side.
-export interface LatencyReport {
-  daemonLatencyMs: number | null
-  daemonReachable: boolean
-  upstreamLatencyMs: number | null
-  upstreamReachable: boolean
-  upstreamError: string | null
-}
-
 /// Realtime console event — a discriminated union carried over one transport.
 /// Mirrors the Rust `proxy::console::ConsoleEvent` tagged serde enum.
 /// - `category: "request"` — a proxy request crossing the handler

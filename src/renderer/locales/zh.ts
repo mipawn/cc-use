@@ -198,11 +198,6 @@ export default {
     reqHeaders: '请求头',
     respHeaders: '响应信息',
   },
-  latency: {
-    daemon: '代理',
-    upstream: '上游',
-    unreachable: '不可达',
-  },
   instances: {
     title: '实例',
     subtitle: '查看受管实例的运行状态，并对单个实例热切换密钥',

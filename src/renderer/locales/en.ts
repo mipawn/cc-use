@@ -198,11 +198,6 @@ export default {
     reqHeaders: 'Request headers',
     respHeaders: 'Response body',
   },
-  latency: {
-    daemon: 'Proxy',
-    upstream: 'Upstream',
-    unreachable: 'unreachable',
-  },
   instances: {
     title: 'Instances',
     subtitle: 'Review managed CLI instances and hot-switch keys per running instance',

@@ -92,7 +92,6 @@ pub fn run() {
             commands::proxy::proxy_status,
             commands::proxy::proxy_start,
             commands::proxy::proxy_stop,
-            commands::proxy::latency_probe,
             commands::proxy::console_detail_mode_set,
             commands::proxy::session_create,
             commands::proxy::session_get,
