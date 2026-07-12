@@ -16,14 +16,17 @@ pub mod projects;
 pub mod providers;
 pub mod proxy_sessions;
 pub mod request_logs;
+mod secret_store;
 pub mod settings;
 pub mod usage_logs;
 
 use rusqlite::Connection;
-use std::path::PathBuf;
+use secret_store::{MemorySecretStore, SecretStore, SystemSecretStore};
+use std::{path::PathBuf, sync::Arc};
 
 pub struct Database {
     pub conn: Connection,
+    secret_store: Arc<dyn SecretStore>,
 }
 
 impl Database {
@@ -39,7 +42,10 @@ impl Database {
         conn.execute_batch("PRAGMA journal_mode = WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            secret_store: Arc::new(SystemSecretStore),
+        };
         db.run_migrations()?;
         Ok(db)
     }
@@ -48,7 +54,10 @@ impl Database {
     pub fn new_in_memory() -> Result<Self, rusqlite::Error> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            secret_store: Arc::new(MemorySecretStore::default()),
+        };
         db.run_migrations()?;
         Ok(db)
     }
@@ -82,6 +91,7 @@ impl Database {
                 website TEXT,
                 remark TEXT,
                 token TEXT,
+                token_secret_ref TEXT,
                 icon TEXT,
                 wallet_balance_type TEXT DEFAULT 'none',
                 wallet_balance_url TEXT,
@@ -108,6 +118,7 @@ impl Database {
                 provider_id TEXT REFERENCES providers(id) ON DELETE CASCADE,
                 alias TEXT,
                 value TEXT NOT NULL,
+                secret_ref TEXT,
                 types TEXT DEFAULT '[\"claude_code\"]',
                 priority INTEGER DEFAULT 0,
                 is_exhausted INTEGER DEFAULT 0,
@@ -240,6 +251,8 @@ impl Database {
 
         // Run ALTER TABLE migrations for backward compatibility with existing databases
         self.run_alter_migrations();
+        self.migrate_api_key_secrets()?;
+        self.migrate_provider_token_secrets()?;
 
         Ok(())
     }
@@ -252,7 +265,10 @@ impl Database {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode = WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            secret_store: Arc::new(MemorySecretStore::default()),
+        };
         db.run_migrations()?;
         Ok(db)
     }
@@ -313,6 +329,7 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN website TEXT",
             "ALTER TABLE providers ADD COLUMN remark TEXT",
             "ALTER TABLE providers ADD COLUMN token TEXT",
+            "ALTER TABLE providers ADD COLUMN token_secret_ref TEXT",
             "ALTER TABLE providers ADD COLUMN icon TEXT",
             "ALTER TABLE providers ADD COLUMN usage_type TEXT DEFAULT 'none'",
             "ALTER TABLE providers ADD COLUMN usage_url TEXT",
@@ -336,6 +353,7 @@ impl Database {
             "ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT",
             "ALTER TABLE api_keys ADD COLUMN cost_multiplier REAL DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN client_configs TEXT",
+            "ALTER TABLE api_keys ADD COLUMN secret_ref TEXT",
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
             "ALTER TABLE projects ADD COLUMN remark TEXT",
@@ -379,6 +397,63 @@ impl Database {
 
         // v3.2.3: Drop transform-related columns (provider_type, api_format, transform_enabled).
         self.drop_transform_columns();
+    }
+
+    fn migrate_api_key_secrets(&self) -> Result<(), rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, value FROM api_keys
+             WHERE (secret_ref IS NULL OR secret_ref = '') AND value != ''",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let legacy_keys = rows.collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        for (id, value) in legacy_keys {
+            let secret_ref = Self::api_key_secret_ref(&id);
+            self.secret_store
+                .set(&secret_ref, &value)
+                .map_err(secret_store::to_sqlite_error)?;
+            self.conn.execute(
+                "UPDATE api_keys SET value = '', secret_ref = ?1 WHERE id = ?2",
+                rusqlite::params![secret_ref, id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn api_key_secret_ref(id: &str) -> String {
+        format!("api-key:{}", id)
+    }
+
+    pub(crate) fn provider_token_secret_ref(id: &str) -> String {
+        format!("provider-token:{}", id)
+    }
+
+    fn migrate_provider_token_secrets(&self) -> Result<(), rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, token FROM providers
+             WHERE (token_secret_ref IS NULL OR token_secret_ref = '')
+               AND token IS NOT NULL AND token != ''",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let legacy_tokens = rows.collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        for (id, token) in legacy_tokens {
+            let secret_ref = Self::provider_token_secret_ref(&id);
+            self.secret_store
+                .set(&secret_ref, &token)
+                .map_err(secret_store::to_sqlite_error)?;
+            self.conn.execute(
+                "UPDATE providers SET token = NULL, token_secret_ref = ?1 WHERE id = ?2",
+                rusqlite::params![secret_ref, id],
+            )?;
+        }
+        Ok(())
     }
 
     /// Migrate api_keys.types: replace 'claude' with 'claude_code' (v3.2.0 ClientKind).

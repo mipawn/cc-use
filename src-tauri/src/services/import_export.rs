@@ -20,7 +20,11 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 .map(|k| ExportApiKey {
                     id: k.id,
                     alias: k.alias,
-                    value: k.value,
+                    value: if options.include_api_keys {
+                        k.value
+                    } else {
+                        String::new()
+                    },
                     types: Some(k.types),
                     priority: k.priority,
                     cost_multiplier: Some(k.cost_multiplier),
@@ -39,11 +43,19 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 wallet_balance_type: Some(provider.wallet_balance_type),
                 wallet_balance_url: provider.wallet_balance_url,
                 wallet_balance_path: provider.wallet_balance_path,
-                wallet_balance_headers: provider.wallet_balance_headers,
+                wallet_balance_headers: if options.include_api_keys {
+                    provider.wallet_balance_headers
+                } else {
+                    None
+                },
                 usage_type: Some(provider.usage_type),
                 usage_url: provider.usage_url,
                 usage_path: provider.usage_path,
-                usage_headers: provider.usage_headers,
+                usage_headers: if options.include_api_keys {
+                    provider.usage_headers
+                } else {
+                    None
+                },
                 api_keys: export_keys,
             });
         }
@@ -136,21 +148,27 @@ pub fn import_all(
 
             // Create API keys (preserve IDs)
             for ek in &ep.api_keys {
-                if ek.id.is_empty() {
+                if ek.id.is_empty() || ek.value.is_empty() {
                     continue;
                 }
-                if let Err(e) = db.conn.execute(
-                    "INSERT OR REPLACE INTO api_keys (id, provider_id, alias, value, types, priority, is_exhausted, is_active,
-                        config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier)
-                     VALUES (?1, ?2, ?3, ?4, '[]', ?5, 0, 1, NULL, 'none', NULL, NULL, NULL, ?6)",
-                    rusqlite::params![
-                        ek.id,
-                        ep.id,
-                        ek.alias,
-                        ek.value,
-                        ek.priority,
-                        ek.cost_multiplier.unwrap_or(1.0),
-                    ],
+                if let Err(e) = db.api_key_create_with_id(
+                    &ek.id,
+                    &CreateApiKeyInput {
+                        provider_id: ep.id.clone(),
+                        alias: ek.alias.clone(),
+                        value: ek.value.clone(),
+                        types: ek.types.clone(),
+                        priority: Some(ek.priority),
+                        is_active: Some(true),
+                        config: None,
+                        cost_multiplier: ek.cost_multiplier,
+                        client_configs: None,
+                        usage_type: None,
+                        usage_url: None,
+                        usage_path: None,
+                        usage_headers: None,
+                        model_mapping: None,
+                    },
                 ) {
                     errors.push(format!("Failed to import key for {}: {}", ep.name, e));
                 }
@@ -179,6 +197,9 @@ pub fn import_all(
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {
+                        if ek.value.is_empty() {
+                            continue;
+                        }
                         if let Err(e) = db.api_key_create(&CreateApiKeyInput {
                             provider_id: provider.id.clone(),
                             alias: ek.alias.clone(),

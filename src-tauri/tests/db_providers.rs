@@ -31,7 +31,23 @@ fn provider_crud() {
 
     assert_eq!(provider.name, "Test Provider");
     assert_eq!(provider.base_url, "https://api.test.com");
+    assert_eq!(provider.token.as_deref(), Some("test-token"));
     assert!(provider.is_active);
+
+    let (stored_token, token_secret_ref): (Option<String>, Option<String>) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT token, token_secret_ref FROM providers WHERE id = ?1",
+            [&provider.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(
+        stored_token.is_none(),
+        "SQLite must not retain provider token plaintext"
+    );
+    assert!(token_secret_ref.is_some());
 
     let providers = fixture.db.provider_list().unwrap();
     assert_eq!(providers.len(), 1);

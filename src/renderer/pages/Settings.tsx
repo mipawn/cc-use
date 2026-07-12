@@ -20,6 +20,7 @@ import {
   Progress,
   message,
   Checkbox,
+  Alert,
   Tooltip,
 } from 'antd'
 import { useTranslation } from 'react-i18next'
@@ -310,6 +311,7 @@ export default function Settings() {
 
       await getApi().importExport.exportToFile(path, {
         includeProviders: exportSelections.includes('providers'),
+        includeApiKeys: exportSelections.includes('apiKeys'),
         includeUsageLogs: exportSelections.includes('usageLogs'),
         includeRequestLogs: exportSelections.includes('requestLogs'),
       })
@@ -665,7 +667,7 @@ export default function Settings() {
                     <br />
                     <Text type='secondary' className={styles.settingDesc}>
                       {t('settings.dataBackupDesc') ||
-                        '导出/导入：使用记录、密钥、供应商（不包含项目）'}
+                        '导出/导入供应商与使用记录；API Key 默认不导出'}
                     </Text>
                   </div>
                 </Space>
@@ -699,11 +701,23 @@ export default function Settings() {
                     <div style={{ marginTop: 6 }}>
                       <Checkbox.Group
                         value={exportSelections}
-                        onChange={(values) => setExportSelections(values as string[])}
+                        onChange={(values) => {
+                          const next = values as string[]
+                          setExportSelections(
+                            next.includes('providers')
+                              ? next
+                              : next.filter((value) => value !== 'apiKeys'),
+                          )
+                        }}
                         options={[
                           {
-                            label: t('settings.exportOptionProvidersKeys') || '供应商 + 密钥',
+                            label: t('settings.exportOptionProvidersKeys') || '供应商',
                             value: 'providers',
+                          },
+                          {
+                            label: t('settings.exportOptionApiKeys') || '包含凭据（明文）',
+                            value: 'apiKeys',
+                            disabled: !exportSelections.includes('providers'),
                           },
                           {
                             label: t('settings.exportOptionUsageLogs') || '使用记录',
@@ -716,6 +730,17 @@ export default function Settings() {
                         ]}
                       />
                     </div>
+                    {exportSelections.includes('apiKeys') && (
+                      <Alert
+                        style={{ marginTop: 10 }}
+                        type='warning'
+                        showIcon
+                        message={
+                          t('settings.exportApiKeysWarning') ||
+                          '备份文件将包含明文 API Key 与认证请求头，请仅保存到可信位置。'
+                        }
+                      />
+                    )}
                   </div>
                   <div style={{ marginTop: 12, textAlign: 'right' }}>
                     <Button

@@ -589,6 +589,8 @@ pub struct ImportOptions {
 #[serde(rename_all = "camelCase")]
 pub struct ExportOptions {
     pub include_providers: bool,
+    #[serde(default)]
+    pub include_api_keys: bool,
     pub include_usage_logs: bool,
     pub include_request_logs: bool,
 }
@@ -597,6 +599,7 @@ impl Default for ExportOptions {
     fn default() -> Self {
         Self {
             include_providers: true,
+            include_api_keys: false,
             include_usage_logs: true,
             include_request_logs: true,
         }

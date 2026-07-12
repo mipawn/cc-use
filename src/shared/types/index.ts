@@ -517,6 +517,7 @@ export interface RequestLog {
 // Export options
 export interface ExportOptions {
   includeProviders: boolean
+  includeApiKeys: boolean
   includeUsageLogs: boolean
   includeRequestLogs: boolean
 }
