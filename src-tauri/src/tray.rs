@@ -5,6 +5,7 @@ use crate::usage_stats::UsageAggregator;
 use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    tray::{MouseButtonState, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
 
@@ -400,11 +401,28 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         handle_menu_event(&app_handle, id);
     });
 
-    // Periodic refresh every 30s
+    // Refresh the badge whenever the user interacts with the tray icon. This
+    // covers the common "open the tray to check the cost" path even when the
+    // main window never gains focus.
+    let app_handle = app.clone();
+    tray.on_tray_icon_event(move |_tray, event| {
+        if matches!(
+            event,
+            TrayIconEvent::Click {
+                button_state: MouseButtonState::Up,
+                ..
+            }
+        ) {
+            refresh_tray_badge(&app_handle);
+        }
+    });
+
+    // Periodic badge refresh every 30s. Rebuilding the entire tray menu from
+    // this background thread can block before the badge update is reached.
     let app_handle = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(30));
-        refresh_tray_menu(&app_handle);
+        refresh_tray_badge(&app_handle);
     });
 
     Ok(())
@@ -574,7 +592,14 @@ pub fn refresh_tray_menu(app: &AppHandle) {
 }
 
 pub fn refresh_tray_badge(app: &AppHandle) {
-    apply_tray_badge(app);
+    // Some callers (notably WindowEvent::Focused and tray click callbacks) run
+    // on the application event thread. TrayIcon::set_title synchronously
+    // dispatches its mutation to that thread, so invoking it inline there can
+    // prevent the refresh from completing. Always calculate and apply the
+    // badge from a blocking worker instead; Tauri will marshal the final tray
+    // mutation back to the event thread.
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || apply_tray_badge(&app_handle));
 }
 
 fn refresh_tray(app: &AppHandle) {
@@ -590,7 +615,9 @@ fn apply_tray_badge(app: &AppHandle) {
     };
 
     if let Some(tray) = app.tray_by_id("main") {
-        let _ = tray.set_title(title);
+        if let Err(error) = tray.set_title(title) {
+            log::warn!("Failed to update tray badge: {}", error);
+        }
     }
 
     // Dock badge is intentionally kept clear; the usage hint lives only in the tray.
