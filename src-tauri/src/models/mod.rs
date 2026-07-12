@@ -528,6 +528,40 @@ pub struct DashboardCostStats {
     pub top_projects: Vec<TopProjectCostItem>,
 }
 
+#[derive(Debug, Clone)]
+pub struct GatewayRequestEvent {
+    pub id: String,
+    pub created_at: String,
+    pub kind: String,
+    pub method: String,
+    pub path: String,
+    pub status_code: Option<i32>,
+    pub latency_ms: Option<i64>,
+    pub provider_name: Option<String>,
+    pub key_alias: Option<String>,
+    pub is_streaming: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayMetricsWindow {
+    pub window: String,
+    pub total_requests: i64,
+    pub successful_requests: i64,
+    pub upstream_errors: i64,
+    pub rejected_requests: i64,
+    pub active_providers: i64,
+    pub avg_latency_ms: Option<f64>,
+    pub p95_latency_ms: Option<i64>,
+    pub last_request_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentGatewayMetrics {
+    pub windows: Vec<GatewayMetricsWindow>,
+}
+
 // ── Import/Export ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

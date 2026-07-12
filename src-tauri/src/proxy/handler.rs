@@ -2171,18 +2171,13 @@ mod tests {
 
     #[tokio::test]
     async fn streaming_detail_mode_emits_response_headers_and_decoded_body() {
-        let (console_tx, _rx) = tokio::sync::broadcast::channel(8);
-        let state = std::sync::Arc::new(crate::proxy::ProxyState {
-            db: std::sync::Arc::new(std::sync::Mutex::new(Database::new_in_memory().unwrap())),
-            request_count: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            console_tx,
-            detail_mode: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
-            global_concurrency: std::sync::Arc::new(tokio::sync::Semaphore::new(64)),
-            session_concurrency: std::sync::Arc::new(std::sync::Mutex::new(
-                std::collections::HashMap::new(),
-            )),
-        });
+        let state = crate::proxy::build_proxy_state(std::sync::Arc::new(
+            std::sync::Mutex::new(Database::new_in_memory().unwrap()),
+        ))
+        .unwrap();
+        state
+            .detail_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let sample = claude_sse_sample();
         let compressed = gzip_compress(sample.as_bytes());
         let mut resp_headers = hyper::HeaderMap::new();

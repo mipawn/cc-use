@@ -69,6 +69,7 @@ pub fn run() {
             commands::statistics::request_log_get_cost_statistics,
             commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_dashboard_stats,
+            commands::statistics::gateway_metrics_get_recent,
             commands::statistics::model_pricing_get_all,
             commands::statistics::model_pricing_get_custom,
             commands::statistics::model_pricing_update_custom,

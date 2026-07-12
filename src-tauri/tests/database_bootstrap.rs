@@ -23,6 +23,7 @@ fn database_init_fresh_creates_core_tables() {
     assert!(tables.contains(&"request_logs".to_string()));
     assert!(tables.contains(&"proxy_sessions".to_string()));
     assert!(tables.contains(&"managed_instances".to_string()));
+    assert!(tables.contains(&"gateway_request_events".to_string()));
     assert!(tables.contains(&"discovered_sessions".to_string()));
 }
 

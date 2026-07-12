@@ -11,6 +11,7 @@ macro_rules! add_field {
 }
 
 pub mod api_keys;
+pub mod gateway_metrics;
 pub mod managed_instances;
 pub mod projects;
 pub mod providers;
@@ -204,6 +205,22 @@ impl Database {
                 revoked_at TEXT,
                 revoked_reason TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS gateway_request_events (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                method TEXT NOT NULL,
+                path TEXT NOT NULL,
+                status_code INTEGER,
+                latency_ms INTEGER,
+                provider_name TEXT,
+                key_alias TEXT,
+                is_streaming INTEGER DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_gateway_request_events_created
+            ON gateway_request_events(created_at DESC);
 
             CREATE TABLE IF NOT EXISTS managed_instances (
                 id TEXT PRIMARY KEY,

@@ -694,6 +694,22 @@ export interface DashboardCostStats {
   topProjects: TopProjectCostItem[]
 }
 
+export interface GatewayMetricsWindow {
+  window: 'hour' | 'day' | 'week'
+  totalRequests: number
+  successfulRequests: number
+  upstreamErrors: number
+  rejectedRequests: number
+  activeProviders: number
+  avgLatencyMs: number | null
+  p95LatencyMs: number | null
+  lastRequestAt: string | null
+}
+
+export interface RecentGatewayMetrics {
+  windows: GatewayMetricsWindow[]
+}
+
 // Migration types (Electron → Tauri)
 export interface MigrationCheck {
   needed: boolean

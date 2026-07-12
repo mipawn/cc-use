@@ -81,6 +81,26 @@
   border-radius: var(--radius-ant-lg) !important;
 }
 
+.gatewayMetricsRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.gatewayMetricDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .gatewayMetricsRow {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Trend Chart */
 .trendCard {
   border-radius: var(--radius-ant-lg) !important;

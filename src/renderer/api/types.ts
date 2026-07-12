@@ -32,6 +32,7 @@ import type {
   CostStatistics,
   DashboardCostStats,
   PaginatedRecentRequests,
+  RecentGatewayMetrics,
   MigrationCheck,
   MigrationResult,
   TerminalLaunchPreview,
@@ -158,6 +159,7 @@ export interface Api {
       pageSize?: number,
     ) => Promise<PaginatedRecentRequests>
     getDashboardStats: () => Promise<DashboardCostStats>
+    getGatewayMetrics: () => Promise<RecentGatewayMetrics>
     getMonthlyTrend: (year: number, month: number) => Promise<{ date: string; cost: number; requests: number }[]>
     repairCosts: () => Promise<number>
   }
