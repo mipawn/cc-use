@@ -59,6 +59,28 @@ fn latest_claude_prices_match_provider_prefixed_models() {
 fn latest_openai_prices_match_codex_and_gpt_models() {
     let custom = HashMap::new();
 
+    let sol_alias = find_pricing("gpt-5.6", &custom).unwrap();
+    assert!((sol_alias.input - 5.0).abs() < 1e-6);
+    assert!((sol_alias.output - 30.0).abs() < 1e-6);
+    assert_eq!(sol_alias.cache_read, Some(0.5));
+    assert_eq!(sol_alias.cache_creation, Some(6.25));
+
+    let sol = find_pricing("openai.gpt-5.6-sol-20260709", &custom).unwrap();
+    assert!((sol.input - 5.0).abs() < 1e-6);
+    assert!((sol.output - 30.0).abs() < 1e-6);
+
+    let terra = find_pricing("gpt-5.6-terra", &custom).unwrap();
+    assert!((terra.input - 2.5).abs() < 1e-6);
+    assert!((terra.output - 15.0).abs() < 1e-6);
+    assert_eq!(terra.cache_read, Some(0.25));
+    assert_eq!(terra.cache_creation, Some(3.125));
+
+    let luna = find_pricing("gpt-5.6-luna", &custom).unwrap();
+    assert!((luna.input - 1.0).abs() < 1e-6);
+    assert!((luna.output - 6.0).abs() < 1e-6);
+    assert_eq!(luna.cache_read, Some(0.1));
+    assert_eq!(luna.cache_creation, Some(1.25));
+
     let gpt = find_pricing("gpt-5.5", &custom).unwrap();
     assert!((gpt.input - 5.0).abs() < 1e-6);
     assert!((gpt.output - 30.0).abs() < 1e-6);

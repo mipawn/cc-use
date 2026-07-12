@@ -171,6 +171,42 @@ pub fn default_pricing() -> HashMap<String, ModelPricing> {
 
     // OpenAI models
     m.insert(
+        "gpt-5.6-sol".to_string(),
+        ModelPricing {
+            input: 5.0,
+            output: 30.0,
+            cache_read: Some(0.5),
+            cache_creation: Some(6.25),
+        },
+    );
+    m.insert(
+        "gpt-5.6".to_string(),
+        ModelPricing {
+            input: 5.0,
+            output: 30.0,
+            cache_read: Some(0.5),
+            cache_creation: Some(6.25),
+        },
+    );
+    m.insert(
+        "gpt-5.6-terra".to_string(),
+        ModelPricing {
+            input: 2.5,
+            output: 15.0,
+            cache_read: Some(0.25),
+            cache_creation: Some(3.125),
+        },
+    );
+    m.insert(
+        "gpt-5.6-luna".to_string(),
+        ModelPricing {
+            input: 1.0,
+            output: 6.0,
+            cache_read: Some(0.1),
+            cache_creation: Some(1.25),
+        },
+    );
+    m.insert(
         "gpt-5.5-pro".to_string(),
         ModelPricing {
             input: 30.0,
