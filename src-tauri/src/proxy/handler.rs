@@ -1437,7 +1437,9 @@ where
 
                 // Flush accumulated usage before reporting error
                 this.accumulator.flush();
-                if let (Some(usage), Some(log_ctx)) = (this.accumulator.get_usage(), this.log_ctx.as_ref()) {
+                if let (Some(usage), Some(log_ctx)) =
+                    (this.accumulator.get_usage(), this.log_ctx.as_ref())
+                {
                     if has_billable_usage(&usage) {
                         record_usage(log_ctx, &usage, this.accumulator.model.as_deref(), true);
                     }
@@ -2171,9 +2173,9 @@ mod tests {
 
     #[tokio::test]
     async fn streaming_detail_mode_emits_response_headers_and_decoded_body() {
-        let state = crate::proxy::build_proxy_state(std::sync::Arc::new(
-            std::sync::Mutex::new(Database::new_in_memory().unwrap()),
-        ))
+        let state = crate::proxy::build_proxy_state(std::sync::Arc::new(std::sync::Mutex::new(
+            Database::new_in_memory().unwrap(),
+        )))
         .unwrap();
         state
             .detail_mode

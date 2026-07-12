@@ -171,21 +171,20 @@ async fn auth_scheme_none_skips_auth_headers() {
     use cc_use_lib::db::Database;
     use support::{build_proxy_state, setup_provider_key_project};
 
-    let path = std::env::temp_dir().join(format!("cc-use-auth-none-test-{}.db", nanoid::nanoid!(8)));
+    let path =
+        std::env::temp_dir().join(format!("cc-use-auth-none-test-{}.db", nanoid::nanoid!(8)));
     let db = Database::open_at(&path).expect("create temp database");
 
     // 创建 provider、key、project，并配置 authScheme = none
     let (provider_id, key_id, project_id) = setup_provider_key_project(&db, "test-provider").await;
 
     // 配置 clientConfig: authScheme = none
-    db.conn.execute(
-        "UPDATE api_keys SET client_configs = ? WHERE id = ?",
-        rusqlite::params![
-            r#"{"claude_code": {"authScheme": "none"}}"#,
-            key_id
-        ],
-    )
-    .expect("update client_configs");
+    db.conn
+        .execute(
+            "UPDATE api_keys SET client_configs = ? WHERE id = ?",
+            rusqlite::params![r#"{"claude_code": {"authScheme": "none"}}"#, key_id],
+        )
+        .expect("update client_configs");
 
     // 创建 session
     let session_token = format!("session-{}", nanoid::nanoid!(16));
@@ -205,7 +204,9 @@ async fn auth_scheme_none_skips_auth_headers() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"claude-3-5-sonnet","messages":[],"max_tokens":100}"#))
+        .body(Body::from(
+            r#"{"model":"claude-3-5-sonnet","messages":[],"max_tokens":100}"#,
+        ))
         .unwrap();
 
     let _ = proxy_handler(AxumState(state.clone()), request).await;
@@ -223,7 +224,9 @@ async fn auth_scheme_none_skips_auth_headers() {
     if kind == "rejected" {
         if let Some(msg) = message.as_ref() {
             assert!(
-                !msg.contains("authorization") && !msg.contains("No authorization") && !msg.contains("api key"),
+                !msg.contains("authorization")
+                    && !msg.contains("No authorization")
+                    && !msg.contains("api key"),
                 "authScheme=none should skip auth validation, but got rejected with: {}",
                 msg
             );
@@ -231,4 +234,3 @@ async fn auth_scheme_none_skips_auth_headers() {
     }
     // pending/upstream_error 都是正常的（因为上游是假地址）
 }
-

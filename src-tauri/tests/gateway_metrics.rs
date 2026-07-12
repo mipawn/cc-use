@@ -39,7 +39,11 @@ fn recent_metrics_aggregate_real_terminal_events() {
         .unwrap();
 
     let metrics = fixture.db.gateway_metrics_recent().unwrap();
-    let day = metrics.windows.iter().find(|item| item.window == "day").unwrap();
+    let day = metrics
+        .windows
+        .iter()
+        .find(|item| item.window == "day")
+        .unwrap();
 
     assert_eq!(day.total_requests, 4);
     assert_eq!(day.successful_requests, 1);
@@ -63,7 +67,9 @@ fn cleanup_removes_events_older_than_thirty_days() {
     let count: i64 = fixture
         .db
         .conn
-        .query_row("SELECT COUNT(*) FROM gateway_request_events", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM gateway_request_events", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(count, 0);
 }

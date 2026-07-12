@@ -138,7 +138,10 @@ pub fn build_proxy_state(db: Arc<Mutex<Database>>) -> Result<Arc<ProxyState>, St
             let mut persisted = 0u64;
             if let Ok(db) = metrics_db.lock() {
                 if let Err(error) = db.gateway_event_cleanup() {
-                    log::warn!("Failed to prune gateway request metrics at startup: {}", error);
+                    log::warn!(
+                        "Failed to prune gateway request metrics at startup: {}",
+                        error
+                    );
                 }
             }
             while let Ok(metric) = metrics_rx.recv() {
@@ -251,7 +254,9 @@ mod tests {
             let db = state.db.lock().unwrap();
             let count: i64 = db
                 .conn
-                .query_row("SELECT COUNT(*) FROM gateway_request_events", [], |row| row.get(0))
+                .query_row("SELECT COUNT(*) FROM gateway_request_events", [], |row| {
+                    row.get(0)
+                })
                 .unwrap();
             if count == 1 || attempts >= 50 {
                 break db;
@@ -262,7 +267,9 @@ mod tests {
         };
         let count: i64 = db
             .conn
-            .query_row("SELECT COUNT(*) FROM gateway_request_events", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM gateway_request_events", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 1);
         let streaming: i64 = db

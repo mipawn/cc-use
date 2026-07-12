@@ -402,7 +402,13 @@ impl ConsoleEvent {
     }
 
     /// Rejection before we could dispatch (auth missing, unknown path, ...).
-    pub fn rejected(request_id: impl Into<String>, method: &str, path: &str, latency_ms: u64, reason: &str) -> Self {
+    pub fn rejected(
+        request_id: impl Into<String>,
+        method: &str,
+        path: &str,
+        latency_ms: u64,
+        reason: &str,
+    ) -> Self {
         Self::Request {
             request_id: Some(request_id.into()),
             timestamp: now_timestamp(),

@@ -1,15 +1,10 @@
 use crate::db::Database;
-use crate::models::{
-    GatewayMetricsWindow, GatewayRequestEvent, RecentGatewayMetrics,
-};
+use crate::models::{GatewayMetricsWindow, GatewayRequestEvent, RecentGatewayMetrics};
 
 const MAX_EVENT_ROWS: i64 = 50_000;
 
 impl Database {
-    pub fn gateway_event_upsert(
-        &self,
-        event: &GatewayRequestEvent,
-    ) -> Result<(), rusqlite::Error> {
+    pub fn gateway_event_upsert(&self, event: &GatewayRequestEvent) -> Result<(), rusqlite::Error> {
         self.conn.execute(
             "INSERT OR REPLACE INTO gateway_request_events
              (id, created_at, kind, method, path, status_code, latency_ms,

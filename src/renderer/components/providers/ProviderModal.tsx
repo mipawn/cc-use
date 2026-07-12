@@ -72,7 +72,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
             setCustomIconPath(provider.icon)
           }
         } else {
-          setSelectedIcon(false ? 'openai' : 'claude')
+          setSelectedIcon('claude')
           setCustomIconPath(null)
         }
         // Show advanced if there's balance config

@@ -93,8 +93,7 @@ pub fn create_project(
 }
 
 pub fn build_proxy_state(db: Database) -> Arc<ProxyState> {
-    cc_use_lib::proxy::build_proxy_state(Arc::new(Mutex::new(db)))
-        .expect("build proxy state")
+    cc_use_lib::proxy::build_proxy_state(Arc::new(Mutex::new(db))).expect("build proxy state")
 }
 
 pub fn create_proxy_session(
@@ -158,6 +157,11 @@ pub fn create_managed_instance(
 pub async fn setup_provider_key_project(db: &Database, name: &str) -> (String, String, String) {
     let provider = create_provider(db, name, "claude_code");
     let key = create_api_key(db, &provider.id, "claude_code");
-    let project = create_project(db, Some(provider.id.clone()), Some(key.id.clone()), "claude_code");
+    let project = create_project(
+        db,
+        Some(provider.id.clone()),
+        Some(key.id.clone()),
+        "claude_code",
+    );
     (provider.id, key.id, project.id)
 }
