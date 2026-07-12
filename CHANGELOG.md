@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.3.0] - 2026-07-12
+
+### Added
+
+- 内置 GPT-5.6 Sol、Terra、Luna 模型价格及通用 `gpt-5.6` 别名，覆盖输入、输出、缓存读取和缓存写入费用
+- macOS Keychain 凭据存储：API Key 与 provider token 不再以明文写入 SQLite，旧数据启动时自动迁移
+- 新增基于真实转发流量的近 1 小时、24 小时、7 天网关指标，统计请求量、成功率、错误分类、平均/P95 延迟、活跃供应商与最近活动
+- 新增 PR 级 CI，校验前端类型、ESLint、Vitest 以及 macOS Rust 格式与 workspace 测试
+
+### Changed
+
+- 上游 HTTP Client 按代理配置复用连接池，增加连接、空闲连接与 TCP keepalive 边界，不设置推理总超时或自动重试
+- 配置导出默认剔除 API Key 与可能含认证信息的请求头；显式包含明文凭据时显示风险提示
+- session 路由改为每次请求从数据库强校验 provider、API Key、managed instance、撤销与过期状态；Desktop 与 managed session 使用独立生命周期
+- 网关近期指标使用有界异步写入队列，最多保留 30 天/5 万条，不阻塞实际请求
+
+### Removed
+
+- 删除供应商 base URL 主动延迟探测、自动探测 effect、手动刷新按钮与定时轮询 hook；不再产生用户未发起的供应商请求
+
+### Fixed
+
+- 修复托盘今日费用只有“最新请求”路径能刷新，补齐窗口获焦、托盘点击与 30 秒兜底刷新
+- 限制请求体、普通响应、压缩流捕获、解压内容和控制台详情内存；SSE usage 改为有界增量解析
+- 增加全局与单 session 并发限制，许可覆盖完整 HTTP、SSE 与 WebSocket 生命周期，超限返回本地 429
+- managed instance 停止、失败或超时后立即撤销 session；恢复 Desktop 官方配置时撤销并轮换 token
+
 ## [3.2.7] - 2026-07-10
 
 ### Fixed
