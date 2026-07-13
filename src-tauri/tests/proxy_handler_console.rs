@@ -109,7 +109,7 @@ async fn session_not_found_emits_rejected_event() {
     let (kind, _method, path, message, _status, _upstream) = unwrap_request!(event);
     assert_eq!(kind, "rejected");
     assert_eq!(path, "/v1/messages");
-    assert_eq!(message.as_deref(), Some("Session not found or expired"));
+    assert_eq!(message.as_deref(), Some("Session not found"));
 }
 
 /// Without any subscriber the broadcast send returns Err, but the handler
@@ -188,12 +188,14 @@ async fn auth_scheme_none_skips_auth_headers() {
 
     // 创建 session
     let session_token = format!("session-{}", nanoid::nanoid!(16));
-    db.conn.execute(
-        "INSERT INTO proxy_sessions (session_token, provider_id, api_key_id, project_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-        rusqlite::params![&session_token, &provider_id, &key_id, &project_id],
-    )
-    .expect("insert session");
+    db.conn
+        .execute(
+            "INSERT INTO proxy_sessions (
+            session_token, provider_id, api_key_id, project_id, created_at, last_seen_at
+         ) VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
+            rusqlite::params![&session_token, &provider_id, &key_id, &project_id],
+        )
+        .expect("insert session");
 
     let state = build_proxy_state(db);
     let mut rx = state.console_tx.subscribe();

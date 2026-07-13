@@ -27,6 +27,16 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release commit is on main
+        run: |
+          git fetch origin main --no-tags
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tag $GITHUB_REF_NAME points to a commit that is not on origin/main. Push main before pushing the tag."
+            exit 1
+          fi
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
