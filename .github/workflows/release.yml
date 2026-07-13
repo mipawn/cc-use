@@ -50,6 +50,14 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Extract version changelog
+        id: release_notes
+        run: >-
+          node scripts/extract-release-notes.mjs
+          --version "$GITHUB_REF_NAME"
+          --changelog CHANGELOG.md
+          --github-output "$GITHUB_OUTPUT"
+
       - run: pnpm install
 
       - uses: tauri-apps/tauri-action@v0
@@ -61,8 +69,7 @@ jobs:
           tagName: v__VERSION__
           releaseName: v__VERSION__
           releaseBody: |
-            关于稳定版本的详细信息，请参阅CHANGELOG.md文件。
-            https://github.com/${{ github.repository }}/blob/v__VERSION__/CHANGELOG.md
+            ${{ steps.release_notes.outputs.body }}
 
             ---
 
