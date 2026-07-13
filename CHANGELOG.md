@@ -5,6 +5,21 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.3.1] - 2026-07-13
+
+### Added
+
+- Codex Desktop 支持 API Key 级单一上游模型映射；只在实际转发给中转站前改写 OpenAI Responses 请求中的 `model`，不改变 Codex Desktop 的模型列表或其他前端行为，并与 Claude 的 haiku / sonnet / opus / default 语义映射互不影响
+
+### Changed
+
+- GitHub Release 正文改为自动提取 `CHANGELOG.md` 中当前 tag 对应版本的完整更新内容，并保留 macOS 未签名提示；版本缺失、重复或内容为空时会在构建前阻止发布
+- API Key 与 provider token 恢复使用 SQLite 明文存储；已被 3.3.0 移入 Keychain 的凭据会在升级时一次性写回 SQLite，成功后日常读写不再访问系统 Keychain，避免持续出现权限提示
+
+### Removed
+
+- 移除新凭据的 Keychain 写入、读取和删除链路；保留只读兼容迁移以恢复已经由 3.3.0 写入 Keychain 的历史凭据
+
 ## [3.3.0] - 2026-07-13
 
 ### Added
