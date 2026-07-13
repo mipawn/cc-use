@@ -43,6 +43,7 @@ import type {
 import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { ApiKeyEditorInput } from '../../utils/apiKeyEditor'
+import { parseModelMapping, serializeModelMapping } from '../../utils/modelMapping'
 import styles from './KeyEditModal.module.css'
 
 const { Text } = Typography
@@ -88,6 +89,7 @@ export default function KeyEditModal({
   const [sonnetModel, setSonnetModel] = useState('')
   const [opusModel, setOpusModel] = useState('')
   const [defaultModel, setDefaultModel] = useState('')
+  const [codexModel, setCodexModel] = useState('')
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
 
   const currentProvider = useMemo(() => {
@@ -155,25 +157,12 @@ export default function KeyEditModal({
       setUsageUrl(apiKey.usageUrl || '')
       setUsagePath(apiKey.usagePath || '')
       setCostMultiplier(apiKey.costMultiplier ?? 1)
-      if (apiKey.modelMapping) {
-        try {
-          const m = JSON.parse(apiKey.modelMapping)
-          setHaikuModel(m.haiku || '')
-          setSonnetModel(m.sonnet || '')
-          setOpusModel(m.opus || '')
-          setDefaultModel(m.default || '')
-        } catch {
-          setHaikuModel('')
-          setSonnetModel('')
-          setOpusModel('')
-          setDefaultModel('')
-        }
-      } else {
-        setHaikuModel('')
-        setSonnetModel('')
-        setOpusModel('')
-        setDefaultModel('')
-      }
+      const mapping = parseModelMapping(apiKey.modelMapping)
+      setHaikuModel(mapping.haiku)
+      setSonnetModel(mapping.sonnet)
+      setOpusModel(mapping.opus)
+      setDefaultModel(mapping.default)
+      setCodexModel(mapping.codex)
       if (apiKey.usageHeaders) {
         try {
           setUsageHeaders(JSON.stringify(JSON.parse(apiKey.usageHeaders), null, 2))
@@ -194,6 +183,7 @@ export default function KeyEditModal({
       setSonnetModel('')
       setOpusModel('')
       setDefaultModel('')
+      setCodexModel('')
       setClientConfigs({})
     }
 
@@ -231,12 +221,13 @@ export default function KeyEditModal({
   }
 
   const buildModelMappingJson = (): string | undefined => {
-    const map: Record<string, string> = {}
-    if (haikuModel.trim()) map.haiku = haikuModel.trim()
-    if (sonnetModel.trim()) map.sonnet = sonnetModel.trim()
-    if (opusModel.trim()) map.opus = opusModel.trim()
-    if (defaultModel.trim()) map.default = defaultModel.trim()
-    return Object.keys(map).length > 0 ? JSON.stringify(map) : undefined
+    return serializeModelMapping({
+      haiku: haikuModel,
+      sonnet: sonnetModel,
+      opus: opusModel,
+      default: defaultModel,
+      codex: codexModel,
+    })
   }
 
   const handleSubmit = async () => {
@@ -488,38 +479,63 @@ export default function KeyEditModal({
                 children: (
                   <div className={styles.tabPane}>
                     <Text type='secondary' style={{ marginBottom: 12, display: 'block', fontSize: 12 }}>
-                      {t('keys.modelMappingHint') || '根据模型名称自动匹配类别并替换，仅对 Claude 类型生效'}
+                      {t('keys.modelMappingHint') || '只改写实际发送给上游的模型名称'}
                     </Text>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                      <Form.Item label='Haiku' extra={t('keys.modelMapHaikuExtra') || '包含 haiku 的模型 →'}>
-                        <Input
-                          value={haikuModel}
-                          onChange={(e) => setHaikuModel(e.target.value)}
-                          placeholder='claude-haiku-4-5'
-                        />
-                      </Form.Item>
-                      <Form.Item label='Sonnet' extra={t('keys.modelMapSonnetExtra') || '包含 sonnet 的模型 →'}>
-                        <Input
-                          value={sonnetModel}
-                          onChange={(e) => setSonnetModel(e.target.value)}
-                          placeholder='claude-sonnet-4-5'
-                        />
-                      </Form.Item>
-                      <Form.Item label='Opus' extra={t('keys.modelMapOpusExtra') || '包含 opus 的模型 →'}>
-                        <Input
-                          value={opusModel}
-                          onChange={(e) => setOpusModel(e.target.value)}
-                          placeholder='claude-opus-4-7'
-                        />
-                      </Form.Item>
-                      <Form.Item label={t('keys.modelMapDefault') || '兜底模型'} extra={t('keys.modelMapDefaultExtra') || '以上都不匹配时使用'}>
-                        <Input
-                          value={defaultModel}
-                          onChange={(e) => setDefaultModel(e.target.value)}
-                          placeholder={t('keys.modelMapDefaultPlaceholder') || '留空则保持原名'}
-                        />
-                      </Form.Item>
-                    </div>
+                    {selectedTypes.some(
+                      (type) => type === 'claude_code' || type === 'claude_desktop',
+                    ) && (
+                      <>
+                        <Text strong style={{ marginBottom: 12, display: 'block' }}>Claude</Text>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+                          <Form.Item label='Haiku' extra={t('keys.modelMapHaikuExtra') || '包含 haiku 的模型 →'}>
+                            <Input
+                              value={haikuModel}
+                              onChange={(e) => setHaikuModel(e.target.value)}
+                              placeholder='claude-haiku-4-5'
+                            />
+                          </Form.Item>
+                          <Form.Item label='Sonnet' extra={t('keys.modelMapSonnetExtra') || '包含 sonnet 的模型 →'}>
+                            <Input
+                              value={sonnetModel}
+                              onChange={(e) => setSonnetModel(e.target.value)}
+                              placeholder='claude-sonnet-4-5'
+                            />
+                          </Form.Item>
+                          <Form.Item label='Opus' extra={t('keys.modelMapOpusExtra') || '包含 opus 的模型 →'}>
+                            <Input
+                              value={opusModel}
+                              onChange={(e) => setOpusModel(e.target.value)}
+                              placeholder='claude-opus-4-7'
+                            />
+                          </Form.Item>
+                          <Form.Item label={t('keys.modelMapDefault') || '兜底模型'} extra={t('keys.modelMapDefaultExtra') || '以上都不匹配时使用'}>
+                            <Input
+                              value={defaultModel}
+                              onChange={(e) => setDefaultModel(e.target.value)}
+                              placeholder={t('keys.modelMapDefaultPlaceholder') || '留空则保持原名'}
+                            />
+                          </Form.Item>
+                        </div>
+                      </>
+                    )}
+                    {selectedTypes.includes('codex') && (
+                      <div>
+                        <Text strong style={{ marginBottom: 12, display: 'block' }}>Codex Desktop</Text>
+                        <Form.Item
+                          label={t('keys.modelMapCodex') || '上游模型'}
+                          extra={
+                            t('keys.modelMapCodexExtra') ||
+                            '仅改写发给中转站的 model，不改变 Codex 模型列表'
+                          }
+                        >
+                          <Input
+                            value={codexModel}
+                            onChange={(e) => setCodexModel(e.target.value)}
+                            placeholder={t('keys.modelMapCodexPlaceholder') || '例如：deepseek-chat'}
+                          />
+                        </Form.Item>
+                      </div>
+                    )}
                   </div>
                 ),
               },

@@ -20,18 +20,30 @@ struct MockUpstream {
 
 async fn start_mock_upstream() -> MockUpstream {
     let received_body: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-    let body_clone = received_body.clone();
+    let messages_body = received_body.clone();
+    let responses_body = received_body.clone();
 
-    let app = Router::new().route(
-        "/v1/messages",
-        post(move |body: String| {
-            let bc = body_clone.clone();
-            async move {
-                *bc.lock().unwrap() = body;
-                (StatusCode::OK, r#"{"type":"message","content":[]}"#).into_response()
-            }
-        }),
-    );
+    let app = Router::new()
+        .route(
+            "/v1/messages",
+            post(move |body: String| {
+                let received_body = messages_body.clone();
+                async move {
+                    *received_body.lock().unwrap() = body;
+                    (StatusCode::OK, r#"{"type":"message","content":[]}"#).into_response()
+                }
+            }),
+        )
+        .route(
+            "/v1/responses",
+            post(move |body: String| {
+                let received_body = responses_body.clone();
+                async move {
+                    *received_body.lock().unwrap() = body;
+                    (StatusCode::OK, r#"{"object":"response","output":[]}"#).into_response()
+                }
+            }),
+        );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -291,6 +303,71 @@ async fn codex_provider_skips_model_mapping() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let body = mock.received_body.lock().unwrap();
     assert_eq!(extract_model(&body), "claude-sonnet-4-6");
+}
+
+#[tokio::test]
+async fn codex_model_mapping_rewrites_responses_model() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{"codex":"deepseek-chat"}"#;
+    let (state, session_token) = setup_provider_with_mapping(mock.port, "codex", Some(mapping));
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/responses")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"gpt-5.4","input":[]}"#))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await;
+    assert!(response.is_ok());
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let body = mock.received_body.lock().unwrap();
+    assert_eq!(extract_model(&body), "deepseek-chat");
+}
+
+#[tokio::test]
+async fn codex_without_mapping_keeps_original_model() {
+    let mock = start_mock_upstream().await;
+    let (state, session_token) = setup_provider_with_mapping(mock.port, "codex", None);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/responses")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"gpt-5.4","input":[]}"#))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await;
+    assert!(response.is_ok());
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let body = mock.received_body.lock().unwrap();
+    assert_eq!(extract_model(&body), "gpt-5.4");
+}
+
+#[tokio::test]
+async fn codex_does_not_use_claude_default_mapping() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{"default":"claude-sonnet-upstream"}"#;
+    let (state, session_token) = setup_provider_with_mapping(mock.port, "codex", Some(mapping));
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/responses")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"gpt-5.4","input":[]}"#))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await;
+    assert!(response.is_ok());
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let body = mock.received_body.lock().unwrap();
+    assert_eq!(extract_model(&body), "gpt-5.4");
 }
 
 // ── [1M] suffix stripping ──

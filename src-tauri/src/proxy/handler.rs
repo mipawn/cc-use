@@ -1057,12 +1057,9 @@ fn build_official_upstream_url(upstream_family: UpstreamFamily, req_path: &str) 
 }
 
 fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) -> axum::body::Bytes {
-    if route_uses_openai_payload(route) {
-        return body_bytes;
-    }
-
     let mapping_str = match route.model_mapping.as_deref() {
         Some(s) if !s.is_empty() => s,
+        _ if route_uses_openai_payload(route) => return body_bytes,
         _ => return strip_one_m_suffix(body_bytes),
     };
 
@@ -1073,12 +1070,18 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
         opus: Option<String>,
         fable: Option<String>,
         default: Option<String>,
+        codex: Option<String>,
     }
 
     let mapping: ModelMapping = match serde_json::from_str(mapping_str) {
         Ok(m) => m,
+        Err(_) if route_uses_openai_payload(route) => return body_bytes,
         Err(_) => return strip_one_m_suffix(body_bytes),
     };
+
+    if route_uses_openai_payload(route) {
+        return rewrite_request_model(body_bytes, mapping.codex.as_deref());
+    }
 
     let mut json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
         Ok(v) => v,
@@ -1120,6 +1123,28 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     }
 
     strip_one_m_suffix(body_bytes)
+}
+
+fn rewrite_request_model(
+    body_bytes: axum::body::Bytes,
+    target_model: Option<&str>,
+) -> axum::body::Bytes {
+    let target_model = match target_model.map(str::trim) {
+        Some(model) if !model.is_empty() => model,
+        _ => return body_bytes,
+    };
+
+    let mut json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
+        Ok(value) => value,
+        Err(_) => return body_bytes,
+    };
+
+    if !json.get("model").is_some_and(serde_json::Value::is_string) {
+        return body_bytes;
+    }
+
+    json["model"] = serde_json::Value::String(target_model.to_string());
+    axum::body::Bytes::from(serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()))
 }
 
 fn route_uses_openai_payload(route: &RouteExecution) -> bool {
