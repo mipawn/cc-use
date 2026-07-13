@@ -41,11 +41,8 @@ fn api_key_crud() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert!(
-        stored_value.is_empty(),
-        "SQLite must not retain API key plaintext"
-    );
-    assert!(secret_ref.is_some());
+    assert_eq!(stored_value, "sk-test-123");
+    assert!(secret_ref.is_none());
 
     let keys = fixture.db.api_key_list(&provider.id).unwrap();
     assert_eq!(keys.len(), 1);
@@ -80,11 +77,9 @@ fn api_key_crud() {
 }
 
 #[test]
-fn legacy_plaintext_is_migrated_out_of_sqlite_on_open() {
-    let path = std::env::temp_dir().join(format!(
-        "cc-use-keychain-migration-{}.db",
-        nanoid::nanoid!(8)
-    ));
+fn plaintext_remains_in_sqlite_after_reopen() {
+    let path =
+        std::env::temp_dir().join(format!("cc-use-plaintext-reopen-{}.db", nanoid::nanoid!(8)));
     let key_id = {
         let db = cc_use_lib::db::Database::open_at(&path).unwrap();
         let provider = create_provider(&db, "Legacy", "claude");
@@ -127,8 +122,8 @@ fn legacy_plaintext_is_migrated_out_of_sqlite_on_open() {
         .unwrap();
 
     assert_eq!(key.value, "sk-legacy-plaintext");
-    assert!(stored_value.is_empty());
-    assert!(secret_ref.is_some());
+    assert_eq!(stored_value, "sk-legacy-plaintext");
+    assert!(secret_ref.is_none());
 
     drop(reopened);
     let _ = std::fs::remove_file(&path);

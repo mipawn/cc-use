@@ -1,13 +1,12 @@
-use crate::db::{secret_store, Database};
+use crate::db::Database;
 use crate::models::{ApiKey, CreateApiKeyInput, UpdateApiKeyInput, UsageData};
-use rusqlite::OptionalExtension;
 
-fn row_to_api_key(row: &rusqlite::Row, db: &Database) -> Result<ApiKey, rusqlite::Error> {
+fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
     // SELECT: id(0), provider_id(1), alias(2), value(3), priority(4),
     //         is_exhausted(5), is_active(6), config(7), usage_type(8),
     //         usage_url(9), usage_path(10), usage_headers(11),
     //         cached_usage(12), last_usage_checked_at(13), cost_multiplier(14), model_mapping(15),
-    //         types(16), client_configs(17), secret_ref(18)
+    //         types(16), client_configs(17)
     let config_str: Option<String> = row.get(7)?;
     let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
     let client_configs_str: Option<String> = row.get(17)?;
@@ -18,21 +17,11 @@ fn row_to_api_key(row: &rusqlite::Row, db: &Database) -> Result<ApiKey, rusqlite
         .filter(|types| !types.is_empty())
         .unwrap_or_else(|| vec!["claude_code".to_string()]);
 
-    let legacy_value: String = row.get(3)?;
-    let secret_ref: Option<String> = row.get(18)?;
-    let value = match secret_ref.as_deref().filter(|value| !value.is_empty()) {
-        Some(reference) => db
-            .secret_store
-            .get(reference)
-            .map_err(secret_store::to_sqlite_error)?,
-        None => legacy_value,
-    };
-
     Ok(ApiKey {
         id: row.get(0)?,
         provider_id: row.get(1)?,
         alias: row.get(2)?,
-        value,
+        value: row.get(3)?,
         types,
         priority: row.get(4)?,
         is_exhausted: row.get::<_, i32>(5)? != 0,
@@ -60,11 +49,11 @@ impl Database {
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
-                    client_configs, secret_ref
+                    client_configs
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC",
         )?;
 
-        let rows = stmt.query_map([provider_id], |row| row_to_api_key(row, self))?;
+        let rows = stmt.query_map([provider_id], row_to_api_key)?;
         rows.collect()
     }
 
@@ -73,11 +62,11 @@ impl Database {
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
-                    client_configs, secret_ref
+                    client_configs
              FROM api_keys WHERE id = ?1",
         )?;
 
-        let mut rows = stmt.query_map([id], |row| row_to_api_key(row, self))?;
+        let mut rows = stmt.query_map([id], row_to_api_key)?;
 
         match rows.next() {
             Some(Ok(key)) => Ok(Some(key)),
@@ -113,21 +102,16 @@ impl Database {
             .as_ref()
             .map(|c| serde_json::to_string(c).unwrap_or_default());
 
-        let secret_ref = Self::api_key_secret_ref(id);
-        self.secret_store
-            .set(&secret_ref, &input.value)
-            .map_err(secret_store::to_sqlite_error)?;
-
-        let insert_result = self.conn.execute(
+        self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, secret_ref, types, priority, is_exhausted, is_active,
                 config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping,
                 client_configs)
-             VALUES (?1, ?2, ?3, '', ?4, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 id,
                 input.provider_id,
                 input.alias,
-                secret_ref,
+                input.value,
                 types_json,
                 input.priority.unwrap_or(0),
                 if input.is_active.unwrap_or(true) { 1 } else { 0 },
@@ -140,12 +124,7 @@ impl Database {
                 input.model_mapping,
                 client_configs_json,
             ],
-        );
-
-        if let Err(error) = insert_result {
-            let _ = self.secret_store.delete(&Self::api_key_secret_ref(id));
-            return Err(error);
-        }
+        )?;
 
         self.api_key_get(&id)?
             .ok_or(rusqlite::Error::QueryReturnedNoRows)
@@ -157,13 +136,9 @@ impl Database {
 
         add_field!(input.alias, "alias", sets, params);
         if let Some(ref value) = input.value {
-            let secret_ref = Self::api_key_secret_ref(&input.id);
-            self.secret_store
-                .set(&secret_ref, value)
-                .map_err(secret_store::to_sqlite_error)?;
-            sets.push("value = ''".to_string());
-            sets.push("secret_ref = ?".to_string());
-            params.push(Box::new(secret_ref));
+            sets.push("value = ?".to_string());
+            params.push(Box::new(value.clone()));
+            sets.push("secret_ref = NULL".to_string());
         }
         add_field!(input.priority, "priority", sets, params);
         add_field!(input.cost_multiplier, "cost_multiplier", sets, params);
@@ -228,14 +203,6 @@ impl Database {
     }
 
     pub fn api_key_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
-        let secret_ref = self
-            .conn
-            .query_row(
-                "SELECT secret_ref FROM api_keys WHERE id = ?1",
-                [id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?;
         // Backfill snapshot column before deletion so request_logs retain the display name
         self.conn.execute(
             "UPDATE request_logs SET key_alias = (SELECT alias FROM api_keys WHERE id = ?1)
@@ -244,11 +211,6 @@ impl Database {
         )?;
         self.conn
             .execute("DELETE FROM api_keys WHERE id = ?1", [id])?;
-        if let Some(Some(secret_ref)) = secret_ref {
-            self.secret_store
-                .delete(&secret_ref)
-                .map_err(secret_store::to_sqlite_error)?;
-        }
         Ok(())
     }
 

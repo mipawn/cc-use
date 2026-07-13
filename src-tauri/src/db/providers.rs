@@ -1,23 +1,7 @@
-use crate::db::secret_store;
 use crate::db::Database;
 use crate::models::{CreateProviderInput, Provider, UpdateProviderInput, UsageData};
-use rusqlite::OptionalExtension;
 
-fn row_to_provider(row: &rusqlite::Row, db: &Database) -> Result<Provider, rusqlite::Error> {
-    let legacy_token: Option<String> = row.get(6)?;
-    let token_secret_ref: Option<String> = row.get(24)?;
-    let token = match token_secret_ref
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    {
-        Some(reference) => Some(
-            db.secret_store
-                .get(reference)
-                .map_err(secret_store::to_sqlite_error)?,
-        ),
-        None => legacy_token,
-    };
-
+fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
     Ok(Provider {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -25,7 +9,7 @@ fn row_to_provider(row: &rusqlite::Row, db: &Database) -> Result<Provider, rusql
         http_proxy: row.get(3)?,
         website: row.get(4)?,
         remark: row.get(5)?,
-        token,
+        token: row.get(6)?,
         icon: row.get(7)?,
         wallet_balance_type: row
             .get::<_, Option<String>>(8)?
@@ -68,11 +52,11 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order, token_secret_ref
+                    cost_multiplier, is_active, sort_order
              FROM providers ORDER BY sort_order ASC, name ASC",
         )?;
 
-        let rows = stmt.query_map([], |row| row_to_provider(row, self))?;
+        let rows = stmt.query_map([], row_to_provider)?;
         rows.collect()
     }
 
@@ -84,11 +68,11 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order, token_secret_ref
+                    cost_multiplier, is_active, sort_order
              FROM providers WHERE id = ?1",
         )?;
 
-        let mut rows = stmt.query_map([id], |row| row_to_provider(row, self))?;
+        let mut rows = stmt.query_map([id], row_to_provider)?;
 
         match rows.next() {
             Some(Ok(p)) => Ok(Some(p)),
@@ -112,21 +96,12 @@ impl Database {
             )
             .unwrap_or(0);
         let token = normalize_optional_string(input.token.as_deref());
-        let token_secret_ref = token
-            .as_ref()
-            .map(|_| Database::provider_token_secret_ref(&id));
-        if let (Some(reference), Some(token)) = (token_secret_ref.as_deref(), token.as_deref()) {
-            self.secret_store
-                .set(reference, token)
-                .map_err(secret_store::to_sqlite_error)?;
-        }
-
-        let insert_result = self.conn.execute(
+        self.conn.execute(
             "INSERT INTO providers (id, name, base_url, http_proxy, website, remark, token, token_secret_ref, icon,
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
                 sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18)",
             rusqlite::params![
                 id,
                 input.name,
@@ -134,7 +109,7 @@ impl Database {
                 normalize_optional_string(input.http_proxy.as_deref()),
                 input.website,
                 input.remark,
-                token_secret_ref,
+                token,
                 input.icon,
                 input.wallet_balance_type.as_deref().unwrap_or("none"),
                 input.wallet_balance_url,
@@ -147,13 +122,7 @@ impl Database {
                 input.usage_headers,
                 next_sort,
             ],
-        );
-        if let Err(error) = insert_result {
-            if let Some(reference) = token_secret_ref {
-                let _ = self.secret_store.delete(&reference);
-            }
-            return Err(error);
-        }
+        )?;
 
         self.provider_get(&id)?
             .ok_or(rusqlite::Error::QueryReturnedNoRows)
@@ -178,32 +147,9 @@ impl Database {
         add_field!(input.website, "website", sets, params);
         add_field!(input.remark, "remark", sets, params);
         if let Some(ref token) = input.token {
-            let secret_ref = Database::provider_token_secret_ref(&input.id);
-            if let Some(token) = normalize_optional_string(Some(token.as_str())) {
-                self.secret_store
-                    .set(&secret_ref, &token)
-                    .map_err(secret_store::to_sqlite_error)?;
-                sets.push("token = NULL".to_string());
-                sets.push("token_secret_ref = ?".to_string());
-                params.push(Box::new(secret_ref));
-            } else {
-                let existing_secret_ref = self
-                    .conn
-                    .query_row(
-                        "SELECT token_secret_ref FROM providers WHERE id = ?1",
-                        [&input.id],
-                        |row| row.get::<_, Option<String>>(0),
-                    )
-                    .optional()?
-                    .flatten();
-                if let Some(existing_secret_ref) = existing_secret_ref {
-                    self.secret_store
-                        .delete(&existing_secret_ref)
-                        .map_err(secret_store::to_sqlite_error)?;
-                }
-                sets.push("token = NULL".to_string());
-                sets.push("token_secret_ref = NULL".to_string());
-            }
+            sets.push("token = ?".to_string());
+            params.push(Box::new(normalize_optional_string(Some(token.as_str()))));
+            sets.push("token_secret_ref = NULL".to_string());
         }
         add_field!(input.icon, "icon", sets, params);
         add_field!(
@@ -296,21 +242,6 @@ impl Database {
     }
 
     pub fn provider_delete(&self, id: &str) -> Result<(), rusqlite::Error> {
-        let secret_refs = self
-            .conn
-            .prepare(
-                "SELECT secret_ref FROM api_keys WHERE provider_id = ?1 AND secret_ref IS NOT NULL",
-            )?
-            .query_map([id], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?;
-        let provider_secret_ref = self
-            .conn
-            .query_row(
-                "SELECT token_secret_ref FROM providers WHERE id = ?1",
-                [id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?;
         // Backfill snapshot column before deletion so request_logs retain the display name
         self.conn.execute(
             "UPDATE request_logs SET provider_name = (SELECT name FROM providers WHERE id = ?1)
@@ -319,16 +250,6 @@ impl Database {
         )?;
         self.conn
             .execute("DELETE FROM providers WHERE id = ?1", [id])?;
-        for secret_ref in secret_refs {
-            self.secret_store
-                .delete(&secret_ref)
-                .map_err(secret_store::to_sqlite_error)?;
-        }
-        if let Some(Some(secret_ref)) = provider_secret_ref {
-            self.secret_store
-                .delete(&secret_ref)
-                .map_err(secret_store::to_sqlite_error)?;
-        }
         Ok(())
     }
 }

@@ -43,11 +43,8 @@ fn provider_crud() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert!(
-        stored_token.is_none(),
-        "SQLite must not retain provider token plaintext"
-    );
-    assert!(token_secret_ref.is_some());
+    assert_eq!(stored_token.as_deref(), Some("test-token"));
+    assert!(token_secret_ref.is_none());
 
     let providers = fixture.db.provider_list().unwrap();
     assert_eq!(providers.len(), 1);
@@ -58,6 +55,79 @@ fn provider_crud() {
     fixture.db.provider_delete(&provider.id).unwrap();
     let providers = fixture.db.provider_list().unwrap();
     assert_eq!(providers.len(), 0);
+}
+
+#[test]
+fn provider_token_can_be_updated_and_cleared_in_sqlite() {
+    let fixture = TempDb::new();
+    let provider = fixture
+        .db
+        .provider_create(&CreateProviderInput {
+            name: "Token Provider".to_string(),
+            base_url: "https://api.test.com".to_string(),
+            http_proxy: None,
+            website: None,
+            remark: None,
+            token: Some("initial-token".to_string()),
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+        })
+        .unwrap();
+
+    let update_token = |token: &str| UpdateProviderInput {
+        id: provider.id.clone(),
+        name: None,
+        base_url: None,
+        http_proxy: None,
+        website: None,
+        remark: None,
+        token: Some(token.to_string()),
+        icon: None,
+        wallet_balance_type: None,
+        wallet_balance_url: None,
+        wallet_balance_path: None,
+        wallet_balance_headers: None,
+        wallet_balance_user_id: None,
+        cached_wallet_balance: None,
+        last_balance_checked_at: None,
+        usage_type: None,
+        usage_url: None,
+        usage_path: None,
+        usage_headers: None,
+        cached_usage: None,
+        last_usage_checked_at: None,
+        cost_multiplier: None,
+        is_active: None,
+    };
+
+    let updated = fixture
+        .db
+        .provider_update(&update_token(" updated-token "))
+        .unwrap();
+    assert_eq!(updated.token.as_deref(), Some("updated-token"));
+
+    let cleared = fixture.db.provider_update(&update_token("   ")).unwrap();
+    assert!(cleared.token.is_none());
+
+    let (stored_token, token_secret_ref): (Option<String>, Option<String>) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT token, token_secret_ref FROM providers WHERE id = ?1",
+            [&provider.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(stored_token.is_none());
+    assert!(token_secret_ref.is_none());
 }
 
 #[test]

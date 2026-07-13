@@ -12,22 +12,22 @@ macro_rules! add_field {
 
 pub mod api_keys;
 pub mod gateway_metrics;
+mod keychain_migration;
 pub mod managed_instances;
 pub mod projects;
 pub mod providers;
 pub mod proxy_sessions;
 pub mod request_logs;
-mod secret_store;
 pub mod settings;
 pub mod usage_logs;
 
 use rusqlite::Connection;
-use secret_store::{MemorySecretStore, SecretStore, SystemSecretStore};
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
+
+use keychain_migration::{LegacySecretReadError, LegacySecretReader, SystemKeychainReader};
 
 pub struct Database {
     pub conn: Connection,
-    secret_store: Arc<dyn SecretStore>,
 }
 
 impl Database {
@@ -43,11 +43,8 @@ impl Database {
         conn.execute_batch("PRAGMA journal_mode = WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
-        let db = Self {
-            conn,
-            secret_store: Arc::new(SystemSecretStore),
-        };
-        db.run_migrations()?;
+        let db = Self { conn };
+        db.run_migrations(Some(&SystemKeychainReader))?;
         Ok(db)
     }
 
@@ -55,11 +52,8 @@ impl Database {
     pub fn new_in_memory() -> Result<Self, rusqlite::Error> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Self {
-            conn,
-            secret_store: Arc::new(MemorySecretStore::default()),
-        };
-        db.run_migrations()?;
+        let db = Self { conn };
+        db.run_migrations(None)?;
         Ok(db)
     }
 
@@ -81,7 +75,10 @@ impl Database {
             .join("cc-use.db")
     }
 
-    fn run_migrations(&self) -> Result<(), rusqlite::Error> {
+    fn run_migrations(
+        &self,
+        legacy_secret_reader: Option<&dyn LegacySecretReader>,
+    ) -> Result<(), rusqlite::Error> {
         self.conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS providers (
@@ -268,8 +265,7 @@ impl Database {
 
         // Run ALTER TABLE migrations for backward compatibility with existing databases
         self.run_alter_migrations();
-        self.migrate_api_key_secrets()?;
-        self.migrate_provider_token_secrets()?;
+        self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
 
         Ok(())
     }
@@ -282,11 +278,8 @@ impl Database {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode = WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Self {
-            conn,
-            secret_store: Arc::new(MemorySecretStore::default()),
-        };
-        db.run_migrations()?;
+        let db = Self { conn };
+        db.run_migrations(None)?;
         Ok(db)
     }
 
@@ -416,61 +409,79 @@ impl Database {
         self.drop_transform_columns();
     }
 
-    fn migrate_api_key_secrets(&self) -> Result<(), rusqlite::Error> {
+    fn restore_legacy_keychain_secrets(
+        &self,
+        reader: Option<&dyn LegacySecretReader>,
+    ) -> Result<(), rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, value FROM api_keys
-             WHERE (secret_ref IS NULL OR secret_ref = '') AND value != ''",
+            "SELECT id, value, secret_ref FROM api_keys
+             WHERE secret_ref IS NOT NULL AND secret_ref != ''",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })?;
         let legacy_keys = rows.collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
 
-        for (id, value) in legacy_keys {
-            let secret_ref = Self::api_key_secret_ref(&id);
-            self.secret_store
-                .set(&secret_ref, &value)
-                .map_err(secret_store::to_sqlite_error)?;
-            self.conn.execute(
-                "UPDATE api_keys SET value = '', secret_ref = ?1 WHERE id = ?2",
-                rusqlite::params![secret_ref, id],
-            )?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn api_key_secret_ref(id: &str) -> String {
-        format!("api-key:{}", id)
-    }
-
-    pub(crate) fn provider_token_secret_ref(id: &str) -> String {
-        format!("provider-token:{}", id)
-    }
-
-    fn migrate_provider_token_secrets(&self) -> Result<(), rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, token FROM providers
-             WHERE (token_secret_ref IS NULL OR token_secret_ref = '')
-               AND token IS NOT NULL AND token != ''",
+            "SELECT id, token, token_secret_ref FROM providers
+             WHERE token_secret_ref IS NOT NULL AND token_secret_ref != ''",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })?;
         let legacy_tokens = rows.collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
 
-        for (id, token) in legacy_tokens {
-            let secret_ref = Self::provider_token_secret_ref(&id);
-            self.secret_store
-                .set(&secret_ref, &token)
-                .map_err(secret_store::to_sqlite_error)?;
-            self.conn.execute(
-                "UPDATE providers SET token = NULL, token_secret_ref = ?1 WHERE id = ?2",
-                rusqlite::params![secret_ref, id],
+        let read_secret = |reference: &str| {
+            reader
+                .ok_or_else(|| LegacySecretReadError::Unavailable(reference.to_string()))?
+                .get(reference)
+        };
+        let restored_keys = legacy_keys
+            .into_iter()
+            .map(|(id, value, reference)| {
+                if value.is_empty() {
+                    read_secret(&reference).map(|secret| (id, secret))
+                } else {
+                    Ok((id, value))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(keychain_migration::to_sqlite_error)?;
+        let restored_tokens = legacy_tokens
+            .into_iter()
+            .map(
+                |(id, token, reference)| match token.filter(|value| !value.is_empty()) {
+                    Some(token) => Ok((id, token)),
+                    None => read_secret(&reference).map(|secret| (id, secret)),
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(keychain_migration::to_sqlite_error)?;
+
+        let transaction = self.conn.unchecked_transaction()?;
+        for (id, value) in restored_keys {
+            transaction.execute(
+                "UPDATE api_keys SET value = ?1, secret_ref = NULL WHERE id = ?2",
+                rusqlite::params![value, id],
             )?;
         }
-        Ok(())
+        for (id, token) in restored_tokens {
+            transaction.execute(
+                "UPDATE providers SET token = ?1, token_secret_ref = NULL WHERE id = ?2",
+                rusqlite::params![token, id],
+            )?;
+        }
+        transaction.commit()
     }
 
     /// Migrate api_keys.types: replace 'claude' with 'claude_code' (v3.2.0 ClientKind).
@@ -534,5 +545,135 @@ fn dirs_next() -> Option<PathBuf> {
     #[cfg(not(target_os = "macos"))]
     {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    struct FakeLegacySecretReader {
+        values: HashMap<String, String>,
+    }
+
+    impl LegacySecretReader for FakeLegacySecretReader {
+        fn get(&self, reference: &str) -> Result<String, LegacySecretReadError> {
+            self.values
+                .get(reference)
+                .cloned()
+                .ok_or_else(|| LegacySecretReadError::Backend("access denied".to_string()))
+        }
+    }
+
+    fn seed_legacy_keychain_references(db: &Database) {
+        db.conn
+            .execute(
+                "INSERT INTO providers (id, name, base_url, token, token_secret_ref)
+                 VALUES ('provider-1', 'Provider', 'https://example.com', NULL, 'provider-token:provider-1')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO api_keys (id, provider_id, value, secret_ref)
+                 VALUES ('key-1', 'provider-1', '', 'api-key:key-1')",
+                [],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn restores_v330_keychain_secrets_to_sqlite() {
+        let db = Database::new_in_memory().unwrap();
+        seed_legacy_keychain_references(&db);
+        let reader = FakeLegacySecretReader {
+            values: HashMap::from([
+                ("api-key:key-1".to_string(), "sk-restored".to_string()),
+                (
+                    "provider-token:provider-1".to_string(),
+                    "token-restored".to_string(),
+                ),
+            ]),
+        };
+
+        db.restore_legacy_keychain_secrets(Some(&reader)).unwrap();
+
+        let (value, secret_ref): (String, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT value, secret_ref FROM api_keys WHERE id = 'key-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let (token, token_secret_ref): (Option<String>, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT token, token_secret_ref FROM providers WHERE id = 'provider-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(value, "sk-restored");
+        assert!(secret_ref.is_none());
+        assert_eq!(token.as_deref(), Some("token-restored"));
+        assert!(token_secret_ref.is_none());
+    }
+
+    #[test]
+    fn failed_keychain_restore_preserves_database_references() {
+        let db = Database::new_in_memory().unwrap();
+        seed_legacy_keychain_references(&db);
+        let reader = FakeLegacySecretReader {
+            values: HashMap::new(),
+        };
+
+        assert!(db.restore_legacy_keychain_secrets(Some(&reader)).is_err());
+
+        let (value, secret_ref): (String, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT value, secret_ref FROM api_keys WHERE id = 'key-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(value.is_empty());
+        assert_eq!(secret_ref.as_deref(), Some("api-key:key-1"));
+    }
+
+    #[test]
+    fn existing_plaintext_clears_stale_reference_without_keychain_access() {
+        let db = Database::new_in_memory().unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO providers (id, name, base_url, token, token_secret_ref)
+                 VALUES ('provider-1', 'Provider', 'https://example.com', 'plain-token', 'stale-provider-ref')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO api_keys (id, provider_id, value, secret_ref)
+                 VALUES ('key-1', 'provider-1', 'plain-key', 'stale-key-ref')",
+                [],
+            )
+            .unwrap();
+
+        db.restore_legacy_keychain_secrets(None).unwrap();
+
+        let refs: (Option<String>, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT api_keys.secret_ref, providers.token_secret_ref
+                 FROM api_keys JOIN providers ON providers.id = api_keys.provider_id
+                 WHERE api_keys.id = 'key-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(refs, (None, None));
     }
 }
