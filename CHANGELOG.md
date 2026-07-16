@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.3.3] - 2026-07-16
+
+### Changed
+
+- Claude Code 与 Grok Build 复用同一个项目目录，但供应商、API Key、终端和启动前命令改为按客户端独立保存，切换客户端不再覆盖另一侧绑定
+- 项目列表按项目路径的上级目录自动分组，供应商页在每个供应商标题旁展示近 24 小时真实上游请求成功率、请求数和错误数
+- 费用统计页移除放错位置的全局网关成功率卡片；本地拦截请求不计入供应商成功率分母
+
+### Fixed
+
+- 修复 Grok Build 使用不存在的环境变量导致启动后空白；改为写入官方支持的 `~/.grok/managed_config.toml` 自定义模型，并通过 `grok -m cc-use` 启动
+- 修复 Grok Build 的复制命令仍生成无效 Base URL 环境变量，代理模式改用受管模型和独立 session token
+- 修复托盘用量后台计算完成后从工作线程直接更新 UI，导致定时刷新、请求后刷新和窗口聚焦刷新不生效；现在统一回到 Tauri 主线程更新
+
 ## [3.3.2] - 2026-07-16
 
 ### Added
