@@ -118,7 +118,14 @@ function AppContent() {
           <MigrationModal />
           <Routes>
             <Route path='/' element={<Dashboard />} />
-            <Route path='/claude-code' element={<ClaudeCodePage />} />
+            <Route
+              path='/claude-code'
+              element={<ClaudeCodePage key='claude-code' clientKind='claude_code' />}
+            />
+            <Route
+              path='/grok-build'
+              element={<ClaudeCodePage key='grok-build' clientKind='grok' />}
+            />
             <Route path='/codex' element={<CodexPage />} />
             <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
             <Route path='/keys' element={<Keys />} />

@@ -9,6 +9,7 @@ describe('model mapping serialization', () => {
           haiku: 'claude-haiku-upstream',
           sonnet: 'claude-sonnet-upstream',
           codex: 'deepseek-chat',
+          grok: 'grok-build-0.1',
         }),
       ),
     ).toEqual({
@@ -16,6 +17,7 @@ describe('model mapping serialization', () => {
       haiku: 'claude-haiku-upstream',
       sonnet: 'claude-sonnet-upstream',
       codex: 'deepseek-chat',
+      grok: 'grok-build-0.1',
     })
   })
 
@@ -25,8 +27,9 @@ describe('model mapping serialization', () => {
         ...EMPTY_MODEL_MAPPING,
         sonnet: ' claude-sonnet-upstream ',
         codex: ' deepseek-chat ',
+        grok: ' grok-build-0.1 ',
       }),
-    ).toBe('{"sonnet":"claude-sonnet-upstream","codex":"deepseek-chat"}')
+    ).toBe('{"sonnet":"claude-sonnet-upstream","codex":"deepseek-chat","grok":"grok-build-0.1"}')
   })
 
   it('returns an empty mapping for invalid JSON and omits all-empty mappings', () => {

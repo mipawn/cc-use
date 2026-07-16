@@ -1,9 +1,11 @@
 # CC Use
 
-专为 **Claude Code / Codex Desktop / Claude Desktop** 打造的桌面配置管理工具。CC Use 负责管理供应商、密钥、本地网关与桌面端配置接管，让不同客户端共用一套可观测的密钥体系。
+专为 **Claude Code / Grok Build / Codex Desktop / Claude Desktop** 打造的桌面配置管理工具。CC Use 负责管理供应商、密钥、本地网关与桌面端配置接管，让不同客户端共用一套可观测的密钥体系。
 
 [English](./README_EN.md)
 
+> **3.3.2 更新**：项目终端新增 Grok Build，支持独立密钥适用范围、Bearer 鉴权、模型映射和代理环境变量。
+>
 > **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
@@ -28,13 +30,13 @@
 
 ## 功能
 
-- **供应商与密钥管理** - 在「供应商密钥」页面统一管理供应商和 API 密钥；每个密钥可勾选 Claude Code、Codex Desktop、Claude Desktop，支持优先级排序、额度查询、费用倍率和模型映射
-- **Claude Code 工作区** - Claude Code 页面集中管理项目、实例、会话和全局配置；项目只负责进程级启动，不再承担 Codex CLI 类型切换
-- **Claude Code 一键启动** - 点击项目即启动终端，wrapper 自动注入 session token、实例标识和本地 daemon 地址，真实密钥不会进入终端环境
+- **供应商与密钥管理** - 在「供应商密钥」页面统一管理供应商和 API 密钥；每个密钥可勾选 Claude Code、Grok Build、Codex Desktop、Claude Desktop，支持优先级排序、额度查询、费用倍率和模型映射
+- **CLI 工作区** - Claude Code 页面集中管理项目、实例、会话和全局配置；每个项目可选择 Claude Code 或 Grok Build 作为进程级终端客户端
+- **CLI 一键启动** - 点击项目即启动终端，wrapper 自动注入 session token、实例标识和本地 daemon 地址，真实密钥不会进入终端环境
 - **Codex Desktop 配置接管** - 写入 `~/.codex/config.toml` 的 `cc-use` provider 和固定 `experimental_bearer_token`，保留 `auth.json`；首次接管后重启 Codex Desktop，后续切换密钥可直接更新 daemon 路由
 - **Claude Desktop 配置接管** - 写入 Claude 3P profile 和 configLibrary，网关地址指向 `http://127.0.0.1:<port>/claude-desktop`，支持配置预览、恢复官方配置和模型列表接管
 - **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，按 session token 路由到当前供应商/密钥，支持费用追踪与热切换
-- **实例管理** - 「实例」页面展示每次 Claude Code 启动的 managed instance，状态机涵盖 `launching / running / stale / stopped / failed`，支持实例级密钥热切换
+- **实例管理** - 「实例」页面展示每次 Claude Code 或 Grok Build 启动的 managed instance，状态机涵盖 `launching / running / stale / stopped / failed`，支持实例级密钥热切换
 - **费用追踪** - 自动记录每次请求的 Token 用量和费用；统计会过滤无 usage 的探测请求，并把 Codex Desktop / Claude Desktop 归为独立客户端来源
 - **统计分析** - 仪表盘展示今日费用、请求量、每日趋势、Top 密钥/项目；统计页提供按密钥/供应商/客户端/模型的详细分析和请求明细
 - **系统托盘** - 关闭窗口时最小化到托盘，daemon 服务持续运行；托盘菜单支持服务控制和最近项目快速启动
@@ -58,19 +60,19 @@
 进入「供应商密钥」页面：
 
 1. 点击「添加供应商」，填写名称、Base URL，选择图标，可选配置 Token 和余额查询
-2. 在供应商分组下点击「添加密钥」，填写密钥值，选择适用客户端（Claude Code / Codex Desktop / Claude Desktop）
+2. 在供应商分组下点击「添加密钥」，填写密钥值，选择适用客户端（Claude Code / Grok Build / Codex Desktop / Claude Desktop）
 3. 按需配置费用倍率、额度查询和模型映射；只有 Claude Code 会展示局部 CLI 配置
 
-### 2. 使用 Claude Code
+### 2. 使用 Claude Code / Grok Build
 
 进入「Claude Code」页面：
 
-1. 在「项目」Tab 创建项目，选择项目文件夹、供应商和密钥
+1. 在「项目」Tab 创建项目，选择 Claude Code 或 Grok Build，并设置项目文件夹、供应商和密钥
 2. 点击项目打开按钮启动终端，应用会创建 managed instance
 3. 在「实例」Tab 查看运行状态或切换当前实例密钥
 4. 在「全局配置」Tab 管理 Claude Code 全局配置
 
-Claude Code 启动时会设置 `ANTHROPIC_BASE_URL` 和 session token，真实密钥保留在本地 daemon 中。
+Claude Code 启动时会设置 `ANTHROPIC_BASE_URL`；Grok Build 会设置 `GROK_MODELS_BASE_URL`、`GROK_XAI_API_BASE_URL` 和 `XAI_API_KEY`。两者使用的值都是本地 daemon 地址与 session token，真实密钥保留在 daemon 中。
 
 ### 3. 接管 Codex Desktop
 
@@ -98,7 +100,7 @@ Claude Desktop 接管前会探测本地 daemon 的模型列表接口；模型映
 
 - 请求使用 session token 替代真实密钥
 - 自动记录每次请求的 Token 用量和费用
-- 支持热切换密钥：Claude Code 在「实例」页切换当前运行实例；Codex Desktop / Claude Desktop 通过固定配置接管 token 更新 daemon 路由
+- 支持热切换密钥：Claude Code / Grok Build 在「实例」页切换当前运行实例；Codex Desktop / Claude Desktop 通过固定配置接管 token 更新 daemon 路由
 
 在「设置」页面可以查看服务运行状态和端口，异常时点击「重启服务」。
 
@@ -136,6 +138,7 @@ Claude Desktop 接管前会探测本地 daemon 的模型列表接口；模型映
 
 ```
 Claude Code wrapper → localhost:12345 (daemon) → 实际 API 供应商
+Grok Build wrapper → localhost:12345/v1 (daemon) → 实际 API 供应商
 Codex Desktop config.toml → localhost:12345/v1 (daemon) → 实际 API 供应商
 Claude Desktop 3P gateway → localhost:12345/claude-desktop (daemon) → 实际 API 供应商
 ```
@@ -148,7 +151,7 @@ daemon 做这些事：
 - 通过 wrapper 的 heartbeat + stop 上报追踪每个 managed instance 的生命周期
 - 按供应商类型补齐正确认证 Header，并透传客户端原始请求形态
 
-> 3.2.0 已移除旧的请求/响应格式转换层。上游供应商需要兼容对应客户端发出的 API 形态：Claude Code / Claude Desktop 使用 Anthropic Messages 风格，Codex Desktop 使用 OpenAI Responses 风格。
+> 3.2.0 已移除旧的请求/响应格式转换层。上游供应商需要兼容对应客户端发出的 API 形态：Claude Code / Claude Desktop 使用 Anthropic Messages 风格，Grok Build / Codex Desktop 使用 OpenAI 风格。
 
 ## 从源码构建与测试
 

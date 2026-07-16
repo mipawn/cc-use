@@ -14,11 +14,23 @@
 }
 
 .clientSelector {
-  padding: 12px 14px;
   margin-bottom: 12px;
-  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
-  border-radius: 8px;
-  background: var(--surface-default, #fff);
+}
+
+.clientSelect {
+  width: 100%;
+}
+
+.clientOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.clientOptionMeta {
+  flex: 0 0 auto;
+  font-size: 12px;
 }
 
 .tabs {

@@ -9,9 +9,9 @@ import {
 } from '../index'
 
 describe('ClientKind types (v3.2.0)', () => {
-  it('should have 3 client kinds', () => {
-    const kinds: ClientKind[] = ['codex', 'claude_code', 'claude_desktop']
-    expect(kinds).toHaveLength(3)
+  it('should have 4 client kinds', () => {
+    const kinds: ClientKind[] = ['codex', 'claude_code', 'grok', 'claude_desktop']
+    expect(kinds).toHaveLength(4)
   })
 
   it('should have correct integration forms', () => {
@@ -20,20 +20,26 @@ describe('ClientKind types (v3.2.0)', () => {
   })
 
   it('should have client kind configs', () => {
-    expect(CLIENT_KIND_CONFIGS).toHaveLength(3)
+    expect(CLIENT_KIND_CONFIGS).toHaveLength(4)
 
-    const claudeCodeConfig = CLIENT_KIND_CONFIGS.find(c => c.kind === 'claude_code')
+    const claudeCodeConfig = CLIENT_KIND_CONFIGS.find((c) => c.kind === 'claude_code')
     expect(claudeCodeConfig).toBeDefined()
     expect(claudeCodeConfig?.label).toBe('Claude Code')
     expect(claudeCodeConfig?.form).toBe('process_injection')
     expect(claudeCodeConfig?.cliCommand).toBe('claude')
 
-    const codexConfig = CLIENT_KIND_CONFIGS.find(c => c.kind === 'codex')
+    const grokConfig = CLIENT_KIND_CONFIGS.find((c) => c.kind === 'grok')
+    expect(grokConfig).toBeDefined()
+    expect(grokConfig?.label).toBe('Grok Build')
+    expect(grokConfig?.form).toBe('process_injection')
+    expect(grokConfig?.cliCommand).toBe('grok')
+
+    const codexConfig = CLIENT_KIND_CONFIGS.find((c) => c.kind === 'codex')
     expect(codexConfig).toBeDefined()
     expect(codexConfig?.label).toBe('Codex Desktop')
     expect(codexConfig?.form).toBe('config_takeover')
 
-    const desktopConfig = CLIENT_KIND_CONFIGS.find(c => c.kind === 'claude_desktop')
+    const desktopConfig = CLIENT_KIND_CONFIGS.find((c) => c.kind === 'claude_desktop')
     expect(desktopConfig).toBeDefined()
     expect(desktopConfig?.label).toBe('Claude Desktop')
     expect(desktopConfig?.form).toBe('config_takeover')
@@ -54,12 +60,14 @@ describe('ClientKind types (v3.2.0)', () => {
     expect(providerTypeToClientKind('claude')).toBe('claude_code')
     expect(providerTypeToClientKind('claude_code')).toBe('claude_code')
     expect(providerTypeToClientKind('codex')).toBe('codex')
+    expect(providerTypeToClientKind('grok')).toBe('grok')
     expect(providerTypeToClientKind('claude_desktop')).toBe('claude_desktop')
   })
 
   it('should convert ClientKind to ProviderType', () => {
     expect(clientKindToProviderType('claude_code')).toBe('claude_code')
     expect(clientKindToProviderType('codex')).toBe('codex')
+    expect(clientKindToProviderType('grok')).toBe('grok')
     expect(clientKindToProviderType('claude_desktop')).toBeNull()
   })
 })

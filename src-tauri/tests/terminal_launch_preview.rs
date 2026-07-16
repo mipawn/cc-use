@@ -65,6 +65,40 @@ fn merges_global_key_and_runtime_for_claude_preview() {
 }
 
 #[test]
+fn grok_preview_uses_local_responses_proxy_without_claude_config() {
+    let fixture = TempDb::new();
+    fixture
+        .db
+        .settings_update(&json!({
+          "claudeConfig": {
+            "ANTHROPIC_MODEL": "must-not-leak"
+          }
+        }))
+        .unwrap();
+
+    let provider = create_provider(&fixture.db, "Grok Provider", "grok");
+    let api_key = create_api_key(&fixture.db, &provider.id, "grok");
+    let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "grok")
+        .expect("grok preview");
+
+    assert_eq!(preview.command, "grok");
+    assert_eq!(
+        preview.env.get("GROK_MODELS_BASE_URL"),
+        Some(&"http://localhost:12345/v1".to_string())
+    );
+    assert_eq!(
+        preview.env.get("GROK_XAI_API_BASE_URL"),
+        Some(&"http://localhost:12345/v1".to_string())
+    );
+    assert_eq!(
+        preview.env.get("XAI_API_KEY"),
+        Some(&"preview-session-token".to_string())
+    );
+    assert_eq!(preview.env.get("ANTHROPIC_MODEL"), None);
+    assert_eq!(preview.env.get("ANTHROPIC_AUTH_TOKEN"), None);
+}
+
+#[test]
 fn project_preview_uses_placeholder_token_and_does_not_create_session() {
     let fixture = TempDb::new();
     let provider = create_provider(&fixture.db, "Claude Provider", "claude");

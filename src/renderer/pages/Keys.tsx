@@ -49,10 +49,11 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
-import type { Provider, ApiKey } from '@shared/types'
+import type { Provider, ApiKey, ClientKind } from '@shared/types'
 import {
   formatEnvCommand,
   getClientKindLabel,
+  isCliClientKind,
   TERMINAL_TYPE_LABELS,
 } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -120,11 +121,12 @@ const TYPE_ICONS: Record<string, string> = {
   claude: claudeIcon,
   claude_code: claudeIcon,
   codex: openaiIcon,
+  grok: openaiIcon,
   claude_desktop: claudeIcon,
 }
 
 const clientIconType = (clientKind: string) =>
-  clientKind === 'codex' ? 'codex' : clientKind === 'claude_desktop' ? 'claude_desktop' : 'claude_code'
+  clientKind === 'codex' ? 'codex' : clientKind === 'grok' ? 'grok' : clientKind === 'claude_desktop' ? 'claude_desktop' : 'claude_code'
 
 // Preset provider icon mapping
 const PRESET_ICON_MAP: Record<string, string> = {
@@ -371,20 +373,26 @@ export default function Keys() {
     key: ApiKey
   } | null>(null)
   const { status: proxyStatus } = useServiceStatus()
-  const [proxySessionToken, setProxySessionToken] = useState<string | null>(null)
+  const [proxySessionTokens, setProxySessionTokens] = useState<Partial<Record<ClientKind, string>>>({})
 
   const handleCopyCommand = async (provider: Provider, key: ApiKey) => {
     try {
       // If daemon is running, create a session for this key
       if (proxyStatus.isRunning) {
-        const session = await getApi().session.create(provider.id, key.id)
-        setProxySessionToken(session.sessionToken)
+        const cliClients = getEffectiveKeyClients(provider, key).filter(isCliClientKind)
+        const sessions = await Promise.all(
+          cliClients.map(async (clientKind) => {
+            const session = await getApi().session.create(provider.id, key.id, clientKind)
+            return [clientKind, session.sessionToken] as const
+          }),
+        )
+        setProxySessionTokens(Object.fromEntries(sessions))
       } else {
-        setProxySessionToken(null)
+        setProxySessionTokens({})
       }
     } catch (error) {
       console.error('Failed to prepare copy command:', error)
-      setProxySessionToken(null)
+      setProxySessionTokens({})
     }
 
     setCopyCommandKey({ provider, key })
@@ -397,27 +405,29 @@ export default function Keys() {
     provider: Provider,
     key: ApiKey,
     useProxy: boolean,
+    sessionToken?: string,
   ): string => {
-    // 兼容处理: 如果是 ClientKind, 转换为 legacy 环境变量
-    const isCodex = type === 'codex'
+    const isGrok = type === 'grok'
     const envVars: Record<string, string> = {}
 
-    if (useProxy && proxyStatus.isRunning && proxySessionToken) {
-      const baseUrl = `http://localhost:${proxyStatus.port}`
-      if (isCodex) {
-        envVars['OPENAI_BASE_URL'] = baseUrl
-        envVars['OPENAI_API_KEY'] = proxySessionToken
+    if (useProxy && proxyStatus.isRunning && sessionToken) {
+      const baseUrl = `http://localhost:${proxyStatus.port}${isGrok ? '/v1' : ''}`
+      if (isGrok) {
+        envVars.GROK_MODELS_BASE_URL = baseUrl
+        envVars.GROK_XAI_API_BASE_URL = baseUrl
+        envVars.XAI_API_KEY = sessionToken
       } else {
         envVars['ANTHROPIC_BASE_URL'] = baseUrl
         envVars['API_TIMEOUT_MS'] = '3000000'
         envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
         envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
-        envVars['ANTHROPIC_AUTH_TOKEN'] = proxySessionToken
+        envVars['ANTHROPIC_AUTH_TOKEN'] = sessionToken
       }
     } else {
-      if (isCodex) {
-        envVars['OPENAI_BASE_URL'] = provider.baseUrl
-        envVars['OPENAI_API_KEY'] = key.value
+      if (isGrok) {
+        envVars.GROK_MODELS_BASE_URL = provider.baseUrl
+        envVars.GROK_XAI_API_BASE_URL = provider.baseUrl
+        envVars.XAI_API_KEY = key.value
       } else {
         envVars['ANTHROPIC_BASE_URL'] = provider.baseUrl
         envVars['API_TIMEOUT_MS'] = '3000000'
@@ -427,7 +437,7 @@ export default function Keys() {
       }
     }
 
-    const cliCommand = isCodex ? 'codex' : 'claude'
+    const cliCommand = isGrok ? 'grok' : 'claude'
     return formatEnvCommand(envVars, cliCommand)
   }
 
@@ -861,7 +871,7 @@ export default function Keys() {
         onCancel={() => {
           setCopyCommandModalOpen(false)
           setCopyCommandKey(null)
-          setProxySessionToken(null)
+          setProxySessionTokens({})
         }}
         footer={null}
         width={700}
@@ -880,7 +890,7 @@ export default function Keys() {
               </Text>
 
               {/* Proxy Mode Commands - only show if proxy is running */}
-              {proxyStatus.isRunning && proxySessionToken && (
+              {proxyStatus.isRunning && Object.keys(proxySessionTokens).length > 0 && (
                 <>
                   <Text strong className={styles.commandSectionTitle}>
                     {t('keys.proxyMode') || '代理模式'}
@@ -891,12 +901,13 @@ export default function Keys() {
                   <Text type='secondary' className={styles.commandSectionHint}>
                     {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
                   </Text>
-                  {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter((clientKind) => clientKind === 'claude_code').map((clientKind) => {
+                  {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter(isCliClientKind).filter((clientKind) => !!proxySessionTokens[clientKind]).map((clientKind) => {
                     const command = generateCommand(
-                      'claude',
+                      clientKind,
                       copyCommandKey.provider,
                       copyCommandKey.key,
                       true,
+                      proxySessionTokens[clientKind],
                     )
                     return (
                       <div key={`proxy-${clientKind}`} className={styles.commandItem}>
@@ -948,9 +959,9 @@ export default function Keys() {
                   {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
                 </Text>
               )}
-              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter((clientKind) => clientKind === 'claude_code').map((clientKind) => {
+              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter(isCliClientKind).map((clientKind) => {
                 const command = generateCommand(
-                  'claude',
+                  clientKind,
                   copyCommandKey.provider,
                   copyCommandKey.key,
                   false,
@@ -990,7 +1001,7 @@ export default function Keys() {
                   </div>
                 )
               })}
-              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).some((clientKind) => clientKind !== 'claude_code') && (
+              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).some((clientKind) => !isCliClientKind(clientKind)) && (
                 <Text type='secondary' style={{ display: 'block', marginTop: 8 }}>
                   Codex Desktop 和 Claude Desktop 请在对应页面选择此密钥并执行配置接管。
                 </Text>

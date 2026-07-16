@@ -13,9 +13,16 @@ import Projects from './Projects'
 import Instances from './Instances'
 import Sessions from './Sessions'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
+import type { ClientKind } from '@shared/types'
 import styles from './ClaudeCodePage.module.css'
 
-export default function ClaudeCodePage() {
+type CliWorkspaceKind = Extract<ClientKind, 'claude_code' | 'grok'>
+
+interface ClaudeCodePageProps {
+  clientKind?: CliWorkspaceKind
+}
+
+export default function ClaudeCodePage({ clientKind = 'claude_code' }: ClaudeCodePageProps) {
   const { t } = useTranslation()
 
   const { providers, fetchProviders } = useProviderStore()
@@ -32,7 +39,7 @@ export default function ClaudeCodePage() {
     {
       key: 'projects',
       label: t('common.projects') || '项目',
-      children: <Projects />,
+      children: <Projects defaultCliType={clientKind} />,
     },
     {
       key: 'instances',
@@ -44,11 +51,15 @@ export default function ClaudeCodePage() {
       label: '会话',
       children: <Sessions />,
     },
-    {
-      key: 'global-config',
-      label: '全局配置',
-      children: <GlobalConfigModal embedded />,
-    },
+    ...(clientKind === 'claude_code'
+      ? [
+          {
+            key: 'global-config',
+            label: '全局配置',
+            children: <GlobalConfigModal embedded />,
+          },
+        ]
+      : []),
   ]
 
   return (

@@ -102,7 +102,8 @@ function buildApi(): Api {
       migrateFromElectron: () => invoke('migrate_from_electron'),
     },
     session: {
-      create: (providerId, apiKeyId) => invoke('session_create', { providerId, apiKeyId }),
+      create: (providerId, apiKeyId, cliType) =>
+        invoke('session_create', { providerId, apiKeyId, cliType }),
       get: (sessionToken) => invoke('session_get', { sessionToken }),
       updateKey: (sessionToken, apiKeyId) =>
         invoke('session_update_key', { sessionToken, apiKeyId }),

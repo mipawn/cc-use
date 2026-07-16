@@ -67,6 +67,19 @@ describe('renderer api contract', () => {
     })
   })
 
+  it('passes the CLI type when creating a manual proxy session', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+
+    await getApi().session.create('provider-1', 'key-1', 'grok')
+
+    expect(invokeMock).toHaveBeenCalledWith('session_create', {
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+      cliType: 'grok',
+    })
+  })
+
   it('maps managed instance commands and arguments correctly', async () => {
     invokeMock.mockResolvedValue(undefined)
     const { getApi } = await loadApiModule()

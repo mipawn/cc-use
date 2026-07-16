@@ -1,7 +1,7 @@
 {
   "name": "cc-use",
   "version": "3.3.1",
-  "description": "Desktop configuration manager for Claude Code, Codex Desktop, and Claude Desktop",
+  "description": "Desktop configuration manager for Claude Code, Grok Build, Codex Desktop, and Claude Desktop",
   "type": "module",
   "scripts": {
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",

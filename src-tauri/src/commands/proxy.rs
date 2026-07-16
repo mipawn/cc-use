@@ -199,6 +199,7 @@ pub fn session_create(
     db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
     api_key_id: String,
+    cli_type: Option<String>,
 ) -> Result<ProxySession, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     let now = chrono::Utc::now();
@@ -213,7 +214,7 @@ pub fn session_create(
         expires_at: Some((now + chrono::Duration::hours(24)).to_rfc3339()),
         revoked_at: None,
         revoked_reason: None,
-        cli_type: None,
+        cli_type,
     };
     db.proxy_session_create(&session)
         .map_err(|e| e.to_string())?;

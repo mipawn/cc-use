@@ -31,6 +31,7 @@ import {
   FolderAddOutlined,
   ClockCircleOutlined,
   SwapOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 
 // Import provider icons
@@ -45,8 +46,10 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import KeyCascader from '../components/common/KeyCascader'
 import SimpleBar from 'simplebar-react'
-import type { Project, ApiKey, ProviderType, Provider } from '@shared/types'
+import type { Project, ApiKey, ProviderType, Provider, ClientKind } from '@shared/types'
+import { normalizeClientKind } from '@shared/types'
 import styles from './Projects.module.css'
+import { supportsKeyClient } from '../utils/clientSupport'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -76,6 +79,9 @@ function getProviderIconSrc(provider: Provider | null): string {
 
 // CLI type icon component
 const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => {
+  if (type === 'grok') {
+    return <ThunderboltOutlined aria-label='Grok Build' style={{ fontSize: size }} />
+  }
   const icon = type === 'claude' || type === 'claude_code' || type === 'claude_desktop' ? claudeIcon : openaiIcon
   return <img src={icon} alt={type} style={{ width: size, height: size }} />
 }
@@ -99,7 +105,13 @@ const parseKeySwitchItemKey = (itemKey: string) => {
   return null
 }
 
-export default function Projects() {
+type CliProjectKind = Extract<ClientKind, 'claude_code' | 'grok'>
+
+interface ProjectsProps {
+  defaultCliType?: CliProjectKind
+}
+
+export default function Projects({ defaultCliType = 'claude_code' }: ProjectsProps) {
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const message = useAppMessage()
@@ -112,6 +124,8 @@ export default function Projects() {
   // Modal state
   const [modalOpen, setModalOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [keyResetForCliChange, setKeyResetForCliChange] = useState(false)
+  const [modalCliType, setModalCliType] = useState<CliProjectKind>(defaultCliType)
   const [form] = Form.useForm()
 
   useEffect(() => {
@@ -125,6 +139,10 @@ export default function Projects() {
     }
   }, [providers, fetchAllApiKeys])
 
+  useEffect(() => {
+    if (!modalOpen) setModalCliType(defaultCliType)
+  }, [defaultCliType, modalOpen])
+
   const getProvider = (providerId: string | null) => {
     if (!providerId) return null
     return providers.find((p) => p.id === providerId) || null
@@ -135,14 +153,22 @@ export default function Projects() {
     return allApiKeys.find((k) => k.id === apiKeyId) || null
   }
 
+  const compatibleApiKeys = allApiKeys.filter((apiKey) => {
+    const provider = providers.find((item) => item.id === apiKey.providerId)
+    return (
+      !!provider &&
+      supportsKeyClient(provider, apiKey, modalCliType)
+    )
+  })
+
   const getKeyAlias = (key: ApiKey | null) => {
     if (!key) return null
     return key.alias || `Key ${key.priority + 1}`
   }
 
-  // All keys are compatible (types field removed in v3.2.0)
-  const isKeyCompatible = (_project: Project, apiKey: ApiKey | null): boolean => {
-    return !!apiKey
+  const isKeyCompatible = (apiKey: ApiKey | null): boolean => {
+    const provider = getProvider(apiKey?.providerId || null)
+    return !!apiKey && !!provider && supportsKeyClient(provider, apiKey, defaultCliType)
   }
 
   const formatDate = (timestamp: string | null) => {
@@ -168,12 +194,18 @@ export default function Projects() {
     }
 
     const apiKey = getApiKey(project.apiKeyId)
-    if (!isKeyCompatible(project, apiKey)) {
+    if (!isKeyCompatible(apiKey)) {
       message.warning(t('projects.keyNotCompatible'))
       return
     }
 
     try {
+      if (normalizeClientKind(project.cliType) !== defaultCliType) {
+        await updateProject({
+          id: project.id,
+          cliType: defaultCliType,
+        })
+      }
       await getApi().terminal.launch(project.id)
       message.success(`${t('projects.opened')} ${project.name}`)
       fetchProjects()
@@ -185,19 +217,27 @@ export default function Projects() {
   // Add new project
   const handleAdd = () => {
     setEditingProject(null)
+    setKeyResetForCliChange(false)
+    setModalCliType(defaultCliType)
     form.resetFields()
     setModalOpen(true)
   }
 
   // Edit project
   const handleEdit = (project: Project) => {
+    const apiKey = getApiKey(project.apiKeyId)
+    const keyCompatible = isKeyCompatible(apiKey)
     setEditingProject(project)
+    setKeyResetForCliChange(!!project.apiKeyId && !keyCompatible)
+    setModalCliType(defaultCliType)
     form.setFieldsValue({
       name: project.name,
       path: project.path,
       remark: project.remark,
-      key: project.providerId && project.apiKeyId ? [project.providerId, project.apiKeyId] : null,
-      cliType: project.cliType || 'claude_code',
+      key:
+        keyCompatible && project.providerId && project.apiKeyId
+          ? [project.providerId, project.apiKeyId]
+          : null,
       prelaunchCommand: project.prelaunchCommand || '',
     })
     setModalOpen(true)
@@ -205,6 +245,21 @@ export default function Projects() {
 
   // Quick switch CLI type for a project
   const handleSwitchCliType = async (project: Project, cliType: ProviderType) => {
+    const apiKey = getApiKey(project.apiKeyId)
+    const provider = getProvider(apiKey?.providerId || null)
+    if (
+      apiKey &&
+      provider &&
+      !supportsKeyClient(provider, apiKey, normalizeClientKind(cliType))
+    ) {
+      handleEdit(project)
+      setModalCliType(cliType === 'grok' ? 'grok' : 'claude_code')
+      form.setFieldValue('key', null)
+      setKeyResetForCliChange(true)
+      message.info(t('projects.keyClearedForCliChange'))
+      return
+    }
+
     try {
       await updateProject({
         id: project.id,
@@ -215,6 +270,25 @@ export default function Projects() {
     }
   }
 
+  const handleModalCliTypeChange = (cliType: string | number) => {
+    const nextCliType: CliProjectKind = cliType === 'grok' ? 'grok' : 'claude_code'
+    setModalCliType(nextCliType)
+    const currentKeyId = form.getFieldValue('key')?.[1]
+    if (!currentKeyId) return
+
+    const apiKey = getApiKey(currentKeyId)
+    const provider = getProvider(apiKey?.providerId || null)
+    if (
+      apiKey &&
+      provider &&
+      !supportsKeyClient(provider, apiKey, nextCliType)
+    ) {
+      form.setFieldValue('key', null)
+      setKeyResetForCliChange(true)
+      message.info(t('projects.keyClearedForCliChange'))
+    }
+  }
+
   // Quick switch key for a project
   const handleSwitchKey = async (project: Project, providerId: string, keyId: string) => {
     try {
@@ -222,6 +296,7 @@ export default function Projects() {
         id: project.id,
         providerId,
         apiKeyId: keyId,
+        cliType: defaultCliType,
       })
     } catch {
       message.error(t('messages.error'))
@@ -230,7 +305,12 @@ export default function Projects() {
 
   const handleKeySwitchMenuClick = (project: Project): MenuProps['onClick'] => ({ key }) => {
     const target = parseKeySwitchItemKey(String(key))
-    if (!target || target.keyId === project.apiKeyId) return
+    if (
+      !target ||
+      (target.keyId === project.apiKeyId && normalizeClientKind(project.cliType) === defaultCliType)
+    ) {
+      return
+    }
     handleSwitchKey(project, target.providerId, target.keyId)
   }
 
@@ -240,7 +320,12 @@ export default function Projects() {
 
     providers.forEach((provider) => {
       if (!provider.isActive) return
-      const providerKeys = apiKeysByProvider[provider.id] || []
+      const providerKeys = (apiKeysByProvider[provider.id] || []).filter(
+        (key) =>
+          key.isActive &&
+          !key.isExhausted &&
+          supportsKeyClient(provider, key, defaultCliType),
+      )
       if (providerKeys.length === 0) return
 
       if (items.length > 0) {
@@ -267,7 +352,8 @@ export default function Projects() {
           </div>
         ),
         children: providerKeys.map((key) => {
-          const isCurrent = project.apiKeyId === key.id
+          const isCurrent =
+            project.apiKeyId === key.id && normalizeClientKind(project.cliType) === defaultCliType
 
           return {
             key: getKeySwitchItemKey(provider.id, key.id),
@@ -306,6 +392,28 @@ export default function Projects() {
       const remark = values.remark?.trim()
       const prelaunchCommand = values.prelaunchCommand?.trim()
 
+      if (keyResetForCliChange && !values.key) {
+        message.warning(t('projects.selectCompatibleKey'))
+        return
+      }
+
+      if (values.key) {
+        const selectedKey = getApiKey(values.key[1])
+        const selectedProvider = getProvider(values.key[0])
+        if (
+          !selectedKey ||
+          !selectedProvider ||
+          !supportsKeyClient(
+            selectedProvider,
+            selectedKey,
+            modalCliType,
+          )
+        ) {
+          message.warning(t('projects.selectCompatibleKey'))
+          return
+        }
+      }
+
       if (editingProject) {
         // Update existing project
         const providerId = values.key?.[0] || null
@@ -316,7 +424,7 @@ export default function Projects() {
           remark,
           providerId,
           apiKeyId,
-          cliType: values.cliType as ProviderType,
+          cliType: modalCliType,
           prelaunchCommand: prelaunchCommand || '',
         })
         message.success(t('projects.projectUpdated'))
@@ -328,7 +436,7 @@ export default function Projects() {
           remark,
           providerId: values.key?.[0],
           apiKeyId: values.key?.[1],
-          cliType: values.cliType as ProviderType,
+          cliType: modalCliType,
           prelaunchCommand: prelaunchCommand || '',
         })
         message.success(t('projects.projectCreated'))
@@ -413,7 +521,7 @@ export default function Projects() {
                 const apiKey = getApiKey(project.apiKeyId)
                 const hasKey = !!project.providerId && !!project.apiKeyId
                 const cliType = project.cliType || 'claude_code'
-                const keyCompatible = isKeyCompatible(project, apiKey)
+                const keyCompatible = isKeyCompatible(apiKey)
                 const canOpen = hasKey && keyCompatible
                 const remark = project.remark?.trim()
 
@@ -437,6 +545,16 @@ export default function Projects() {
                                 </Space>
                               ),
                               onClick: () => handleSwitchCliType(project, 'claude_code'),
+                            },
+                            {
+                              key: 'grok',
+                              label: (
+                                <Space size={6}>
+                                  <CliTypeIcon type='grok' size={14} />
+                                  <span>Grok Build</span>
+                                </Space>
+                              ),
+                              onClick: () => handleSwitchCliType(project, 'grok'),
                             },
                           ],
                           selectedKeys: [cliType],
@@ -623,12 +741,40 @@ export default function Projects() {
           <Form.Item
             name='prelaunchCommand'
             label='启动前命令'
-            extra='进入项目目录后、执行 Claude Code 前运行；留空则不执行。'
+            extra='进入项目目录后、执行所选客户端前运行；留空则不执行。'
           >
             <TextArea
               rows={3}
               placeholder='例如: source .venv/bin/activate'
               className={styles.commandEditor}
+            />
+          </Form.Item>
+
+          <Form.Item label={t('projects.cliType')}>
+            <Segmented
+              value={modalCliType}
+              options={[
+                {
+                  label: (
+                    <Space size={6}>
+                      <CliTypeIcon type='claude_code' size={16} />
+                      <span>Claude Code</span>
+                    </Space>
+                  ),
+                  value: 'claude_code',
+                },
+                {
+                  label: (
+                    <Space size={6}>
+                      <CliTypeIcon type='grok' size={16} />
+                      <span>Grok Build</span>
+                    </Space>
+                  ),
+                  value: 'grok',
+                },
+              ]}
+              onChange={handleModalCliTypeChange}
+              block
             />
           </Form.Item>
 
@@ -643,26 +789,12 @@ export default function Projects() {
           >
             <KeyCascader
               providers={providers}
-              apiKeys={allApiKeys}
+              apiKeys={compatibleApiKeys}
               size='large'
               placeholder={t('projects.selectKeyOptional')}
-            />
-          </Form.Item>
-
-          <Form.Item name='cliType' label={t('projects.cliType')} initialValue='claude_code'>
-            <Segmented
-              options={[
-                {
-                  label: (
-                    <Space size={6}>
-                      <CliTypeIcon type='claude_code' size={16} />
-                      <span>Claude Code</span>
-                    </Space>
-                  ),
-                  value: 'claude_code',
-                },
-              ]}
-              block
+              onChange={(value) => {
+                if (value) setKeyResetForCliChange(false)
+              }}
             />
           </Form.Item>
 

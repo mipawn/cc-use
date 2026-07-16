@@ -138,13 +138,16 @@ fn resolve_launch_preview(
         .map_err(|e| e.to_string())?
         .ok_or("API key not found")?;
 
-    // 终端启动仅用于 Claude Code(Codex 走 Codex Desktop 配置接管)。
-    let global_config = settings.claude_config.as_ref();
+    let (global_config, api_key_config) = match cli_type {
+        "claude" | "claude_code" => (settings.claude_config.as_ref(), api_key.config.as_ref()),
+        "grok" => (None, None),
+        _ => return Err(format!("Unsupported terminal client: {}", cli_type)),
+    };
 
     let preview = resolve_launch_preview_from_configs(
         cli_type,
         global_config,
-        api_key.config.as_ref(),
+        api_key_config,
         session_token,
         proxy_port,
     );

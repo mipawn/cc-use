@@ -11,6 +11,7 @@ import {
   RocketOutlined,
   AppstoreOutlined,
   KeyOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 
 const { Sider } = Layout
@@ -36,6 +37,11 @@ export default function Sidebar() {
           key: '/claude-code',
           icon: <CodeOutlined />,
           label: 'Claude Code',
+        },
+        {
+          key: '/grok-build',
+          icon: <ThunderboltOutlined />,
+          label: 'Grok Build',
         },
         {
           key: '/codex',

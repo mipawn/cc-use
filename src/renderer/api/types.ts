@@ -118,7 +118,7 @@ export interface Api {
     migrateFromElectron: () => Promise<MigrationResult>
   }
   session: {
-    create: (providerId: string, apiKeyId: string) => Promise<ProxySession>
+    create: (providerId: string, apiKeyId: string, cliType?: ClientKind) => Promise<ProxySession>
     get: (sessionToken: string) => Promise<ProxySession | null>
     updateKey: (sessionToken: string, apiKeyId: string) => Promise<boolean>
     updateByProject: (projectId: string, providerId: string, apiKeyId: string) => Promise<void>

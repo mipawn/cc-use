@@ -10,7 +10,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Checkbox,
   Typography,
   Space,
   Segmented,
@@ -90,6 +89,7 @@ export default function KeyEditModal({
   const [opusModel, setOpusModel] = useState('')
   const [defaultModel, setDefaultModel] = useState('')
   const [codexModel, setCodexModel] = useState('')
+  const [grokModel, setGrokModel] = useState('')
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
 
   const currentProvider = useMemo(() => {
@@ -98,7 +98,7 @@ export default function KeyEditModal({
   }, [defaultProviderId, apiKey, providers])
 
   const getDefaultAuthSchemeLabel = (clientKind: ClientKind) =>
-    clientKind === 'codex' ? 'Authorization: Bearer' : 'x-api-key'
+    clientKind === 'codex' || clientKind === 'grok' ? 'Authorization: Bearer' : 'x-api-key'
 
   const updateClientConfig = (clientKind: ClientKind, patch: Partial<ClientConfig>) => {
     setClientConfigs((prev) => {
@@ -163,6 +163,7 @@ export default function KeyEditModal({
       setOpusModel(mapping.opus)
       setDefaultModel(mapping.default)
       setCodexModel(mapping.codex)
+      setGrokModel(mapping.grok)
       if (apiKey.usageHeaders) {
         try {
           setUsageHeaders(JSON.stringify(JSON.parse(apiKey.usageHeaders), null, 2))
@@ -184,6 +185,7 @@ export default function KeyEditModal({
       setOpusModel('')
       setDefaultModel('')
       setCodexModel('')
+      setGrokModel('')
       setClientConfigs({})
     }
 
@@ -207,17 +209,12 @@ export default function KeyEditModal({
       .catch(() => setLaunchPreview(null))
   }, [open, apiKey, defaultProviderId, selectedTypes])
 
-  const handleTypeChange = (type: ClientKind, checked: boolean) => {
-    if (checked) {
-      setSelectedTypes((prev) => [...prev, type])
-    } else {
-      const newTypes = selectedTypes.filter((t) => t !== type)
-      if (newTypes.length === 0) {
-        message.warning(t('apiKeys.selectAtLeastOne') || '至少选择一种类型')
-        return
-      }
-      setSelectedTypes(newTypes)
+  const handleTypesChange = (types: ClientKind[]) => {
+    if (types.length === 0) {
+      message.warning(t('apiKeys.selectAtLeastOne') || '至少选择一种类型')
+      return
     }
+    setSelectedTypes(types)
   }
 
   const buildModelMappingJson = (): string | undefined => {
@@ -227,6 +224,7 @@ export default function KeyEditModal({
       opus: opusModel,
       default: defaultModel,
       codex: codexModel,
+      grok: grokModel,
     })
   }
 
@@ -333,21 +331,38 @@ export default function KeyEditModal({
             label={t('apiKeys.keyType') || '适用客户端'}
             required
             className={styles.clientSelector}
+            extra={t('apiKeys.clientScopeHint') || '选择这把密钥可以用于哪些客户端'}
           >
-            <Space size={16} wrap>
-              {CLIENT_KIND_CONFIGS.map((client) => (
-                <Checkbox
-                  key={client.kind}
-                  checked={selectedTypes.includes(client.kind)}
-                  onChange={(e) => handleTypeChange(client.kind, e.target.checked)}
-                >
-                  <Space>
-                    {client.form === 'process_injection' ? <CodeOutlined /> : <DesktopOutlined />}
-                    {client.label}
-                  </Space>
-                </Checkbox>
-              ))}
-            </Space>
+            <Select
+              mode='multiple'
+              value={selectedTypes}
+              onChange={(values) => handleTypesChange(values as ClientKind[])}
+              options={CLIENT_KIND_CONFIGS.map((client) => ({
+                value: client.kind,
+                label: client.label,
+              }))}
+              optionRender={(option) => {
+                const client = getClientKindConfig(option.value as ClientKind)
+                return (
+                  <div className={styles.clientOption}>
+                    <Space size={8}>
+                      {client.form === 'process_injection' ? <CodeOutlined /> : <DesktopOutlined />}
+                      <span>{client.label}</span>
+                    </Space>
+                    <Text type='secondary' className={styles.clientOptionMeta}>
+                      {client.form === 'process_injection'
+                        ? t('launchpad.processInjection') || '进程级'
+                        : t('launchpad.configTakeover') || '配置级'}
+                    </Text>
+                  </div>
+                )
+              }}
+              maxTagCount={2}
+              maxTagPlaceholder={(omitted) => `+${omitted.length}`}
+              placeholder={t('apiKeys.selectClients') || '选择适用客户端'}
+              className={styles.clientSelect}
+              size='large'
+            />
           </Form.Item>
 
           <Tabs
@@ -532,6 +547,21 @@ export default function KeyEditModal({
                             value={codexModel}
                             onChange={(e) => setCodexModel(e.target.value)}
                             placeholder={t('keys.modelMapCodexPlaceholder') || '例如：deepseek-chat'}
+                          />
+                        </Form.Item>
+                      </div>
+                    )}
+                    {selectedTypes.includes('grok') && (
+                      <div>
+                        <Text strong style={{ marginBottom: 12, display: 'block' }}>Grok Build</Text>
+                        <Form.Item
+                          label='上游模型'
+                          extra='仅改写 Grok Build 发给中转站的 model'
+                        >
+                          <Input
+                            value={grokModel}
+                            onChange={(e) => setGrokModel(e.target.value)}
+                            placeholder='例如：grok-build-0.1'
                           />
                         </Form.Item>
                       </div>

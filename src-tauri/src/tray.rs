@@ -287,6 +287,7 @@ fn normalize_client_kind(type_name: &str) -> &'static str {
     match type_name {
         "claude" | "claude_code" => "claude_code",
         "codex" => "codex",
+        "grok" => "grok",
         "claude_desktop" => "claude_desktop",
         _ => "claude_code",
     }
@@ -716,6 +717,7 @@ mod tests {
         assert_eq!(normalize_client_kind("claude"), "claude_code");
         assert_eq!(normalize_client_kind("unknown"), "claude_code");
         assert_eq!(normalize_client_kind("codex"), "codex");
+        assert_eq!(normalize_client_kind("grok"), "grok");
         assert_eq!(normalize_client_kind("claude_desktop"), "claude_desktop");
     }
 

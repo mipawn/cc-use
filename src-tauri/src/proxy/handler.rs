@@ -956,6 +956,7 @@ fn session_time_has_passed(value: &str) -> bool {
 fn api_key_supports_session_client(api_key: &ApiKey, cli_type: Option<&str>) -> bool {
     let required_type = match cli_type {
         Some("codex" | "codex-app") => Some("codex"),
+        Some("grok") => Some("grok"),
         Some("claude_desktop") => Some("claude_desktop"),
         Some("claude" | "claude_code") => Some("claude_code"),
         Some(_) => return false,
@@ -1071,6 +1072,7 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
         fable: Option<String>,
         default: Option<String>,
         codex: Option<String>,
+        grok: Option<String>,
     }
 
     let mapping: ModelMapping = match serde_json::from_str(mapping_str) {
@@ -1080,7 +1082,11 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     };
 
     if route_uses_openai_payload(route) {
-        return rewrite_request_model(body_bytes, mapping.codex.as_deref());
+        let target_model = match route.cli_type.as_deref() {
+            Some("grok") => mapping.grok.as_deref(),
+            _ => mapping.codex.as_deref(),
+        };
+        return rewrite_request_model(body_bytes, target_model);
     }
 
     let mut json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
@@ -1148,7 +1154,10 @@ fn rewrite_request_model(
 }
 
 fn route_uses_openai_payload(route: &RouteExecution) -> bool {
-    matches!(route.cli_type.as_deref(), Some("codex") | Some("codex-app"))
+    matches!(
+        route.cli_type.as_deref(),
+        Some("codex") | Some("codex-app") | Some("grok")
+    )
 }
 
 fn route_uses_bearer_auth(route: &RouteExecution, req_path: &str) -> bool {
@@ -1160,7 +1169,7 @@ fn route_uses_bearer_auth(route: &RouteExecution, req_path: &str) -> bool {
     }
 
     match route.cli_type.as_deref() {
-        Some("codex") | Some("codex-app") => true,
+        Some("codex") | Some("codex-app") | Some("grok") => true,
         Some("claude") | Some("claude_code") | Some("claude_desktop") => false,
         Some(_) => false,
         None if is_codex_responses_request_path(req_path) => true,
@@ -1700,9 +1709,10 @@ fn extract_host(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_bounded_tail, collect_response_body_limited, decompress_limited,
-        effective_session_cli_type, has_billable_usage, is_codex_responses_request_path,
-        record_usage, route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
+        api_key_supports_session_client, append_bounded_tail, apply_model_mapping,
+        collect_response_body_limited, decompress_limited, effective_session_cli_type,
+        has_billable_usage, is_codex_responses_request_path, record_usage,
+        route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
         should_forward_response_header, LogContext, RouteExecution, StreamConsoleCtx,
         UpstreamAuthScheme, UsageTrackingStream,
     };
@@ -1834,6 +1844,71 @@ mod tests {
 
         let legacy_route = route_for_auth(None, "https://gateway.example.com/v1/responses");
         assert!(route_uses_bearer_auth(&legacy_route, "/v1/responses"));
+    }
+
+    #[test]
+    fn grok_uses_bearer_and_its_own_model_mapping() {
+        let mut route = route_for_auth(Some("grok"), "https://gateway.example.com/v1/responses");
+        route.model_mapping =
+            Some(r#"{"codex":"codex-upstream","grok":"grok-upstream"}"#.to_string());
+
+        assert!(route_uses_bearer_auth(&route, "/v1/responses"));
+        let mapped = apply_model_mapping(
+            axum::body::Bytes::from_static(br#"{"model":"grok-build"}"#),
+            &route,
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&mapped).unwrap()["model"],
+            "grok-upstream"
+        );
+    }
+
+    #[test]
+    fn grok_session_requires_a_grok_enabled_key() {
+        let db = Database::new_in_memory().unwrap();
+        let provider = db
+            .provider_create(&CreateProviderInput {
+                name: "grok-provider".to_string(),
+                base_url: "https://api.x.ai/v1".to_string(),
+                http_proxy: None,
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+            })
+            .unwrap();
+        let grok_key = db
+            .api_key_create(&CreateApiKeyInput {
+                provider_id: provider.id.clone(),
+                alias: None,
+                value: "xai-key".to_string(),
+                types: Some(vec!["grok".to_string()]),
+                priority: None,
+                is_active: None,
+                config: None,
+                cost_multiplier: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                model_mapping: None,
+                client_configs: None,
+            })
+            .unwrap();
+        let mut claude_key = grok_key.clone();
+        claude_key.types = vec!["claude_code".to_string()];
+
+        assert!(api_key_supports_session_client(&grok_key, Some("grok")));
+        assert!(!api_key_supports_session_client(&claude_key, Some("grok")));
     }
 
     #[test]

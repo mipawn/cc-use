@@ -9,7 +9,15 @@ import {
 describe('Provider Type Config', () => {
   describe('PROVIDER_TYPE_CONFIGS', () => {
     it('should only include process-launched clients', () => {
-      expect(PROVIDER_TYPE_CONFIGS).toHaveLength(1)
+      expect(PROVIDER_TYPE_CONFIGS).toHaveLength(2)
+    })
+
+    it('should include Grok Build config', () => {
+      const grok = PROVIDER_TYPE_CONFIGS.find((c) => c.type === 'grok')
+      expect(grok).toBeDefined()
+      expect(grok?.envKeyName).toBe('XAI_API_KEY')
+      expect(grok?.envBaseUrlName).toBe('GROK_MODELS_BASE_URL')
+      expect(grok?.cliCommand).toBe('grok')
     })
 
     it('should include Claude Code config', () => {
@@ -54,6 +62,18 @@ describe('Provider Type Config', () => {
       }
       expect(() => generateTerminalCommand(provider, 'sk-openai-key')).toThrow(
         'uses config takeover',
+      )
+    })
+
+    it('should generate correct command for Grok Build in direct mode', () => {
+      const provider = {
+        type: 'grok' as ProviderType,
+        baseUrl: 'https://api.x.ai/v1',
+      }
+      const command = generateTerminalCommand(provider, 'xai-test-key')
+
+      expect(command).toBe(
+        'GROK_MODELS_BASE_URL="https://api.x.ai/v1" XAI_API_KEY="xai-test-key" GROK_XAI_API_BASE_URL="https://api.x.ai/v1" grok',
       )
     })
 

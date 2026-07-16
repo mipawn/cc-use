@@ -4,6 +4,7 @@ export interface ModelMappingFields {
   opus: string
   default: string
   codex: string
+  grok: string
 }
 
 export const EMPTY_MODEL_MAPPING: ModelMappingFields = {
@@ -12,6 +13,7 @@ export const EMPTY_MODEL_MAPPING: ModelMappingFields = {
   opus: '',
   default: '',
   codex: '',
+  grok: '',
 }
 
 export function parseModelMapping(value?: string | null): ModelMappingFields {
@@ -25,6 +27,7 @@ export function parseModelMapping(value?: string | null): ModelMappingFields {
       opus: typeof parsed.opus === 'string' ? parsed.opus : '',
       default: typeof parsed.default === 'string' ? parsed.default : '',
       codex: typeof parsed.codex === 'string' ? parsed.codex : '',
+      grok: typeof parsed.grok === 'string' ? parsed.grok : '',
     }
   } catch {
     return { ...EMPTY_MODEL_MAPPING }
@@ -34,7 +37,7 @@ export function parseModelMapping(value?: string | null): ModelMappingFields {
 export function serializeModelMapping(fields: ModelMappingFields): string | undefined {
   const mapping: Record<string, string> = {}
 
-  for (const key of ['haiku', 'sonnet', 'opus', 'default', 'codex'] as const) {
+  for (const key of ['haiku', 'sonnet', 'opus', 'default', 'codex', 'grok'] as const) {
     const value = fields[key].trim()
     if (value) mapping[key] = value
   }
