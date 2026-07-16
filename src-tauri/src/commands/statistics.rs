@@ -1,7 +1,7 @@
 use crate::db::Database;
 use crate::models::{
     CostStatistics, DashboardCostStats, ModelPricing, PaginatedRecentRequests,
-    RecentGatewayMetrics, UsageStats,
+    ProviderGatewayMetrics, RecentGatewayMetrics, UsageStats,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -109,6 +109,14 @@ pub fn gateway_metrics_get_recent(
 ) -> Result<RecentGatewayMetrics, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.gateway_metrics_recent().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn gateway_metrics_get_by_provider(
+    db: State<'_, Arc<Mutex<Database>>>,
+) -> Result<Vec<ProviderGatewayMetrics>, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.gateway_metrics_by_provider().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

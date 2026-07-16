@@ -16,7 +16,7 @@ describe('Provider Type Config', () => {
       const grok = PROVIDER_TYPE_CONFIGS.find((c) => c.type === 'grok')
       expect(grok).toBeDefined()
       expect(grok?.envKeyName).toBe('XAI_API_KEY')
-      expect(grok?.envBaseUrlName).toBe('GROK_MODELS_BASE_URL')
+      expect(grok?.envBaseUrlName).toBe('')
       expect(grok?.cliCommand).toBe('grok')
     })
 
@@ -72,9 +72,7 @@ describe('Provider Type Config', () => {
       }
       const command = generateTerminalCommand(provider, 'xai-test-key')
 
-      expect(command).toBe(
-        'GROK_MODELS_BASE_URL="https://api.x.ai/v1" XAI_API_KEY="xai-test-key" GROK_XAI_API_BASE_URL="https://api.x.ai/v1" grok',
-      )
+      expect(command).toBe('XAI_API_KEY="xai-test-key" grok')
     })
 
     it('should generate correct command in proxy mode', () => {

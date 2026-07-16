@@ -32,6 +32,7 @@ import type {
   DashboardCostStats,
   PaginatedRecentRequests,
   RecentGatewayMetrics,
+  ProviderGatewayMetrics,
   MigrationCheck,
   MigrationResult,
   TerminalLaunchPreview,
@@ -61,13 +62,17 @@ export interface Api {
     getByPath: (path: string) => Promise<Project | null>
     create: (input: CreateProjectInput) => Promise<Project>
     update: (input: UpdateProjectInput) => Promise<Project>
+    updateBinding: (
+      projectId: string,
+      input: import('../../shared/types').ProjectClientBindingInput,
+    ) => Promise<Project>
     delete: (id: string) => Promise<void>
     open: (id: string) => Promise<void>
   }
   terminal: {
     launch: (
       projectId: string,
-      options?: { providerId?: string; apiKeyId?: string },
+      options?: { providerId?: string; apiKeyId?: string; cliType?: ClientKind },
     ) => Promise<void>
     launchWithPath: (path: string) => Promise<void>
     getLaunchPreview: (params: {
@@ -76,6 +81,7 @@ export interface Api {
       apiKeyId?: string
       cliType: ClientKind | 'claude'
     }) => Promise<TerminalLaunchPreview>
+    prepareGrokConfig: (apiKeyId: string) => Promise<void>
   }
   proxy: {
     restart: () => Promise<void>
@@ -84,7 +90,12 @@ export interface Api {
     stop: () => Promise<void>
     setDetailMode: (enabled: boolean) => Promise<void>
     onStatusChanged: (
-      callback: (data: { isRunning: boolean; port: number; lastError?: string | null; source?: string }) => void,
+      callback: (data: {
+        isRunning: boolean
+        port: number
+        lastError?: string | null
+        source?: string
+      }) => void,
     ) => () => void
   }
   console: {
@@ -158,7 +169,11 @@ export interface Api {
     ) => Promise<PaginatedRecentRequests>
     getDashboardStats: () => Promise<DashboardCostStats>
     getGatewayMetrics: () => Promise<RecentGatewayMetrics>
-    getMonthlyTrend: (year: number, month: number) => Promise<{ date: string; cost: number; requests: number }[]>
+    getProviderGatewayMetrics: () => Promise<ProviderGatewayMetrics[]>
+    getMonthlyTrend: (
+      year: number,
+      month: number,
+    ) => Promise<{ date: string; cost: number; requests: number }[]>
     repairCosts: () => Promise<number>
   }
   modelPricing: {

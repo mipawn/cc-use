@@ -2,7 +2,7 @@ import { getApi } from '../api'
 /**
  * Projects - 项目管理页面（卡片布局）
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Typography,
   Button,
@@ -15,8 +15,8 @@ import {
   Tooltip,
   Popconfirm,
   Dropdown,
-  Segmented,
   Badge,
+  Tag,
   type MenuProps,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
@@ -46,8 +46,7 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import KeyCascader from '../components/common/KeyCascader'
 import SimpleBar from 'simplebar-react'
-import type { Project, ApiKey, ProviderType, Provider, ClientKind } from '@shared/types'
-import { normalizeClientKind } from '@shared/types'
+import type { Project, ApiKey, Provider, ClientKind, ProjectClientBinding } from '@shared/types'
 import styles from './Projects.module.css'
 import { supportsKeyClient } from '../utils/clientSupport'
 
@@ -82,11 +81,15 @@ const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => {
   if (type === 'grok') {
     return <ThunderboltOutlined aria-label='Grok Build' style={{ fontSize: size }} />
   }
-  const icon = type === 'claude' || type === 'claude_code' || type === 'claude_desktop' ? claudeIcon : openaiIcon
+  const icon =
+    type === 'claude' || type === 'claude_code' || type === 'claude_desktop'
+      ? claudeIcon
+      : openaiIcon
   return <img src={icon} alt={type} style={{ width: size, height: size }} />
 }
 
-const getKeySwitchItemKey = (providerId: string, keyId: string) => JSON.stringify([providerId, keyId])
+const getKeySwitchItemKey = (providerId: string, keyId: string) =>
+  JSON.stringify([providerId, keyId])
 
 const parseKeySwitchItemKey = (itemKey: string) => {
   try {
@@ -107,6 +110,31 @@ const parseKeySwitchItemKey = (itemKey: string) => {
 
 type CliProjectKind = Extract<ClientKind, 'claude_code' | 'grok'>
 
+export function getProjectBinding(
+  project: Project,
+  clientKind: CliProjectKind,
+): ProjectClientBinding | null {
+  const binding = project.bindings?.[clientKind]
+  if (binding) return binding
+
+  const legacyKind = project.cliType === 'claude' ? 'claude_code' : project.cliType
+  if (legacyKind !== clientKind) return null
+  return {
+    cliType: clientKind,
+    providerId: project.providerId,
+    apiKeyId: project.apiKeyId,
+    terminalType: project.terminalType,
+    prelaunchCommand: project.prelaunchCommand,
+  }
+}
+
+export function getProjectDirectory(path: string): string {
+  const normalized = path.replace(/[\\/]+$/, '')
+  const separator = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
+  if (separator <= 0) return normalized || '/'
+  return normalized.slice(0, separator)
+}
+
 interface ProjectsProps {
   defaultCliType?: CliProjectKind
 }
@@ -115,7 +143,14 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const message = useAppMessage()
-  const { projects, fetchProjects, createProject, updateProject, deleteProject } = useProjectStore()
+  const {
+    projects,
+    fetchProjects,
+    createProject,
+    updateProject,
+    updateProjectBinding,
+    deleteProject,
+  } = useProjectStore()
   const { providers, fetchProviders } = useProviderStore()
   const { fetchAllApiKeys, getAllApiKeys, apiKeys: apiKeysByProvider } = useApiKeyStore()
 
@@ -124,8 +159,6 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
   // Modal state
   const [modalOpen, setModalOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  const [keyResetForCliChange, setKeyResetForCliChange] = useState(false)
-  const [modalCliType, setModalCliType] = useState<CliProjectKind>(defaultCliType)
   const [form] = Form.useForm()
 
   useEffect(() => {
@@ -139,10 +172,6 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
     }
   }, [providers, fetchAllApiKeys])
 
-  useEffect(() => {
-    if (!modalOpen) setModalCliType(defaultCliType)
-  }, [defaultCliType, modalOpen])
-
   const getProvider = (providerId: string | null) => {
     if (!providerId) return null
     return providers.find((p) => p.id === providerId) || null
@@ -155,10 +184,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
 
   const compatibleApiKeys = allApiKeys.filter((apiKey) => {
     const provider = providers.find((item) => item.id === apiKey.providerId)
-    return (
-      !!provider &&
-      supportsKeyClient(provider, apiKey, modalCliType)
-    )
+    return !!provider && supportsKeyClient(provider, apiKey, defaultCliType)
   })
 
   const getKeyAlias = (key: ApiKey | null) => {
@@ -187,26 +213,21 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
 
   // Open project
   const handleOpen = async (project: Project) => {
-    if (!project.providerId || !project.apiKeyId) {
+    const binding = getProjectBinding(project, defaultCliType)
+    if (!binding?.providerId || !binding.apiKeyId) {
       message.warning(t('projects.configureFirst'))
       handleEdit(project)
       return
     }
 
-    const apiKey = getApiKey(project.apiKeyId)
+    const apiKey = getApiKey(binding.apiKeyId)
     if (!isKeyCompatible(apiKey)) {
       message.warning(t('projects.keyNotCompatible'))
       return
     }
 
     try {
-      if (normalizeClientKind(project.cliType) !== defaultCliType) {
-        await updateProject({
-          id: project.id,
-          cliType: defaultCliType,
-        })
-      }
-      await getApi().terminal.launch(project.id)
+      await getApi().terminal.launch(project.id, { cliType: defaultCliType })
       message.success(`${t('projects.opened')} ${project.name}`)
       fetchProjects()
     } catch {
@@ -217,102 +238,55 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
   // Add new project
   const handleAdd = () => {
     setEditingProject(null)
-    setKeyResetForCliChange(false)
-    setModalCliType(defaultCliType)
     form.resetFields()
     setModalOpen(true)
   }
 
   // Edit project
   const handleEdit = (project: Project) => {
-    const apiKey = getApiKey(project.apiKeyId)
+    const binding = getProjectBinding(project, defaultCliType)
+    const apiKey = getApiKey(binding?.apiKeyId || null)
     const keyCompatible = isKeyCompatible(apiKey)
     setEditingProject(project)
-    setKeyResetForCliChange(!!project.apiKeyId && !keyCompatible)
-    setModalCliType(defaultCliType)
     form.setFieldsValue({
       name: project.name,
       path: project.path,
       remark: project.remark,
       key:
-        keyCompatible && project.providerId && project.apiKeyId
-          ? [project.providerId, project.apiKeyId]
+        keyCompatible && binding?.providerId && binding.apiKeyId
+          ? [binding.providerId, binding.apiKeyId]
           : null,
-      prelaunchCommand: project.prelaunchCommand || '',
+      prelaunchCommand: binding?.prelaunchCommand || '',
     })
     setModalOpen(true)
-  }
-
-  // Quick switch CLI type for a project
-  const handleSwitchCliType = async (project: Project, cliType: ProviderType) => {
-    const apiKey = getApiKey(project.apiKeyId)
-    const provider = getProvider(apiKey?.providerId || null)
-    if (
-      apiKey &&
-      provider &&
-      !supportsKeyClient(provider, apiKey, normalizeClientKind(cliType))
-    ) {
-      handleEdit(project)
-      setModalCliType(cliType === 'grok' ? 'grok' : 'claude_code')
-      form.setFieldValue('key', null)
-      setKeyResetForCliChange(true)
-      message.info(t('projects.keyClearedForCliChange'))
-      return
-    }
-
-    try {
-      await updateProject({
-        id: project.id,
-        cliType,
-      })
-    } catch {
-      message.error(t('messages.error'))
-    }
-  }
-
-  const handleModalCliTypeChange = (cliType: string | number) => {
-    const nextCliType: CliProjectKind = cliType === 'grok' ? 'grok' : 'claude_code'
-    setModalCliType(nextCliType)
-    const currentKeyId = form.getFieldValue('key')?.[1]
-    if (!currentKeyId) return
-
-    const apiKey = getApiKey(currentKeyId)
-    const provider = getProvider(apiKey?.providerId || null)
-    if (
-      apiKey &&
-      provider &&
-      !supportsKeyClient(provider, apiKey, nextCliType)
-    ) {
-      form.setFieldValue('key', null)
-      setKeyResetForCliChange(true)
-      message.info(t('projects.keyClearedForCliChange'))
-    }
   }
 
   // Quick switch key for a project
   const handleSwitchKey = async (project: Project, providerId: string, keyId: string) => {
     try {
-      await updateProject({
-        id: project.id,
+      const binding = getProjectBinding(project, defaultCliType)
+      await updateProjectBinding(project.id, {
+        cliType: defaultCliType,
         providerId,
         apiKeyId: keyId,
-        cliType: defaultCliType,
+        terminalType: binding?.terminalType || project.terminalType,
+        prelaunchCommand: binding?.prelaunchCommand || null,
       })
     } catch {
       message.error(t('messages.error'))
     }
   }
 
-  const handleKeySwitchMenuClick = (project: Project): MenuProps['onClick'] => ({ key }) => {
-    const target = parseKeySwitchItemKey(String(key))
-    if (
-      !target ||
-      (target.keyId === project.apiKeyId && normalizeClientKind(project.cliType) === defaultCliType)
-    ) {
-      return
+  const handleKeySwitchMenuClick =
+    (project: Project): MenuProps['onClick'] =>
+    ({ key }) => {
+      const target = parseKeySwitchItemKey(String(key))
+      const binding = getProjectBinding(project, defaultCliType)
+      if (!target || target.keyId === binding?.apiKeyId) {
+        return
+      }
+      handleSwitchKey(project, target.providerId, target.keyId)
     }
-    handleSwitchKey(project, target.providerId, target.keyId)
-  }
 
   // Build key switch menu items for a project
   const getKeySwitchMenuItems = (project: Project): NonNullable<MenuProps['items']> => {
@@ -322,9 +296,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
       if (!provider.isActive) return
       const providerKeys = (apiKeysByProvider[provider.id] || []).filter(
         (key) =>
-          key.isActive &&
-          !key.isExhausted &&
-          supportsKeyClient(provider, key, defaultCliType),
+          key.isActive && !key.isExhausted && supportsKeyClient(provider, key, defaultCliType),
       )
       if (providerKeys.length === 0) return
 
@@ -352,8 +324,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
           </div>
         ),
         children: providerKeys.map((key) => {
-          const isCurrent =
-            project.apiKeyId === key.id && normalizeClientKind(project.cliType) === defaultCliType
+          const isCurrent = getProjectBinding(project, defaultCliType)?.apiKeyId === key.id
 
           return {
             key: getKeySwitchItemKey(provider.id, key.id),
@@ -392,22 +363,13 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
       const remark = values.remark?.trim()
       const prelaunchCommand = values.prelaunchCommand?.trim()
 
-      if (keyResetForCliChange && !values.key) {
-        message.warning(t('projects.selectCompatibleKey'))
-        return
-      }
-
       if (values.key) {
         const selectedKey = getApiKey(values.key[1])
         const selectedProvider = getProvider(values.key[0])
         if (
           !selectedKey ||
           !selectedProvider ||
-          !supportsKeyClient(
-            selectedProvider,
-            selectedKey,
-            modalCliType,
-          )
+          !supportsKeyClient(selectedProvider, selectedKey, defaultCliType)
         ) {
           message.warning(t('projects.selectCompatibleKey'))
           return
@@ -415,17 +377,19 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
       }
 
       if (editingProject) {
-        // Update existing project
-        const providerId = values.key?.[0] || null
-        const apiKeyId = values.key?.[1] || null
         await updateProject({
           id: editingProject.id,
           name: values.name,
           remark,
-          providerId,
-          apiKeyId,
-          cliType: modalCliType,
-          prelaunchCommand: prelaunchCommand || '',
+        })
+        await updateProjectBinding(editingProject.id, {
+          cliType: defaultCliType,
+          providerId: values.key?.[0] || null,
+          apiKeyId: values.key?.[1] || null,
+          terminalType:
+            getProjectBinding(editingProject, defaultCliType)?.terminalType ||
+            editingProject.terminalType,
+          prelaunchCommand: prelaunchCommand || null,
         })
         message.success(t('projects.projectUpdated'))
       } else {
@@ -436,7 +400,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
           remark,
           providerId: values.key?.[0],
           apiKeyId: values.key?.[1],
-          cliType: modalCliType,
+          cliType: defaultCliType,
           prelaunchCommand: prelaunchCommand || '',
         })
         message.success(t('projects.projectCreated'))
@@ -478,6 +442,20 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
     }
   }
 
+  const projectGroups = useMemo(() => {
+    const groups = new Map<string, Project[]>()
+    projects.forEach((project) => {
+      const directory = getProjectDirectory(project.path)
+      groups.set(directory, [...(groups.get(directory) || []), project])
+    })
+    return Array.from(groups.entries())
+      .map(([directory, items]) => ({
+        directory,
+        projects: items.sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.directory.localeCompare(b.directory))
+  }, [projects])
+
   return (
     <div className={styles.container}>
       {/* Header - Fixed */}
@@ -516,170 +494,144 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
             </Card>
           ) : (
             <div className={styles.projectsGrid}>
-              {projects.map((project) => {
-                const provider = getProvider(project.providerId)
-                const apiKey = getApiKey(project.apiKeyId)
-                const hasKey = !!project.providerId && !!project.apiKeyId
-                const cliType = project.cliType || 'claude_code'
-                const keyCompatible = isKeyCompatible(apiKey)
-                const canOpen = hasKey && keyCompatible
-                const remark = project.remark?.trim()
+              {projectGroups.flatMap((group) => [
+                <div key={`directory:${group.directory}`} className={styles.directoryHeader}>
+                  <div className={styles.directoryTitle}>
+                    <FolderOutlined />
+                    <Text strong>{group.directory.split(/[\\/]/).pop() || group.directory}</Text>
+                    <Badge count={group.projects.length} color={token.colorPrimary} />
+                  </div>
+                  <Text type='secondary' className={styles.directoryPath}>
+                    {group.directory}
+                  </Text>
+                </div>,
+                ...group.projects.map((project) => {
+                  const binding = getProjectBinding(project, defaultCliType)
+                  const provider = getProvider(binding?.providerId || null)
+                  const apiKey = getApiKey(binding?.apiKeyId || null)
+                  const hasKey = !!binding?.providerId && !!binding.apiKeyId
+                  const keyCompatible = isKeyCompatible(apiKey)
+                  const canOpen = hasKey && keyCompatible
+                  const remark = project.remark?.trim()
 
-                return (
-                  <Card key={project.id} className={styles.projectCard} variant='outlined'>
-                    {/* Card Header */}
-                    <div className={styles.projectCardHeader}>
-                      <Text strong className={styles.projectName}>
-                        {project.name}
+                  return (
+                    <Card key={project.id} className={styles.projectCard} variant='outlined'>
+                      {/* Card Header */}
+                      <div className={styles.projectCardHeader}>
+                        <Text strong className={styles.projectName}>
+                          {project.name}
+                        </Text>
+                        <Tag className={styles.clientBindingTag}>
+                          <CliTypeIcon type={defaultCliType} size={13} />
+                          {defaultCliType === 'grok' ? 'Grok Build' : 'Claude Code'}
+                        </Tag>
+                      </div>
+
+                      {/* Remark */}
+                      <Text type='secondary' className={styles.projectRemark}>
+                        {t('projects.remark')}：{remark || t('common.none')}
                       </Text>
-                      {/* CLI Type Dropdown */}
-                      <Dropdown
-                        menu={{
-                          items: [
-                            {
-                              key: 'claude_code',
-                              label: (
-                                <Space size={6}>
-                                  <CliTypeIcon type='claude_code' size={14} />
-                                  <span>Claude Code</span>
-                                </Space>
-                              ),
-                              onClick: () => handleSwitchCliType(project, 'claude_code'),
-                            },
-                            {
-                              key: 'grok',
-                              label: (
-                                <Space size={6}>
-                                  <CliTypeIcon type='grok' size={14} />
-                                  <span>Grok Build</span>
-                                </Space>
-                              ),
-                              onClick: () => handleSwitchCliType(project, 'grok'),
-                            },
-                          ],
-                          selectedKeys: [cliType],
-                        }}
-                        trigger={['click']}
-                        placement='bottomRight'
-                      >
-                        <Button type='text' size='small' className={styles.cliTypeButton}>
-                          <CliTypeIcon type={cliType} size={14} />
-                        </Button>
-                      </Dropdown>
-                    </div>
 
-                    {/* Remark */}
-                    <Text type='secondary' className={styles.projectRemark}>
-                      {t('projects.remark')}：{remark || t('common.none')}
-                    </Text>
-
-                    {/* Key Binding Section */}
-                    <div className={styles.keyBinding}>
-                      {hasKey ? (
-                        <div className={styles.keyBindingContent}>
-                          <div className={styles.keyBindingInfo}>
-                            <img
-                              src={getProviderIconSrc(provider)}
-                              alt={provider?.name}
-                              className={styles.providerIcon}
-                            />
-                            <Text className={styles.providerName}>{provider?.name}</Text>
-                            <Text type='secondary' className={styles.keyName}>
-                              / {getKeyAlias(apiKey)}
-                            </Text>
+                      {/* Key Binding Section */}
+                      <div className={styles.keyBinding}>
+                        {hasKey ? (
+                          <div className={styles.keyBindingContent}>
+                            <div className={styles.keyBindingInfo}>
+                              <img
+                                src={getProviderIconSrc(provider)}
+                                alt={provider?.name}
+                                className={styles.providerIcon}
+                              />
+                              <Text className={styles.providerName}>{provider?.name}</Text>
+                              <Text type='secondary' className={styles.keyName}>
+                                / {getKeyAlias(apiKey)}
+                              </Text>
+                            </div>
+                            <Dropdown
+                              classNames={{ root: styles.keySwitchDropdown }}
+                              menu={{
+                                items: getKeySwitchMenuItems(project),
+                                onClick: handleKeySwitchMenuClick(project),
+                                classNames: {
+                                  root: styles.keySwitchMenu,
+                                },
+                              }}
+                              trigger={['click']}
+                              placement='bottomRight'
+                              popupRender={(menus) => (
+                                <div className={styles.keySwitchMenuFrame}>
+                                  <div className={styles.keySwitchMenuScroller}>{menus}</div>
+                                </div>
+                              )}
+                            >
+                              <Button type='text' size='small' icon={<SwapOutlined />} />
+                            </Dropdown>
                           </div>
-                          <Dropdown
-                            classNames={{ root: styles.keySwitchDropdown }}
-                            menu={{
-                              items: getKeySwitchMenuItems(project),
-                              onClick: handleKeySwitchMenuClick(project),
-                              classNames: {
-                                root: styles.keySwitchMenu,
-                              },
-                            }}
-                            trigger={['click']}
-                            placement='bottomRight'
-                            popupRender={(menus) => (
-                              <div className={styles.keySwitchMenuFrame}>
-                                <div className={styles.keySwitchMenuScroller}>{menus}</div>
-                              </div>
-                            )}
-                          >
-                            <Button type='text' size='small' icon={<SwapOutlined />} />
-                          </Dropdown>
-                        </div>
-                      ) : (
-                        <div className={styles.noKeyBinding}>
-                          <WarningOutlined style={{ color: token.colorWarning, fontSize: 14 }} />
-                          <Text type='secondary' style={{ fontSize: 12 }}>
-                            {t('projects.noKeyBound')}
+                        ) : (
+                          <div className={styles.noKeyBinding}>
+                            <WarningOutlined style={{ color: token.colorWarning, fontSize: 14 }} />
+                            <Text type='secondary' style={{ fontSize: 12 }}>
+                              {t('projects.noKeyBound')}
+                            </Text>
+                            <Button type='link' size='small' onClick={() => handleEdit(project)}>
+                              {t('projects.configureNow')}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Incompatible Warning */}
+                      {hasKey && !keyCompatible && (
+                        <div className={styles.incompatibleWarning}>
+                          <WarningOutlined />
+                          <Text type='warning' style={{ fontSize: 11 }}>
+                            {t('projects.keyNotCompatibleHint')}
                           </Text>
-                          <Button type='link' size='small' onClick={() => handleEdit(project)}>
-                            {t('projects.configureNow')}
-                          </Button>
                         </div>
                       )}
-                    </div>
 
-                    {/* Incompatible Warning */}
-                    {hasKey && !keyCompatible && (
-                      <div className={styles.incompatibleWarning}>
-                        <WarningOutlined />
-                        <Text type='warning' style={{ fontSize: 11 }}>
-                          {t('projects.keyNotCompatibleHint')}
+                      {/* Card Footer */}
+                      <div className={styles.projectFooter}>
+                        <Text type='secondary' className={styles.projectTime}>
+                          <ClockCircleOutlined style={{ marginRight: 4 }} />
+                          {formatDate(project.lastOpenedAt)}
                         </Text>
-                      </div>
-                    )}
-
-                    {/* Card Footer */}
-                    <div className={styles.projectFooter}>
-                      <Text type='secondary' className={styles.projectTime}>
-                        <ClockCircleOutlined style={{ marginRight: 4 }} />
-                        {formatDate(project.lastOpenedAt)}
-                      </Text>
-                      <Space size={4}>
-                        <Tooltip title={t('common.edit')}>
-                          <Button
-                            type='text'
-                            size='small'
-                            icon={<EditOutlined />}
-                            onClick={() => handleEdit(project)}
-                          />
-                        </Tooltip>
-                        <Popconfirm
-                          title={t('projects.deleteProject')}
-                          description={t('projects.deleteProjectHint')}
-                          onConfirm={() => handleDelete(project.id)}
-                          okText={t('common.delete')}
-                          cancelText={t('common.cancel')}
-                          okButtonProps={{ danger: true }}
-                        >
-                          <Tooltip title={t('common.delete')}>
-                            <Button type='text' size='small' danger icon={<DeleteOutlined />} />
+                        <Space size={4}>
+                          <Tooltip title={t('common.edit')}>
+                            <Button
+                              type='text'
+                              size='small'
+                              icon={<EditOutlined />}
+                              onClick={() => handleEdit(project)}
+                            />
                           </Tooltip>
-                        </Popconfirm>
-                        <Button
-                          type='primary'
-                          size='small'
-                          icon={<PlayCircleOutlined />}
-                          onClick={() => handleOpen(project)}
-                          disabled={!canOpen}
-                        >
-                          {t('common.open')}
-                        </Button>
-                      </Space>
-                    </div>
-                  </Card>
-                )
-              })}
-
-              {/* Add Project Card */}
-              <Card className={styles.addProjectCard} variant='outlined' onClick={handleAdd}>
-                <Space align='center'>
-                  <PlusOutlined className={styles.addIcon} />
-                  <Text type='secondary'>{t('projects.addProject')}</Text>
-                </Space>
-              </Card>
+                          <Popconfirm
+                            title={t('projects.deleteProject')}
+                            description={t('projects.deleteProjectHint')}
+                            onConfirm={() => handleDelete(project.id)}
+                            okText={t('common.delete')}
+                            cancelText={t('common.cancel')}
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Tooltip title={t('common.delete')}>
+                              <Button type='text' size='small' danger icon={<DeleteOutlined />} />
+                            </Tooltip>
+                          </Popconfirm>
+                          <Button
+                            type='primary'
+                            size='small'
+                            icon={<PlayCircleOutlined />}
+                            onClick={() => handleOpen(project)}
+                            disabled={!canOpen}
+                          >
+                            {t('common.open')}
+                          </Button>
+                        </Space>
+                      </div>
+                    </Card>
+                  )
+                }),
+              ])}
             </div>
           )}
         </SimpleBar>
@@ -750,33 +702,17 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
             />
           </Form.Item>
 
-          <Form.Item label={t('projects.cliType')}>
-            <Segmented
-              value={modalCliType}
-              options={[
-                {
-                  label: (
-                    <Space size={6}>
-                      <CliTypeIcon type='claude_code' size={16} />
-                      <span>Claude Code</span>
-                    </Space>
-                  ),
-                  value: 'claude_code',
-                },
-                {
-                  label: (
-                    <Space size={6}>
-                      <CliTypeIcon type='grok' size={16} />
-                      <span>Grok Build</span>
-                    </Space>
-                  ),
-                  value: 'grok',
-                },
-              ]}
-              onChange={handleModalCliTypeChange}
-              block
-            />
-          </Form.Item>
+          <div className={styles.bindingContext}>
+            <CliTypeIcon type={defaultCliType} size={16} />
+            <div>
+              <Text strong>
+                {defaultCliType === 'grok' ? 'Grok Build 绑定' : 'Claude Code 绑定'}
+              </Text>
+              <Text type='secondary'>
+                项目目录会在两个客户端间复用，这里的供应商、密钥和启动命令只属于当前客户端。
+              </Text>
+            </div>
+          </div>
 
           <Form.Item
             name='key'
@@ -792,9 +728,6 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
               apiKeys={compatibleApiKeys}
               size='large'
               placeholder={t('projects.selectKeyOptional')}
-              onChange={(value) => {
-                if (value) setKeyResetForCliChange(false)
-              }}
             />
           </Form.Item>
 

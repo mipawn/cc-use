@@ -39,6 +39,36 @@
   gap: 16px;
 }
 
+.directoryHeader {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 12px 14px;
+  margin-top: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-ant);
+  background: var(--surface-sunken);
+}
+
+.directoryTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.directoryPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 /* Project Card */
 .projectCard {
   border-radius: var(--radius-ant-lg) !important;
@@ -81,6 +111,13 @@
 
 .cliTypeButton:hover {
   background: var(--surface-sunken) !important;
+}
+
+.clientBindingTag {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  margin-inline-end: 0 !important;
 }
 
 /* Project Remark */
@@ -147,6 +184,23 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.bindingContext {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-ant);
+  background: var(--surface-sunken);
+}
+
+.bindingContext > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 /* Key Switch Dropdown */

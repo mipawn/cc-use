@@ -42,6 +42,7 @@ function buildApi(): Api {
       getByPath: (path) => invoke('project_get_by_path', { path }),
       create: (input) => invoke('project_create', { input }),
       update: (input) => invoke('project_update', { input }),
+      updateBinding: (projectId, input) => invoke('project_binding_upsert', { projectId, input }),
       delete: (id) => invoke('project_delete', { id }),
       open: (id) => invoke('project_open', { id }),
     },
@@ -49,14 +50,14 @@ function buildApi(): Api {
       launch: (projectId, options) => invoke('terminal_launch', { projectId, options }),
       launchWithPath: (path) => invoke('terminal_launch_with_path', { path }),
       getLaunchPreview: (params) => invoke('terminal_get_launch_preview', params),
+      prepareGrokConfig: (apiKeyId) => invoke('terminal_prepare_grok_config', { apiKeyId }),
     },
     proxy: {
       restart: () => invoke('proxy_restart'),
       status: () => invoke('proxy_status'),
       start: () => invoke('proxy_start'),
       stop: () => invoke('proxy_stop'),
-      setDetailMode: (enabled: boolean) =>
-        invoke('console_detail_mode_set', { enabled }),
+      setDetailMode: (enabled: boolean) => invoke('console_detail_mode_set', { enabled }),
       onStatusChanged: (callback) => {
         let unlisten: UnlistenFn | null = null
         listen<{ isRunning: boolean; port: number; lastError?: string | null; source?: string }>(
@@ -141,6 +142,7 @@ function buildApi(): Api {
         invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
       getDashboardStats: () => invoke('request_log_get_dashboard_stats'),
       getGatewayMetrics: () => invoke('gateway_metrics_get_recent'),
+      getProviderGatewayMetrics: () => invoke('gateway_metrics_get_by_provider'),
       getMonthlyTrend: (year: number, month: number) =>
         invoke('request_log_get_monthly_trend', { year, month }),
       repairCosts: () => invoke('request_log_repair_costs'),

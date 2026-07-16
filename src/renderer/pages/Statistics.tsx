@@ -32,12 +32,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import type {
-  CostStatistics,
-  PaginatedRecentRequests,
-  RecentGatewayMetrics,
-  StatsTimeRange,
-} from '@shared/types'
+import type { CostStatistics, PaginatedRecentRequests, StatsTimeRange } from '@shared/types'
 import ModelPricingModal from '../components/common/ModelPricingModal'
 import styles from './Statistics.module.css'
 
@@ -71,21 +66,6 @@ export default function Statistics() {
   const [recentPageSize, setRecentPageSize] = useState(10)
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
   const [pricingModalOpen, setPricingModalOpen] = useState(false)
-  const [gatewayMetrics, setGatewayMetrics] = useState<RecentGatewayMetrics | null>(null)
-
-  useEffect(() => {
-    const fetchGatewayMetrics = async () => {
-      try {
-        setGatewayMetrics(await getApi().requestLog.getGatewayMetrics())
-      } catch (error) {
-        console.error('Failed to fetch recent gateway metrics:', error)
-      }
-    }
-    void fetchGatewayMetrics()
-    const timer = window.setInterval(fetchGatewayMetrics, 30_000)
-    return () => window.clearInterval(timer)
-  }, [])
-
   useEffect(() => {
     const fetchStats = async () => {
       setLoading(true)
@@ -288,11 +268,7 @@ export default function Statistics() {
           </Title>
           <Text type='secondary'>{t('statistics.subtitle')}</Text>
         </div>
-        <Button
-          icon={<SettingOutlined />}
-          onClick={() => setPricingModalOpen(true)}
-          size='large'
-        >
+        <Button icon={<SettingOutlined />} onClick={() => setPricingModalOpen(true)} size='large'>
           {t('modelPricing.editPricing')}
         </Button>
       </div>
@@ -310,49 +286,6 @@ export default function Statistics() {
       {/* Content */}
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-          {gatewayMetrics && (
-            <div className={styles.gatewayMetricsRow}>
-              {gatewayMetrics.windows.map((item) => {
-                const successRate = item.totalRequests
-                  ? (item.successfulRequests / item.totalRequests) * 100
-                  : 0
-                return (
-                  <Card
-                    key={item.window}
-                    className={styles.summaryCard}
-                    variant='outlined'
-                    title={t(`statistics.gatewayWindow.${item.window}`)}
-                  >
-                    <Statistic
-                      title={t('statistics.actualRequests')}
-                      value={item.totalRequests}
-                      suffix={t('statistics.requestUnit')}
-                    />
-                    <div className={styles.gatewayMetricDetails}>
-                      <Text type='secondary'>
-                        {t('statistics.successRate')}: {successRate.toFixed(1)}%
-                      </Text>
-                      <Text type='secondary'>
-                        {t('statistics.gatewayErrors')}: {item.upstreamErrors} /{' '}
-                        {t('statistics.localRejected')}: {item.rejectedRequests}
-                      </Text>
-                      <Text type='secondary'>
-                        {t('statistics.avgP95Latency')}: {Math.round(item.avgLatencyMs || 0)} /{' '}
-                        {item.p95LatencyMs || 0} ms
-                      </Text>
-                      <Text type='secondary'>
-                        {t('statistics.activeProviders')}: {item.activeProviders} /{' '}
-                        {t('statistics.lastActivity')}:{' '}
-                        {item.lastRequestAt
-                          ? new Date(`${item.lastRequestAt}Z`).toLocaleString()
-                          : '-'}
-                      </Text>
-                    </div>
-                  </Card>
-                )
-              })}
-            </div>
-          )}
           {loading ? (
             <div className={styles.loadingState}>
               <Spin size='large' />
@@ -552,7 +485,9 @@ export default function Statistics() {
                       key: m.model,
                     }))}
                     columns={makeTopColumns(t('statistics.model'), true)}
-                    rowKey={(record) => `${record.model || 'unknown'}-${record.totalRequests}-${record.totalTokens}`}
+                    rowKey={(record) =>
+                      `${record.model || 'unknown'}-${record.totalRequests}-${record.totalTokens}`
+                    }
                     size='small'
                     pagination={false}
                     scroll={{ y: 240 }}

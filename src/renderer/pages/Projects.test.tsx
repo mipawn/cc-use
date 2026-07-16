@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
 import { createRoot } from 'react-dom/client'
-
-;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true
+;(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true
 
 const project = {
   id: 'project-1',
@@ -19,6 +19,15 @@ const project = {
   terminalType: 'terminal',
   prelaunchCommand: null,
   lastOpenedAt: null,
+  bindings: {
+    grok: {
+      cliType: 'grok',
+      providerId: 'provider-1',
+      apiKeyId: 'shared-key',
+      terminalType: 'terminal',
+      prelaunchCommand: null,
+    },
+  },
 }
 
 const provider = {
@@ -51,6 +60,7 @@ const projectStore = {
   fetchProjects: vi.fn(),
   createProject: vi.fn(),
   updateProject: vi.fn(),
+  updateProjectBinding: vi.fn(),
   deleteProject: vi.fn(),
 }
 
@@ -159,11 +169,12 @@ describe('Projects page', () => {
       grokKeyLabel?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(projectStore.updateProject).toHaveBeenCalledWith({
-      id: project.id,
+    expect(projectStore.updateProjectBinding).toHaveBeenCalledWith(project.id, {
+      cliType: 'grok',
       providerId: provider.id,
       apiKeyId: 'grok-key',
-      cliType: 'grok',
+      terminalType: 'terminal',
+      prelaunchCommand: null,
     })
 
     await act(async () => root.unmount())

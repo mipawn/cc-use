@@ -21,6 +21,7 @@ import {
   Avatar,
   Modal,
   Divider,
+  Progress,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
 import { useServiceStatus } from '../hooks/useServiceStatus'
@@ -49,7 +50,7 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
-import type { Provider, ApiKey, ClientKind } from '@shared/types'
+import type { Provider, ApiKey, ClientKind, ProviderGatewayMetrics } from '@shared/types'
 import {
   formatEnvCommand,
   getClientKindLabel,
@@ -67,7 +68,11 @@ import styles from './Keys.module.css'
 
 // dnd-kit sortable wrapper — defined at module level to avoid hook issues
 // Pure reorder logic — extract for testing
-export function computeProviderReorder(ids: string[], fromId: string, toId: string): string[] | null {
+export function computeProviderReorder(
+  ids: string[],
+  fromId: string,
+  toId: string,
+): string[] | null {
   const fromIdx = ids.indexOf(fromId)
   const toIdx = ids.indexOf(toId)
   if (fromIdx === -1 || toIdx === -1) return null
@@ -88,7 +93,9 @@ function SortableTab({
   className: string
   children: React.ReactNode
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  })
   return (
     <div
       ref={setNodeRef}
@@ -126,7 +133,13 @@ const TYPE_ICONS: Record<string, string> = {
 }
 
 const clientIconType = (clientKind: string) =>
-  clientKind === 'codex' ? 'codex' : clientKind === 'grok' ? 'grok' : clientKind === 'claude_desktop' ? 'claude_desktop' : 'claude_code'
+  clientKind === 'codex'
+    ? 'codex'
+    : clientKind === 'grok'
+      ? 'grok'
+      : clientKind === 'claude_desktop'
+        ? 'claude_desktop'
+        : 'claude_code'
 
 // Preset provider icon mapping
 const PRESET_ICON_MAP: Record<string, string> = {
@@ -160,14 +173,8 @@ export default function Keys() {
     deleteProvider,
     updateProvider,
   } = useProviderStore()
-  const {
-    apiKeys,
-    fetchAllApiKeys,
-    getAllApiKeys,
-    createApiKey,
-    updateApiKey,
-    deleteApiKey,
-  } = useApiKeyStore()
+  const { apiKeys, fetchAllApiKeys, getAllApiKeys, createApiKey, updateApiKey, deleteApiKey } =
+    useApiKeyStore()
   const { globalSettings } = useSettingsStore()
   const terminalType = globalSettings.defaultTerminalType
 
@@ -195,6 +202,7 @@ export default function Keys() {
   const [keyCostStats, setKeyCostStats] = useState<
     Record<string, { todayCost: number; totalCost: number }>
   >({})
+  const [providerMetrics, setProviderMetrics] = useState<Record<string, ProviderGatewayMetrics>>({})
 
   // Get all API keys
   const allApiKeys = getAllApiKeys()
@@ -202,6 +210,21 @@ export default function Keys() {
   useEffect(() => {
     fetchProviders()
   }, [fetchProviders])
+
+  useEffect(() => {
+    const fetchProviderMetrics = async () => {
+      try {
+        const metrics = await getApi().requestLog.getProviderGatewayMetrics()
+        setProviderMetrics(Object.fromEntries(metrics.map((item) => [item.providerName, item])))
+      } catch (error) {
+        console.error('Failed to fetch provider gateway metrics:', error)
+      }
+    }
+
+    void fetchProviderMetrics()
+    const timer = window.setInterval(fetchProviderMetrics, 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   // Fetch API keys for all providers
   useEffect(() => {
@@ -373,7 +396,9 @@ export default function Keys() {
     key: ApiKey
   } | null>(null)
   const { status: proxyStatus } = useServiceStatus()
-  const [proxySessionTokens, setProxySessionTokens] = useState<Partial<Record<ClientKind, string>>>({})
+  const [proxySessionTokens, setProxySessionTokens] = useState<Partial<Record<ClientKind, string>>>(
+    {},
+  )
 
   const handleCopyCommand = async (provider: Provider, key: ApiKey) => {
     try {
@@ -383,6 +408,9 @@ export default function Keys() {
         const sessions = await Promise.all(
           cliClients.map(async (clientKind) => {
             const session = await getApi().session.create(provider.id, key.id, clientKind)
+            if (clientKind === 'grok') {
+              await getApi().terminal.prepareGrokConfig(key.id)
+            }
             return [clientKind, session.sessionToken] as const
           }),
         )
@@ -411,12 +439,10 @@ export default function Keys() {
     const envVars: Record<string, string> = {}
 
     if (useProxy && proxyStatus.isRunning && sessionToken) {
-      const baseUrl = `http://localhost:${proxyStatus.port}${isGrok ? '/v1' : ''}`
       if (isGrok) {
-        envVars.GROK_MODELS_BASE_URL = baseUrl
-        envVars.GROK_XAI_API_BASE_URL = baseUrl
-        envVars.XAI_API_KEY = sessionToken
+        envVars.CC_USE_GROK_TOKEN = sessionToken
       } else {
+        const baseUrl = `http://localhost:${proxyStatus.port}`
         envVars['ANTHROPIC_BASE_URL'] = baseUrl
         envVars['API_TIMEOUT_MS'] = '3000000'
         envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
@@ -425,8 +451,6 @@ export default function Keys() {
       }
     } else {
       if (isGrok) {
-        envVars.GROK_MODELS_BASE_URL = provider.baseUrl
-        envVars.GROK_XAI_API_BASE_URL = provider.baseUrl
         envVars.XAI_API_KEY = key.value
       } else {
         envVars['ANTHROPIC_BASE_URL'] = provider.baseUrl
@@ -437,7 +461,7 @@ export default function Keys() {
       }
     }
 
-    const cliCommand = isGrok ? 'grok' : 'claude'
+    const cliCommand = isGrok && useProxy ? 'grok -m cc-use' : isGrok ? 'grok' : 'claude'
     return formatEnvCommand(envVars, cliCommand)
   }
 
@@ -459,9 +483,7 @@ export default function Keys() {
   }
 
   // dnd-kit sensors — require 8px drag threshold so clicks pass through
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
@@ -531,7 +553,10 @@ export default function Keys() {
 
           {/* Provider tabs — @dnd-kit sortable */}
           <DndContext sensors={sensors} onDragEnd={handleDragEnd} autoScroll={false}>
-            <SortableContext items={providers.map((p) => p.id)} strategy={horizontalListSortingStrategy}>
+            <SortableContext
+              items={providers.map((p) => p.id)}
+              strategy={horizontalListSortingStrategy}
+            >
               {providers.map((provider) => (
                 <SortableTab
                   key={provider.id}
@@ -540,9 +565,17 @@ export default function Keys() {
                   className={`${styles.filterTab} ${styles.filterTabDraggable} ${activeFilter === provider.id ? styles.filterTabActive : ''}`}
                 >
                   <Space size={4}>
-                    <Avatar src={getProviderIconSrc(provider)} size={16} style={{ background: 'transparent' }} />
+                    <Avatar
+                      src={getProviderIconSrc(provider)}
+                      size={16}
+                      style={{ background: 'transparent' }}
+                    />
                     <span>{provider.name}</span>
-                    <Badge count={(apiKeys[provider.id] || []).length} showZero className={styles.filterBadge} />
+                    <Badge
+                      count={(apiKeys[provider.id] || []).length}
+                      showZero
+                      className={styles.filterBadge}
+                    />
                   </Space>
                 </SortableTab>
               ))}
@@ -589,9 +622,48 @@ export default function Keys() {
                           ${balance.toFixed(2)}
                         </Tag>
                       )}
+                      {providerMetrics[provider.name] ? (
+                        <div className={styles.providerHealth}>
+                          <Progress
+                            type='circle'
+                            size={28}
+                            strokeWidth={10}
+                            percent={
+                              providerMetrics[provider.name].totalRequests > 0
+                                ? (providerMetrics[provider.name].successfulRequests /
+                                    providerMetrics[provider.name].totalRequests) *
+                                  100
+                                : 0
+                            }
+                            format={(percent) => `${Math.round(percent || 0)}%`}
+                            strokeColor={
+                              providerMetrics[provider.name].totalRequests > 0 &&
+                              providerMetrics[provider.name].successfulRequests /
+                                providerMetrics[provider.name].totalRequests >=
+                                0.95
+                                ? token.colorSuccess
+                                : token.colorWarning
+                            }
+                          />
+                          <div className={styles.providerHealthText}>
+                            <Text className={styles.providerHealthTitle}>近 24 小时成功率</Text>
+                            <Text type='secondary' className={styles.providerHealthMeta}>
+                              {providerMetrics[provider.name].successfulRequests}/
+                              {providerMetrics[provider.name].totalRequests} 次 · 上游错误{' '}
+                              {providerMetrics[provider.name].upstreamErrors}
+                            </Text>
+                          </div>
+                        </div>
+                      ) : (
+                        <Text type='secondary' className={styles.providerHealthEmpty}>
+                          近 24 小时暂无请求
+                        </Text>
+                      )}
                     </div>
                     <Space size={8}>
-                      <Tooltip title={provider.isActive ? t('common.active') : t('common.inactive')}>
+                      <Tooltip
+                        title={provider.isActive ? t('common.active') : t('common.inactive')}
+                      >
                         <Switch
                           size='small'
                           checked={provider.isActive}
@@ -657,7 +729,10 @@ export default function Keys() {
                                   {/* Type icons - show all supported types */}
                                   {getEffectiveKeyClients(provider, key).map((clientKind) => {
                                     return (
-                                      <Tooltip key={clientKind} title={getClientKindLabel(clientKind)}>
+                                      <Tooltip
+                                        key={clientKind}
+                                        title={getClientKindLabel(clientKind)}
+                                      >
                                         <Avatar
                                           src={TYPE_ICONS[clientIconType(clientKind)]}
                                           size={16}
@@ -901,49 +976,52 @@ export default function Keys() {
                   <Text type='secondary' className={styles.commandSectionHint}>
                     {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
                   </Text>
-                  {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter(isCliClientKind).filter((clientKind) => !!proxySessionTokens[clientKind]).map((clientKind) => {
-                    const command = generateCommand(
-                      clientKind,
-                      copyCommandKey.provider,
-                      copyCommandKey.key,
-                      true,
-                      proxySessionTokens[clientKind],
-                    )
-                    return (
-                      <div key={`proxy-${clientKind}`} className={styles.commandItem}>
-                        <div className={styles.commandHeader}>
-                          <Space>
-                            <Avatar
-                              src={TYPE_ICONS[clientIconType(clientKind)]}
-                              size={20}
-                              style={{ background: 'transparent' }}
-                            />
-                            <Text strong>{getClientKindLabel(clientKind)}</Text>
-                          </Space>
-                          <Button
-                            type='primary'
-                            size='small'
-                            icon={<CopyOutlined />}
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(command)
-                                message.success(
-                                  `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
-                                )
-                              } catch {
-                                message.error(t('providers.copyFailed'))
-                              }
-                            }}
-                          >
-                            {t('common.copy') || '复制'}
-                          </Button>
+                  {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key)
+                    .filter(isCliClientKind)
+                    .filter((clientKind) => !!proxySessionTokens[clientKind])
+                    .map((clientKind) => {
+                      const command = generateCommand(
+                        clientKind,
+                        copyCommandKey.provider,
+                        copyCommandKey.key,
+                        true,
+                        proxySessionTokens[clientKind],
+                      )
+                      return (
+                        <div key={`proxy-${clientKind}`} className={styles.commandItem}>
+                          <div className={styles.commandHeader}>
+                            <Space>
+                              <Avatar
+                                src={TYPE_ICONS[clientIconType(clientKind)]}
+                                size={20}
+                                style={{ background: 'transparent' }}
+                              />
+                              <Text strong>{getClientKindLabel(clientKind)}</Text>
+                            </Space>
+                            <Button
+                              type='primary'
+                              size='small'
+                              icon={<CopyOutlined />}
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(command)
+                                  message.success(
+                                    `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
+                                  )
+                                } catch {
+                                  message.error(t('providers.copyFailed'))
+                                }
+                              }}
+                            >
+                              {t('common.copy') || '复制'}
+                            </Button>
+                          </div>
+                          <div className={styles.commandCode}>
+                            <code>{command}</code>
+                          </div>
                         </div>
-                        <div className={styles.commandCode}>
-                          <code>{command}</code>
-                        </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
                   <Divider style={{ margin: '16px 0' }} />
                 </>
               )}
@@ -959,49 +1037,53 @@ export default function Keys() {
                   {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
                 </Text>
               )}
-              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).filter(isCliClientKind).map((clientKind) => {
-                const command = generateCommand(
-                  clientKind,
-                  copyCommandKey.provider,
-                  copyCommandKey.key,
-                  false,
-                )
-                return (
-                  <div key={`direct-${clientKind}`} className={styles.commandItem}>
-                    <div className={styles.commandHeader}>
-                      <Space>
-                        <Avatar
-                          src={TYPE_ICONS[clientIconType(clientKind)]}
-                          size={20}
-                          style={{ background: 'transparent' }}
-                        />
-                        <Text strong>{getClientKindLabel(clientKind)}</Text>
-                      </Space>
-                      <Button
-                        type={proxyStatus.isRunning ? 'default' : 'primary'}
-                        size='small'
-                        icon={<CopyOutlined />}
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(command)
-                            message.success(
-                              `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
-                            )
-                          } catch {
-                            message.error(t('providers.copyFailed'))
-                          }
-                        }}
-                      >
-                        {t('common.copy') || '复制'}
-                      </Button>
+              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key)
+                .filter(isCliClientKind)
+                .map((clientKind) => {
+                  const command = generateCommand(
+                    clientKind,
+                    copyCommandKey.provider,
+                    copyCommandKey.key,
+                    false,
+                  )
+                  return (
+                    <div key={`direct-${clientKind}`} className={styles.commandItem}>
+                      <div className={styles.commandHeader}>
+                        <Space>
+                          <Avatar
+                            src={TYPE_ICONS[clientIconType(clientKind)]}
+                            size={20}
+                            style={{ background: 'transparent' }}
+                          />
+                          <Text strong>{getClientKindLabel(clientKind)}</Text>
+                        </Space>
+                        <Button
+                          type={proxyStatus.isRunning ? 'default' : 'primary'}
+                          size='small'
+                          icon={<CopyOutlined />}
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(command)
+                              message.success(
+                                `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
+                              )
+                            } catch {
+                              message.error(t('providers.copyFailed'))
+                            }
+                          }}
+                        >
+                          {t('common.copy') || '复制'}
+                        </Button>
+                      </div>
+                      <div className={styles.commandCode}>
+                        <code>{command}</code>
+                      </div>
                     </div>
-                    <div className={styles.commandCode}>
-                      <code>{command}</code>
-                    </div>
-                  </div>
-                )
-              })}
-              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).some((clientKind) => !isCliClientKind(clientKind)) && (
+                  )
+                })}
+              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).some(
+                (clientKind) => !isCliClientKind(clientKind),
+              ) && (
                 <Text type='secondary' style={{ display: 'block', marginTop: 8 }}>
                   Codex Desktop 和 Claude Desktop 请在对应页面选择此密钥并执行配置接管。
                 </Text>
@@ -1060,7 +1142,8 @@ export default function Keys() {
               ))}
               {modelList.length > 0 && (
                 <Text type='secondary' style={{ fontSize: 12, textAlign: 'center', marginTop: 8 }}>
-                  {t('keys.modelsCount', { count: modelList.length }) || `共 ${modelList.length} 个模型`}
+                  {t('keys.modelsCount', { count: modelList.length }) ||
+                    `共 ${modelList.length} 个模型`}
                 </Text>
               )}
             </div>

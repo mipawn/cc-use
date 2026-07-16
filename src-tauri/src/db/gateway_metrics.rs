@@ -1,5 +1,7 @@
 use crate::db::Database;
-use crate::models::{GatewayMetricsWindow, GatewayRequestEvent, RecentGatewayMetrics};
+use crate::models::{
+    GatewayMetricsWindow, GatewayRequestEvent, ProviderGatewayMetrics, RecentGatewayMetrics,
+};
 
 const MAX_EVENT_ROWS: i64 = 50_000;
 
@@ -55,6 +57,41 @@ impl Database {
         .collect::<Result<Vec<_>, _>>()?;
 
         Ok(RecentGatewayMetrics { windows })
+    }
+
+    pub fn gateway_metrics_by_provider(
+        &self,
+    ) -> Result<Vec<ProviderGatewayMetrics>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT provider_name,
+                    COUNT(*),
+                    COALESCE(SUM(CASE
+                      WHEN kind = 'ws' OR (kind = 'ok' AND status_code BETWEEN 200 AND 399)
+                      THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE
+                      WHEN kind = 'upstream_error' OR (kind = 'ok' AND status_code >= 400)
+                      THEN 1 ELSE 0 END), 0),
+                    AVG(latency_ms),
+                    MAX(created_at)
+             FROM gateway_request_events
+             WHERE created_at >= datetime('now', '-24 hours')
+               AND provider_name IS NOT NULL
+               AND provider_name != ''
+               AND kind != 'rejected'
+             GROUP BY provider_name
+             ORDER BY provider_name ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ProviderGatewayMetrics {
+                provider_name: row.get(0)?,
+                total_requests: row.get(1)?,
+                successful_requests: row.get(2)?,
+                upstream_errors: row.get(3)?,
+                avg_latency_ms: row.get(4)?,
+                last_request_at: row.get(5)?,
+            })
+        })?;
+        rows.collect()
     }
 
     fn gateway_metrics_window(

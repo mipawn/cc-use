@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::models::{CreateProjectInput, Project, UpdateProjectInput};
+use crate::models::{CreateProjectInput, Project, UpdateProjectInput, UpsertProjectBindingInput};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -43,6 +43,17 @@ pub fn project_update(
 ) -> Result<Project, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.project_update(&input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn project_binding_upsert(
+    db: State<'_, Arc<Mutex<Database>>>,
+    project_id: String,
+    input: UpsertProjectBindingInput,
+) -> Result<Project, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.project_binding_upsert(&project_id, &input)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

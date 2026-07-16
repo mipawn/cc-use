@@ -1,6 +1,6 @@
 mod support;
 
-use cc_use_lib::models::{CreateApiKeyInput, CreateProjectInput};
+use cc_use_lib::models::{CreateApiKeyInput, CreateProjectInput, UpsertProjectBindingInput};
 use cc_use_lib::terminal::get_launch_preview;
 use serde_json::json;
 use support::{create_api_key, create_project, create_provider, TempDb};
@@ -81,19 +81,14 @@ fn grok_preview_uses_local_responses_proxy_without_claude_config() {
     let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "grok")
         .expect("grok preview");
 
-    assert_eq!(preview.command, "grok");
+    assert_eq!(preview.command, "grok -m cc-use");
     assert_eq!(
-        preview.env.get("GROK_MODELS_BASE_URL"),
-        Some(&"http://localhost:12345/v1".to_string())
-    );
-    assert_eq!(
-        preview.env.get("GROK_XAI_API_BASE_URL"),
-        Some(&"http://localhost:12345/v1".to_string())
-    );
-    assert_eq!(
-        preview.env.get("XAI_API_KEY"),
+        preview.env.get("CC_USE_GROK_TOKEN"),
         Some(&"preview-session-token".to_string())
     );
+    assert_eq!(preview.env.get("GROK_MODELS_BASE_URL"), None);
+    assert_eq!(preview.env.get("GROK_XAI_API_BASE_URL"), None);
+    assert_eq!(preview.env.get("XAI_API_KEY"), None);
     assert_eq!(preview.env.get("ANTHROPIC_MODEL"), None);
     assert_eq!(preview.env.get("ANTHROPIC_AUTH_TOKEN"), None);
 }
@@ -147,6 +142,50 @@ fn project_preview_applies_overrides_without_creating_session() {
         Some(&"preview-session-token".to_string())
     );
     assert!(fixture.db.proxy_session_list().unwrap().is_empty());
+}
+
+#[test]
+fn project_preview_uses_the_requested_clients_own_binding() {
+    let fixture = TempDb::new();
+    let claude_provider = create_provider(&fixture.db, "Claude Provider", "claude");
+    let claude_key = create_api_key(&fixture.db, &claude_provider.id, "claude");
+    let grok_provider = create_provider(&fixture.db, "Grok Provider", "grok");
+    let grok_key = create_api_key(&fixture.db, &grok_provider.id, "grok");
+    let project = fixture
+        .db
+        .project_create(&CreateProjectInput {
+            name: "Shared Project".to_string(),
+            path: "/tmp/shared-project".to_string(),
+            remark: None,
+            provider_id: Some(claude_provider.id),
+            api_key_id: Some(claude_key.id),
+            cli_type: Some("claude_code".to_string()),
+            terminal_type: Some("terminal".to_string()),
+            prelaunch_command: Some("claude-init".to_string()),
+        })
+        .unwrap();
+    fixture
+        .db
+        .project_binding_upsert(
+            &project.id,
+            &UpsertProjectBindingInput {
+                cli_type: "grok".to_string(),
+                provider_id: Some(grok_provider.id),
+                api_key_id: Some(grok_key.id),
+                terminal_type: Some("iterm2".to_string()),
+                prelaunch_command: Some("grok-init".to_string()),
+            },
+        )
+        .unwrap();
+
+    let claude =
+        get_launch_preview(&fixture.db, Some(&project.id), None, None, "claude_code").unwrap();
+    let grok = get_launch_preview(&fixture.db, Some(&project.id), None, None, "grok").unwrap();
+
+    assert_eq!(claude.command, "claude");
+    assert_eq!(claude.prelaunch_command.as_deref(), Some("claude-init"));
+    assert_eq!(grok.command, "grok -m cc-use");
+    assert_eq!(grok.prelaunch_command.as_deref(), Some("grok-init"));
 }
 
 #[test]

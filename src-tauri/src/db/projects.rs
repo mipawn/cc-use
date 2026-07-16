@@ -1,5 +1,17 @@
 use crate::db::Database;
-use crate::models::{CreateProjectInput, Project, UpdateProjectInput};
+use crate::models::{
+    CreateProjectInput, Project, ProjectClientBinding, UpdateProjectInput,
+    UpsertProjectBindingInput,
+};
+use std::collections::HashMap;
+
+fn normalize_project_cli_type(cli_type: &str) -> &str {
+    if cli_type == "claude" {
+        "claude_code"
+    } else {
+        cli_type
+    }
+}
 
 fn row_to_project(row: &rusqlite::Row) -> Result<Project, rusqlite::Error> {
     Ok(Project {
@@ -17,18 +29,52 @@ fn row_to_project(row: &rusqlite::Row) -> Result<Project, rusqlite::Error> {
             .unwrap_or_else(|| "iterm2".to_string()),
         prelaunch_command: row.get(8)?,
         last_opened_at: row.get(9)?,
+        bindings: HashMap::new(),
     })
 }
 
 impl Database {
+    fn project_bindings(
+        &self,
+        project_id: &str,
+    ) -> Result<HashMap<String, ProjectClientBinding>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT cli_type, provider_id, api_key_id, terminal_type, prelaunch_command
+             FROM project_client_bindings
+             WHERE project_id = ?1",
+        )?;
+        let rows = stmt.query_map([project_id], |row| {
+            let binding = ProjectClientBinding {
+                cli_type: row.get(0)?,
+                provider_id: row.get(1)?,
+                api_key_id: row.get(2)?,
+                terminal_type: row
+                    .get::<_, Option<String>>(3)?
+                    .unwrap_or_else(|| "iterm2".to_string()),
+                prelaunch_command: row.get(4)?,
+            };
+            Ok((binding.cli_type.clone(), binding))
+        })?;
+        rows.collect()
+    }
+
+    fn hydrate_project(&self, mut project: Project) -> Result<Project, rusqlite::Error> {
+        project.bindings = self.project_bindings(&project.id)?;
+        Ok(project)
+    }
+
     pub fn project_list(&self) -> Result<Vec<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
              FROM projects ORDER BY last_opened_at DESC NULLS LAST"
         )?;
 
-        let rows = stmt.query_map([], row_to_project)?;
-        rows.collect()
+        let rows = stmt
+            .query_map([], row_to_project)?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|project| self.hydrate_project(project))
+            .collect()
     }
 
     pub fn project_get(&self, id: &str) -> Result<Option<Project>, rusqlite::Error> {
@@ -40,7 +86,7 @@ impl Database {
         let mut rows = stmt.query_map([id], row_to_project)?;
 
         match rows.next() {
-            Some(Ok(p)) => Ok(Some(p)),
+            Some(Ok(p)) => self.hydrate_project(p).map(Some),
             Some(Err(e)) => Err(e),
             None => Ok(None),
         }
@@ -55,7 +101,7 @@ impl Database {
         let mut rows = stmt.query_map([path], row_to_project)?;
 
         match rows.next() {
-            Some(Ok(p)) => Ok(Some(p)),
+            Some(Ok(p)) => self.hydrate_project(p).map(Some),
             Some(Err(e)) => Err(e),
             None => Ok(None),
         }
@@ -63,6 +109,8 @@ impl Database {
 
     pub fn project_create(&self, input: &CreateProjectInput) -> Result<Project, rusqlite::Error> {
         let id = nanoid::nanoid!();
+        let cli_type =
+            normalize_project_cli_type(input.cli_type.as_deref().unwrap_or("claude_code"));
         self.conn.execute(
             "INSERT INTO projects (id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -73,10 +121,21 @@ impl Database {
                 input.remark,
                 input.provider_id,
                 input.api_key_id,
-                input.cli_type.as_deref().unwrap_or("claude"),
+                cli_type,
                 input.terminal_type.as_deref().unwrap_or("iterm2"),
                 input.prelaunch_command,
             ],
+        )?;
+
+        self.project_binding_upsert(
+            &id,
+            &UpsertProjectBindingInput {
+                cli_type: cli_type.to_string(),
+                provider_id: input.provider_id.clone(),
+                api_key_id: input.api_key_id.clone(),
+                terminal_type: input.terminal_type.clone(),
+                prelaunch_command: input.prelaunch_command.clone(),
+            },
         )?;
 
         self.project_get(&id)?
@@ -109,6 +168,53 @@ impl Database {
         self.conn.execute(&sql, param_refs.as_slice())?;
 
         self.project_get(&input.id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn project_binding_upsert(
+        &self,
+        project_id: &str,
+        input: &UpsertProjectBindingInput,
+    ) -> Result<Project, rusqlite::Error> {
+        let cli_type = normalize_project_cli_type(&input.cli_type);
+        let terminal_type = input.terminal_type.as_deref().unwrap_or("iterm2");
+        self.conn.execute(
+            "INSERT INTO project_client_bindings
+                (project_id, cli_type, provider_id, api_key_id, terminal_type, prelaunch_command)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(project_id, cli_type) DO UPDATE SET
+                provider_id = excluded.provider_id,
+                api_key_id = excluded.api_key_id,
+                terminal_type = excluded.terminal_type,
+                prelaunch_command = excluded.prelaunch_command",
+            rusqlite::params![
+                project_id,
+                cli_type,
+                input.provider_id,
+                input.api_key_id,
+                terminal_type,
+                input.prelaunch_command,
+            ],
+        )?;
+
+        // Keep the legacy columns as a last-used snapshot for older call sites
+        // and data exports. Client-specific behavior reads project_client_bindings.
+        self.conn.execute(
+            "UPDATE projects
+             SET provider_id = ?1, api_key_id = ?2, cli_type = ?3,
+                 terminal_type = ?4, prelaunch_command = ?5
+             WHERE id = ?6",
+            rusqlite::params![
+                input.provider_id,
+                input.api_key_id,
+                cli_type,
+                terminal_type,
+                input.prelaunch_command,
+                project_id,
+            ],
+        )?;
+
+        self.project_get(project_id)?
             .ok_or(rusqlite::Error::QueryReturnedNoRows)
     }
 

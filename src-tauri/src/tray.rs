@@ -484,7 +484,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 drop(db_state);
                 let lock_result = db_arc.lock();
                 if let Ok(db) = lock_result {
-                    let _ = crate::terminal::launch_terminal(&db, &project_id, None, None);
+                    let _ = crate::terminal::launch_terminal(&db, &project_id, None, None, None);
                 }
             });
         }
@@ -592,18 +592,23 @@ pub fn refresh_tray_menu(app: &AppHandle) {
             let _ = tray.set_menu(Some(menu));
         }
     }
-    apply_tray_badge(app);
+    refresh_tray_badge(app);
 }
 
 pub fn refresh_tray_badge(app: &AppHandle) {
-    // Some callers (notably WindowEvent::Focused and tray click callbacks) run
-    // on the application event thread. TrayIcon::set_title synchronously
-    // dispatches its mutation to that thread, so invoking it inline there can
-    // prevent the refresh from completing. Always calculate and apply the
-    // badge from a blocking worker instead; Tauri will marshal the final tray
-    // mutation back to the event thread.
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || apply_tray_badge(&app_handle));
+    // Database aggregation can run off-thread, but tray/window mutations must
+    // be dispatched back to Tauri's main event thread.
+    let worker_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let badge_text = calculate_tray_badge_text(&worker_app);
+        let main_app = worker_app.clone();
+        let dispatch_app = worker_app.clone();
+        if let Err(error) = dispatch_app.run_on_main_thread(move || {
+            apply_tray_badge_text(&main_app, &badge_text);
+        }) {
+            log::warn!("Failed to schedule tray badge update: {}", error);
+        }
+    });
 }
 
 fn refresh_tray(app: &AppHandle) {
@@ -612,10 +617,14 @@ fn refresh_tray(app: &AppHandle) {
 
 fn apply_tray_badge(app: &AppHandle) {
     let badge_text = calculate_tray_badge_text(app);
+    apply_tray_badge_text(app, &badge_text);
+}
+
+fn apply_tray_badge_text(app: &AppHandle, badge_text: &str) {
     let title = if badge_text.is_empty() {
         None
     } else {
-        Some(badge_text.as_str())
+        Some(badge_text)
     };
 
     if let Some(tray) = app.tray_by_id("main") {

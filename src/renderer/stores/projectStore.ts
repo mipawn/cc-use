@@ -9,6 +9,10 @@ interface ProjectState {
   fetchProjects: () => Promise<void>
   createProject: (input: Parameters<typeof window.api.project.create>[0]) => Promise<Project>
   updateProject: (input: Parameters<typeof window.api.project.update>[0]) => Promise<Project>
+  updateProjectBinding: (
+    projectId: string,
+    input: Parameters<typeof window.api.project.updateBinding>[1],
+  ) => Promise<Project>
   deleteProject: (id: string) => Promise<void>
   getProjectByPath: (path: string) => Promise<Project | null>
 }
@@ -41,6 +45,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = await getApi().project.update(input)
     set({
       projects: get().projects.map((p) => (p.id === project.id ? project : p)),
+    })
+    return project
+  },
+
+  updateProjectBinding: async (projectId, input) => {
+    const project = await getApi().project.updateBinding(projectId, input)
+    set({
+      projects: get().projects.map((item) => (item.id === project.id ? project : item)),
     })
     return project
   },

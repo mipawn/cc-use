@@ -47,6 +47,7 @@ pub fn run() {
             commands::projects::project_get_by_path,
             commands::projects::project_create,
             commands::projects::project_update,
+            commands::projects::project_binding_upsert,
             commands::projects::project_delete,
             commands::projects::project_open,
             // Settings commands
@@ -70,6 +71,7 @@ pub fn run() {
             commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_dashboard_stats,
             commands::statistics::gateway_metrics_get_recent,
+            commands::statistics::gateway_metrics_get_by_provider,
             commands::statistics::model_pricing_get_all,
             commands::statistics::model_pricing_get_custom,
             commands::statistics::model_pricing_update_custom,
@@ -103,6 +105,7 @@ pub fn run() {
             commands::terminal::terminal_launch,
             commands::terminal::terminal_launch_with_path,
             commands::terminal::terminal_get_launch_preview,
+            commands::terminal::terminal_prepare_grok_config,
             // Session commands
             commands::sessions::scan_sessions,
             commands::sessions::delete_sessions,

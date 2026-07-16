@@ -7,6 +7,7 @@ use crate::shared_runtime::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+pub mod grok;
 pub mod iterm2;
 pub mod launcher;
 pub mod mac_terminal;
@@ -167,19 +168,39 @@ fn resolve_project_launch_context(
     project_id: &str,
     override_provider_id: Option<&str>,
     override_api_key_id: Option<&str>,
+    override_cli_type: Option<&str>,
 ) -> Result<ProjectLaunchContext, String> {
     let project = db
         .project_get(project_id)
         .map_err(|e| e.to_string())?
         .ok_or("Project not found")?;
 
+    let normalize_cli_type = |value: &str| {
+        if value == "claude" {
+            "claude_code".to_string()
+        } else {
+            value.to_string()
+        }
+    };
+    let cli_type = override_cli_type
+        .map(normalize_cli_type)
+        .unwrap_or_else(|| normalize_cli_type(&project.cli_type));
+    let binding = project.bindings.get(&cli_type);
+    let legacy_matches = normalize_cli_type(&project.cli_type) == cli_type;
+
     let provider_id = override_provider_id
         .map(|value| value.to_string())
-        .or_else(|| project.provider_id.clone())
+        .or_else(|| binding.and_then(|value| value.provider_id.clone()))
+        .or_else(|| {
+            legacy_matches
+                .then(|| project.provider_id.clone())
+                .flatten()
+        })
         .ok_or("No provider configured for this project")?;
     let api_key_id = override_api_key_id
         .map(|value| value.to_string())
-        .or_else(|| project.api_key_id.clone())
+        .or_else(|| binding.and_then(|value| value.api_key_id.clone()))
+        .or_else(|| legacy_matches.then(|| project.api_key_id.clone()).flatten())
         .ok_or("No API key configured for this project")?;
 
     Ok(ProjectLaunchContext {
@@ -188,12 +209,41 @@ fn resolve_project_launch_context(
         project_path: project.path,
         provider_id,
         api_key_id,
-        cli_type: project.cli_type,
-        terminal_type: project.terminal_type,
-        prelaunch_command: project
-            .prelaunch_command
+        cli_type,
+        terminal_type: binding
+            .map(|value| value.terminal_type.clone())
+            .or_else(|| legacy_matches.then(|| project.terminal_type.clone()))
+            .unwrap_or_else(|| "iterm2".to_string()),
+        prelaunch_command: binding
+            .and_then(|value| value.prelaunch_command.clone())
+            .or_else(|| {
+                legacy_matches
+                    .then(|| project.prelaunch_command.clone())
+                    .flatten()
+            })
             .filter(|value| !value.trim().is_empty()),
     })
+}
+
+fn grok_upstream_model(db: &Database, api_key_id: &str) -> String {
+    db.api_key_get(api_key_id)
+        .ok()
+        .flatten()
+        .and_then(|key| key.model_mapping)
+        .and_then(|mapping| serde_json::from_str::<serde_json::Value>(&mapping).ok())
+        .and_then(|mapping| {
+            mapping
+                .get("grok")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+        .filter(|model| !model.trim().is_empty())
+        .unwrap_or_else(|| "grok-4.5".to_string())
+}
+
+pub fn prepare_grok_config(db: &Database, api_key_id: &str) -> Result<(), String> {
+    let settings = db.settings_get().map_err(|error| error.to_string())?;
+    grok::ensure_managed_config(settings.proxy_port, &grok_upstream_model(db, api_key_id))
 }
 
 fn write_managed_launch_script(
@@ -321,10 +371,22 @@ fn prepare_managed_launch(
     project_id: &str,
     override_provider_id: Option<&str>,
     override_api_key_id: Option<&str>,
+    override_cli_type: Option<&str>,
 ) -> Result<PreparedManagedLaunch, String> {
-    let context =
-        resolve_project_launch_context(db, project_id, override_provider_id, override_api_key_id)?;
+    let context = resolve_project_launch_context(
+        db,
+        project_id,
+        override_provider_id,
+        override_api_key_id,
+        override_cli_type,
+    )?;
     let settings = db.settings_get().map_err(|e| e.to_string())?;
+    if context.cli_type == "grok" {
+        grok::ensure_managed_config(
+            settings.proxy_port,
+            &grok_upstream_model(db, &context.api_key_id),
+        )?;
+    }
     let launched_at = chrono::Utc::now().to_rfc3339();
     let session_token = new_session_token();
     let instance_id = format!("instance-{}", nanoid::nanoid!(16));
@@ -445,7 +507,13 @@ pub fn get_launch_preview(
     cli_type: &str,
 ) -> Result<TerminalLaunchPreview, String> {
     if let Some(project_id) = project_id {
-        let context = resolve_project_launch_context(db, project_id, provider_id, api_key_id)?;
+        let context = resolve_project_launch_context(
+            db,
+            project_id,
+            provider_id,
+            api_key_id,
+            Some(cli_type),
+        )?;
         let settings = db.settings_get().map_err(|e| e.to_string())?;
         return resolve_launch_preview(
             db,
@@ -474,9 +542,15 @@ pub fn launch_terminal(
     project_id: &str,
     override_provider_id: Option<&str>,
     override_api_key_id: Option<&str>,
+    override_cli_type: Option<&str>,
 ) -> Result<(), String> {
-    let prepared =
-        prepare_managed_launch(db, project_id, override_provider_id, override_api_key_id)?;
+    let prepared = prepare_managed_launch(
+        db,
+        project_id,
+        override_provider_id,
+        override_api_key_id,
+        override_cli_type,
+    )?;
 
     let strategy = get_strategy(&prepared.terminal_type)
         .or_else(|| get_first_available())

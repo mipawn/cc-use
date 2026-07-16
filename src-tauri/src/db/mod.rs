@@ -145,6 +145,19 @@ impl Database {
                 last_opened_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS project_client_bindings (
+                project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                cli_type TEXT NOT NULL,
+                provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
+                api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+                terminal_type TEXT NOT NULL DEFAULT 'iterm2',
+                prelaunch_command TEXT,
+                PRIMARY KEY (project_id, cli_type)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_project_client_bindings_cli
+            ON project_client_bindings(cli_type, project_id);
+
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -404,6 +417,7 @@ impl Database {
         // Codex terminal launch removed; only 3 clients: claude_code / codex / claude_desktop.
         self.migrate_api_key_types_to_client_kind();
         self.migrate_projects_cli_type_to_client_kind();
+        self.backfill_project_client_bindings();
 
         // v3.2.3: Drop transform-related columns (provider_type, api_format, transform_enabled).
         self.drop_transform_columns();
@@ -482,6 +496,22 @@ impl Database {
             )?;
         }
         transaction.commit()
+    }
+
+    fn backfill_project_client_bindings(&self) {
+        let _ = self.conn.execute(
+            "INSERT OR IGNORE INTO project_client_bindings
+                (project_id, cli_type, provider_id, api_key_id, terminal_type, prelaunch_command)
+             SELECT id,
+                    CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END,
+                    provider_id,
+                    api_key_id,
+                    COALESCE(terminal_type, 'iterm2'),
+                    prelaunch_command
+             FROM projects
+             WHERE cli_type IS NOT NULL AND cli_type != ''",
+            [],
+        );
     }
 
     /// Migrate api_keys.types: replace 'claude' with 'claude_code' (v3.2.0 ClientKind).

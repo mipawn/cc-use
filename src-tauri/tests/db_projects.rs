@@ -1,7 +1,7 @@
 mod support;
 
-use cc_use_lib::models::{CreateProjectInput, UpdateProjectInput};
-use support::TempDb;
+use cc_use_lib::models::{CreateProjectInput, UpdateProjectInput, UpsertProjectBindingInput};
+use support::{create_api_key, create_provider, TempDb};
 
 #[test]
 fn project_crud() {
@@ -119,4 +119,54 @@ fn project_update_prelaunch_command() {
         .unwrap();
 
     assert_eq!(updated.prelaunch_command.as_deref(), Some("mise install"));
+}
+
+#[test]
+fn project_keeps_independent_bindings_for_each_cli() {
+    let fixture = TempDb::new();
+    let claude_provider = create_provider(&fixture.db, "Claude", "claude");
+    let claude_key = create_api_key(&fixture.db, &claude_provider.id, "claude");
+    let grok_provider = create_provider(&fixture.db, "Grok", "grok");
+    let grok_key = create_api_key(&fixture.db, &grok_provider.id, "grok");
+    let project = fixture
+        .db
+        .project_create(&CreateProjectInput {
+            name: "Shared directory".to_string(),
+            path: "/tmp/shared-directory".to_string(),
+            remark: None,
+            provider_id: Some(claude_provider.id.clone()),
+            api_key_id: Some(claude_key.id.clone()),
+            cli_type: Some("claude_code".to_string()),
+            terminal_type: Some("terminal".to_string()),
+            prelaunch_command: Some("source .env".to_string()),
+        })
+        .unwrap();
+
+    fixture
+        .db
+        .project_binding_upsert(
+            &project.id,
+            &UpsertProjectBindingInput {
+                cli_type: "grok".to_string(),
+                provider_id: Some(grok_provider.id.clone()),
+                api_key_id: Some(grok_key.id.clone()),
+                terminal_type: Some("iterm2".to_string()),
+                prelaunch_command: Some("mise activate".to_string()),
+            },
+        )
+        .unwrap();
+
+    let reloaded = fixture.db.project_get(&project.id).unwrap().unwrap();
+    let claude = reloaded.bindings.get("claude_code").unwrap();
+    let grok = reloaded.bindings.get("grok").unwrap();
+
+    assert_eq!(
+        claude.provider_id.as_deref(),
+        Some(claude_provider.id.as_str())
+    );
+    assert_eq!(claude.api_key_id.as_deref(), Some(claude_key.id.as_str()));
+    assert_eq!(claude.prelaunch_command.as_deref(), Some("source .env"));
+    assert_eq!(grok.provider_id.as_deref(), Some(grok_provider.id.as_str()));
+    assert_eq!(grok.api_key_id.as_deref(), Some(grok_key.id.as_str()));
+    assert_eq!(grok.prelaunch_command.as_deref(), Some("mise activate"));
 }

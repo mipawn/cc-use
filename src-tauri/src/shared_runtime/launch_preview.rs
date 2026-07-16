@@ -46,7 +46,7 @@ fn json_value_to_env_string(value: &Value) -> Option<String> {
 
 fn build_cli_command(cli_type: &str) -> String {
     match cli_type {
-        "grok" => "grok".to_string(),
+        "grok" => format!("grok -m {}", crate::terminal::grok::CC_USE_MODEL_KEY),
         _ => "claude".to_string(),
     }
 }
@@ -77,10 +77,10 @@ pub fn resolve_launch_preview_from_configs(
 
     match cli_type {
         "grok" => {
-            let proxy_base_url = format!("http://localhost:{}/v1", proxy_port);
-            env.insert("GROK_MODELS_BASE_URL".to_string(), proxy_base_url.clone());
-            env.insert("GROK_XAI_API_BASE_URL".to_string(), proxy_base_url);
-            env.insert("XAI_API_KEY".to_string(), session_token.to_string());
+            env.remove("XAI_API_KEY");
+            env.remove("GROK_MODELS_BASE_URL");
+            env.remove("GROK_XAI_API_BASE_URL");
+            env.insert("CC_USE_GROK_TOKEN".to_string(), session_token.to_string());
         }
         _ => {
             // Claude Code 注入 Anthropic 代理 env，并显式移除 ANTHROPIC_API_KEY。

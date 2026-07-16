@@ -7,12 +7,12 @@ export type ClientKind = 'claude_code' | 'grok' | 'codex' | 'claude_desktop'
 
 // 接入形态: cc-use 能不能亲自启动这个客户端
 export type IntegrationForm =
-  | 'process_injection'   // 进程级: wrapper 注入 env (Claude Code)
-  | 'config_takeover'     // 配置级: 改客户端配置文件指向本地代理 (Codex/Claude Desktop)
+  | 'process_injection' // 进程级: wrapper 注入 env (Claude Code)
+  | 'config_takeover' // 配置级: 改客户端配置文件指向本地代理 (Codex/Claude Desktop)
 
 // 配置作用域 (只对 config_takeover 有意义)
 export type ConfigScope =
-  | 'codex_user_config'        // ~/.codex/config.toml
+  | 'codex_user_config' // ~/.codex/config.toml
   | 'claude_desktop_app_config'
 
 // ClientKind 配置
@@ -111,12 +111,7 @@ export function normalizeClientKind(type: string): ClientKind {
   return providerTypeToClientKind(type)
 }
 
-export type PresetIcon =
-  | 'claude'
-  | 'codex'
-  | 'deepseek'
-  | 'newapi'
-  | 'custom'
+export type PresetIcon = 'claude' | 'codex' | 'deepseek' | 'newapi' | 'custom'
 
 // Terminal types
 export type TerminalType = 'iterm2' | 'terminal'
@@ -128,10 +123,7 @@ export const TERMINAL_TYPE_LABELS: Record<TerminalType, string> = {
 }
 
 // Format inline env vars + command (unix format)
-export function formatEnvCommand(
-  envVars: Record<string, string>,
-  command: string,
-): string {
+export function formatEnvCommand(envVars: Record<string, string>, command: string): string {
   const entries = Object.entries(envVars)
   const inline = entries.map(([k, v]) => `${k}="${v}"`).join(' ')
   return `${inline} ${command}`
@@ -171,7 +163,7 @@ export const PROVIDER_TYPE_CONFIGS: ProviderTypeConfig[] = [
     type: 'grok',
     label: 'Grok Build',
     envKeyName: 'XAI_API_KEY',
-    envBaseUrlName: 'GROK_MODELS_BASE_URL',
+    envBaseUrlName: '',
     defaultBaseUrl: 'https://api.x.ai/v1',
     cliCommand: 'grok',
   },
@@ -199,17 +191,19 @@ export function generateTerminalCommand(
     throw new Error(`${getClientKindLabel(clientKind)} uses config takeover, not terminal launch`)
   }
   const config = getProviderTypeConfig(clientKind)
-  const baseUrl = useProxy
-    ? `http://localhost:${proxyPort}${clientKind === 'grok' ? '/v1' : ''}`
-    : provider.baseUrl
+  if (clientKind === 'grok') {
+    const key = useProxy ? 'proxy' : apiKey
+    return formatEnvCommand(
+      { [useProxy ? 'CC_USE_GROK_TOKEN' : 'XAI_API_KEY']: key },
+      useProxy ? 'grok -m cc-use' : 'grok',
+    )
+  }
+  const baseUrl = useProxy ? `http://localhost:${proxyPort}` : provider.baseUrl
   const key = useProxy ? 'proxy' : apiKey
 
   const envVars: Record<string, string> = {
     [config.envBaseUrlName]: baseUrl,
     [config.envKeyName]: key,
-  }
-  if (clientKind === 'grok') {
-    envVars.GROK_XAI_API_BASE_URL = baseUrl
   }
   return formatEnvCommand(envVars, config.cliCommand)
 }
@@ -344,6 +338,23 @@ export interface Project {
   terminalType: TerminalType
   prelaunchCommand: string | null
   lastOpenedAt: string | null
+  bindings?: Partial<Record<'claude_code' | 'grok', ProjectClientBinding>>
+}
+
+export interface ProjectClientBinding {
+  cliType: 'claude_code' | 'grok'
+  providerId: string | null
+  apiKeyId: string | null
+  terminalType: TerminalType
+  prelaunchCommand: string | null
+}
+
+export interface ProjectClientBindingInput {
+  cliType: 'claude_code' | 'grok'
+  providerId: string | null
+  apiKeyId: string | null
+  terminalType?: TerminalType
+  prelaunchCommand: string | null
 }
 
 export interface CreateProjectInput {
@@ -720,6 +731,15 @@ export interface GatewayMetricsWindow {
 
 export interface RecentGatewayMetrics {
   windows: GatewayMetricsWindow[]
+}
+
+export interface ProviderGatewayMetrics {
+  providerName: string
+  totalRequests: number
+  successfulRequests: number
+  upstreamErrors: number
+  avgLatencyMs: number | null
+  lastRequestAt: string | null
 }
 
 // Migration types (Electron → Tauri)

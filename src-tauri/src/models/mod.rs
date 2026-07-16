@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ── Provider ──
 
@@ -165,6 +166,27 @@ pub struct Project {
     pub terminal_type: String,
     pub prelaunch_command: Option<String>,
     pub last_opened_at: Option<String>,
+    pub bindings: HashMap<String, ProjectClientBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectClientBinding {
+    pub cli_type: String,
+    pub provider_id: Option<String>,
+    pub api_key_id: Option<String>,
+    pub terminal_type: String,
+    pub prelaunch_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertProjectBindingInput {
+    pub cli_type: String,
+    pub provider_id: Option<String>,
+    pub api_key_id: Option<String>,
+    pub terminal_type: Option<String>,
+    pub prelaunch_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -560,6 +582,17 @@ pub struct GatewayMetricsWindow {
 #[serde(rename_all = "camelCase")]
 pub struct RecentGatewayMetrics {
     pub windows: Vec<GatewayMetricsWindow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderGatewayMetrics {
+    pub provider_name: String,
+    pub total_requests: i64,
+    pub successful_requests: i64,
+    pub upstream_errors: i64,
+    pub avg_latency_ms: Option<f64>,
+    pub last_request_at: Option<String>,
 }
 
 // ── Import/Export ──

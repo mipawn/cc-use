@@ -21,12 +21,18 @@ pub fn terminal_launch(
         .and_then(|o| o.get("apiKeyId"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let override_cli_type = options
+        .as_ref()
+        .and_then(|o| o.get("cliType"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     crate::terminal::launch_terminal(
         &db,
         &project_id,
         override_provider_id.as_deref(),
         override_api_key_id.as_deref(),
+        override_cli_type.as_deref(),
     )
 }
 
@@ -56,4 +62,13 @@ pub fn terminal_get_launch_preview(
         api_key_id.as_deref(),
         &cli_type,
     )
+}
+
+#[tauri::command]
+pub fn terminal_prepare_grok_config(
+    db: State<'_, Arc<Mutex<Database>>>,
+    api_key_id: String,
+) -> Result<(), String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    crate::terminal::prepare_grok_config(&db, &api_key_id)
 }
