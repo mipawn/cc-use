@@ -5,6 +5,23 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.3.2] - 2026-07-16
+
+### Added
+
+- 新增 Grok Build 启动台与项目终端启动链路；通过 `grok` 命令注入本地 `/v1` 代理地址和 session token，并与 Claude Code 共享项目、实例和会话工作区
+- API Key 新增 Grok Build 适用客户端、客户端专属 Base URL、Bearer 鉴权覆盖和独立模型映射；Grok session 只允许使用已勾选 Grok Build 的密钥
+- 密钥页支持复制 Grok Build 代理模式与直连模式命令，代理转发支持 Grok 的模型列表和 OpenAI 风格请求
+
+### Changed
+
+- 密钥编辑弹窗的适用客户端改为紧凑多选框，最多展示两个标签，其余选项折叠为数量提示
+- Claude Code 与 Grok Build 继续共享项目列表，但项目弹窗和卡片快速切换菜单按当前启动台过滤可选密钥
+
+### Fixed
+
+- 修复 Grok Build 项目卡片仍能选择未勾选 Grok 的密钥；选择密钥或打开项目时会同步 Grok 启动类型，并阻止不兼容密钥启动
+
 ## [3.3.1] - 2026-07-13
 
 ### Added
