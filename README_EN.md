@@ -24,20 +24,21 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 | :----------------------------------------------: | :-------------------------------------: |
 | ![Project Management](./screenshots/project.png) | ![Statistics](./screenshots/statis.png) |
 
-|                Settings                 |                Instances                |
-| :-------------------------------------: | :-------------------------------------: |
+|                Settings                 |                Instances                 |
+| :-------------------------------------: | :--------------------------------------: |
 | ![Settings](./screenshots/settings.png) | ![Instances](./screenshots/instance.png) |
 
 ## Features
 
 - **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can target Claude Code, Grok Build, Codex Desktop, and Claude Desktop, with priority ordering, balance/usage queries, cost multipliers, and model mapping
-- **CLI Workspace** - The Claude Code page groups Projects, Instances, Sessions, and global config; each project can launch either Claude Code or Grok Build as a process-level terminal client
+- **Separate CLI Workspaces** - Claude Code and Grok Build each have their own launchpad in the sidebar; project directories can be reused, while provider, key, pre-launch command, and runtime instances stay isolated per client
+- **Custom Project Groups** - Create or reuse named groups when editing a project; legacy projects fall back to Ungrouped instead of being forced into filesystem parent-directory groups
 - **CLI Launch** - Click a project to launch a terminal; the wrapper injects a session token, instance metadata, and the local daemon URL while keeping the real key out of the terminal environment
 - **Codex Desktop Config Takeover** - Writes a `cc-use` provider and stable `experimental_bearer_token` to `~/.codex/config.toml` while preserving `auth.json`; after the first restart, switching keys can update the daemon route without rewriting the desktop config
 - **Claude Desktop Config Takeover** - Writes a Claude 3P profile and configLibrary entries pointing to `http://127.0.0.1:<port>/claude-desktop`, with config preview, official restore, and model-list takeover
 - **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, routing by session token to the current provider/key and enabling cost tracking and hot-switching
-- **Instance Management** - The Instances page shows every Claude Code or Grok Build managed instance launched from the app, with a state machine covering `launching / running / stale / stopped / failed` and per-instance key hot-switching
-- **Cost Tracking** - Automatically logs token usage and cost for every API request; statistics ignore zero-usage probe requests and group Codex Desktop / Claude Desktop as client sources
+- **Instance Management** - Each launchpad's Instances tab only shows managed instances from that client and only allows hot-switching to compatible keys
+- **Cost Tracking** - Automatically logs token usage and cost for every API request; Chinese uses ten-thousand/hundred-million units, English uses `K / M / B`, and tooltips show exact counts
 - **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/client/model with request history
 - **System Tray** - Minimize to tray on close while the daemon keeps running; tray menu supports service control and quick-launching recent projects
 - **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
@@ -65,14 +66,14 @@ Go to the Provider Keys page:
 
 ### 2. Use Claude Code / Grok Build
 
-Go to the Claude Code page:
+Open either the Claude Code or Grok Build page from the sidebar:
 
-1. Create a project from the Projects tab, choose Claude Code or Grok Build, then select a project folder, provider, and key
+1. Create a project from the Projects tab and select a custom group, project folder, and the current client's provider and key
 2. Click the project launch button to open a terminal and create a managed instance
-3. Use the Instances tab to inspect runtime state or switch the key for a running instance
-4. Use the Global Config tab to manage Claude Code global config
+3. Use the current launchpad's Instances tab to inspect runtime state or switch to a compatible key; instances from the other CLI are not mixed in
+4. Claude Code also provides a Global Config tab
 
-Claude Code launches with `ANTHROPIC_BASE_URL`; Grok Build launches with `GROK_MODELS_BASE_URL`, `GROK_XAI_API_BASE_URL`, and `XAI_API_KEY`. Both receive the local daemon address and a session token, while the real key stays inside the daemon.
+Claude Code launches with `ANTHROPIC_BASE_URL`; Grok Build maintains a `cc-use` custom model in `~/.grok/config.toml`, injects its session token through `CC_USE_GROK_TOKEN`, and runs as the foreground TUI. Both connect only to the local daemon, while the real key stays inside it. See the [Grok Build integration guide](./guides/GROK_BUILD_EN.md) for configuration and troubleshooting.
 
 ### 3. Take Over Codex Desktop
 
@@ -108,12 +109,12 @@ Check service status and port on the Settings page; click "Restart Service" if a
 
 When launching a terminal, cc-use injects a handful of environment variables so you can tell which managed instance the current window belongs to:
 
-| Variable                  | Purpose                                                                |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `CC_USE_INSTANCE_ID`      | Instance UUID — matches a row on the Instances page                    |
+| Variable                  | Purpose                                                                 |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `CC_USE_INSTANCE_ID`      | Instance UUID — matches a row on the Instances page                     |
 | `CC_USE_INSTANCE_LABEL`   | Short code (last 8 chars of the session token), ideal for the statusbar |
-| `CC_USE_PROXY_PORT`       | Local daemon port                                                      |
-| `CC_USE_MANAGEMENT_TOKEN` | Management token — **do not display**; used only by wrapper ↔ daemon   |
+| `CC_USE_PROXY_PORT`       | Local daemon port                                                       |
+| `CC_USE_MANAGEMENT_TOKEN` | Management token — **do not display**; used only by wrapper ↔ daemon    |
 
 When running multiple windows, surface `CC_USE_INSTANCE_LABEL` via the Claude Code [statusLine](https://docs.claude.com/en/docs/claude-code/statusline) so you can tell at a glance which instance a window is bound to.
 
@@ -123,8 +124,8 @@ When running multiple windows, surface `CC_USE_INSTANCE_LABEL` via the Claude Co
 {
   "statusLine": {
     "type": "command",
-    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'"
-  }
+    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'",
+  },
 }
 ```
 
@@ -150,6 +151,8 @@ The daemon handles:
 - Hot-switching keys
 - Tracks the lifecycle of every managed instance via wrapper heartbeat and stop reporting
 - Adds the correct upstream auth header by provider type and forwards the client's native request shape
+- Preserves the original `User-Agent` for regular HTTP requests; WebSocket upgrade handshakes are rebuilt with the required headers
+- Adds the request model to Grok Build Chat Completions responses and SSE chunks only when an OpenAI-compatible upstream omits the required `model` field
 
 > The old request/response format conversion layer has been removed in 3.2.0. Upstream providers need to support the API shape emitted by the target client: Claude Code / Claude Desktop use Anthropic Messages style, while Grok Build / Codex Desktop use OpenAI-style APIs.
 

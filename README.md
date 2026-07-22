@@ -31,13 +31,14 @@
 ## 功能
 
 - **供应商与密钥管理** - 在「供应商密钥」页面统一管理供应商和 API 密钥；每个密钥可勾选 Claude Code、Grok Build、Codex Desktop、Claude Desktop，支持优先级排序、额度查询、费用倍率和模型映射
-- **CLI 工作区** - Claude Code 页面集中管理项目、实例、会话和全局配置；每个项目可选择 Claude Code 或 Grok Build 作为进程级终端客户端
+- **独立 CLI 工作区** - Claude Code 与 Grok Build 在侧边栏分别拥有启动台；项目目录可复用，但供应商、密钥、启动命令和运行实例按客户端隔离
+- **自定义项目分组** - 创建或编辑项目时可输入新分组或复用已有分组；历史项目自动归入「未分组」，不再根据文件系统上级目录强制分组
 - **CLI 一键启动** - 点击项目即启动终端，wrapper 自动注入 session token、实例标识和本地 daemon 地址，真实密钥不会进入终端环境
 - **Codex Desktop 配置接管** - 写入 `~/.codex/config.toml` 的 `cc-use` provider 和固定 `experimental_bearer_token`，保留 `auth.json`；首次接管后重启 Codex Desktop，后续切换密钥可直接更新 daemon 路由
 - **Claude Desktop 配置接管** - 写入 Claude 3P profile 和 configLibrary，网关地址指向 `http://127.0.0.1:<port>/claude-desktop`，支持配置预览、恢复官方配置和模型列表接管
 - **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，按 session token 路由到当前供应商/密钥，支持费用追踪与热切换
-- **实例管理** - 「实例」页面展示每次 Claude Code 或 Grok Build 启动的 managed instance，状态机涵盖 `launching / running / stale / stopped / failed`，支持实例级密钥热切换
-- **费用追踪** - 自动记录每次请求的 Token 用量和费用；统计会过滤无 usage 的探测请求，并把 Codex Desktop / Claude Desktop 归为独立客户端来源
+- **实例管理** - Claude Code 与 Grok Build 各自的「实例」Tab 只展示当前客户端启动的 managed instance，并且只能热切换到兼容密钥
+- **费用追踪** - 自动记录每次请求的 Token 用量和费用；中文界面使用「万 / 亿」、英文界面使用 `K / M / B`，悬停可查看精确数量
 - **统计分析** - 仪表盘展示今日费用、请求量、每日趋势、Top 密钥/项目；统计页提供按密钥/供应商/客户端/模型的详细分析和请求明细
 - **系统托盘** - 关闭窗口时最小化到托盘，daemon 服务持续运行；托盘菜单支持服务控制和最近项目快速启动
 - **自动更新** - 应用内检测并下载新版本，支持下载进度显示（`tauri-plugin-updater` 签名校验）
@@ -65,14 +66,14 @@
 
 ### 2. 使用 Claude Code / Grok Build
 
-进入「Claude Code」页面：
+进入侧边栏的「Claude Code」或「Grok Build」页面：
 
-1. 在「项目」Tab 创建项目，选择 Claude Code 或 Grok Build，并设置项目文件夹、供应商和密钥
+1. 在「项目」Tab 创建项目，设置自定义分组、项目文件夹、当前客户端的供应商和密钥
 2. 点击项目打开按钮启动终端，应用会创建 managed instance
-3. 在「实例」Tab 查看运行状态或切换当前实例密钥
-4. 在「全局配置」Tab 管理 Claude Code 全局配置
+3. 在当前启动台的「实例」Tab 查看运行状态或切换兼容密钥，不会混入另一个 CLI 的实例
+4. Claude Code 可在「全局配置」Tab 管理全局配置
 
-Claude Code 启动时会设置 `ANTHROPIC_BASE_URL`；Grok Build 会设置 `GROK_MODELS_BASE_URL`、`GROK_XAI_API_BASE_URL` 和 `XAI_API_KEY`。两者使用的值都是本地 daemon 地址与 session token，真实密钥保留在 daemon 中。
+Claude Code 启动时会设置 `ANTHROPIC_BASE_URL`；Grok Build 会在 `~/.grok/config.toml` 中维护 `cc-use` 自定义模型，通过 `CC_USE_GROK_TOKEN` 注入 session token，并以前台 TUI 方式运行。两者都只连接本地 daemon，真实密钥保留在 daemon 中。详细配置与排障参见 [Grok Build 接入指南](./guides/GROK_BUILD.md)。
 
 ### 3. 接管 Codex Desktop
 
@@ -123,8 +124,8 @@ Claude Desktop 接管前会探测本地 daemon 的模型列表接口；模型映
 {
   "statusLine": {
     "type": "command",
-    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'"
-  }
+    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'",
+  },
 }
 ```
 
@@ -150,6 +151,8 @@ daemon 做这些事：
 - 支持热切换密钥
 - 通过 wrapper 的 heartbeat + stop 上报追踪每个 managed instance 的生命周期
 - 按供应商类型补齐正确认证 Header，并透传客户端原始请求形态
+- 普通 HTTP 请求会原样透传 `User-Agent`；WebSocket 升级握手会由 daemon 重建必要请求头
+- 对 Grok Build 的 OpenAI Chat Completions 响应做最小兼容：上游遗漏 `model` 时，非流式响应和 SSE 分块都会使用实际请求模型补齐
 
 > 3.2.0 已移除旧的请求/响应格式转换层。上游供应商需要兼容对应客户端发出的 API 形态：Claude Code / Claude Desktop 使用 Anthropic Messages 风格，Grok Build / Codex Desktop 使用 OpenAI 风格。
 

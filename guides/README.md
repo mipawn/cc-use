@@ -14,9 +14,12 @@
 ### 其他文档
 
 - [DEPRECATION.md](./DEPRECATION.md) - 旧版本废弃说明（双语）
+- [GROK_BUILD.md](./GROK_BUILD.md) - Grok Build 接入、配置与排障指南（中文）
+- [GROK_BUILD_EN.md](./GROK_BUILD_EN.md) - Grok Build integration and troubleshooting guide (English)
 
 ## 版本说明
 
 - **0.x** - cc-switch CLI 工具（已废弃）
 - **1.x** - Electron 桌面应用（已废弃）
-- **2.x** - Tauri 桌面应用（当前版本）
+- **2.x** - Tauri 桌面应用早期版本
+- **3.x** - Tauri + 独立 daemon 架构（当前版本）
