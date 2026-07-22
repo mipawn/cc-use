@@ -9,6 +9,7 @@ const apiMock = {
   managedInstances: {
     list: vi.fn(),
     updateAssignment: vi.fn(),
+    cleanup: vi.fn(),
   },
   provider: {
     list: vi.fn(),
@@ -56,7 +57,7 @@ async function flushRender() {
   })
 }
 
-async function renderPage() {
+async function renderPage(clientKind: 'claude_code' | 'grok') {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -67,7 +68,7 @@ async function renderPage() {
       <StyleProvider layer>
         <ConfigProvider>
           <AntdApp>
-            <Instances />
+            <Instances clientKind={clientKind} />
           </AntdApp>
         </ConfigProvider>
       </StyleProvider>,
@@ -97,7 +98,7 @@ describe('Instances page', () => {
         projectId: 'project-1',
         providerId: 'provider-1',
         apiKeyId: 'key-1',
-        cliType: 'claude',
+        cliType: 'grok',
         terminalType: 'terminal',
         projectPath: '/tmp/team-a/bid-web',
         shellPid: 111,
@@ -132,25 +133,62 @@ describe('Instances page', () => {
     ])
     apiMock.provider.list.mockResolvedValue([{ id: 'provider-1', name: 'Provider 1' }])
     apiMock.apiKey.list.mockResolvedValue([
-      { id: 'key-1', alias: 'Key 1', providerId: 'provider-1', types: ['claude'] },
+      { id: 'key-1', alias: 'Key 1', providerId: 'provider-1', types: ['grok'] },
       { id: 'key-2', alias: 'Key 2', providerId: 'provider-1', types: ['claude'] },
     ])
     apiMock.managedInstances.updateAssignment.mockResolvedValue(undefined)
+    apiMock.managedInstances.cleanup.mockResolvedValue(0)
   })
 
-  it('shows only unique ids for instances', async () => {
-    const view = await renderPage()
+  it('only shows Claude Code instances in the Claude Code launchpad', async () => {
+    const view = await renderPage('claude_code')
 
     expect(apiMock.managedInstances.list).toHaveBeenCalled()
     expect(apiMock.provider.list).toHaveBeenCalled()
     expect(view.container.textContent).toContain('instances.tableTitle')
-    expect(view.container.textContent).toContain('1a2b3c4d')
     expect(view.container.textContent).toContain('9f8e7d6c')
+    expect(view.container.textContent).not.toContain('1a2b3c4d')
     expect(view.container.textContent).toContain('bid-web')
     expect(view.container.textContent).not.toContain('/tmp/team-a/bid-web')
     expect(view.container.textContent).not.toContain('PID 222')
+    expect(view.container.textContent).toContain('2026-04-15 01:00:00')
+
+    view.unmount()
+  })
+
+  it('only shows Grok instances in the Grok Build launchpad', async () => {
+    const view = await renderPage('grok')
+
+    expect(view.container.textContent).toContain('1a2b3c4d')
+    expect(view.container.textContent).not.toContain('9f8e7d6c')
+    expect(view.container.textContent).toContain('bid-web')
     expect(view.container.textContent).toContain('2026-04-15 00:00:00')
 
+    view.unmount()
+  })
+
+  it('only treats keys from the same CLI type as compatible', async () => {
+    const { isApiKeyCompatibleWithCliType } = await import('./Instances')
+
+    expect(isApiKeyCompatibleWithCliType({ types: ['claude_code'] }, 'claude')).toBe(true)
+    expect(isApiKeyCompatibleWithCliType({ types: ['grok'] }, 'grok')).toBe(true)
+    expect(isApiKeyCompatibleWithCliType({ types: ['grok'] }, 'claude_code')).toBe(false)
+    expect(isApiKeyCompatibleWithCliType({ types: ['claude_code'] }, 'grok')).toBe(false)
+  })
+
+  it('cleans up only the current launchpad client type', async () => {
+    const view = await renderPage('grok')
+    const cleanupButton = Array.from(view.container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('instances.cleanup'),
+    )
+
+    expect(cleanupButton).toBeDefined()
+    await act(async () => {
+      cleanupButton?.click()
+    })
+    await flushRender()
+
+    expect(apiMock.managedInstances.cleanup).toHaveBeenCalledWith('grok')
     view.unmount()
   })
 })

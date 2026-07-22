@@ -93,6 +93,7 @@ describe('renderer api contract', () => {
       apiKeyId: 'key-1',
       assignmentSource: 'manual_ui',
     })
+    await api.managedInstances.cleanup('grok')
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'managed_instance_list', undefined)
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'managed_instance_get', { id: 'instance-1' })
@@ -103,6 +104,9 @@ describe('renderer api contract', () => {
         apiKeyId: 'key-1',
         assignmentSource: 'manual_ui',
       },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'managed_instance_cleanup', {
+      cliType: 'grok',
     })
   })
 

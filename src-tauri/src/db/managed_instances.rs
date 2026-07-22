@@ -239,4 +239,35 @@ impl Database {
         )?;
         Ok(stale_count + deleted_count)
     }
+
+    pub fn managed_instance_cleanup_inactive_for_cli_type(
+        &self,
+        cli_type: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let normalized_cli_type = if cli_type == "claude" {
+            "claude_code"
+        } else {
+            cli_type
+        };
+        let stale_count = self.conn.execute(
+            "UPDATE managed_instances
+             SET status = 'stopped',
+                 stopped_at = ?1,
+                 stop_reason = CASE
+                   WHEN stop_reason IS NULL OR stop_reason = '' THEN 'manual_cleanup'
+                   ELSE stop_reason
+                 END
+             WHERE status IN ('stale', 'launching')
+               AND CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END = ?2",
+            rusqlite::params![now, normalized_cli_type],
+        )?;
+        let deleted_count = self.conn.execute(
+            "DELETE FROM managed_instances
+             WHERE status IN ('stopped', 'failed')
+               AND CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END = ?1",
+            [normalized_cli_type],
+        )?;
+        Ok(stale_count + deleted_count)
+    }
 }

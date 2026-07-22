@@ -209,7 +209,7 @@ function buildApi(): Api {
       list: () => invoke('managed_instance_list'),
       get: (id) => invoke('managed_instance_get', { id }),
       updateAssignment: (input) => invoke('managed_instance_update_assignment', { input }),
-      cleanup: () => invoke('managed_instance_cleanup'),
+      cleanup: (cliType) => invoke('managed_instance_cleanup', { cliType }),
     },
     systemExt: {
       autoLaunchIsEnabled: () => invoke('auto_launch_is_enabled'),

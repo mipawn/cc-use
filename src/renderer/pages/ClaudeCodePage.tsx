@@ -44,7 +44,7 @@ export default function ClaudeCodePage({ clientKind = 'claude_code' }: ClaudeCod
     {
       key: 'instances',
       label: t('instances.title') || '实例',
-      children: <Instances />,
+      children: <Instances clientKind={clientKind} />,
     },
     {
       key: 'sessions',

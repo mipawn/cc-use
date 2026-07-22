@@ -3,7 +3,7 @@ import { Card, Table, Tag, Button, TreeSelect, Typography, message, Space } from
 import { ReloadOutlined, ClearOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { getApi } from '../api'
-import type { ApiKey, ManagedInstance, Provider } from '@shared/types'
+import type { ApiKey, ClientKind, ManagedInstance, Provider } from '@shared/types'
 
 const { Text, Title } = Typography
 
@@ -33,7 +33,20 @@ function getProjectName(path: string) {
   return parts[parts.length - 1] || path
 }
 
-export default function Instances() {
+function normalizeInstanceCliType(cliType: string) {
+  return cliType === 'claude' ? 'claude_code' : cliType
+}
+
+export function isApiKeyCompatibleWithCliType(key: Pick<ApiKey, 'types'>, cliType: string) {
+  const normalizedCliType = normalizeInstanceCliType(cliType)
+  return key.types.some((type) => normalizeInstanceCliType(type) === normalizedCliType)
+}
+
+interface InstancesProps {
+  clientKind: Extract<ClientKind, 'claude_code' | 'grok'>
+}
+
+export default function Instances({ clientKind }: InstancesProps) {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [instances, setInstances] = useState<ManagedInstance[]>([])
@@ -48,7 +61,11 @@ export default function Instances() {
         getApi().managedInstances.list(),
         getApi().provider.list(),
       ])
-      setInstances(instancesData)
+      setInstances(
+        instancesData.filter(
+          (instance) => normalizeInstanceCliType(instance.cliType) === clientKind,
+        ),
+      )
       setProviders(providersData)
 
       const keys = await Promise.all(
@@ -114,7 +131,7 @@ export default function Instances() {
 
   const handleCleanup = async () => {
     try {
-      const count = await getApi().managedInstances.cleanup()
+      const count = await getApi().managedInstances.cleanup(clientKind)
       await load()
       message.success(t('instances.cleanupSuccess', { count }))
     } catch (error) {
@@ -143,13 +160,17 @@ export default function Instances() {
     }
   }
 
-  const filteredTreeData = () =>
-    treeData
+  const filteredTreeData = (cliType: string) => {
+    const compatibleKeyIds = new Set(
+      apiKeys.filter((key) => isApiKeyCompatibleWithCliType(key, cliType)).map((key) => key.id),
+    )
+    return treeData
       .map((group) => ({
         ...group,
-        children: group.children,
+        children: group.children.filter((key) => compatibleKeyIds.has(key.value)),
       }))
       .filter((group) => group.children.length > 0)
+  }
 
   const columns = [
     {
@@ -194,14 +215,18 @@ export default function Instances() {
       width: 280,
       render: (_: unknown, record: ManagedInstance) => (
         <TreeSelect
-          showSearch
+          showSearch={{
+            filterTreeNode: (input, node) =>
+              String(node.title || '')
+                .toLowerCase()
+                .includes(input.toLowerCase()),
+          }}
           treeDefaultExpandAll
           placeholder={t('instances.selectKey')}
           value={record.apiKeyId || undefined}
-          treeData={filteredTreeData()}
+          treeData={filteredTreeData(record.cliType)}
           style={{ width: '100%' }}
           onChange={(value: string) => handleAssignmentChange(record, value)}
-          treeNodeFilterProp='title'
           treeNodeLabelProp='label'
         />
       ),

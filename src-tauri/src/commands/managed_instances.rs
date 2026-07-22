@@ -3,6 +3,14 @@ use crate::models::{ManagedInstance, UpdateManagedInstanceAssignmentInput};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
+fn normalize_cli_type(value: &str) -> &str {
+    if value == "claude" {
+        "claude_code"
+    } else {
+        value
+    }
+}
+
 pub fn managed_instance_list_inner(db: &Database) -> Result<Vec<ManagedInstance>, String> {
     db.managed_instance_list_active().map_err(|e| e.to_string())
 }
@@ -22,6 +30,24 @@ pub fn managed_instance_update_assignment_inner(
         .managed_instance_get(&input.id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Managed instance not found".to_string())?;
+    let api_key = db
+        .api_key_get(&input.api_key_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "API key not found".to_string())?;
+    if api_key.provider_id != input.provider_id {
+        return Err("API key does not belong to the selected provider".to_string());
+    }
+    let instance_cli_type = normalize_cli_type(&instance.cli_type);
+    if !api_key
+        .types
+        .iter()
+        .any(|value| normalize_cli_type(value) == instance_cli_type)
+    {
+        return Err(format!(
+            "API key is not compatible with {} instances",
+            instance_cli_type
+        ));
+    }
 
     let changed = db
         .managed_instance_update_assignment(
@@ -53,8 +79,8 @@ pub fn managed_instance_update_assignment_inner(
         .ok_or_else(|| "Managed instance not found".to_string())
 }
 
-pub fn managed_instance_cleanup_inner(db: &Database) -> Result<usize, String> {
-    db.managed_instance_cleanup_inactive()
+pub fn managed_instance_cleanup_inner(db: &Database, cli_type: &str) -> Result<usize, String> {
+    db.managed_instance_cleanup_inactive_for_cli_type(cli_type)
         .map_err(|e| e.to_string())
 }
 
@@ -85,7 +111,10 @@ pub fn managed_instance_update_assignment(
 }
 
 #[tauri::command]
-pub fn managed_instance_cleanup(db: State<'_, Arc<Mutex<Database>>>) -> Result<usize, String> {
+pub fn managed_instance_cleanup(
+    db: State<'_, Arc<Mutex<Database>>>,
+    cli_type: String,
+) -> Result<usize, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    managed_instance_cleanup_inner(&db)
+    managed_instance_cleanup_inner(&db, &cli_type)
 }

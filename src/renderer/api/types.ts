@@ -227,7 +227,7 @@ export interface Api {
     list: () => Promise<ManagedInstance[]>
     get: (id: string) => Promise<ManagedInstance | null>
     updateAssignment: (input: UpdateManagedInstanceAssignmentInput) => Promise<ManagedInstance>
-    cleanup: () => Promise<number>
+    cleanup: (cliType: 'claude_code' | 'grok') => Promise<number>
   }
   codexApp: {
     launch: (projectId: string) => Promise<string>
