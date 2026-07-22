@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.3.2 Update**: Project terminals now support Grok Build, including an independent key scope, Bearer authentication, model mapping, and proxy environment variables.
+> **3.3.4 Update**: Fixes Grok Build foreground launch and missing response models, adds custom project groups and per-launchpad instance isolation, and improves success-rate and token-unit displays.
 >
 > **🎉 3.2.0 Update**: The app is now organized around three clients: Claude Code, Codex Desktop, and Claude Desktop. Codex CLI launch support has been removed; Codex Desktop and Claude Desktop use config takeover instead. See [CHANGELOG](./CHANGELOG.md).
 >

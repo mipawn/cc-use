@@ -5,6 +5,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.3.4] - 2026-07-22
+
+### Added
+
+- 项目新增自定义分组，可直接输入新分组或复用已有分组；历史项目和空分组统一归入「未分组」
+- 补充中英文 Grok Build 接入指南与 3.3.4 版本文档，覆盖自定义模型配置、启动方式、响应兼容和常见排障
+
+### Changed
+
+- Grok Build 改为在用户级 `~/.grok/config.toml` 维护 `cc-use` 自定义模型，使用 OpenAI Chat Completions 后端并以前台 TUI 方式启动
+- Claude Code 与 Grok Build 的实例列表、兼容密钥和手动清理按各自启动台隔离；后端同时拒绝跨客户端密钥绑定
+- Token 数量按语言显示：中文使用「万 / 亿」，英文使用 `K / M / B`，悬停提示保留精确整数
+- 项目弹窗移除重复的 Claude Code / Grok Build 绑定说明；普通 HTTP `User-Agent` 原样透传行为补充回归测试与文档
+
+### Fixed
+
+- 修复供应商成功率为 `100%` 时中心文字与圆环边框重叠
+- 修复 Grok Build wrapper 将交互进程放入后台导致终端空白或无法正常交互
+- 修复部分 OpenAI 兼容上游在普通或 SSE Chat Completions 响应中遗漏 `model`，导致 Grok Build 报反序列化错误
+- 限制 Grok SSE 跨分块规范化的单行缓存大小，避免异常上游长期不换行时阻塞客户端并持续占用内存
+
 ## [3.3.3] - 2026-07-16
 
 ### Changed

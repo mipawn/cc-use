@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.3.3 更新**：修复 Grok Build 空白启动，项目改为按客户端独立绑定并按目录分组，供应商页展示近 24 小时成功率，托盘用量恢复后台刷新。
+> **3.3.4 更新**：修复 Grok Build 前台启动与缺失 `model` 响应，自定义项目分组，按启动台隔离实例，并优化成功率与 Token 单位展示。
 >
 > **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
 >

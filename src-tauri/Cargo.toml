@@ -1,6 +1,6 @@
 [package]
 name = "cc-use"
-version = "3.3.3"
+version = "3.3.4"
 description = "Desktop configuration manager for Claude Code, Grok Build, Codex Desktop, and Claude Desktop"
 authors = ["mipawn"]
 edition = "2021"
