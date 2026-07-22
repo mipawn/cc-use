@@ -27,6 +27,7 @@ const MAX_NON_STREAM_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_DECOMPRESSED_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_COMPRESSED_STREAM_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_STREAM_DETAIL_CAPTURE_BYTES: usize = 256 * 1024;
+const MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES: usize = 1024 * 1024;
 
 struct RouteExecution {
     upstream_url: String,
@@ -377,6 +378,14 @@ pub async fn proxy_handler(
         .unwrap_or(false);
 
     let body_bytes = apply_model_mapping(body_bytes, &route_execution);
+    let forwarded_request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("model")
+                .and_then(|model| model.as_str())
+                .map(str::to_string)
+        });
 
     let client = match crate::services::http_client::outbound_client_for_provider(
         route_execution.provider.as_ref(),
@@ -468,8 +477,16 @@ pub async fn proxy_handler(
     if content_type.contains("text/event-stream") {
         let detail_capture = detail_mode_at_dispatch;
         let accumulator = usage_parser::StreamUsageAccumulator::new();
+        let response_model =
+            if route_execution.cli_type.as_deref() == Some("grok") && content_encoding.is_empty() {
+                forwarded_request_model
+                    .clone()
+                    .or_else(|| request_model.clone())
+            } else {
+                None
+            };
         let tracking_stream = UsageTrackingStream {
-            inner: upstream_resp.bytes_stream(),
+            inner: SseModelNormalizingStream::new(upstream_resp.bytes_stream(), response_model),
             accumulator,
             log_ctx: route_execution.log_ctx.as_ref().map(|ctx| LogContext {
                 db: state.db.clone(),
@@ -566,7 +583,7 @@ pub async fn proxy_handler(
         }
     };
 
-    let decoded = match decompress_limited(
+    let mut decoded = match decompress_limited(
         &resp_bytes,
         &content_encoding,
         MAX_DECOMPRESSED_CAPTURE_BYTES,
@@ -580,6 +597,25 @@ pub async fn proxy_handler(
             Vec::new()
         }
     };
+    let response_model_was_added = route_execution.cli_type.as_deref() == Some("grok")
+        && ensure_chat_completion_response_model(
+            &mut decoded,
+            forwarded_request_model
+                .as_deref()
+                .or(request_model.as_deref()),
+        );
+    let outgoing_resp_bytes = if response_model_was_added {
+        decoded.clone()
+    } else {
+        resp_bytes
+    };
+    let mut outgoing_resp_headers = resp_headers.clone();
+    if response_model_was_added {
+        // The normalized body is decoded and re-serialized, so stale encoding
+        // and length metadata must not be forwarded.
+        outgoing_resp_headers.remove("content-encoding");
+        outgoing_resp_headers.remove("content-length");
+    }
     let response_text = String::from_utf8_lossy(&decoded);
     let (usage, model, is_streaming) =
         usage_parser::parse_usage_from_response_data(&response_text, &content_type);
@@ -622,7 +658,7 @@ pub async fn proxy_handler(
         crate::proxy::console::build_detail_fields_with_content_type(
             &headers,
             &body_bytes,
-            &resp_headers,
+            &outgoing_resp_headers,
             &decoded,
             request_content_type,
             &content_type,
@@ -657,7 +693,7 @@ pub async fn proxy_handler(
     state.emit_console(evt);
 
     let mut response = Response::builder().status(status.as_u16());
-    for (name, value) in &resp_headers {
+    for (name, value) in &outgoing_resp_headers {
         if should_forward_response_header(name.as_str()) {
             if let Ok(v) = value.to_str() {
                 response = response.header(name.as_str(), v);
@@ -666,7 +702,7 @@ pub async fn proxy_handler(
     }
 
     Ok(response
-        .body(Body::from(resp_bytes.to_vec()))
+        .body(Body::from(outgoing_resp_bytes))
         .unwrap_or_else(|_| {
             Response::builder()
                 .status(500)
@@ -1151,6 +1187,155 @@ fn rewrite_request_model(
 
     json["model"] = serde_json::Value::String(target_model.to_string());
     axum::body::Bytes::from(serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()))
+}
+
+fn ensure_chat_completion_response_model(body: &mut Vec<u8>, request_model: Option<&str>) -> bool {
+    let request_model = match request_model.map(str::trim) {
+        Some(model) if !model.is_empty() => model,
+        _ => return false,
+    };
+    let mut json = match serde_json::from_slice::<serde_json::Value>(body) {
+        Ok(serde_json::Value::Object(object)) => serde_json::Value::Object(object),
+        _ => return false,
+    };
+    if json.get("model").is_some() {
+        return false;
+    }
+    if !matches!(
+        json.get("object").and_then(|value| value.as_str()),
+        Some("chat.completion" | "chat.completion.chunk")
+    ) {
+        return false;
+    }
+
+    json["model"] = serde_json::Value::String(request_model.to_string());
+    match serde_json::to_vec(&json) {
+        Ok(normalized) => {
+            *body = normalized;
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn normalize_sse_model_lines(bytes: &[u8], request_model: &str) -> Vec<u8> {
+    let mut normalized = Vec::with_capacity(bytes.len());
+    for line in bytes.split_inclusive(|byte| *byte == b'\n') {
+        let (content, line_ending) = if let Some(content) = line.strip_suffix(b"\r\n") {
+            (content, b"\r\n".as_slice())
+        } else if let Some(content) = line.strip_suffix(b"\n") {
+            (content, b"\n".as_slice())
+        } else {
+            (line, b"".as_slice())
+        };
+        let Some(mut payload) = content.strip_prefix(b"data:") else {
+            normalized.extend_from_slice(line);
+            continue;
+        };
+        while payload.first().is_some_and(u8::is_ascii_whitespace) {
+            payload = &payload[1..];
+        }
+        if payload == b"[DONE]" {
+            normalized.extend_from_slice(line);
+            continue;
+        }
+
+        let mut json = payload.to_vec();
+        if ensure_chat_completion_response_model(&mut json, Some(request_model)) {
+            normalized.extend_from_slice(b"data: ");
+            normalized.extend_from_slice(&json);
+            normalized.extend_from_slice(line_ending);
+        } else {
+            normalized.extend_from_slice(line);
+        }
+    }
+    normalized
+}
+
+struct SseModelNormalizingStream<S> {
+    inner: S,
+    request_model: Option<String>,
+    buffer: Vec<u8>,
+    pending_error: Option<reqwest::Error>,
+    finished: bool,
+}
+
+impl<S> SseModelNormalizingStream<S> {
+    fn new(inner: S, request_model: Option<String>) -> Self {
+        Self {
+            inner,
+            request_model,
+            buffer: Vec::new(),
+            pending_error: None,
+            finished: false,
+        }
+    }
+}
+
+impl<S> Stream for SseModelNormalizingStream<S>
+where
+    S: Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Unpin,
+{
+    type Item = Result<axum::body::Bytes, reqwest::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        let Some(request_model) = this.request_model.clone() else {
+            return Pin::new(&mut this.inner).poll_next(cx);
+        };
+        if let Some(error) = this.pending_error.take() {
+            return Poll::Ready(Some(Err(error)));
+        }
+        if this.finished {
+            return Poll::Ready(None);
+        }
+
+        loop {
+            match Pin::new(&mut this.inner).poll_next(cx) {
+                Poll::Ready(Some(Ok(bytes))) => {
+                    this.buffer.extend_from_slice(&bytes);
+                    let Some(last_newline) = this.buffer.iter().rposition(|byte| *byte == b'\n')
+                    else {
+                        if this.buffer.len() > MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES {
+                            // A malformed or exceptionally large event must not stall the
+                            // downstream client or grow memory without bound. Once the limit is
+                            // crossed, flush what we have and pass through the rest of this stream.
+                            this.request_model = None;
+                            return Poll::Ready(Some(Ok(axum::body::Bytes::from(std::mem::take(
+                                &mut this.buffer,
+                            )))));
+                        }
+                        continue;
+                    };
+                    let complete = this.buffer.drain(..=last_newline).collect::<Vec<_>>();
+                    return Poll::Ready(Some(Ok(axum::body::Bytes::from(
+                        normalize_sse_model_lines(&complete, &request_model),
+                    ))));
+                }
+                Poll::Ready(Some(Err(error))) => {
+                    if this.buffer.is_empty() {
+                        return Poll::Ready(Some(Err(error)));
+                    }
+                    this.pending_error = Some(error);
+                    let remaining = std::mem::take(&mut this.buffer);
+                    return Poll::Ready(Some(Ok(axum::body::Bytes::from(
+                        normalize_sse_model_lines(&remaining, &request_model),
+                    ))));
+                }
+                Poll::Ready(None) => {
+                    this.finished = true;
+                    if this.buffer.is_empty() {
+                        return Poll::Ready(None);
+                    }
+                    let remaining = std::mem::take(&mut this.buffer);
+                    return Poll::Ready(Some(Ok(axum::body::Bytes::from(
+                        normalize_sse_model_lines(&remaining, &request_model),
+                    ))));
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
 }
 
 fn route_uses_openai_payload(route: &RouteExecution) -> bool {
@@ -1713,8 +1898,9 @@ mod tests {
         collect_response_body_limited, decompress_limited, effective_session_cli_type,
         has_billable_usage, is_codex_responses_request_path, record_usage,
         route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
-        should_forward_response_header, LogContext, RouteExecution, StreamConsoleCtx,
-        UpstreamAuthScheme, UsageTrackingStream,
+        should_forward_response_header, LogContext, RouteExecution, SseModelNormalizingStream,
+        StreamConsoleCtx, UpstreamAuthScheme, UsageTrackingStream,
+        MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
@@ -1757,6 +1943,30 @@ mod tests {
 
         let error = collect_response_body_limited(stream, 7).await.unwrap_err();
         assert!(error.contains("size limit"));
+    }
+
+    #[tokio::test]
+    async fn sse_model_normalizer_falls_back_after_an_oversized_incomplete_line() {
+        let oversized = vec![b'x'; MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES + 1];
+        let next_event =
+            axum::body::Bytes::from_static(b"data: {\"object\":\"chat.completion.chunk\"}\n");
+        let inner = futures::stream::iter(vec![
+            Ok::<_, reqwest::Error>(axum::body::Bytes::from(oversized.clone())),
+            Ok::<_, reqwest::Error>(next_event.clone()),
+        ]);
+        let mut stream = SseModelNormalizingStream::new(inner, Some("grok-4.5".to_string()));
+
+        let first = futures::StreamExt::next(&mut stream)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.as_ref(), oversized.as_slice());
+
+        let second = futures::StreamExt::next(&mut stream)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(second, next_event);
     }
 
     #[test]

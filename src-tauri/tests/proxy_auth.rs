@@ -89,7 +89,29 @@ async fn start_codex_mock_upstream() -> CodexMockUpstream {
                     let body = axum::body::to_bytes(req.into_body(), 1024 * 1024)
                         .await
                         .unwrap();
-                    *bc.lock().unwrap() = serde_json::from_slice(&body).ok();
+                    let request_json = serde_json::from_slice::<serde_json::Value>(&body).ok();
+                    *bc.lock().unwrap() = request_json.clone();
+                    if request_json
+                        .as_ref()
+                        .and_then(|value| value.get("stream"))
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false)
+                    {
+                        let chunks = futures::stream::iter([
+                            Ok::<_, std::convert::Infallible>(axum::body::Bytes::from_static(
+                                b"data:{\"id\":\"chatcmpl-stream\",\"object\":\"chat.completion.ch",
+                            )),
+                            Ok(axum::body::Bytes::from_static(
+                                b"unk\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n",
+                            )),
+                            Ok(axum::body::Bytes::from_static(b"data:[DONE]\n\n")),
+                        ]);
+                        return axum::http::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "text/event-stream")
+                            .body(Body::from_stream(chunks))
+                            .unwrap();
+                    }
                     (
                         StatusCode::OK,
                         r#"{"id":"chatcmpl-test","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
@@ -234,6 +256,7 @@ async fn claude_provider_only_sends_x_api_key() {
         .uri("/v1/messages")
         .header("authorization", format!("Bearer {}", session_token))
         .header("content-type", "application/json")
+        .header("user-agent", "claude-code/9.9.9 custom-suffix")
         .body(Body::from(r#"{"model":"claude-sonnet-4-6","messages":[]}"#))
         .unwrap();
 
@@ -249,6 +272,11 @@ async fn claude_provider_only_sends_x_api_key() {
     assert!(
         !headers.contains_key("authorization"),
         "authorization header should be removed for claude provider"
+    );
+    assert_eq!(
+        headers.get("user-agent").map(String::as_str),
+        Some("claude-code/9.9.9 custom-suffix"),
+        "the client User-Agent should reach the upstream unchanged"
     );
 }
 
@@ -306,6 +334,70 @@ async fn codex_provider_only_sends_authorization_bearer() {
         !headers.contains_key("x-api-key"),
         "x-api-key header should be removed for codex provider"
     );
+}
+
+#[tokio::test]
+async fn grok_chat_completions_fills_missing_response_model() {
+    let mock = start_codex_mock_upstream().await;
+    let (state, session_token) = setup_session_with_type("grok", mock.port, None);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"grok-4.5","messages":[],"stream":false}"#,
+        ))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request)
+        .await
+        .expect("proxy should return the normalized upstream response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["model"], "grok-4.5");
+    assert_eq!(json["object"], "chat.completion");
+    assert_eq!(json["choices"][0]["message"]["content"], "ok");
+}
+
+#[tokio::test]
+async fn grok_streaming_chat_completions_fill_missing_chunk_model() {
+    let mock = start_codex_mock_upstream().await;
+    let (state, session_token) = setup_session_with_type("grok", mock.port, None);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"grok-4.5","messages":[],"stream":true}"#,
+        ))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request)
+        .await
+        .expect("proxy should return the normalized upstream stream");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    let chunk = text
+        .lines()
+        .find_map(|line| line.strip_prefix("data:"))
+        .map(str::trim)
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        .expect("stream should contain a JSON data event");
+    assert_eq!(chunk["model"], "grok-4.5");
+    assert_eq!(chunk["object"], "chat.completion.chunk");
+    assert!(text.contains("data:[DONE]"));
 }
 
 #[tokio::test]

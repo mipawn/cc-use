@@ -243,7 +243,7 @@ fn grok_upstream_model(db: &Database, api_key_id: &str) -> String {
 
 pub fn prepare_grok_config(db: &Database, api_key_id: &str) -> Result<(), String> {
     let settings = db.settings_get().map_err(|error| error.to_string())?;
-    grok::ensure_managed_config(settings.proxy_port, &grok_upstream_model(db, api_key_id))
+    grok::ensure_user_config(settings.proxy_port, &grok_upstream_model(db, api_key_id))
 }
 
 fn write_managed_launch_script(
@@ -287,6 +287,10 @@ fn write_managed_launch_script(
     script.push_str(&format!(
         "CC_USE_PRELAUNCH_COMMAND={}\n",
         shell_quote(preview.prelaunch_command.as_deref().unwrap_or(""))
+    ));
+    script.push_str(&format!(
+        "CC_USE_FOREGROUND={}\n",
+        if preview.cli_type == "grok" { "1" } else { "0" }
     ));
     script.push_str("CC_USE_STOP_SENT=0\n");
     script.push_str("CC_USE_SCRIPT_PATH=\"$0\"\n\n");
@@ -347,14 +351,25 @@ if [ -n "${CC_USE_PRELAUNCH_COMMAND}" ]; then
   fi
 fi
 
-eval "$CC_USE_LAUNCH_COMMAND" &
-CC_USE_CHILD_PID=$!
+if [ "${CC_USE_FOREGROUND}" = "1" ]; then
+  # Grok Build is an interactive TUI and must own the foreground terminal.
+  # Running it with `&` prevents it from reading the TTY and leaves a blank window.
+  CC_USE_CHILD_PID=$$
+else
+  eval "$CC_USE_LAUNCH_COMMAND" &
+  CC_USE_CHILD_PID=$!
+fi
 cc_use_send_heartbeat
 cc_use_heartbeat_loop &
 CC_USE_HB_PID=$!
 trap 'cc_use_stop_once $? shell_exit' EXIT HUP INT TERM
-wait "${CC_USE_CHILD_PID}"
-CC_USE_EXIT_CODE=$?
+if [ "${CC_USE_FOREGROUND}" = "1" ]; then
+  eval "$CC_USE_LAUNCH_COMMAND"
+  CC_USE_EXIT_CODE=$?
+else
+  wait "${CC_USE_CHILD_PID}"
+  CC_USE_EXIT_CODE=$?
+fi
 cc_use_stop_once "${CC_USE_EXIT_CODE}" process_exit
 exit "${CC_USE_EXIT_CODE}"
 "#,
@@ -382,7 +397,7 @@ fn prepare_managed_launch(
     )?;
     let settings = db.settings_get().map_err(|e| e.to_string())?;
     if context.cli_type == "grok" {
-        grok::ensure_managed_config(
+        grok::ensure_user_config(
             settings.proxy_port,
             &grok_upstream_model(db, &context.api_key_id),
         )?;
@@ -605,4 +620,66 @@ pub fn launch_terminal_path_only(default_terminal_type: &str, path: &str) -> Res
         prelaunch_command: None,
     };
     launch_with_preview(strategy.as_ref(), path, &preview, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn preview(cli_type: &str) -> TerminalLaunchPreview {
+        TerminalLaunchPreview {
+            cli_type: cli_type.to_string(),
+            env: EnvObject::new(),
+            command: if cli_type == "grok" {
+                "grok -m cc-use".to_string()
+            } else {
+                "claude".to_string()
+            },
+            prelaunch_command: None,
+        }
+    }
+
+    #[test]
+    fn grok_wrapper_runs_the_tui_in_the_foreground() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("grok-wrapper.sh");
+
+        write_managed_launch_script(
+            &path,
+            "/tmp/project",
+            &preview("grok"),
+            "instance-test",
+            "test",
+            "management-token",
+            22345,
+        )
+        .unwrap();
+
+        let script = std::fs::read_to_string(path).unwrap();
+        assert!(script.contains("CC_USE_FOREGROUND=1"));
+        assert!(script.contains(
+            "if [ \"${CC_USE_FOREGROUND}\" = \"1\" ]; then\n  eval \"$CC_USE_LAUNCH_COMMAND\""
+        ));
+    }
+
+    #[test]
+    fn claude_wrapper_keeps_the_existing_background_supervision() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claude-wrapper.sh");
+
+        write_managed_launch_script(
+            &path,
+            "/tmp/project",
+            &preview("claude_code"),
+            "instance-test",
+            "test",
+            "management-token",
+            22345,
+        )
+        .unwrap();
+
+        let script = std::fs::read_to_string(path).unwrap();
+        assert!(script.contains("CC_USE_FOREGROUND=0"));
+        assert!(script.contains("eval \"$CC_USE_LAUNCH_COMMAND\" &\n  CC_USE_CHILD_PID=$!"));
+    }
 }

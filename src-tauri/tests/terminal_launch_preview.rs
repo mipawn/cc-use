@@ -65,7 +65,7 @@ fn merges_global_key_and_runtime_for_claude_preview() {
 }
 
 #[test]
-fn grok_preview_uses_local_responses_proxy_without_claude_config() {
+fn grok_preview_uses_custom_model_without_claude_config() {
     let fixture = TempDb::new();
     fixture
         .db
@@ -156,6 +156,7 @@ fn project_preview_uses_the_requested_clients_own_binding() {
         .project_create(&CreateProjectInput {
             name: "Shared Project".to_string(),
             path: "/tmp/shared-project".to_string(),
+            group_name: None,
             remark: None,
             provider_id: Some(claude_provider.id),
             api_key_id: Some(claude_key.id),
@@ -283,6 +284,7 @@ fn project_preview_returns_project_prelaunch_command_and_keeps_it_out_of_env() {
         .project_create(&CreateProjectInput {
             name: "prelaunch project".to_string(),
             path: "/tmp/prelaunch-project".to_string(),
+            group_name: None,
             remark: None,
             provider_id: Some(provider.id),
             api_key_id: Some(api_key.id),

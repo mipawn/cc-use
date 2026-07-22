@@ -3,12 +3,12 @@ use toml_edit::{DocumentMut, Item, Table};
 
 pub const CC_USE_MODEL_KEY: &str = "cc-use";
 
-fn update_managed_config(path: &Path, proxy_port: i32, upstream_model: &str) -> Result<(), String> {
+fn update_user_config(path: &Path, proxy_port: i32, upstream_model: &str) -> Result<(), String> {
     let mut document = if path.exists() {
         std::fs::read_to_string(path)
-            .map_err(|error| format!("Failed to read Grok managed config: {}", error))?
+            .map_err(|error| format!("Failed to read Grok config: {}", error))?
             .parse::<DocumentMut>()
-            .map_err(|error| format!("Failed to parse Grok managed config: {}", error))?
+            .map_err(|error| format!("Failed to parse Grok config: {}", error))?
     } else {
         DocumentMut::new()
     };
@@ -19,7 +19,9 @@ fn update_managed_config(path: &Path, proxy_port: i32, upstream_model: &str) -> 
     model["name"] = toml_edit::value("CC Use");
     model["description"] = toml_edit::value("Local cc-use gateway");
     model["env_key"] = toml_edit::value("CC_USE_GROK_TOKEN");
-    model["api_backend"] = toml_edit::value("responses");
+    // Most third-party OpenAI-compatible providers expose Chat Completions.
+    // Grok Build supports this backend explicitly for custom models.
+    model["api_backend"] = toml_edit::value("chat_completions");
     model["supports_backend_search"] = toml_edit::value(false);
 
     let root = document.as_table_mut();
@@ -37,13 +39,13 @@ fn update_managed_config(path: &Path, proxy_port: i32, upstream_model: &str) -> 
             .map_err(|error| format!("Failed to create Grok config directory: {}", error))?;
     }
     std::fs::write(path, document.to_string())
-        .map_err(|error| format!("Failed to write Grok managed config: {}", error))
+        .map_err(|error| format!("Failed to write Grok config: {}", error))
 }
 
-pub fn ensure_managed_config(proxy_port: i32, upstream_model: &str) -> Result<(), String> {
+pub fn ensure_user_config(proxy_port: i32, upstream_model: &str) -> Result<(), String> {
     let home = dirs::home_dir().ok_or_else(|| "Failed to resolve home directory".to_string())?;
-    update_managed_config(
-        &home.join(".grok").join("managed_config.toml"),
+    update_user_config(
+        &home.join(".grok").join("config.toml"),
         proxy_port,
         upstream_model,
     )
@@ -54,12 +56,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn managed_config_preserves_existing_settings_and_updates_cc_use_model() {
+    fn user_config_preserves_existing_settings_and_updates_cc_use_model() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("managed_config.toml");
+        let path = dir.path().join("config.toml");
         std::fs::write(&path, "[ui]\npermission_mode = \"ask\"\n").unwrap();
 
-        update_managed_config(&path, 12345, "grok-upstream").unwrap();
+        update_user_config(&path, 12345, "grok-upstream").unwrap();
         let document = std::fs::read_to_string(&path)
             .unwrap()
             .parse::<DocumentMut>()
@@ -77,6 +79,10 @@ mod tests {
         assert_eq!(
             document["model"][CC_USE_MODEL_KEY]["env_key"].as_str(),
             Some("CC_USE_GROK_TOKEN")
+        );
+        assert_eq!(
+            document["model"][CC_USE_MODEL_KEY]["api_backend"].as_str(),
+            Some("chat_completions")
         );
     }
 }
