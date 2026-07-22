@@ -34,15 +34,10 @@ import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { CostStatistics, PaginatedRecentRequests, StatsTimeRange } from '@shared/types'
 import ModelPricingModal from '../components/common/ModelPricingModal'
+import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
-}
 
 function formatCost(n: number): string {
   return `$${n.toFixed(4)}`
@@ -54,8 +49,15 @@ function displayName(value: string | null | undefined, fallback: string): string
 }
 
 export default function Statistics() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { token } = theme.useToken()
+  const language = i18n.resolvedLanguage || i18n.language
+
+  const renderTokens = (value: number) => (
+    <Tooltip title={formatExactTokenCount(value, language)}>
+      <span>{formatTokenCount(value, language)}</span>
+    </Tooltip>
+  )
 
   const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
   const [stats, setStats] = useState<CostStatistics | null>(null)
@@ -163,7 +165,7 @@ export default function Statistics() {
       key: 'totalTokens',
       width: 90,
       align: 'right' as const,
-      render: (v: number) => formatTokens(v),
+      render: (v: number) => renderTokens(v),
     },
   ]
 
@@ -214,7 +216,7 @@ export default function Statistics() {
       key: 'inputTokens',
       width: 100,
       align: 'right' as const,
-      render: (v: number) => formatTokens(v),
+      render: (v: number) => renderTokens(v),
     },
     {
       title: t('statistics.outputTokens'),
@@ -222,7 +224,7 @@ export default function Statistics() {
       key: 'outputTokens',
       width: 100,
       align: 'right' as const,
-      render: (v: number) => formatTokens(v),
+      render: (v: number) => renderTokens(v),
     },
     {
       title: t('statistics.latency'),
@@ -315,7 +317,7 @@ export default function Statistics() {
                     title={t('statistics.totalTokens')}
                     value={stats!.summary.totalInputTokens + stats!.summary.totalOutputTokens}
                     prefix={<DatabaseOutlined style={{ color: '#722ed1' }} />}
-                    formatter={(v) => formatTokens(Number(v))}
+                    formatter={(v) => renderTokens(Number(v))}
                   />
                 </Card>
                 <Card className={styles.summaryCard} variant='outlined'>

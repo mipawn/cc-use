@@ -626,7 +626,7 @@ export default function Keys() {
                         <div className={styles.providerHealth}>
                           <Progress
                             type='circle'
-                            size={28}
+                            size={36}
                             strokeWidth={10}
                             percent={
                               providerMetrics[provider.name].totalRequests > 0
@@ -635,7 +635,11 @@ export default function Keys() {
                                   100
                                 : 0
                             }
-                            format={(percent) => `${Math.round(percent || 0)}%`}
+                            format={(percent) => (
+                              <span className={styles.providerHealthRate}>
+                                {Math.round(percent || 0)}%
+                              </span>
+                            )}
                             strokeColor={
                               providerMetrics[provider.name].totalRequests > 0 &&
                               providerMetrics[provider.name].successfulRequests /

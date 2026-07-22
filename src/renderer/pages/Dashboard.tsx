@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Typography, Card, theme, Segmented, Popover } from 'antd'
+import { Typography, Card, theme, Segmented, Popover, Tooltip } from 'antd'
 import {
   ThunderboltOutlined,
   DollarOutlined,
@@ -15,17 +15,12 @@ import SimpleBar from 'simplebar-react'
 import { getApi } from '../api'
 import MonthCalendar from '../components/dashboard/MonthCalendar'
 import type { DashboardCostStats } from '@shared/types'
+import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import styles from './Dashboard.module.css'
 
 const { Title, Text } = Typography
 
 type CalendarView = 'calendar' | 'heatmap'
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
-}
 
 function getInitialCalendarView(): CalendarView {
   const savedView = localStorage.getItem('dashboardTrendView')
@@ -88,8 +83,7 @@ export default function Dashboard() {
   }
 
   const calCanGoNext =
-    calYear < currentYear ||
-    (calYear === currentYear && calMonth < new Date().getMonth() + 1)
+    calYear < currentYear || (calYear === currentYear && calMonth < new Date().getMonth() + 1)
 
   const [yearPickerOpen, setYearPickerOpen] = useState(false)
   const [monthPickerOpen, setMonthPickerOpen] = useState(false)
@@ -207,7 +201,19 @@ export default function Dashboard() {
                     {t('dashboard.todayTokens')}
                   </Text>
                   <Text strong className={styles.statValue}>
-                    {formatTokens(dashStats?.todayTokens || 0)}
+                    <Tooltip
+                      title={formatExactTokenCount(
+                        dashStats?.todayTokens || 0,
+                        i18n.resolvedLanguage || i18n.language,
+                      )}
+                    >
+                      <span>
+                        {formatTokenCount(
+                          dashStats?.todayTokens || 0,
+                          i18n.resolvedLanguage || i18n.language,
+                        )}
+                      </span>
+                    </Tooltip>
                   </Text>
                 </div>
               </div>
