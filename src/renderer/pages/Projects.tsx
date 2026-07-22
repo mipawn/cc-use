@@ -17,6 +17,7 @@ import {
   Dropdown,
   Badge,
   Tag,
+  AutoComplete,
   type MenuProps,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
@@ -32,6 +33,7 @@ import {
   ClockCircleOutlined,
   SwapOutlined,
   ThunderboltOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 
 // Import provider icons
@@ -128,11 +130,22 @@ export function getProjectBinding(
   }
 }
 
-export function getProjectDirectory(path: string): string {
-  const normalized = path.replace(/[\\/]+$/, '')
-  const separator = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
-  if (separator <= 0) return normalized || '/'
-  return normalized.slice(0, separator)
+export function groupProjectsByCustomGroup(projects: Project[], ungroupedLabel: string) {
+  const groups = new Map<string, Project[]>()
+  projects.forEach((project) => {
+    const groupName = project.groupName?.trim() || ungroupedLabel
+    groups.set(groupName, [...(groups.get(groupName) || []), project])
+  })
+  return Array.from(groups.entries())
+    .map(([groupName, items]) => ({
+      groupName,
+      projects: items.sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => {
+      if (a.groupName === ungroupedLabel) return 1
+      if (b.groupName === ungroupedLabel) return -1
+      return a.groupName.localeCompare(b.groupName)
+    })
 }
 
 interface ProjectsProps {
@@ -251,6 +264,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
     form.setFieldsValue({
       name: project.name,
       path: project.path,
+      groupName: project.groupName || '',
       remark: project.remark,
       key:
         keyCompatible && binding?.providerId && binding.apiKeyId
@@ -360,6 +374,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
   const handleSave = async () => {
     try {
       const values = await form.validateFields()
+      const groupName = values.groupName?.trim() || ''
       const remark = values.remark?.trim()
       const prelaunchCommand = values.prelaunchCommand?.trim()
 
@@ -380,6 +395,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
         await updateProject({
           id: editingProject.id,
           name: values.name,
+          groupName,
           remark,
         })
         await updateProjectBinding(editingProject.id, {
@@ -397,6 +413,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
         await createProject({
           name: values.name,
           path: values.path,
+          groupName,
           remark,
           providerId: values.key?.[0],
           apiKeyId: values.key?.[1],
@@ -442,19 +459,24 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
     }
   }
 
-  const projectGroups = useMemo(() => {
-    const groups = new Map<string, Project[]>()
-    projects.forEach((project) => {
-      const directory = getProjectDirectory(project.path)
-      groups.set(directory, [...(groups.get(directory) || []), project])
-    })
-    return Array.from(groups.entries())
-      .map(([directory, items]) => ({
-        directory,
-        projects: items.sort((a, b) => a.name.localeCompare(b.name)),
-      }))
-      .sort((a, b) => a.directory.localeCompare(b.directory))
-  }, [projects])
+  const projectGroups = useMemo(
+    () => groupProjectsByCustomGroup(projects, t('projects.ungrouped')),
+    [projects, t],
+  )
+
+  const projectGroupOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          projects
+            .map((project) => project.groupName?.trim())
+            .filter((groupName): groupName is string => !!groupName),
+        ),
+      )
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({ value })),
+    [projects],
+  )
 
   return (
     <div className={styles.container}>
@@ -495,15 +517,12 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
           ) : (
             <div className={styles.projectsGrid}>
               {projectGroups.flatMap((group) => [
-                <div key={`directory:${group.directory}`} className={styles.directoryHeader}>
-                  <div className={styles.directoryTitle}>
-                    <FolderOutlined />
-                    <Text strong>{group.directory.split(/[\\/]/).pop() || group.directory}</Text>
+                <div key={`group:${group.groupName}`} className={styles.projectGroupHeader}>
+                  <div className={styles.projectGroupTitle}>
+                    <AppstoreOutlined />
+                    <Text strong>{group.groupName}</Text>
                     <Badge count={group.projects.length} color={token.colorPrimary} />
                   </div>
-                  <Text type='secondary' className={styles.directoryPath}>
-                    {group.directory}
-                  </Text>
                 </div>,
                 ...group.projects.map((project) => {
                   const binding = getProjectBinding(project, defaultCliType)
@@ -686,6 +705,15 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
             </Form.Item>
           )}
 
+          <Form.Item name='groupName' label={t('projects.groupName')}>
+            <AutoComplete
+              allowClear
+              size='large'
+              options={projectGroupOptions}
+              placeholder={t('projects.groupNamePlaceholder')}
+            />
+          </Form.Item>
+
           <Form.Item name='remark' label={t('projects.remark')}>
             <TextArea rows={2} placeholder={t('projects.remarkPlaceholder')} />
           </Form.Item>
@@ -701,18 +729,6 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
               className={styles.commandEditor}
             />
           </Form.Item>
-
-          <div className={styles.bindingContext}>
-            <CliTypeIcon type={defaultCliType} size={16} />
-            <div>
-              <Text strong>
-                {defaultCliType === 'grok' ? 'Grok Build 绑定' : 'Claude Code 绑定'}
-              </Text>
-              <Text type='secondary'>
-                项目目录会在两个客户端间复用，这里的供应商、密钥和启动命令只属于当前客户端。
-              </Text>
-            </div>
-          </div>
 
           <Form.Item
             name='key'

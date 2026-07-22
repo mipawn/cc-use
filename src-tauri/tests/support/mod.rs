@@ -82,6 +82,7 @@ pub fn create_project(
     db.project_create(&CreateProjectInput {
         name: format!("{} project", cli_type),
         path: format!("/tmp/{}-project-{}", cli_type, nanoid::nanoid!(6)),
+        group_name: None,
         remark: None,
         provider_id,
         api_key_id,

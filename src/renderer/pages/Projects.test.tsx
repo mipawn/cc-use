@@ -4,14 +4,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
 import { createRoot } from 'react-dom/client'
+import type { Project } from '@shared/types'
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
 
-const project = {
+const project: Project = {
   id: 'project-1',
   name: 'cc-use',
   path: '/tmp/cc-use',
+  groupName: 'Work',
   remark: null,
   providerId: 'provider-1',
   apiKeyId: 'shared-key',
@@ -129,6 +131,26 @@ afterEach(() => {
 })
 
 describe('Projects page', () => {
+  it('groups projects by the saved custom group instead of their parent directory', async () => {
+    const { groupProjectsByCustomGroup } = await import('./Projects')
+    const projects = [
+      { ...project, id: 'work-1', name: 'Alpha', path: '/same/parent/alpha', groupName: 'Work' },
+      {
+        ...project,
+        id: 'personal-1',
+        name: 'Beta',
+        path: '/same/parent/beta',
+        groupName: 'Personal',
+      },
+      { ...project, id: 'ungrouped-1', name: 'Gamma', path: '/other/gamma', groupName: null },
+    ]
+
+    const groups = groupProjectsByCustomGroup(projects, 'Ungrouped')
+
+    expect(groups.map((group) => group.groupName)).toEqual(['Personal', 'Work', 'Ungrouped'])
+    expect(groups.find((group) => group.groupName === 'Work')?.projects).toHaveLength(1)
+  })
+
   it('shares projects but only shows Grok keys in the Grok card menu', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)

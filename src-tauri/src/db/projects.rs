@@ -18,17 +18,18 @@ fn row_to_project(row: &rusqlite::Row) -> Result<Project, rusqlite::Error> {
         id: row.get(0)?,
         name: row.get(1)?,
         path: row.get(2)?,
-        remark: row.get(3)?,
-        provider_id: row.get(4)?,
-        api_key_id: row.get(5)?,
+        group_name: row.get(3)?,
+        remark: row.get(4)?,
+        provider_id: row.get(5)?,
+        api_key_id: row.get(6)?,
         cli_type: row
-            .get::<_, Option<String>>(6)?
+            .get::<_, Option<String>>(7)?
             .unwrap_or_else(|| "claude".to_string()),
         terminal_type: row
-            .get::<_, Option<String>>(7)?
+            .get::<_, Option<String>>(8)?
             .unwrap_or_else(|| "iterm2".to_string()),
-        prelaunch_command: row.get(8)?,
-        last_opened_at: row.get(9)?,
+        prelaunch_command: row.get(9)?,
+        last_opened_at: row.get(10)?,
         bindings: HashMap::new(),
     })
 }
@@ -65,7 +66,7 @@ impl Database {
 
     pub fn project_list(&self) -> Result<Vec<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
+            "SELECT id, name, path, group_name, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
              FROM projects ORDER BY last_opened_at DESC NULLS LAST"
         )?;
 
@@ -79,7 +80,7 @@ impl Database {
 
     pub fn project_get(&self, id: &str) -> Result<Option<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
+            "SELECT id, name, path, group_name, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
              FROM projects WHERE id = ?1"
         )?;
 
@@ -94,7 +95,7 @@ impl Database {
 
     pub fn project_get_by_path(&self, path: &str) -> Result<Option<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
+            "SELECT id, name, path, group_name, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command, last_opened_at
              FROM projects WHERE path = ?1"
         )?;
 
@@ -112,12 +113,13 @@ impl Database {
         let cli_type =
             normalize_project_cli_type(input.cli_type.as_deref().unwrap_or("claude_code"));
         self.conn.execute(
-            "INSERT INTO projects (id, name, path, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO projects (id, name, path, group_name, remark, provider_id, api_key_id, cli_type, terminal_type, prelaunch_command)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 id,
                 input.name,
                 input.path,
+                input.group_name,
                 input.remark,
                 input.provider_id,
                 input.api_key_id,
@@ -147,6 +149,7 @@ impl Database {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         add_field!(input.name, "name", sets, params);
+        add_field!(input.group_name, "group_name", sets, params);
         add_field!(input.remark, "remark", sets, params);
         add_field!(input.provider_id, "provider_id", sets, params);
         add_field!(input.api_key_id, "api_key_id", sets, params);

@@ -136,6 +136,7 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 path TEXT NOT NULL UNIQUE,
+                group_name TEXT,
                 remark TEXT,
                 provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
                 api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
@@ -382,6 +383,7 @@ impl Database {
             "ALTER TABLE projects ADD COLUMN remark TEXT",
             "ALTER TABLE projects ADD COLUMN cli_type TEXT DEFAULT 'claude_code'",
             "ALTER TABLE projects ADD COLUMN prelaunch_command TEXT",
+            "ALTER TABLE projects ADD COLUMN group_name TEXT",
             // Snapshot columns on request_logs — preserve display names after entity deletion
             "ALTER TABLE request_logs ADD COLUMN key_alias TEXT",
             "ALTER TABLE request_logs ADD COLUMN provider_name TEXT",

@@ -331,6 +331,7 @@ export interface Project {
   id: string
   name: string
   path: string
+  groupName: string | null
   remark: string | null
   providerId: string | null
   apiKeyId: string | null
@@ -360,6 +361,7 @@ export interface ProjectClientBindingInput {
 export interface CreateProjectInput {
   name: string
   path: string
+  groupName?: string
   remark?: string
   providerId?: string
   apiKeyId?: string
@@ -371,6 +373,7 @@ export interface CreateProjectInput {
 export interface UpdateProjectInput {
   id: string
   name?: string
+  groupName?: string
   remark?: string
   providerId?: string
   apiKeyId?: string

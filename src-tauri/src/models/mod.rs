@@ -159,6 +159,7 @@ pub struct Project {
     pub id: String,
     pub name: String,
     pub path: String,
+    pub group_name: Option<String>,
     pub remark: Option<String>,
     pub provider_id: Option<String>,
     pub api_key_id: Option<String>,
@@ -194,6 +195,7 @@ pub struct UpsertProjectBindingInput {
 pub struct CreateProjectInput {
     pub name: String,
     pub path: String,
+    pub group_name: Option<String>,
     pub remark: Option<String>,
     pub provider_id: Option<String>,
     pub api_key_id: Option<String>,
@@ -207,6 +209,7 @@ pub struct CreateProjectInput {
 pub struct UpdateProjectInput {
     pub id: String,
     pub name: Option<String>,
+    pub group_name: Option<String>,
     pub remark: Option<String>,
     pub provider_id: Option<String>,
     pub api_key_id: Option<String>,

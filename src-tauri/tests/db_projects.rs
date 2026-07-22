@@ -11,6 +11,7 @@ fn project_crud() {
         .project_create(&CreateProjectInput {
             name: "My Project".to_string(),
             path: "/home/user/project".to_string(),
+            group_name: Some("Work".to_string()),
             remark: None,
             provider_id: None,
             api_key_id: None,
@@ -22,6 +23,7 @@ fn project_crud() {
 
     assert_eq!(project.name, "My Project");
     assert_eq!(project.path, "/home/user/project");
+    assert_eq!(project.group_name.as_deref(), Some("Work"));
     assert_eq!(project.prelaunch_command, None);
 
     let by_path = fixture
@@ -41,6 +43,7 @@ fn project_create_returns_proper_result() {
     let result = fixture.db.project_create(&CreateProjectInput {
         name: "Test".to_string(),
         path: "/tmp/test".to_string(),
+        group_name: None,
         remark: None,
         provider_id: None,
         api_key_id: None,
@@ -63,6 +66,7 @@ fn project_update_no_changes() {
         .project_create(&CreateProjectInput {
             name: "Test".to_string(),
             path: "/tmp/test".to_string(),
+            group_name: None,
             remark: None,
             provider_id: None,
             api_key_id: None,
@@ -75,6 +79,7 @@ fn project_update_no_changes() {
     let result = fixture.db.project_update(&UpdateProjectInput {
         id: project.id.clone(),
         name: None,
+        group_name: None,
         remark: None,
         provider_id: None,
         api_key_id: None,
@@ -95,6 +100,7 @@ fn project_update_prelaunch_command() {
         .project_create(&CreateProjectInput {
             name: "Test".to_string(),
             path: "/tmp/test-prelaunch".to_string(),
+            group_name: None,
             remark: None,
             provider_id: None,
             api_key_id: None,
@@ -109,6 +115,7 @@ fn project_update_prelaunch_command() {
         .project_update(&UpdateProjectInput {
             id: project.id,
             name: None,
+            group_name: Some("Personal".to_string()),
             remark: None,
             provider_id: None,
             api_key_id: None,
@@ -119,6 +126,7 @@ fn project_update_prelaunch_command() {
         .unwrap();
 
     assert_eq!(updated.prelaunch_command.as_deref(), Some("mise install"));
+    assert_eq!(updated.group_name.as_deref(), Some("Personal"));
 }
 
 #[test]
@@ -133,6 +141,7 @@ fn project_keeps_independent_bindings_for_each_cli() {
         .project_create(&CreateProjectInput {
             name: "Shared directory".to_string(),
             path: "/tmp/shared-directory".to_string(),
+            group_name: None,
             remark: None,
             provider_id: Some(claude_provider.id.clone()),
             api_key_id: Some(claude_key.id.clone()),
