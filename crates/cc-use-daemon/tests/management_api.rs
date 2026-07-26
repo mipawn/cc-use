@@ -205,6 +205,41 @@ async fn heartbeat_updates_managed_instance_status_and_pids() {
 }
 
 #[tokio::test]
+async fn launching_heartbeat_preserves_launching_until_the_cli_starts() {
+    let (app, db) = app_with_db();
+    let instance_id = {
+        let db = db.lock().expect("lock db");
+        seed_managed_instance(&db)
+    };
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/_management/instances/heartbeat")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"instanceId":"{}","shellPid":123,"phase":"launching"}}"#,
+                    instance_id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let db = db.lock().expect("lock db");
+    let instance = db
+        .managed_instance_get(&instance_id)
+        .expect("query instance")
+        .expect("instance exists");
+    assert_eq!(instance.status, "launching");
+    assert_eq!(instance.shell_pid, Some(123));
+    assert_eq!(instance.process_pid, None);
+}
+
+#[tokio::test]
 async fn stop_marks_managed_instance_as_stopped() {
     let (app, db) = app_with_db();
     let instance_id = {
@@ -244,6 +279,75 @@ async fn stop_marks_managed_instance_as_stopped() {
         .expect("session exists");
     assert!(session.revoked_at.is_some());
     assert_eq!(session.revoked_reason.as_deref(), Some("stopped"));
+}
+
+#[tokio::test]
+async fn terminal_instances_ignore_late_heartbeats_and_duplicate_stop_events() {
+    let (app, db) = app_with_db();
+    let instance_id = {
+        let db = db.lock().expect("lock db");
+        seed_managed_instance(&db)
+    };
+    let stop_body = format!(
+        r#"{{"instanceId":"{}","stopReason":"prelaunch_failed","exitCode":2}}"#,
+        instance_id
+    );
+
+    let stop_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/_management/instances/stop")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .header("content-type", "application/json")
+                .body(Body::from(stop_body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stop_response.status(), StatusCode::OK);
+
+    let duplicate_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/_management/instances/stop")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .header("content-type", "application/json")
+                .body(Body::from(stop_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(duplicate_response.status(), StatusCode::OK);
+
+    let heartbeat_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/_management/instances/heartbeat")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .header("content-type", "application/json")
+                .body(Body::from(format!(
+                    r#"{{"instanceId":"{}","phase":"running"}}"#,
+                    instance_id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(heartbeat_response.status(), StatusCode::CONFLICT);
+
+    let db = db.lock().expect("lock db");
+    let instance = db
+        .managed_instance_get(&instance_id)
+        .expect("query instance")
+        .expect("instance exists");
+    assert_eq!(instance.status, "failed");
+    assert_eq!(instance.stop_reason.as_deref(), Some("prelaunch_failed"));
+    assert_eq!(instance.exit_code, Some(2));
 }
 
 /// The console SSE endpoint must require the same management token auth

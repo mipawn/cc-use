@@ -111,22 +111,80 @@ impl Database {
         rows.collect()
     }
 
-    pub fn managed_instance_update_assignment(
+    pub fn managed_instance_list_recent_for_cli_type(
+        &self,
+        cli_type: &str,
+        limit: usize,
+    ) -> Result<Vec<ManagedInstance>, rusqlite::Error> {
+        let normalized_cli_type = normalize_cli_type(cli_type);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,
+                    project_path, shell_pid, process_pid, status, assignment_source, last_seen_at,
+                    launched_at, stopped_at, stop_reason, exit_code
+             FROM managed_instances
+             WHERE CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END = ?1
+             ORDER BY
+               CASE status
+                 WHEN 'running' THEN 0
+                 WHEN 'launching' THEN 1
+                 WHEN 'stale' THEN 2
+                 ELSE 3
+               END,
+               COALESCE(stopped_at, last_seen_at, launched_at) DESC
+             LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(
+            rusqlite::params![normalized_cli_type, limit as i64],
+            row_to_managed_instance,
+        )?;
+        rows.collect()
+    }
+
+    pub fn managed_instance_update_assignment_and_session(
         &self,
         id: &str,
+        session_token: &str,
         provider_id: &str,
         api_key_id: &str,
         assignment_source: Option<&str>,
     ) -> Result<bool, rusqlite::Error> {
-        let changed = self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        let session_changed = tx.execute(
+            "UPDATE proxy_sessions
+             SET provider_id = ?1, api_key_id = ?2
+             WHERE session_token = ?3
+               AND revoked_at IS NULL",
+            rusqlite::params![provider_id, api_key_id, session_token],
+        )?;
+        if session_changed == 0 {
+            tx.rollback()?;
+            return Ok(false);
+        }
+
+        let instance_changed = tx.execute(
             "UPDATE managed_instances
              SET provider_id = ?1,
                  api_key_id = ?2,
                  assignment_source = ?3
-             WHERE id = ?4",
-            rusqlite::params![provider_id, api_key_id, assignment_source, id],
+             WHERE id = ?4
+               AND session_token = ?5
+               AND status IN ('launching', 'running', 'stale')",
+            rusqlite::params![
+                provider_id,
+                api_key_id,
+                assignment_source,
+                id,
+                session_token,
+            ],
         )?;
-        Ok(changed > 0)
+        if instance_changed == 0 {
+            tx.rollback()?;
+            return Ok(false);
+        }
+
+        tx.commit()?;
+        Ok(true)
     }
 
     pub fn managed_instance_touch_heartbeat(
@@ -134,16 +192,27 @@ impl Database {
         id: &str,
         shell_pid: Option<i32>,
         process_pid: Option<i32>,
+        phase: &str,
         last_seen_at: &str,
     ) -> Result<bool, rusqlite::Error> {
+        let next_status = if phase == "launching" {
+            "launching"
+        } else {
+            "running"
+        };
         let changed = self.conn.execute(
             "UPDATE managed_instances
              SET shell_pid = COALESCE(?1, shell_pid),
                  process_pid = COALESCE(?2, process_pid),
-                 status = 'running',
-                 last_seen_at = ?3
-             WHERE id = ?4",
-            rusqlite::params![shell_pid, process_pid, last_seen_at, id],
+                 status = ?3,
+                 last_seen_at = ?4,
+                 stopped_at = NULL,
+                 stop_reason = NULL,
+                 exit_code = NULL
+             WHERE id = ?5
+               AND status IN ('launching', 'running', 'stale')
+               AND (?3 != 'launching' OR status = 'launching')",
+            rusqlite::params![shell_pid, process_pid, next_status, last_seen_at, id],
         )?;
         Ok(changed > 0)
     }
@@ -167,7 +236,8 @@ impl Database {
                  stopped_at = ?4,
                  stop_reason = ?5,
                  exit_code = ?6
-             WHERE id = ?7",
+             WHERE id = ?7
+               AND status IN ('launching', 'running', 'stale')",
             rusqlite::params![
                 shell_pid,
                 process_pid,
@@ -188,13 +258,27 @@ impl Database {
         let changed = self.conn.execute(
             "UPDATE managed_instances
              SET status = 'stale',
-                 stop_reason = CASE
-                   WHEN stop_reason IS NULL OR stop_reason = '' THEN 'heartbeat_timeout'
-                   ELSE stop_reason
-                 END
-             WHERE status IN ('launching', 'running')
+                 stop_reason = 'heartbeat_timeout'
+             WHERE status = 'running'
                AND last_seen_at < ?1",
             [cutoff],
+        )?;
+        Ok(changed)
+    }
+
+    pub fn managed_instance_fail_launching_older_than(
+        &self,
+        cutoff: &str,
+        failed_at: &str,
+    ) -> Result<usize, rusqlite::Error> {
+        let changed = self.conn.execute(
+            "UPDATE managed_instances
+             SET status = 'failed',
+                 stopped_at = ?2,
+                 stop_reason = 'launch_timeout'
+             WHERE status = 'launching'
+               AND last_seen_at < ?1",
+            rusqlite::params![cutoff, failed_at],
         )?;
         Ok(changed)
     }
@@ -202,42 +286,47 @@ impl Database {
     pub fn managed_instance_stop_stale_older_than(
         &self,
         cutoff: &str,
+        stopped_at: &str,
     ) -> Result<usize, rusqlite::Error> {
         let changed = self.conn.execute(
             "UPDATE managed_instances
              SET status = 'stopped',
-                 stopped_at = ?1,
-                 stop_reason = CASE
-                   WHEN stop_reason IS NULL OR stop_reason = '' THEN 'stale_timeout'
-                   ELSE stop_reason
-                 END
+                 stopped_at = ?2,
+                 stop_reason = 'stale_timeout'
              WHERE status = 'stale'
                AND last_seen_at < ?1",
-            [cutoff],
+            rusqlite::params![cutoff, stopped_at],
         )?;
         Ok(changed)
     }
 
     pub fn managed_instance_cleanup_inactive(&self) -> Result<usize, rusqlite::Error> {
         let now = chrono::Utc::now().to_rfc3339();
-        // Mark all stale/launching instances as stopped
-        let stale_count = self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "UPDATE managed_instances
              SET status = 'stopped',
                  stopped_at = ?1,
-                 stop_reason = CASE
-                   WHEN stop_reason IS NULL OR stop_reason = '' THEN 'manual_cleanup'
-                   ELSE stop_reason
-                 END
+                 stop_reason = 'manual_cleanup'
              WHERE status IN ('stale', 'launching')",
             [&now],
         )?;
-        // Delete all stopped/failed instances
-        let deleted_count = self.conn.execute(
+        tx.execute(
+            "UPDATE proxy_sessions
+             SET revoked_at = COALESCE(revoked_at, ?1),
+                 revoked_reason = COALESCE(revoked_reason, 'manual_cleanup')
+             WHERE session_token IN (
+               SELECT session_token FROM managed_instances
+               WHERE status IN ('stopped', 'failed')
+             )",
+            [&now],
+        )?;
+        let deleted_count = tx.execute(
             "DELETE FROM managed_instances WHERE status IN ('stopped', 'failed')",
             [],
         )?;
-        Ok(stale_count + deleted_count)
+        tx.commit()?;
+        Ok(deleted_count)
     }
 
     pub fn managed_instance_cleanup_inactive_for_cli_type(
@@ -245,29 +334,43 @@ impl Database {
         cli_type: &str,
     ) -> Result<usize, rusqlite::Error> {
         let now = chrono::Utc::now().to_rfc3339();
-        let normalized_cli_type = if cli_type == "claude" {
-            "claude_code"
-        } else {
-            cli_type
-        };
-        let stale_count = self.conn.execute(
+        let normalized_cli_type = normalize_cli_type(cli_type);
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "UPDATE managed_instances
              SET status = 'stopped',
                  stopped_at = ?1,
-                 stop_reason = CASE
-                   WHEN stop_reason IS NULL OR stop_reason = '' THEN 'manual_cleanup'
-                   ELSE stop_reason
-                 END
+                 stop_reason = 'manual_cleanup'
              WHERE status IN ('stale', 'launching')
                AND CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END = ?2",
             rusqlite::params![now, normalized_cli_type],
         )?;
-        let deleted_count = self.conn.execute(
+        tx.execute(
+            "UPDATE proxy_sessions
+             SET revoked_at = COALESCE(revoked_at, ?1),
+                 revoked_reason = COALESCE(revoked_reason, 'manual_cleanup')
+             WHERE session_token IN (
+               SELECT session_token FROM managed_instances
+               WHERE status IN ('stopped', 'failed')
+                 AND CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END = ?2
+             )",
+            rusqlite::params![now, normalized_cli_type],
+        )?;
+        let deleted_count = tx.execute(
             "DELETE FROM managed_instances
              WHERE status IN ('stopped', 'failed')
                AND CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END = ?1",
             [normalized_cli_type],
         )?;
-        Ok(stale_count + deleted_count)
+        tx.commit()?;
+        Ok(deleted_count)
+    }
+}
+
+fn normalize_cli_type(cli_type: &str) -> &str {
+    if cli_type == "claude" {
+        "claude_code"
+    } else {
+        cli_type
     }
 }

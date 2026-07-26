@@ -201,9 +201,12 @@ export default {
   },
   instances: {
     title: 'Instances',
-    subtitle: 'Review managed CLI instances and hot-switch keys per running instance',
+    subtitle:
+      "Routes here affect only the current running instance and don't change the project's next-launch default",
     heartbeatInterval: 'Heartbeat interval {{seconds}}s',
     tableTitle: 'Managed instances',
+    activeView: 'Current {{count}}',
+    historyView: 'Recently ended {{count}}',
     loadFailed: 'Failed to load instances',
     assignmentUpdated: 'Instance assignment updated',
     assignmentUpdateFailed: 'Failed to update instance assignment',
@@ -216,13 +219,24 @@ export default {
     columnStatus: 'Status',
     columnAssignment: 'Current assignment',
     columnAssignKey: 'Assign key',
+    columnCurrentRoute: 'Current instance route',
     columnLastSeen: 'Last heartbeat',
+    columnUpdatedAt: 'Last status time',
     selectKey: 'Select key',
     statusLaunching: 'Launching',
     statusRunning: 'Running',
     statusStale: 'Stale',
     statusStopped: 'Stopped',
     statusFailed: 'Failed',
+    reasonLaunchFailed: 'Terminal launch failed',
+    reasonLaunchTimeout: 'Launch phase timed out',
+    reasonPrelaunchFailed: 'Pre-launch command failed',
+    reasonProcessExit: 'Process exited',
+    reasonShellExit: 'Terminal exited',
+    reasonHeartbeatTimeout: 'Heartbeat interrupted',
+    reasonStaleTimeout: 'Stale timeout converged',
+    reasonManualCleanup: 'Manually cleaned',
+    exitCode: 'Exit code {{code}}',
   },
 
   dashboard: {
@@ -386,7 +400,8 @@ export default {
   },
   projects: {
     title: 'Projects',
-    subtitle: 'Manage your projects',
+    subtitle:
+      'Manage projects and their next-launch default routes; switch running instances separately under Instances',
     projectName: 'Project Name',
     projectPath: 'Project Path',
     groupName: 'Project Group',
@@ -430,6 +445,9 @@ export default {
     keyNotCompatibleHint: 'Key does not support current CLI type, please switch key or type',
     keyClearedForCliChange: 'The previous key does not support this client. Choose another key.',
     selectCompatibleKey: 'Choose a key that supports the current client',
+    nextLaunchRoute: 'Next launch:',
+    nextLaunchRouteHint:
+      "Changes only the route used on this project's next launch, not any running instance",
   },
   newProject: {
     title: 'New Project',

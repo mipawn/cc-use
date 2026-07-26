@@ -207,7 +207,7 @@ function buildApi(): Api {
       keepRecentSessions: (keepCount) => invoke('keep_recent_sessions', { keepCount }),
     },
     managedInstances: {
-      list: () => invoke('managed_instance_list'),
+      list: (cliType) => invoke('managed_instance_list', { cliType }),
       get: (id) => invoke('managed_instance_get', { id }),
       updateAssignment: (input) => invoke('managed_instance_update_assignment', { input }),
       cleanup: (cliType) => invoke('managed_instance_cleanup', { cliType }),

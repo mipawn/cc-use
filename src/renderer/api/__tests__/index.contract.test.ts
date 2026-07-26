@@ -85,7 +85,7 @@ describe('renderer api contract', () => {
     const { getApi } = await loadApiModule()
     const api = getApi() as any
 
-    await api.managedInstances.list()
+    await api.managedInstances.list('grok')
     await api.managedInstances.get('instance-1')
     await api.managedInstances.updateAssignment({
       id: 'instance-1',
@@ -95,7 +95,7 @@ describe('renderer api contract', () => {
     })
     await api.managedInstances.cleanup('grok')
 
-    expect(invokeMock).toHaveBeenNthCalledWith(1, 'managed_instance_list', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'managed_instance_list', { cliType: 'grok' })
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'managed_instance_get', { id: 'instance-1' })
     expect(invokeMock).toHaveBeenNthCalledWith(3, 'managed_instance_update_assignment', {
       input: {

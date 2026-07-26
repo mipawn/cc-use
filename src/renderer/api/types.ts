@@ -225,7 +225,7 @@ export interface Api {
     keepRecentSessions: (keepCount: number) => Promise<number>
   }
   managedInstances: {
-    list: () => Promise<ManagedInstance[]>
+    list: (cliType?: 'claude_code' | 'grok') => Promise<ManagedInstance[]>
     get: (id: string) => Promise<ManagedInstance | null>
     updateAssignment: (input: UpdateManagedInstanceAssignmentInput) => Promise<ManagedInstance>
     cleanup: (cliType: 'claude_code' | 'grok') => Promise<number>

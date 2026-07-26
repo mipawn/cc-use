@@ -26,7 +26,11 @@ struct TrayLabels {
     no_desktop_keys: &'static str,
     restore_official: &'static str,
     recent_projects: &'static str,
+    grok_build: &'static str,
     no_recent_projects: &'static str,
+    instance_running: &'static str,
+    instance_launching: &'static str,
+    instance_stale: &'static str,
 }
 
 const ZH_LABELS: TrayLabels = TrayLabels {
@@ -41,7 +45,11 @@ const ZH_LABELS: TrayLabels = TrayLabels {
     no_desktop_keys: "暂无可用密钥",
     restore_official: "恢复官方配置",
     recent_projects: "Claude Code",
+    grok_build: "Grok Build",
     no_recent_projects: "暂无最近项目",
+    instance_running: "运行",
+    instance_launching: "启动中",
+    instance_stale: "失联",
 };
 
 const EN_LABELS: TrayLabels = TrayLabels {
@@ -56,7 +64,11 @@ const EN_LABELS: TrayLabels = TrayLabels {
     no_desktop_keys: "No Available Keys",
     restore_official: "Restore Official Config",
     recent_projects: "Claude Code",
+    grok_build: "Grok Build",
     no_recent_projects: "No Recent Projects",
+    instance_running: "running",
+    instance_launching: "launching",
+    instance_stale: "stale",
 };
 
 fn get_labels() -> &'static TrayLabels {
@@ -96,6 +108,22 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
     };
     let proxy_status_item =
         MenuItem::with_id(app, "proxy_status", status_label, false, None::<&str>)?;
+    let (claude_instance_status, grok_instance_status) =
+        collect_instance_status_labels(app, labels);
+    let claude_instance_item = MenuItem::with_id(
+        app,
+        "instances:claude_code",
+        claude_instance_status,
+        false,
+        None::<&str>,
+    )?;
+    let grok_instance_item = MenuItem::with_id(
+        app,
+        "instances:grok",
+        grok_instance_status,
+        false,
+        None::<&str>,
+    )?;
 
     let proxy_restart_item = MenuItem::with_id(
         app,
@@ -138,6 +166,8 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
             &toggle_item,
             &sep1,
             &proxy_status_item,
+            &claude_instance_item,
+            &grok_instance_item,
             &proxy_restart_item,
             &sep2,
             &codex_submenu,
@@ -150,6 +180,49 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
     )?;
 
     Ok(menu)
+}
+
+fn collect_instance_status_labels(app: &AppHandle, labels: &TrayLabels) -> (String, String) {
+    let db_state = app.state::<Arc<Mutex<Database>>>();
+    let db_arc = db_state.inner().clone();
+    let instances = db_arc
+        .lock()
+        .ok()
+        .and_then(|db| db.managed_instance_list_active().ok())
+        .unwrap_or_default();
+
+    let format_status = |cli_type: &str, client_label: &str| {
+        let mut running = 0;
+        let mut launching = 0;
+        let mut stale = 0;
+        for instance in &instances {
+            let normalized_cli_type = normalize_client_kind(&instance.cli_type);
+            if normalized_cli_type != cli_type {
+                continue;
+            }
+            match instance.status.as_str() {
+                "running" => running += 1,
+                "launching" => launching += 1,
+                "stale" => stale += 1,
+                _ => {}
+            }
+        }
+        format!(
+            "{}: {} {} · {} {} · {} {}",
+            client_label,
+            running,
+            labels.instance_running,
+            launching,
+            labels.instance_launching,
+            stale,
+            labels.instance_stale,
+        )
+    };
+
+    (
+        format_status("claude_code", labels.recent_projects),
+        format_status("grok", labels.grok_build),
+    )
 }
 
 #[derive(Clone)]
@@ -402,8 +475,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         handle_menu_event(&app_handle, id);
     });
 
-    // Refresh the badge whenever the user interacts with the tray icon. This
-    // covers the common "open the tray to check the cost" path even when the
+    // Refresh state whenever the user interacts with the tray icon. This
+    // covers the common "open the tray to check status" path even when the
     // main window never gains focus.
     let app_handle = app.clone();
     tray.on_tray_icon_event(move |_tray, event| {
@@ -414,16 +487,21 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 ..
             }
         ) {
-            refresh_tray_badge(&app_handle);
+            refresh_tray_menu(&app_handle);
         }
     });
 
-    // Periodic badge refresh every 30s. Rebuilding the entire tray menu from
-    // this background thread can block before the badge update is reached.
+    // Keep the tray's daemon, instance and usage summaries on the same
+    // eventually-consistent refresh cadence.
     let app_handle = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(30));
-        refresh_tray_badge(&app_handle);
+        let main_app = app_handle.clone();
+        if let Err(error) = app_handle.run_on_main_thread(move || {
+            refresh_tray_menu(&main_app);
+        }) {
+            log::warn!("Failed to schedule tray menu refresh: {}", error);
+        }
     });
 
     Ok(())

@@ -11,8 +11,16 @@ fn normalize_cli_type(value: &str) -> &str {
     }
 }
 
-pub fn managed_instance_list_inner(db: &Database) -> Result<Vec<ManagedInstance>, String> {
-    db.managed_instance_list_active().map_err(|e| e.to_string())
+pub fn managed_instance_list_inner(
+    db: &Database,
+    cli_type: Option<&str>,
+) -> Result<Vec<ManagedInstance>, String> {
+    match cli_type {
+        Some(cli_type) => db
+            .managed_instance_list_recent_for_cli_type(cli_type, 100)
+            .map_err(|e| e.to_string()),
+        None => db.managed_instance_list_active().map_err(|e| e.to_string()),
+    }
 }
 
 pub fn managed_instance_get_inner(
@@ -30,12 +38,28 @@ pub fn managed_instance_update_assignment_inner(
         .managed_instance_get(&input.id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Managed instance not found".to_string())?;
+    if !matches!(instance.status.as_str(), "launching" | "running" | "stale") {
+        return Err("Managed instance is no longer active".to_string());
+    }
+    let provider = db
+        .provider_get(&input.provider_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Provider not found".to_string())?;
+    if !provider.is_active {
+        return Err("Provider is disabled".to_string());
+    }
     let api_key = db
         .api_key_get(&input.api_key_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "API key not found".to_string())?;
     if api_key.provider_id != input.provider_id {
         return Err("API key does not belong to the selected provider".to_string());
+    }
+    if !api_key.is_active {
+        return Err("API key is disabled".to_string());
+    }
+    if api_key.is_exhausted {
+        return Err("API key is exhausted".to_string());
     }
     let instance_cli_type = normalize_cli_type(&instance.cli_type);
     if !api_key
@@ -50,8 +74,9 @@ pub fn managed_instance_update_assignment_inner(
     }
 
     let changed = db
-        .managed_instance_update_assignment(
+        .managed_instance_update_assignment_and_session(
             &input.id,
+            &instance.session_token,
             &input.provider_id,
             &input.api_key_id,
             input.assignment_source.as_deref(),
@@ -59,19 +84,7 @@ pub fn managed_instance_update_assignment_inner(
         .map_err(|e| e.to_string())?;
 
     if !changed {
-        return Err("Managed instance not found".to_string());
-    }
-
-    let session_changed = db
-        .proxy_session_update_provider_key(
-            &instance.session_token,
-            &input.provider_id,
-            &input.api_key_id,
-        )
-        .map_err(|e| e.to_string())?;
-
-    if !session_changed {
-        return Err("Proxy session not found for managed instance".to_string());
+        return Err("Managed instance or proxy session is no longer active".to_string());
     }
 
     db.managed_instance_get(&input.id)
@@ -87,9 +100,10 @@ pub fn managed_instance_cleanup_inner(db: &Database, cli_type: &str) -> Result<u
 #[tauri::command]
 pub fn managed_instance_list(
     db: State<'_, Arc<Mutex<Database>>>,
+    cli_type: Option<String>,
 ) -> Result<Vec<ManagedInstance>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    managed_instance_list_inner(&db)
+    managed_instance_list_inner(&db, cli_type.as_deref())
 }
 
 #[tauri::command]

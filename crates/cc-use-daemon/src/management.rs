@@ -31,6 +31,7 @@ pub struct ManagementInstanceHeartbeatInput {
     pub instance_id: String,
     pub shell_pid: Option<i32>,
     pub process_pid: Option<i32>,
+    pub phase: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -116,19 +117,27 @@ async fn management_instance_heartbeat(
         .db
         .lock()
         .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "Database lock failed"))?;
+    let phase = input.phase.as_deref().unwrap_or("running");
+    if !matches!(phase, "launching" | "running") {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Invalid managed instance heartbeat phase",
+        ));
+    }
     let updated = db
         .managed_instance_touch_heartbeat(
             &input.instance_id,
             input.shell_pid,
             input.process_pid,
+            phase,
             &chrono::Utc::now().to_rfc3339(),
         )
         .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
 
     if !updated {
         return Err(error_response(
-            StatusCode::NOT_FOUND,
-            "Managed instance not found",
+            StatusCode::CONFLICT,
+            "Managed instance is no longer active",
         ));
     }
 
@@ -143,7 +152,7 @@ async fn management_instance_stop(
     require_management_token(&state, &headers)?;
 
     let status = match input.stop_reason.as_deref() {
-        Some("launch_failed") => "failed",
+        Some("launch_failed" | "prelaunch_failed") => "failed",
         _ => "stopped",
     };
 
@@ -151,11 +160,17 @@ async fn management_instance_stop(
         .db
         .lock()
         .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "Database lock failed"))?;
-    let session_token = db
+    let instance = db
         .managed_instance_get(&input.instance_id)
         .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
-        .map(|instance| instance.session_token);
+        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "Managed instance not found"))?;
+    let session_token = instance.session_token;
     let now = chrono::Utc::now().to_rfc3339();
+    if matches!(instance.status.as_str(), "stopped" | "failed") {
+        db.proxy_session_revoke(&session_token, &instance.status, &now)
+            .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
+        return Ok(Json(ManagementHealthResponse { ok: true }));
+    }
     let updated = db
         .managed_instance_mark_stopped(
             &input.instance_id,
@@ -170,15 +185,13 @@ async fn management_instance_stop(
 
     if !updated {
         return Err(error_response(
-            StatusCode::NOT_FOUND,
-            "Managed instance not found",
+            StatusCode::CONFLICT,
+            "Managed instance is no longer active",
         ));
     }
 
-    if let Some(session_token) = session_token {
-        db.proxy_session_revoke(&session_token, status, &now)
-            .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    }
+    db.proxy_session_revoke(&session_token, status, &now)
+        .map_err(|e| error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
 
     Ok(Json(ManagementHealthResponse { ok: true }))
 }

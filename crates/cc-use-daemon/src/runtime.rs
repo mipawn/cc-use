@@ -80,15 +80,18 @@ fn spawn_managed_instance_sweeper(db: Arc<Mutex<Database>>) {
         loop {
             interval.tick().await;
 
-            let stale_cutoff =
-                chrono::Utc::now() - chrono::Duration::seconds(MANAGED_INSTANCE_STALE_AFTER_SECS);
-            let stop_cutoff = chrono::Utc::now()
-                - chrono::Duration::seconds(MANAGED_INSTANCE_STOP_STALE_AFTER_SECS);
+            let now = chrono::Utc::now();
+            let stale_cutoff = now - chrono::Duration::seconds(MANAGED_INSTANCE_STALE_AFTER_SECS);
+            let stop_cutoff =
+                now - chrono::Duration::seconds(MANAGED_INSTANCE_STOP_STALE_AFTER_SECS);
+            let now = now.to_rfc3339();
 
             if let Ok(db) = db.lock() {
+                let _ =
+                    db.managed_instance_fail_launching_older_than(&stale_cutoff.to_rfc3339(), &now);
                 let _ = db.managed_instance_mark_stale_older_than(&stale_cutoff.to_rfc3339());
-                let _ = db.managed_instance_stop_stale_older_than(&stop_cutoff.to_rfc3339());
-                let _ = db.proxy_session_revoke_stopped_managed(&chrono::Utc::now().to_rfc3339());
+                let _ = db.managed_instance_stop_stale_older_than(&stop_cutoff.to_rfc3339(), &now);
+                let _ = db.proxy_session_revoke_stopped_managed(&now);
             }
         }
     });

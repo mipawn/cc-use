@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Card, Table, Tag, Button, TreeSelect, Typography, message, Space } from 'antd'
+import { Card, Table, Tag, Button, TreeSelect, Typography, message, Space, Segmented } from 'antd'
 import { ReloadOutlined, ClearOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { getApi } from '../api'
@@ -37,6 +37,10 @@ function normalizeInstanceCliType(cliType: string) {
   return cliType === 'claude' ? 'claude_code' : cliType
 }
 
+function isActiveInstance(instance: ManagedInstance) {
+  return ['launching', 'running', 'stale'].includes(instance.status)
+}
+
 export function isApiKeyCompatibleWithCliType(key: Pick<ApiKey, 'types'>, cliType: string) {
   const normalizedCliType = normalizeInstanceCliType(cliType)
   return key.types.some((type) => normalizeInstanceCliType(type) === normalizedCliType)
@@ -52,13 +56,14 @@ export default function Instances({ clientKind }: InstancesProps) {
   const [instances, setInstances] = useState<ManagedInstance[]>([])
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
+  const [view, setView] = useState<'active' | 'history'>('active')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true)
     try {
       const [instancesData, providersData] = await Promise.all([
-        getApi().managedInstances.list(),
+        getApi().managedInstances.list(clientKind),
         getApi().provider.list(),
       ])
       setInstances(
@@ -87,7 +92,7 @@ export default function Instances({ clientKind }: InstancesProps) {
       if (timerRef.current) clearInterval(timerRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [clientKind])
 
   const providerMap = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers])
 
@@ -95,7 +100,7 @@ export default function Instances({ clientKind }: InstancesProps) {
     const grouped = new Map<string, ApiKey[]>()
     for (const key of apiKeys) {
       const provider = providerMap.get(key.providerId)
-      if (!provider?.isActive) continue
+      if (!provider?.isActive || !key.isActive || key.isExhausted) continue
       const list = grouped.get(key.providerId) || []
       list.push(key)
       grouped.set(key.providerId, list)
@@ -117,6 +122,15 @@ export default function Instances({ clientKind }: InstancesProps) {
   }, [apiKeys, providerMap])
 
   const apiKeyMap = useMemo(() => new Map(apiKeys.map((key) => [key.id, key])), [apiKeys])
+  const visibleInstances = useMemo(
+    () =>
+      instances.filter((instance) =>
+        view === 'active' ? isActiveInstance(instance) : !isActiveInstance(instance),
+      ),
+    [instances, view],
+  )
+  const activeCount = useMemo(() => instances.filter(isActiveInstance).length, [instances])
+  const historyCount = instances.length - activeCount
 
   const statusMeta = useMemo(
     () => ({
@@ -125,6 +139,19 @@ export default function Instances({ clientKind }: InstancesProps) {
       stale: { color: 'orange', label: t('instances.statusStale') },
       stopped: { color: 'default', label: t('instances.statusStopped') },
       failed: { color: 'red', label: t('instances.statusFailed') },
+    }),
+    [t],
+  )
+  const stopReasonLabels = useMemo(
+    () => ({
+      launch_failed: t('instances.reasonLaunchFailed'),
+      launch_timeout: t('instances.reasonLaunchTimeout'),
+      prelaunch_failed: t('instances.reasonPrelaunchFailed'),
+      process_exit: t('instances.reasonProcessExit'),
+      shell_exit: t('instances.reasonShellExit'),
+      heartbeat_timeout: t('instances.reasonHeartbeatTimeout'),
+      stale_timeout: t('instances.reasonStaleTimeout'),
+      manual_cleanup: t('instances.reasonManualCleanup'),
     }),
     [t],
   )
@@ -210,41 +237,64 @@ export default function Instances({ clientKind }: InstancesProps) {
       },
     },
     {
-      title: t('instances.columnAssignKey'),
+      title: t('instances.columnCurrentRoute'),
       key: 'assignKey',
       width: 280,
-      render: (_: unknown, record: ManagedInstance) => (
-        <TreeSelect
-          showSearch={{
-            filterTreeNode: (input, node) =>
-              String(node.title || '')
-                .toLowerCase()
-                .includes(input.toLowerCase()),
-          }}
-          treeDefaultExpandAll
-          placeholder={t('instances.selectKey')}
-          value={record.apiKeyId || undefined}
-          treeData={filteredTreeData(record.cliType)}
-          style={{ width: '100%' }}
-          onChange={(value: string) => handleAssignmentChange(record, value)}
-          treeNodeLabelProp='label'
-        />
-      ),
+      render: (_: unknown, record: ManagedInstance) => {
+        if (!isActiveInstance(record)) {
+          const provider = record.providerId ? providerMap.get(record.providerId) : null
+          const key = record.apiKeyId ? apiKeyMap.get(record.apiKeyId) : null
+          return (
+            <Text type='secondary'>
+              {provider?.name || record.providerId || t('common.unknown')} ·{' '}
+              {key?.alias || record.apiKeyId || t('common.unknown')}
+            </Text>
+          )
+        }
+        return (
+          <TreeSelect
+            showSearch={{
+              filterTreeNode: (input, node) =>
+                String(node.title || '')
+                  .toLowerCase()
+                  .includes(input.toLowerCase()),
+            }}
+            treeDefaultExpandAll
+            placeholder={t('instances.selectKey')}
+            value={record.apiKeyId || undefined}
+            treeData={filteredTreeData(record.cliType)}
+            style={{ width: '100%' }}
+            onChange={(value: string) => handleAssignmentChange(record, value)}
+            treeNodeLabelProp='label'
+          />
+        )
+      },
     },
     {
-      title: t('instances.columnLastSeen'),
-      dataIndex: 'lastSeenAt',
-      key: 'lastSeenAt',
+      title: t('instances.columnUpdatedAt'),
+      key: 'updatedAt',
       width: 180,
-      render: (value: string) => {
+      render: (_: unknown, record: ManagedInstance) => {
+        const value = record.stoppedAt || record.lastSeenAt
         const formattedValue = formatHeartbeat(value)
         return (
-          <Text
-            ellipsis={{ tooltip: formattedValue }}
-            style={{ display: 'block', maxWidth: '100%' }}
-          >
-            {formattedValue}
-          </Text>
+          <div>
+            <Text
+              ellipsis={{ tooltip: formattedValue }}
+              style={{ display: 'block', maxWidth: '100%' }}
+            >
+              {formattedValue}
+            </Text>
+            {record.stopReason && (
+              <Text type='secondary' style={{ display: 'block', fontSize: 11 }}>
+                {stopReasonLabels[record.stopReason as keyof typeof stopReasonLabels] ||
+                  record.stopReason}
+                {record.exitCode !== null
+                  ? ` · ${t('instances.exitCode', { code: record.exitCode })}`
+                  : ''}
+              </Text>
+            )}
+          </div>
         )
       },
     },
@@ -268,7 +318,15 @@ export default function Instances({ clientKind }: InstancesProps) {
       <Card
         title={t('instances.tableTitle')}
         extra={
-          <Space>
+          <Space wrap>
+            <Segmented<'active' | 'history'>
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'active', label: t('instances.activeView', { count: activeCount }) },
+                { value: 'history', label: t('instances.historyView', { count: historyCount }) },
+              ]}
+            />
             <Button icon={<ClearOutlined />} onClick={handleCleanup}>
               {t('instances.cleanup')}
             </Button>
@@ -299,7 +357,7 @@ export default function Instances({ clientKind }: InstancesProps) {
             rowKey='id'
             loading={loading}
             columns={columns}
-            dataSource={instances}
+            dataSource={visibleInstances}
             scroll={{ x: 900 }}
             pagination={{ pageSize: 10 }}
           />

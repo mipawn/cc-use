@@ -556,6 +556,9 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
                         {hasKey ? (
                           <div className={styles.keyBindingContent}>
                             <div className={styles.keyBindingInfo}>
+                              <Text type='secondary' className={styles.routeScopeLabel}>
+                                {t('projects.nextLaunchRoute')}
+                              </Text>
                               <img
                                 src={getProviderIconSrc(provider)}
                                 alt={provider?.name}
@@ -583,7 +586,9 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
                                 </div>
                               )}
                             >
-                              <Button type='text' size='small' icon={<SwapOutlined />} />
+                              <Tooltip title={t('projects.nextLaunchRouteHint')}>
+                                <Button type='text' size='small' icon={<SwapOutlined />} />
+                              </Tooltip>
                             </Dropdown>
                           </div>
                         ) : (

@@ -293,6 +293,9 @@ fn write_managed_launch_script(
         if preview.cli_type == "grok" { "1" } else { "0" }
     ));
     script.push_str("CC_USE_STOP_SENT=0\n");
+    script.push_str("CC_USE_CHILD_PID=\n");
+    script.push_str("CC_USE_HB_PID=\n");
+    script.push_str("CC_USE_INSTANCE_PHASE=launching\n");
     script.push_str("CC_USE_SCRIPT_PATH=\"$0\"\n\n");
 
     script.push_str(
@@ -310,8 +313,9 @@ fn write_managed_launch_script(
 }
 
 cc_use_send_heartbeat() {
+  process_pid="${CC_USE_CHILD_PID:-null}"
   cc_use_post '/_management/instances/heartbeat' \
-    "{\"instanceId\":\"${CC_USE_INSTANCE_ID}\",\"processPid\":${CC_USE_CHILD_PID},\"shellPid\":$$}"
+    "{\"instanceId\":\"${CC_USE_INSTANCE_ID}\",\"processPid\":${process_pid},\"shellPid\":$$,\"phase\":\"${CC_USE_INSTANCE_PHASE}\"}"
 }
 
 cc_use_stop_once() {
@@ -342,15 +346,37 @@ cc_use_heartbeat_loop() {
   done
 }
 
+cc_use_prelaunch_heartbeat_loop() {
+  while :; do
+"#,
+    );
+    script.push_str(&format!(
+        "    sleep {}\n",
+        MANAGED_INSTANCE_HEARTBEAT_INTERVAL_SECS
+    ));
+    script.push_str(
+        r#"    cc_use_send_heartbeat
+  done
+}
+
+trap 'cc_use_stop_once $? shell_exit' EXIT HUP INT TERM
+cc_use_send_heartbeat
+
 if [ -n "${CC_USE_PRELAUNCH_COMMAND}" ]; then
+  cc_use_prelaunch_heartbeat_loop &
+  CC_USE_HB_PID=$!
   eval "$CC_USE_PRELAUNCH_COMMAND"
   CC_USE_PRELAUNCH_EXIT_CODE=$?
+  kill "${CC_USE_HB_PID}" >/dev/null 2>&1 || true
+  wait "${CC_USE_HB_PID}" 2>/dev/null || true
+  CC_USE_HB_PID=
   if [ "${CC_USE_PRELAUNCH_EXIT_CODE}" -ne 0 ]; then
     cc_use_stop_once "${CC_USE_PRELAUNCH_EXIT_CODE}" prelaunch_failed
     exit "${CC_USE_PRELAUNCH_EXIT_CODE}"
   fi
 fi
 
+CC_USE_INSTANCE_PHASE=running
 if [ "${CC_USE_FOREGROUND}" = "1" ]; then
   # Grok Build is an interactive TUI and must own the foreground terminal.
   # Running it with `&` prevents it from reading the TTY and leaves a blank window.
@@ -362,7 +388,6 @@ fi
 cc_use_send_heartbeat
 cc_use_heartbeat_loop &
 CC_USE_HB_PID=$!
-trap 'cc_use_stop_once $? shell_exit' EXIT HUP INT TERM
 if [ "${CC_USE_FOREGROUND}" = "1" ]; then
   eval "$CC_USE_LAUNCH_COMMAND"
   CC_USE_EXIT_CODE=$?
@@ -655,7 +680,7 @@ mod tests {
         )
         .unwrap();
 
-        let script = std::fs::read_to_string(path).unwrap();
+        let script = std::fs::read_to_string(&path).unwrap();
         assert!(script.contains("CC_USE_FOREGROUND=1"));
         assert!(script.contains(
             "if [ \"${CC_USE_FOREGROUND}\" = \"1\" ]; then\n  eval \"$CC_USE_LAUNCH_COMMAND\""
@@ -678,8 +703,18 @@ mod tests {
         )
         .unwrap();
 
-        let script = std::fs::read_to_string(path).unwrap();
+        let script = std::fs::read_to_string(&path).unwrap();
         assert!(script.contains("CC_USE_FOREGROUND=0"));
         assert!(script.contains("eval \"$CC_USE_LAUNCH_COMMAND\" &\n  CC_USE_CHILD_PID=$!"));
+        assert!(script.contains("CC_USE_INSTANCE_PHASE=launching"));
+        assert!(script.contains("\\\"phase\\\":\\\"${CC_USE_INSTANCE_PHASE}\\\""));
+        assert!(script.contains("cc_use_prelaunch_heartbeat_loop"));
+        assert!(script.contains("CC_USE_INSTANCE_PHASE=running"));
+        let syntax = std::process::Command::new("sh")
+            .arg("-n")
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(syntax.success());
     }
 }

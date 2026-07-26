@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
 import { createRoot } from 'react-dom/client'
+;(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true
 
 const apiMock = {
   managedInstances: {
@@ -82,7 +85,7 @@ async function renderPage(clientKind: 'claude_code' | 'grok') {
   return {
     container,
     unmount() {
-      root.unmount()
+      act(() => root.unmount())
       container.remove()
     },
   }
@@ -130,11 +133,46 @@ describe('Instances page', () => {
         stopReason: null,
         exitCode: null,
       },
+      {
+        id: 'instance-3',
+        sessionToken: 'session-stopped123',
+        projectId: 'project-1',
+        providerId: 'provider-1',
+        apiKeyId: 'key-2',
+        cliType: 'claude_code',
+        terminalType: 'terminal',
+        projectPath: '/tmp/team-a/finished-project',
+        shellPid: 555,
+        processPid: 666,
+        status: 'stopped',
+        assignmentSource: 'project_launch',
+        lastSeenAt: '2026-04-14T18:00:00Z',
+        launchedAt: '2026-04-14T17:30:00Z',
+        stoppedAt: '2026-04-14T18:05:00Z',
+        stopReason: 'process_exit',
+        exitCode: 0,
+      },
     ])
-    apiMock.provider.list.mockResolvedValue([{ id: 'provider-1', name: 'Provider 1' }])
+    apiMock.provider.list.mockResolvedValue([
+      { id: 'provider-1', name: 'Provider 1', isActive: true },
+    ])
     apiMock.apiKey.list.mockResolvedValue([
-      { id: 'key-1', alias: 'Key 1', providerId: 'provider-1', types: ['grok'] },
-      { id: 'key-2', alias: 'Key 2', providerId: 'provider-1', types: ['claude'] },
+      {
+        id: 'key-1',
+        alias: 'Key 1',
+        providerId: 'provider-1',
+        types: ['grok'],
+        isActive: true,
+        isExhausted: false,
+      },
+      {
+        id: 'key-2',
+        alias: 'Key 2',
+        providerId: 'provider-1',
+        types: ['claude'],
+        isActive: true,
+        isExhausted: false,
+      },
     ])
     apiMock.managedInstances.updateAssignment.mockResolvedValue(undefined)
     apiMock.managedInstances.cleanup.mockResolvedValue(0)
@@ -143,7 +181,7 @@ describe('Instances page', () => {
   it('only shows Claude Code instances in the Claude Code launchpad', async () => {
     const view = await renderPage('claude_code')
 
-    expect(apiMock.managedInstances.list).toHaveBeenCalled()
+    expect(apiMock.managedInstances.list).toHaveBeenCalledWith('claude_code')
     expect(apiMock.provider.list).toHaveBeenCalled()
     expect(view.container.textContent).toContain('instances.tableTitle')
     expect(view.container.textContent).toContain('9f8e7d6c')
@@ -152,7 +190,27 @@ describe('Instances page', () => {
     expect(view.container.textContent).not.toContain('/tmp/team-a/bid-web')
     expect(view.container.textContent).not.toContain('PID 222')
     expect(view.container.textContent).toContain('2026-04-15 01:00:00')
+    expect(view.container.textContent).not.toContain('opped123')
 
+    view.unmount()
+  })
+
+  it('shows stopped and failed records only in recent history', async () => {
+    const view = await renderPage('claude_code')
+    const historyOption = Array.from(
+      view.container.querySelectorAll<HTMLElement>('.ant-segmented-item'),
+    ).find((item) => item.textContent?.includes('instances.historyView'))
+
+    expect(historyOption).toBeDefined()
+    await act(async () => {
+      historyOption?.click()
+    })
+    await flushRender()
+
+    expect(view.container.textContent).toContain('opped123')
+    expect(view.container.textContent).toContain('instances.reasonProcessExit')
+    expect(view.container.textContent).toContain('instances.exitCode')
+    expect(view.container.querySelector('.ant-select')).toBeNull()
     view.unmount()
   })
 
