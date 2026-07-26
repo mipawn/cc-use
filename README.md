@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.4.0 更新**：用量统计新增 Token / 费用双主视角，仪表盘、趋势、排行、月历与年度热力图统一跟随所选指标，并修正近 7 天、本月和趋势图的时间口径。
+> **3.5.0 更新**：统一收敛受管实例生命周期、HTTP / SSE / WebSocket 透明转发和模型费用口径；新增最近结束实例、缓存命中统计，并同步 Claude 4.6+、GPT-5.4+、DeepSeek V4、Grok 4.5 与 GLM-5.2 价格。
 >
 > **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
 >

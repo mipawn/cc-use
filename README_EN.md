@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.4.0 Update**: Usage statistics now support token and cost views across the dashboard, trends, rankings, calendar, and yearly heatmap, with consistent local-time ranges for the last 7 days, this month, and trend charts.
+> **3.5.0 Update**: Managed-instance lifecycle, transparent HTTP/SSE/WebSocket forwarding, and model-cost accounting are now deterministic. This release adds recently ended instances and cache-hit statistics, and refreshes pricing for Claude 4.6+, GPT-5.4+, DeepSeek V4, Grok 4.5, and GLM-5.2.
 >
 > **🎉 3.2.0 Update**: The app is now organized around three clients: Claude Code, Codex Desktop, and Claude Desktop. Codex CLI launch support has been removed; Codex Desktop and Claude Desktop use config takeover instead. See [CHANGELOG](./CHANGELOG.md).
 >

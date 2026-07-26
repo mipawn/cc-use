@@ -5,6 +5,32 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.5.0] - 2026-07-26
+
+### Added
+
+- 实例页新增当前实例与最近结束记录视图，可查看 `stopped / failed` 终态、停止原因和退出码
+- 托盘分别展示 Claude Code 与 Grok Build 的 running、launching、stale 实例数量
+- WebSocket 转发新增上游握手前置、子协议协商、关闭帧透传、HTTP / HTTPS CONNECT 代理和代理基础认证
+- 用量统计新增缓存读取、缓存创建、缓存命中率和缓存费用，最近请求同步展示缓存 Token
+- 新增 Claude Opus 5 / Sonnet 5、GPT-5.6、Grok 4.5 与 GLM-5.2 当前默认价格
+
+### Changed
+
+- 原 v3.6 透明网关稳定性并入 v3.5，统一交付实例、网关与费用确定性
+- 项目页明确只修改下次启动默认线路，实例页热切换只影响当前运行实例
+- CLI wrapper 在启动前命令期间持续上报 launching 心跳，CLI 真正启动后才进入 running
+- 内置价格只保留 Claude 4.6+、GPT-5.4+、DeepSeek V4、Grok 4.5 与 GLM-5.2
+- Claude Sonnet 5 限时价按日期切换，OpenAI 与 Grok 长上下文请求按官方阶梯计价
+
+### Fixed
+
+- 修复晚到 heartbeat 复活终态实例、重复 stop 覆盖首次终态，以及实例线路与 proxy session 非原子更新的问题
+- 修复客户端取消后 Console 长期停留 pending、并发许可延迟释放和已确认 SSE usage 未结算的问题
+- 修复逐跳 Header 转发、大小写 SSE Content-Type、无空格 `data:`、跨 chunk UTF-8 / JSON 与压缩响应解析问题
+- 修复 WebSocket 在上游失败前先向客户端返回 101，以及未复用供应商代理配置的问题
+- 修复 OpenAI / xAI 缓存 Token 重复计入普通输入，补齐 DeepSeek cache hit / miss 与 GLM-5.2 缓存 usage 解析
+
 ## [3.4.0] - 2026-07-26
 
 ### Added
