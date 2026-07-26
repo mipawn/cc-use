@@ -638,6 +638,7 @@ export interface CostStatsSummary {
   totalOutputTokens: number
   totalCacheReadTokens: number
   totalCacheCreationTokens: number
+  totalCacheCostUsd: number
   totalCostUsd: number
   avgLatencyMs: number | null
 }
@@ -690,6 +691,8 @@ export interface RecentRequestLogDisplay {
   totalCostUsd: number
   inputTokens: number
   outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
   latencyMs: number | null
   statusCode: number | null
   createdAt: string

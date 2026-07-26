@@ -58,6 +58,7 @@ fn find_usage_value(json: &serde_json::Value) -> Option<&serde_json::Value> {
 fn parse_usage_value(usage: &serde_json::Value) -> Option<TokenUsage> {
     let cache_read_tokens = usage
         .get("cache_read_input_tokens")
+        .or_else(|| usage.get("prompt_cache_hit_tokens"))
         .or_else(|| {
             usage
                 .get("input_tokens_details")
@@ -73,11 +74,17 @@ fn parse_usage_value(usage: &serde_json::Value) -> Option<TokenUsage> {
 
     // Claude / OpenAI Responses format
     if usage.get("input_tokens").is_some() || usage.get("output_tokens").is_some() {
+        let total_input_tokens = usage
+            .get("input_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let input_includes_cache = usage.get("input_tokens_details").is_some();
         return Some(TokenUsage {
-            input_tokens: usage
-                .get("input_tokens")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0),
+            input_tokens: if input_includes_cache {
+                total_input_tokens.saturating_sub(cache_read_tokens)
+            } else {
+                total_input_tokens
+            },
             output_tokens: usage
                 .get("output_tokens")
                 .and_then(|v| v.as_i64())
@@ -92,11 +99,16 @@ fn parse_usage_value(usage: &serde_json::Value) -> Option<TokenUsage> {
 
     // OpenAI format
     if usage.get("prompt_tokens").is_some() || usage.get("completion_tokens").is_some() {
+        let total_input_tokens = usage
+            .get("prompt_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        let input_tokens = usage
+            .get("prompt_cache_miss_tokens")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_else(|| total_input_tokens.saturating_sub(cache_read_tokens));
         return Some(TokenUsage {
-            input_tokens: usage
-                .get("prompt_tokens")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0),
+            input_tokens,
             output_tokens: usage
                 .get("completion_tokens")
                 .and_then(|v| v.as_i64())
@@ -258,14 +270,12 @@ impl StreamUsageAccumulator {
         // OpenAI format — full usage in final chunk
         if let Some(usage) = data.get("usage") {
             if usage.get("prompt_tokens").is_some() {
-                self.input_tokens = usage
-                    .get("prompt_tokens")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                self.output_tokens = usage
-                    .get("completion_tokens")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                if let Some(parsed) = parse_usage_value(usage) {
+                    self.input_tokens = parsed.input_tokens;
+                    self.output_tokens = parsed.output_tokens;
+                    self.cache_read_tokens = parsed.cache_read_tokens;
+                    self.cache_creation_tokens = parsed.cache_creation_tokens;
+                }
             }
         }
 

@@ -453,6 +453,7 @@ pub struct CostStatsSummary {
     pub total_output_tokens: i64,
     pub total_cache_read_tokens: i64,
     pub total_cache_creation_tokens: i64,
+    pub total_cache_cost_usd: f64,
     pub total_cost_usd: f64,
     pub avg_latency_ms: Option<f64>,
 }
@@ -517,6 +518,8 @@ pub struct RecentRequestLogDisplay {
     pub total_cost_usd: f64,
     pub input_tokens: i64,
     pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
     pub latency_ms: Option<i64>,
     pub status_code: Option<i32>,
     pub created_at: String,

@@ -311,6 +311,8 @@ impl Database {
             &format!(
                 "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                         COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
+                        COALESCE(SUM(COALESCE(cache_read_cost_usd, 0) +
+                                     COALESCE(cache_creation_cost_usd, 0)), 0),
                         COALESCE(SUM(total_cost_usd), 0), AVG(latency_ms)
                  FROM request_logs {}",
                 where_clause
@@ -323,8 +325,9 @@ impl Database {
                     total_output_tokens: row.get(2)?,
                     total_cache_read_tokens: row.get(3)?,
                     total_cache_creation_tokens: row.get(4)?,
-                    total_cost_usd: row.get(5)?,
-                    avg_latency_ms: row.get(6)?,
+                    total_cache_cost_usd: row.get(5)?,
+                    total_cost_usd: row.get(6)?,
+                    avg_latency_ms: row.get(7)?,
                 })
             },
         )?;
@@ -505,6 +508,7 @@ impl Database {
                             END
                         ),
                         r.total_cost_usd, r.input_tokens, r.output_tokens,
+                        r.cache_read_tokens, r.cache_creation_tokens,
                         r.latency_ms, r.status_code, r.created_at
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
@@ -529,9 +533,11 @@ impl Database {
                     total_cost_usd: row.get(5)?,
                     input_tokens: row.get(6)?,
                     output_tokens: row.get(7)?,
-                    latency_ms: row.get(8)?,
-                    status_code: row.get(9)?,
-                    created_at: row.get(10)?,
+                    cache_read_tokens: row.get(8)?,
+                    cache_creation_tokens: row.get(9)?,
+                    latency_ms: row.get(10)?,
+                    status_code: row.get(11)?,
+                    created_at: row.get(12)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -1153,6 +1159,7 @@ mod tests {
         cache_only.input_tokens = 0;
         cache_only.output_tokens = 0;
         cache_only.cache_read_tokens = 1_000;
+        cache_only.cache_read_cost_usd = 0.05;
 
         db.request_log_create(&cache_only).unwrap();
 
@@ -1163,8 +1170,12 @@ mod tests {
 
         assert_eq!(stats.summary.total_requests, 1);
         assert_eq!(stats.summary.total_cache_read_tokens, 1_000);
+        assert!((stats.summary.total_cache_cost_usd - 0.05).abs() < 1e-6);
         assert_eq!(stats.daily_trend[0].tokens, 0);
         assert!((stats.daily_trend[0].cost - 0.05).abs() < 1e-6);
+        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
+        assert_eq!(recent.items[0].cache_read_tokens, 1_000);
+        assert_eq!(recent.items[0].cache_creation_tokens, 0);
         assert_eq!(dashboard.today_requests, 1);
         assert_eq!(dashboard.today_tokens, 0);
         assert_eq!(dashboard.total_tokens, 0);

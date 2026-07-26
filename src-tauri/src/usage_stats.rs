@@ -123,38 +123,31 @@ impl UsageAggregator {
         output_tokens: u64,
         cost_multiplier: f64,
     ) -> f64 {
+        let custom = std::collections::HashMap::new();
+        if crate::services::cost_calculator::find_pricing(model, &custom).is_some() {
+            return crate::services::cost_calculator::calculate_cost(
+                model,
+                input_tokens as i64,
+                output_tokens as i64,
+                0,
+                0,
+                cost_multiplier,
+                &custom,
+            )
+            .4;
+        }
+
         let (input_price, output_price) = Self::get_model_pricing(model);
-
-        let base_cost = (input_tokens as f64 * input_price / 1_000_000.0)
-            + (output_tokens as f64 * output_price / 1_000_000.0);
-
-        base_cost * cost_multiplier
+        ((input_tokens as f64 * input_price / 1_000_000.0)
+            + (output_tokens as f64 * output_price / 1_000_000.0))
+            * cost_multiplier
     }
 
     /// 获取模型定价（USD per 1M tokens）
     fn get_model_pricing(model: &str) -> (f64, f64) {
-        // 返回 (input_price_per_1M, output_price_per_1M)
-        match model {
-            // Claude models
-            "claude-opus-4" => (15.0, 75.0),
-            "claude-sonnet-4" => (3.0, 15.0),
-            "claude-haiku-4" => (0.8, 4.0),
-            "claude-3-5-sonnet-20241022" => (3.0, 15.0),
-            "claude-3-5-haiku-20241022" => (0.8, 4.0),
-
-            // OpenAI models
-            "gpt-4o" => (2.5, 10.0),
-            "gpt-4o-mini" => (0.15, 0.6),
-            "gpt-4-turbo" => (10.0, 30.0),
-            "gpt-3.5-turbo" => (0.5, 1.5),
-
-            // DeepSeek models
-            "deepseek-chat" => (0.14, 0.28),
-            "deepseek-reasoner" => (0.55, 2.19),
-
-            // Default fallback
-            _ => (1.0, 2.0),
-        }
+        crate::services::cost_calculator::find_pricing(model, &std::collections::HashMap::new())
+            .map(|pricing| (pricing.input, pricing.output))
+            .unwrap_or((1.0, 2.0))
     }
 
     /// 聚合统计（占位实现，真实实现需查询数据库）
@@ -241,29 +234,29 @@ mod tests {
 
     #[test]
     fn test_estimate_cost_claude_opus() {
-        let cost = UsageAggregator::estimate_cost("claude-opus-4", 1_000_000, 500_000, 1.0);
-        // (1M * $15 / 1M) + (0.5M * $75 / 1M) = $15 + $37.5 = $52.5
-        assert_eq!(cost, 52.5);
+        let cost = UsageAggregator::estimate_cost("claude-opus-4-6", 1_000_000, 500_000, 1.0);
+        // (1M * $5 / 1M) + (0.5M * $25 / 1M) = $5 + $12.5 = $17.5
+        assert_eq!(cost, 17.5);
     }
 
     #[test]
     fn test_estimate_cost_with_multiplier() {
-        let cost = UsageAggregator::estimate_cost("claude-sonnet-4", 1_000_000, 1_000_000, 1.5);
+        let cost = UsageAggregator::estimate_cost("claude-sonnet-4-6", 1_000_000, 1_000_000, 1.5);
         // (1M * $3 / 1M) + (1M * $15 / 1M) = $3 + $15 = $18
         // $18 * 1.5 = $27
         assert_eq!(cost, 27.0);
     }
 
     #[test]
-    fn test_estimate_cost_gpt4o_mini() {
-        let cost = UsageAggregator::estimate_cost("gpt-4o-mini", 2_000_000, 1_000_000, 1.0);
-        // (2M * $0.15 / 1M) + (1M * $0.6 / 1M) = $0.3 + $0.6 = $0.9
-        assert!((cost - 0.9).abs() < 0.001);
+    fn test_estimate_cost_gpt54_mini() {
+        let cost = UsageAggregator::estimate_cost("gpt-5.4-mini", 2_000_000, 1_000_000, 1.0);
+        // (2M * $0.75 / 1M) + (1M * $4.5 / 1M) = $1.5 + $4.5 = $6
+        assert!((cost - 6.0).abs() < 0.001);
     }
 
     #[test]
     fn test_estimate_cost_deepseek() {
-        let cost = UsageAggregator::estimate_cost("deepseek-chat", 5_000_000, 2_000_000, 1.0);
+        let cost = UsageAggregator::estimate_cost("deepseek-v4-flash", 5_000_000, 2_000_000, 1.0);
         // (5M * $0.14 / 1M) + (2M * $0.28 / 1M) = $0.7 + $0.56 = $1.26
         assert!((cost - 1.26).abs() < 0.001);
     }
@@ -277,15 +270,17 @@ mod tests {
 
     #[test]
     fn test_model_pricing_coverage() {
-        // 验证常见模型定价存在
+        // 验证当前内置模型定价存在
         let models = vec![
-            "claude-opus-4",
-            "claude-sonnet-4",
-            "claude-haiku-4",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "deepseek-chat",
-            "deepseek-reasoner",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-opus-5",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+            "glm-5.2",
+            "grok-4.5",
         ];
 
         for model in models {

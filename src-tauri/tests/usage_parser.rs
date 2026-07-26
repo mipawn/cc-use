@@ -32,9 +32,33 @@ fn parse_openai_prompt_token_details_cache() {
     let (usage, _) = parse_usage_from_response(body);
     let usage = usage.unwrap();
 
-    assert_eq!(usage.input_tokens, 200);
+    assert_eq!(usage.input_tokens, 125);
     assert_eq!(usage.output_tokens, 100);
     assert_eq!(usage.cache_read_tokens, 75);
+}
+
+#[test]
+fn parse_deepseek_cache_hit_and_miss_tokens() {
+    let body = r#"{"usage":{"prompt_tokens":200,"completion_tokens":100,"prompt_cache_hit_tokens":150,"prompt_cache_miss_tokens":50},"model":"deepseek-v4-pro"}"#;
+    let (usage, model) = parse_usage_from_response(body);
+    let usage = usage.unwrap();
+
+    assert_eq!(usage.input_tokens, 50);
+    assert_eq!(usage.output_tokens, 100);
+    assert_eq!(usage.cache_read_tokens, 150);
+    assert_eq!(model.unwrap(), "deepseek-v4-pro");
+}
+
+#[test]
+fn parse_glm_usage_and_cached_tokens() {
+    let body = r#"{"model":"glm-5.2","usage":{"prompt_tokens":200,"completion_tokens":125,"prompt_tokens_details":{"cached_tokens":75},"total_tokens":325}}"#;
+    let (usage, model) = parse_usage_from_response(body);
+    let usage = usage.unwrap();
+
+    assert_eq!(usage.input_tokens, 125);
+    assert_eq!(usage.output_tokens, 125);
+    assert_eq!(usage.cache_read_tokens, 75);
+    assert_eq!(model.unwrap(), "glm-5.2");
 }
 
 #[test]
@@ -56,7 +80,7 @@ fn parse_openai_responses_nested_usage() {
     let (usage, model) = parse_usage_from_response(body);
     let usage = usage.unwrap();
 
-    assert_eq!(usage.input_tokens, 200);
+    assert_eq!(usage.input_tokens, 175);
     assert_eq!(usage.output_tokens, 100);
     assert_eq!(usage.cache_read_tokens, 25);
     assert_eq!(model.unwrap(), "gpt-5.5");
@@ -91,10 +115,35 @@ fn parse_openai_responses_streaming_sse() {
     let usage = usage.unwrap();
 
     assert!(is_streaming);
-    assert_eq!(usage.input_tokens, 120);
+    assert_eq!(usage.input_tokens, 108);
     assert_eq!(usage.output_tokens, 40);
     assert_eq!(usage.cache_read_tokens, 12);
     assert_eq!(model.unwrap(), "gpt-5.5");
+}
+
+#[test]
+fn parse_glm_streaming_sse_with_cached_tokens() {
+    let chunk = "data: {\"model\":\"glm-5.2\",\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":50,\"prompt_tokens_details\":{\"cached_tokens\":20}}}\n\n";
+
+    let (usage, model, is_streaming) = parse_usage_from_response_data(chunk, "text/event-stream");
+    let usage = usage.unwrap();
+
+    assert!(is_streaming);
+    assert_eq!(usage.input_tokens, 100);
+    assert_eq!(usage.output_tokens, 50);
+    assert_eq!(usage.cache_read_tokens, 20);
+    assert_eq!(model.unwrap(), "glm-5.2");
+}
+
+#[test]
+fn parses_sse_data_without_separator_space_and_case_insensitive_content_type() {
+    let chunk = "data:{\"type\":\"message_delta\",\"usage\":{\"output_tokens\":33}}\n\n";
+
+    let (usage, _, is_streaming) =
+        parse_usage_from_response_data(chunk, "Text/Event-Stream; Charset=UTF-8");
+
+    assert!(is_streaming);
+    assert_eq!(usage.unwrap().output_tokens, 33);
 }
 
 #[test]

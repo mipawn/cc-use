@@ -285,6 +285,22 @@ export default function Statistics() {
       align: 'right' as const,
       render: (v: number) => <Text strong={usageMetric === 'tokens'}>{renderTokens(v)}</Text>,
     },
+    {
+      title: t('statistics.cacheReadTokens'),
+      dataIndex: 'cacheReadTokens',
+      key: 'cacheReadTokens',
+      width: 110,
+      align: 'right' as const,
+      render: (v: number) => renderTokens(v),
+    },
+    {
+      title: t('statistics.cacheCreationTokens'),
+      dataIndex: 'cacheCreationTokens',
+      key: 'cacheCreationTokens',
+      width: 110,
+      align: 'right' as const,
+      render: (v: number) => renderTokens(v),
+    },
   ]
 
   const recentMetaColumns = [
@@ -324,6 +340,15 @@ export default function Statistics() {
   ]
 
   const hasData = stats && stats.summary.totalRequests > 0
+  const cacheInputTokens = stats
+    ? stats.summary.totalInputTokens +
+      stats.summary.totalCacheReadTokens +
+      stats.summary.totalCacheCreationTokens
+    : 0
+  const cacheHitRate =
+    stats && cacheInputTokens > 0
+      ? (stats.summary.totalCacheReadTokens / cacheInputTokens) * 100
+      : 0
 
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
     setRecentPage(pagination.current || 1)
@@ -427,6 +452,47 @@ export default function Statistics() {
                     suffix='ms'
                     precision={0}
                     prefix={<FieldTimeOutlined style={{ color: token.colorSuccess }} />}
+                  />
+                </Card>
+              </div>
+
+              <div className={styles.summaryRow}>
+                <Card className={styles.summaryCard} variant='outlined'>
+                  <Statistic
+                    title={
+                      <Tooltip title={t('statistics.cacheHitRateHint')}>
+                        <span>{t('statistics.cacheHitRate')}</span>
+                      </Tooltip>
+                    }
+                    value={cacheHitRate}
+                    precision={1}
+                    suffix='%'
+                    prefix={<ThunderboltOutlined style={{ color: token.colorSuccess }} />}
+                  />
+                </Card>
+                <Card className={styles.summaryCard} variant='outlined'>
+                  <Statistic
+                    title={t('statistics.cacheReadTokens')}
+                    value={stats!.summary.totalCacheReadTokens}
+                    prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
+                    formatter={(v) => renderTokens(Number(v))}
+                  />
+                </Card>
+                <Card className={styles.summaryCard} variant='outlined'>
+                  <Statistic
+                    title={t('statistics.cacheCreationTokens')}
+                    value={stats!.summary.totalCacheCreationTokens}
+                    prefix={<DatabaseOutlined style={{ color: token.colorWarning }} />}
+                    formatter={(v) => renderTokens(Number(v))}
+                  />
+                </Card>
+                <Card className={styles.summaryCard} variant='outlined'>
+                  <Statistic
+                    title={t('statistics.cacheCost')}
+                    value={stats!.summary.totalCacheCostUsd}
+                    precision={4}
+                    prefix={<DollarOutlined style={{ color: token.colorWarning }} />}
+                    formatter={(v) => `$${Number(v).toFixed(4)}`}
                   />
                 </Card>
               </div>
@@ -662,7 +728,7 @@ export default function Statistics() {
                     pageSizeOptions: ['10', '20', '50', '100'],
                     showTotal: (total) => t('statistics.totalItems', { total }),
                   }}
-                  scroll={{ x: 1120 }}
+                  scroll={{ x: 1340 }}
                 />
               </Card>
             </div>
