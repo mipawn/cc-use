@@ -8,9 +8,15 @@ CC Use 是一个基于 **会话令牌代理(session token proxy)** 架构的 Cla
 
 - **真实密钥永不落盘**:CLI 只拿到 `session-xxx` 令牌,真实 key 留在本地 daemon 内
 - **数据面与控制面分离**:GUI 是控制面,`cc-use-daemon` 是常驻数据面
-- **单点深度优先**:不做大而全的 CLI 覆盖,把 Claude Code + Codex 两件事做到极致
+- **显式控制优先**:路由变化由用户明确触发,不做自动决策
 
-贡献前请先阅读 [README](../README.md) 与 [`docs/daemon-mode/`](daemon-mode/) 理解架构。
+当前支持的客户端为 Claude Code、Grok Build(进程级注入)与 Codex Desktop、Claude Desktop(配置接管)。
+
+贡献前请先阅读:
+
+- [README](./README.md) — 产品行为与用户流程
+- [`docs/product-direction.md`](./docs/product-direction.md) — 产品边界与版本路线,**提议新功能前必读**
+- [`docs/daemon/v2.md`](./docs/daemon/v2.md) — 当前 daemon 架构
 
 ## 🛠 开发环境
 
@@ -43,9 +49,8 @@ src/                          # 前端 (React + TS)
 │   ├── components/           #   组件
 │   ├── stores/               #   Zustand 状态
 │   └── locales/              #   i18n (zh / en)
-└── shared/                   #   前后端共享类型与预设
-    ├── types/index.ts        #   ★ 改类型时前后端都要改
-    └── presets/providers.ts  #   供应商预设库
+└── shared/                   #   前后端共享类型
+    └── types/index.ts        #   ★ 改类型时前后端都要改
 
 src-tauri/                    # Tauri 主进程 (Rust)
 ├── src/
@@ -63,11 +68,10 @@ crates/cc-use-daemon/         # 独立的常驻代理 sidecar 二进制
 
 ## 🧰 常见贡献场景
 
-### 1. 新增一个供应商预设
+> 项目不维护内置的第三方供应商品牌预设(见 [product-direction](./docs/product-direction.md) 的「明确不做」),
+> 供应商通过用户自行填写 Base URL 接入。
 
-最简单的贡献,适合首次参与。步骤见 [`docs/PROVIDER-PRESETS.md`](PROVIDER-PRESETS.md)。
-
-### 2. 新增一个 Tauri 命令
+### 1. 新增一个 Tauri 命令
 
 1. 在 `src-tauri/src/commands/<domain>.rs` 写 `#[tauri::command]` 函数
 2. 在 `src-tauri/src/lib.rs` 的 `invoke_handler!` 宏里注册
@@ -76,7 +80,7 @@ crates/cc-use-daemon/         # 独立的常驻代理 sidecar 二进制
 5. 在 `src/renderer/api/index.ts` 的 `buildApi()` 实现
 6. 在 UI 里调用
 
-### 3. 新增数据库字段
+### 2. 新增数据库字段
 
 1. 在 `src-tauri/src/db/mod.rs` 的 `run_alter_migrations()` 追加 `ALTER TABLE` 语句(幂等)
 2. 在 `src-tauri/src/models/mod.rs` 的 struct 加字段(`#[serde(rename_all = "camelCase")]`)
@@ -122,12 +126,18 @@ pnpm tsc --noEmit && pnpm lint
 
 ## 💡 提议新功能
 
-建议先开 Issue 讨论需求与方案,避免做完再大改。特别欢迎以下方向的提议:
+建议先开 Issue 讨论需求与方案,避免做完再大改。
 
-- 国内中转站兼容性问题
-- 密钥池化 / 故障转移场景
-- 成本统计与预算告警
-- Codex 支持改进
+**提议前请先读 [product-direction](./docs/product-direction.md)**,其中「明确不做」一节列出了不接受的方向
+(自动故障转移 / 自动 Key 轮询、按成本或延迟自动选路、主动测活、通用协议互转、供应商品牌预设等)。
+这些是产品边界,不作为功能缺口处理。
+
+特别欢迎以下方向的提议:
+
+- 国内中转站(NewAPI 兼容网关)的显式配置与兼容性问题
+- 统计口径准确性与归因稳定性
+- managed instance 生命周期与状态展示
+- 长连接(SSE / WebSocket)转发稳定性
 
 ## 📜 行为准则
 
