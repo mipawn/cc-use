@@ -3,6 +3,8 @@ import { Tooltip, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { getApi } from '../../api'
 import type { DailyCostTrendItem } from '@shared/types'
+import { formatExactTokenCount, formatTokenCount } from '../../utils/formatTokens'
+import type { UsageMetric } from '../../utils/usageMetric'
 import styles from './MonthCalendar.module.css'
 
 const WEEKDAY_LABELS = {
@@ -42,6 +44,7 @@ function normalizeTrendData(data: unknown): DailyCostTrendItem[] {
       item !== null &&
       typeof item.date === 'string' &&
       typeof item.cost === 'number' &&
+      typeof item.tokens === 'number' &&
       typeof item.requests === 'number',
   )
 }
@@ -51,11 +54,13 @@ interface Props {
   year: number
   month: number
   mode?: 'calendar' | 'heatmap'
+  metric?: UsageMetric
 }
 
 interface HeatmapDay {
   dateStr: string
   cost: number
+  tokens: number
   requests: number
   isToday: boolean
   isFuture: boolean
@@ -68,9 +73,16 @@ interface HeatmapWeek {
   firstMonthKey: string | null
 }
 
-export default function MonthCalendar({ style, year, month, mode = 'calendar' }: Props) {
+export default function MonthCalendar({
+  style,
+  year,
+  month,
+  mode = 'calendar',
+  metric = 'tokens',
+}: Props) {
   const { token } = theme.useToken()
   const { t, i18n } = useTranslation()
+  const language = i18n.resolvedLanguage || i18n.language
   const today = toLocalDateKey(new Date())
   const todayDate = parseDateKey(today)
   const [trendData, setTrendData] = useState<DailyCostTrendItem[]>([])
@@ -93,9 +105,7 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
             cursor.setMonth(cursor.getMonth() + 1)
           }
           const results = await Promise.all(
-            fetchMonths.map(({ year: y, month: m }) =>
-              getApi().requestLog.getMonthlyTrend(y, m),
-            ),
+            fetchMonths.map(({ year: y, month: m }) => getApi().requestLog.getMonthlyTrend(y, m)),
           )
 
           if (!cancelled) {
@@ -131,13 +141,14 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
     return map
   }, [trendData])
 
-  const maxCost = useMemo(() => {
+  const maxMetricValue = useMemo(() => {
     let max = 0
     for (const item of trendData) {
-      if (item.cost > max) max = item.cost
+      const value = metric === 'tokens' ? item.tokens : item.cost
+      if (value > max) max = value
     }
     return max
-  }, [trendData])
+  }, [metric, trendData])
 
   const daysInMonth = new Date(year, month, 0).getDate()
   const firstDayOfWeek = (new Date(year, month - 1, 1).getDay() + 6) % 7
@@ -180,6 +191,7 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
         days.push({
           dateStr,
           cost: item?.cost ?? 0,
+          tokens: item?.tokens ?? 0,
           requests: item?.requests ?? 0,
           isToday: dateStr === today,
           isFuture: current > todayDate,
@@ -223,17 +235,19 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
 
   const yearSummary = useMemo(() => {
     let totalCost = 0
+    let totalTokens = 0
     let totalRequests = 0
     for (const item of trendData) {
       totalCost += item.cost
+      totalTokens += item.tokens
       totalRequests += item.requests
     }
-    return { totalCost, totalRequests }
+    return { totalCost, totalTokens, totalRequests }
   }, [trendData])
 
-  const getHeatLevel = (cost: number) => {
-    if (cost <= 0 || maxCost <= 0) return 0
-    const ratio = cost / maxCost
+  const getHeatLevel = (value: number) => {
+    if (value <= 0 || maxMetricValue <= 0) return 0
+    const ratio = value / maxMetricValue
     if (ratio >= 0.75) return 4
     if (ratio >= 0.5) return 3
     if (ratio >= 0.25) return 2
@@ -241,7 +255,7 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
   }
 
   const getCalendarCellStyle = (
-    cost: number,
+    value: number,
     hasData: boolean,
     isToday: boolean,
   ): React.CSSProperties => {
@@ -252,22 +266,24 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
       }
     }
 
-    const ratio = maxCost > 0 ? Math.min(cost / maxCost, 1) : 0
+    const ratio = maxMetricValue > 0 ? Math.min(value / maxMetricValue, 1) : 0
     const alpha = 0.14 + ratio * 0.7
+    const metricColor = metric === 'tokens' ? token.colorPrimary : token.colorWarning
 
     return {
-      borderColor: isToday ? token.colorPrimary : 'transparent',
+      borderColor: isToday ? metricColor : 'transparent',
       borderWidth: isToday ? 1.5 : 1,
-      background: `color-mix(in srgb, ${token.colorPrimary} ${Math.round(alpha * 100)}%, ${token.colorBgContainer})`,
+      background: `color-mix(in srgb, ${metricColor} ${Math.round(alpha * 100)}%, ${token.colorBgContainer})`,
     }
   }
 
+  const metricColor = metric === 'tokens' ? token.colorPrimary : token.colorWarning
   const heatmapBackgrounds = [
     token.colorFillQuaternary,
-    `color-mix(in srgb, ${token.colorPrimary} 18%, ${token.colorBgContainer})`,
-    `color-mix(in srgb, ${token.colorPrimary} 38%, ${token.colorBgContainer})`,
-    `color-mix(in srgb, ${token.colorPrimary} 60%, ${token.colorBgContainer})`,
-    `color-mix(in srgb, ${token.colorPrimary} 86%, ${token.colorBgContainer})`,
+    `color-mix(in srgb, ${metricColor} 18%, ${token.colorBgContainer})`,
+    `color-mix(in srgb, ${metricColor} 38%, ${token.colorBgContainer})`,
+    `color-mix(in srgb, ${metricColor} 60%, ${token.colorBgContainer})`,
+    `color-mix(in srgb, ${metricColor} 86%, ${token.colorBgContainer})`,
   ]
 
   const getHeatmapCellStyle = (
@@ -296,7 +312,7 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
     return {
       background: heatmapBackgrounds[level],
       boxShadow: isToday
-        ? `0 0 0 1.5px ${token.colorPrimary}, 0 0 0 2.5px ${token.colorBgContainer}`
+        ? `0 0 0 1.5px ${metricColor}, 0 0 0 2.5px ${token.colorBgContainer}`
         : `inset 0 0 0 1px ${ringColor}`,
     }
   }
@@ -308,22 +324,35 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
     } as React.CSSProperties
 
     const costText = formatCostCompact(yearSummary.totalCost)
+    const tokensText = formatTokenCount(yearSummary.totalTokens, language)
     const requestsText = yearSummary.totalRequests.toLocaleString()
+    const isCurrentRange = month === new Date().getMonth() + 1 && year === new Date().getFullYear()
 
     return (
       <div style={heatmapStyle} className={styles.heatmapSection}>
         <div className={styles.heatmapSummary}>
           {yearSummary.totalRequests > 0
-            ? (month === new Date().getMonth() + 1 && year === new Date().getFullYear()
-              ? t('dashboard.heatmapYearSummary', {
-                  requests: requestsText,
-                  cost: costText,
-                })
-              : t('dashboard.heatmapCalendarYear', {
-                  year: String(year),
-                  requests: requestsText,
-                  cost: costText,
-                }))
+            ? metric === 'tokens'
+              ? isCurrentRange
+                ? t('dashboard.heatmapYearTokenSummary', {
+                    requests: requestsText,
+                    tokens: tokensText,
+                  })
+                : t('dashboard.heatmapCalendarYearTokenSummary', {
+                    year: String(year),
+                    requests: requestsText,
+                    tokens: tokensText,
+                  })
+              : isCurrentRange
+                ? t('dashboard.heatmapYearSummary', {
+                    requests: requestsText,
+                    cost: costText,
+                  })
+                : t('dashboard.heatmapCalendarYear', {
+                    year: String(year),
+                    requests: requestsText,
+                    cost: costText,
+                  })
             : t('dashboard.heatmapNoData')}
         </div>
 
@@ -357,14 +386,22 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
               {heatmapWeeks.map((week) => (
                 <div key={week.key} className={styles.heatmapWeekColumn}>
                   {week.days.map((day) => {
-                    const level = getHeatLevel(day.cost)
+                    const metricValue = metric === 'tokens' ? day.tokens : day.cost
+                    const level = getHeatLevel(metricValue)
                     const tooltipContent = (
                       <div className={styles.tooltipContent}>
                         <div className={styles.tooltipDate}>{day.dateStr}</div>
                         <div className={styles.tooltipRow}>
-                          <span className={styles.tooltipDot} style={{ background: heatmapBackgrounds[level] }} />
+                          <span
+                            className={styles.tooltipDot}
+                            style={{ background: heatmapBackgrounds[level] }}
+                          />
                           <span>
-                            <span className={styles.tooltipCost}>{formatCost(day.cost)}</span>
+                            <span className={styles.tooltipCost}>
+                              {metric === 'tokens'
+                                ? `${formatExactTokenCount(day.tokens, language)} Token`
+                                : formatCost(day.cost)}
+                            </span>
                             <span className={styles.tooltipSep}>·</span>
                             <span>
                               {day.requests} {t('dashboard.requests')}
@@ -383,9 +420,13 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
                       >
                         <div
                           className={styles.heatmapCell}
-                          data-empty={day.inRange && !day.isFuture && day.cost === 0}
+                          data-empty={day.inRange && !day.isFuture && metricValue === 0}
                           style={getHeatmapCellStyle(level, day.isToday, day.isFuture, day.inRange)}
-                          aria-label={`${day.dateStr} ${formatCost(day.cost)} ${day.requests} ${t('dashboard.requests')}`}
+                          aria-label={`${day.dateStr} ${
+                            metric === 'tokens'
+                              ? `${formatExactTokenCount(day.tokens, language)} Token`
+                              : formatCost(day.cost)
+                          } ${day.requests} ${t('dashboard.requests')}`}
                         />
                       </Tooltip>
                     )
@@ -432,7 +473,9 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
           const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
           const item = dataMap.get(dateStr)
           const cost = item?.cost ?? 0
-          const hasData = cost > 0
+          const tokens = item?.tokens ?? 0
+          const metricValue = metric === 'tokens' ? tokens : cost
+          const hasData = metricValue > 0
           const isToday = dateStr === today
 
           return (
@@ -441,11 +484,17 @@ export default function MonthCalendar({ style, year, month, mode = 'calendar' }:
               className={styles.calendarCell}
               data-empty={!hasData}
               data-today={isToday}
-              style={getCalendarCellStyle(cost, hasData, isToday)}
+              style={getCalendarCellStyle(metricValue, hasData, isToday)}
             >
               <span className={styles.dayNumber}>{day}</span>
-              {isToday ? <span className={styles.todayDot} style={{ background: token.colorPrimary }} /> : null}
-              {hasData ? <span className={styles.costValue}>{formatCost(cost)}</span> : null}
+              {isToday ? (
+                <span className={styles.todayDot} style={{ background: metricColor }} />
+              ) : null}
+              {hasData ? (
+                <span className={styles.costValue}>
+                  {metric === 'tokens' ? formatTokenCount(tokens, language) : formatCost(cost)}
+                </span>
+              ) : null}
             </div>
           )
         })}

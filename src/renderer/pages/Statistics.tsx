@@ -1,7 +1,7 @@
 import { getApi } from '../api'
 /**
- * Statistics - 费用统计页面
- * 展示 API 请求费用、Top 10 排行、费用趋势、最近请求
+ * Statistics - 用量统计页面
+ * 展示 API 请求 Token / 费用、Top 10 排行、每日趋势、最近请求
  */
 import { useEffect, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
@@ -34,7 +34,12 @@ import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { CostStatistics, PaginatedRecentRequests, StatsTimeRange } from '@shared/types'
 import ModelPricingModal from '../components/common/ModelPricingModal'
-import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
+import {
+  formatExactTokenCount,
+  formatTokenCount,
+  formatTokenCountWithUnit,
+} from '../utils/formatTokens'
+import { getInitialUsageMetric, saveUsageMetric, type UsageMetric } from '../utils/usageMetric'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
@@ -60,6 +65,7 @@ export default function Statistics() {
   )
 
   const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
+  const [usageMetric, setUsageMetric] = useState<UsageMetric>(getInitialUsageMetric)
   const [stats, setStats] = useState<CostStatistics | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentRequests, setRecentRequests] = useState<PaginatedRecentRequests | null>(null)
@@ -69,22 +75,35 @@ export default function Statistics() {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
   const [pricingModalOpen, setPricingModalOpen] = useState(false)
   useEffect(() => {
+    let cancelled = false
+
     const fetchStats = async () => {
       setLoading(true)
       try {
-        const data = await getApi().requestLog.getCostStatistics(timeRange)
-        setStats(data)
+        const data = await getApi().requestLog.getCostStatistics(timeRange, usageMetric)
+        if (!cancelled) {
+          setStats(data)
+        }
       } catch (error) {
-        console.error('Failed to fetch cost statistics:', error)
+        if (!cancelled) {
+          console.error('Failed to fetch usage statistics:', error)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
-    fetchStats()
-  }, [timeRange])
+    void fetchStats()
+    return () => {
+      cancelled = true
+    }
+  }, [timeRange, usageMetric])
 
   useEffect(() => {
+    let cancelled = false
+
     const fetchRecentRequests = async () => {
       setRecentLoading(true)
       try {
@@ -93,15 +112,24 @@ export default function Statistics() {
           recentPage,
           recentPageSize,
         )
-        setRecentRequests(data)
+        if (!cancelled) {
+          setRecentRequests(data)
+        }
       } catch (error) {
-        console.error('Failed to fetch recent requests:', error)
+        if (!cancelled) {
+          console.error('Failed to fetch recent requests:', error)
+        }
       } finally {
-        setRecentLoading(false)
+        if (!cancelled) {
+          setRecentLoading(false)
+        }
       }
     }
 
-    fetchRecentRequests()
+    void fetchRecentRequests()
+    return () => {
+      cancelled = true
+    }
   }, [timeRange, recentPage, recentPageSize])
 
   useEffect(() => {
@@ -116,7 +144,49 @@ export default function Statistics() {
     { value: 'all', label: t('statistics.all') },
   ]
 
-  const maxTrendCost = stats ? Math.max(...stats.dailyTrend.map((d) => d.cost), 0.0001) : 1
+  const handleUsageMetricChange = (value: string | number) => {
+    const nextMetric: UsageMetric = value === 'cost' ? 'cost' : 'tokens'
+    setUsageMetric(nextMetric)
+    saveUsageMetric(nextMetric)
+  }
+
+  const metricOptions = [
+    {
+      value: 'tokens',
+      label: t('statistics.tokenMetric'),
+      icon: <DatabaseOutlined />,
+    },
+    {
+      value: 'cost',
+      label: t('statistics.costMetric'),
+      icon: <DollarOutlined />,
+    },
+  ]
+
+  const getTrendValue = (day: CostStatistics['dailyTrend'][number]) =>
+    usageMetric === 'tokens' ? day.tokens : day.cost
+  const maxTrendValue = stats
+    ? Math.max(...stats.dailyTrend.map((day) => getTrendValue(day)), 0.0001)
+    : 1
+  const metricColor = usageMetric === 'tokens' ? token.colorPrimary : token.colorWarning
+
+  const costColumn = {
+    title: t('statistics.cost'),
+    dataIndex: 'totalCost',
+    key: 'totalCost',
+    width: 110,
+    align: 'right' as const,
+    render: (v: number) => <Text strong={usageMetric === 'cost'}>{formatCost(v)}</Text>,
+  }
+
+  const tokenColumn = {
+    title: t('statistics.tokens'),
+    dataIndex: 'totalTokens',
+    key: 'totalTokens',
+    width: 100,
+    align: 'right' as const,
+    render: (v: number) => <Text strong={usageMetric === 'tokens'}>{renderTokens(v)}</Text>,
+  }
 
   // Top table columns (shared pattern)
   const makeTopColumns = (nameLabel: string, showNameTooltip = false) => [
@@ -144,14 +214,7 @@ export default function Statistics() {
         )
       },
     },
-    {
-      title: t('statistics.cost'),
-      dataIndex: 'totalCost',
-      key: 'totalCost',
-      width: 110,
-      align: 'right' as const,
-      render: (v: number) => <Text strong>{formatCost(v)}</Text>,
-    },
+    ...(usageMetric === 'tokens' ? [tokenColumn, costColumn] : [costColumn, tokenColumn]),
     {
       title: t('statistics.requests'),
       dataIndex: 'totalRequests',
@@ -159,17 +222,9 @@ export default function Statistics() {
       width: 80,
       align: 'right' as const,
     },
-    {
-      title: t('statistics.tokens'),
-      dataIndex: 'totalTokens',
-      key: 'totalTokens',
-      width: 90,
-      align: 'right' as const,
-      render: (v: number) => renderTokens(v),
-    },
   ]
 
-  const recentColumns = [
+  const recentIdentityColumns = [
     {
       title: t('statistics.model'),
       dataIndex: 'model',
@@ -202,21 +257,25 @@ export default function Statistics() {
       ellipsis: true,
       render: (v: string | null) => displayName(v, t('statistics.other')),
     },
-    {
-      title: t('statistics.cost'),
-      dataIndex: 'totalCostUsd',
-      key: 'totalCostUsd',
-      width: 100,
-      align: 'right' as const,
-      render: (v: number) => <Text strong>{formatCost(v)}</Text>,
-    },
+  ]
+
+  const recentCostColumn = {
+    title: t('statistics.cost'),
+    dataIndex: 'totalCostUsd',
+    key: 'totalCostUsd',
+    width: 100,
+    align: 'right' as const,
+    render: (v: number) => <Text strong={usageMetric === 'cost'}>{formatCost(v)}</Text>,
+  }
+
+  const recentTokenColumns = [
     {
       title: t('statistics.inputTokens'),
       dataIndex: 'inputTokens',
       key: 'inputTokens',
       width: 100,
       align: 'right' as const,
-      render: (v: number) => renderTokens(v),
+      render: (v: number) => <Text strong={usageMetric === 'tokens'}>{renderTokens(v)}</Text>,
     },
     {
       title: t('statistics.outputTokens'),
@@ -224,8 +283,11 @@ export default function Statistics() {
       key: 'outputTokens',
       width: 100,
       align: 'right' as const,
-      render: (v: number) => renderTokens(v),
+      render: (v: number) => <Text strong={usageMetric === 'tokens'}>{renderTokens(v)}</Text>,
     },
+  ]
+
+  const recentMetaColumns = [
     {
       title: t('statistics.latency'),
       dataIndex: 'latencyMs',
@@ -251,6 +313,14 @@ export default function Statistics() {
       width: 160,
       render: (v: string) => new Date(v).toLocaleString(),
     },
+  ]
+
+  const recentColumns = [
+    ...recentIdentityColumns,
+    ...(usageMetric === 'tokens'
+      ? [...recentTokenColumns, recentCostColumn]
+      : [recentCostColumn, ...recentTokenColumns]),
+    ...recentMetaColumns,
   ]
 
   const hasData = stats && stats.summary.totalRequests > 0
@@ -283,6 +353,17 @@ export default function Statistics() {
           options={timeRangeOptions}
           className={styles.filterSegmented}
         />
+        <div className={styles.metricControl}>
+          <Text type='secondary' className={styles.metricLabel}>
+            {t('statistics.metricLabel')}
+          </Text>
+          <Segmented
+            value={usageMetric}
+            onChange={handleUsageMetricChange}
+            options={metricOptions}
+            className={styles.metricSegmented}
+          />
+        </div>
       </div>
 
       {/* Content */}
@@ -297,13 +378,22 @@ export default function Statistics() {
               {/* Summary Cards */}
               <div className={styles.summaryRow}>
                 <Card className={styles.summaryCard} variant='outlined'>
-                  <Statistic
-                    title={t('statistics.totalCost')}
-                    value={stats!.summary.totalCostUsd}
-                    precision={4}
-                    prefix={<DollarOutlined style={{ color: token.colorWarning }} />}
-                    formatter={(v) => `$${Number(v).toFixed(4)}`}
-                  />
+                  {usageMetric === 'tokens' ? (
+                    <Statistic
+                      title={t('statistics.totalTokens')}
+                      value={stats!.summary.totalInputTokens + stats!.summary.totalOutputTokens}
+                      prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
+                      formatter={(v) => renderTokens(Number(v))}
+                    />
+                  ) : (
+                    <Statistic
+                      title={t('statistics.totalCost')}
+                      value={stats!.summary.totalCostUsd}
+                      precision={4}
+                      prefix={<DollarOutlined style={{ color: token.colorWarning }} />}
+                      formatter={(v) => `$${Number(v).toFixed(4)}`}
+                    />
+                  )}
                 </Card>
                 <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
@@ -313,12 +403,22 @@ export default function Statistics() {
                   />
                 </Card>
                 <Card className={styles.summaryCard} variant='outlined'>
-                  <Statistic
-                    title={t('statistics.totalTokens')}
-                    value={stats!.summary.totalInputTokens + stats!.summary.totalOutputTokens}
-                    prefix={<DatabaseOutlined style={{ color: '#722ed1' }} />}
-                    formatter={(v) => renderTokens(Number(v))}
-                  />
+                  {usageMetric === 'tokens' ? (
+                    <Statistic
+                      title={t('statistics.totalCost')}
+                      value={stats!.summary.totalCostUsd}
+                      precision={4}
+                      prefix={<DollarOutlined style={{ color: token.colorWarning }} />}
+                      formatter={(v) => `$${Number(v).toFixed(4)}`}
+                    />
+                  ) : (
+                    <Statistic
+                      title={t('statistics.totalTokens')}
+                      value={stats!.summary.totalInputTokens + stats!.summary.totalOutputTokens}
+                      prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
+                      formatter={(v) => renderTokens(Number(v))}
+                    />
+                  )}
                 </Card>
                 <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
@@ -338,12 +438,16 @@ export default function Statistics() {
                   variant='outlined'
                   title={
                     <Space>
-                      <BarChartOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.dailyTrend')}</span>
+                      <BarChartOutlined style={{ color: metricColor }} />
+                      <span>
+                        {usageMetric === 'tokens'
+                          ? t('statistics.dailyTokenTrend')
+                          : t('statistics.dailyCostTrend')}
+                      </span>
                     </Space>
                   }
                 >
-                  {stats!.dailyTrend.some((d) => d.cost > 0) ? (
+                  {stats!.dailyTrend.some((day) => getTrendValue(day) > 0) ? (
                     <div className={styles.trendChart}>
                       {stats!.dailyTrend.map((day, i) => (
                         <div
@@ -365,13 +469,32 @@ export default function Statistics() {
                             <div
                               className={styles.trendBar}
                               style={{
-                                height: `${Math.max((day.cost / maxTrendCost) * 100, 2)}%`,
-                                background: token.colorPrimary,
+                                height: `${Math.max((getTrendValue(day) / maxTrendValue) * 100, 2)}%`,
+                                background: metricColor,
                               }}
                             >
                               {hoveredBar === i && (
-                                <div className={styles.trendTooltip}>
-                                  {day.date}: ${day.cost.toFixed(4)} / {day.requests} req
+                                <div
+                                  className={`${styles.trendTooltip} ${
+                                    stats!.dailyTrend.length <= 1
+                                      ? ''
+                                      : i < 3 && i < Math.ceil(stats!.dailyTrend.length / 2)
+                                        ? styles.trendTooltipStart
+                                        : i >= stats!.dailyTrend.length - 3 &&
+                                            i >= Math.ceil(stats!.dailyTrend.length / 2)
+                                          ? styles.trendTooltipEnd
+                                          : ''
+                                  }`}
+                                >
+                                  {day.date} ·{' '}
+                                  {usageMetric === 'tokens'
+                                    ? formatTokenCountWithUnit(
+                                        day.tokens,
+                                        language,
+                                        t('statistics.tokenUnit'),
+                                      )
+                                    : formatCost(day.cost)}{' '}
+                                  · {day.requests} {t('statistics.requestUnit')}
                                 </div>
                               )}
                             </div>
@@ -401,7 +524,11 @@ export default function Statistics() {
                   title={
                     <Space>
                       <KeyOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.topKeysByCost')}</span>
+                      <span>
+                        {usageMetric === 'tokens'
+                          ? t('statistics.topKeysByTokens')
+                          : t('statistics.topKeysByCost')}
+                      </span>
                     </Space>
                   }
                 >
@@ -425,7 +552,11 @@ export default function Statistics() {
                   title={
                     <Space>
                       <CloudServerOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.topProvidersByCost')}</span>
+                      <span>
+                        {usageMetric === 'tokens'
+                          ? t('statistics.topProvidersByTokens')
+                          : t('statistics.topProvidersByCost')}
+                      </span>
                     </Space>
                   }
                 >
@@ -452,7 +583,11 @@ export default function Statistics() {
                   title={
                     <Space>
                       <FolderOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.topProjectsByCost')}</span>
+                      <span>
+                        {usageMetric === 'tokens'
+                          ? t('statistics.topProjectsByTokens')
+                          : t('statistics.topProjectsByCost')}
+                      </span>
                     </Space>
                   }
                 >
@@ -476,7 +611,11 @@ export default function Statistics() {
                   title={
                     <Space>
                       <RobotOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.topModelsByCost')}</span>
+                      <span>
+                        {usageMetric === 'tokens'
+                          ? t('statistics.topModelsByTokens')
+                          : t('statistics.topModelsByCost')}
+                      </span>
                     </Space>
                   }
                 >
@@ -521,7 +660,7 @@ export default function Statistics() {
                     total: recentRequests?.total || 0,
                     showSizeChanger: true,
                     pageSizeOptions: ['10', '20', '50', '100'],
-                    showTotal: (total) => `共 ${total} 条`,
+                    showTotal: (total) => t('statistics.totalItems', { total }),
                   }}
                   scroll={{ x: 1120 }}
                 />

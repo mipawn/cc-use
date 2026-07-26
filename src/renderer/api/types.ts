@@ -29,6 +29,7 @@ import type {
   UsageLog,
   StatsTimeRange,
   CostStatistics,
+  DailyCostTrendItem,
   DashboardCostStats,
   PaginatedRecentRequests,
   RecentGatewayMetrics,
@@ -160,20 +161,20 @@ export interface Api {
   requestLog: {
     getCostStats: () => Promise<{ todayCost: number; totalBalance: number }>
     getKeyCosts: () => Promise<{ keyId: string; todayCost: number; totalCost: number }[]>
-    getDailyTrend: (days?: number) => Promise<{ date: string; cost: number; requests: number }[]>
-    getCostStatistics: (timeRange: StatsTimeRange) => Promise<CostStatistics>
+    getDailyTrend: (days?: number) => Promise<DailyCostTrendItem[]>
+    getCostStatistics: (
+      timeRange: StatsTimeRange,
+      metric?: 'tokens' | 'cost',
+    ) => Promise<CostStatistics>
     getRecentPaginated: (
       timeRange: StatsTimeRange,
       page?: number,
       pageSize?: number,
     ) => Promise<PaginatedRecentRequests>
-    getDashboardStats: () => Promise<DashboardCostStats>
+    getDashboardStats: (metric?: 'tokens' | 'cost') => Promise<DashboardCostStats>
     getGatewayMetrics: () => Promise<RecentGatewayMetrics>
     getProviderGatewayMetrics: () => Promise<ProviderGatewayMetrics[]>
-    getMonthlyTrend: (
-      year: number,
-      month: number,
-    ) => Promise<{ date: string; cost: number; requests: number }[]>
+    getMonthlyTrend: (year: number, month: number) => Promise<DailyCostTrendItem[]>
     repairCosts: () => Promise<number>
   }
   modelPricing: {

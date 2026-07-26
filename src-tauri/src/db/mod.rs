@@ -331,11 +331,11 @@ impl Database {
             "today" => format!("WHERE {} = DATE('now', 'localtime')", local_date),
             "yesterday" => format!("WHERE {} = DATE('now', 'localtime', '-1 day')", local_date),
             "week" => format!(
-                "WHERE {} >= DATE('now', 'localtime', '-7 days')",
+                "WHERE {} >= DATE('now', 'localtime', '-6 days')",
                 local_date
             ),
             "month" => format!(
-                "WHERE {} >= DATE('now', 'localtime', '-30 days')",
+                "WHERE {} >= DATE('now', 'localtime', 'start of month')",
                 local_date
             ),
             _ => String::new(), // "all"

@@ -137,10 +137,11 @@ function buildApi(): Api {
       getCostStats: () => invoke('request_log_get_cost_stats'),
       getKeyCosts: () => invoke('request_log_get_key_costs'),
       getDailyTrend: (days) => invoke('request_log_get_daily_trend', { days }),
-      getCostStatistics: (timeRange) => invoke('request_log_get_cost_statistics', { timeRange }),
+      getCostStatistics: (timeRange, metric) =>
+        invoke('request_log_get_cost_statistics', { timeRange, metric }),
       getRecentPaginated: (timeRange, page, pageSize) =>
         invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
-      getDashboardStats: () => invoke('request_log_get_dashboard_stats'),
+      getDashboardStats: (metric) => invoke('request_log_get_dashboard_stats', { metric }),
       getGatewayMetrics: () => invoke('gateway_metrics_get_recent'),
       getProviderGatewayMetrics: () => invoke('gateway_metrics_get_by_provider'),
       getMonthlyTrend: (year: number, month: number) =>

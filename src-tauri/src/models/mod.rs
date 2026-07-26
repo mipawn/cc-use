@@ -502,6 +502,7 @@ pub struct TopModelCostItem {
 pub struct DailyCostTrendItem {
     pub date: String,
     pub cost: f64,
+    pub tokens: i64,
     pub requests: i64,
 }
 
@@ -548,6 +549,7 @@ pub struct DashboardCostStats {
     pub total_cost: f64,
     pub today_requests: i64,
     pub today_tokens: i64,
+    pub total_tokens: i64,
     pub weekly_trend: Vec<DailyCostTrendItem>,
     pub top_keys: Vec<TopKeyCostItem>,
     pub top_projects: Vec<TopProjectCostItem>,

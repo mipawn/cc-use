@@ -18,3 +18,7 @@ export function formatTokenCount(value: number, language: string): string {
 export function formatExactTokenCount(value: number, language: string): string {
   return value.toLocaleString(language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US')
 }
+
+export function formatTokenCountWithUnit(value: number, language: string, unit: string): string {
+  return `${formatTokenCount(value, language)} ${unit}`
+}

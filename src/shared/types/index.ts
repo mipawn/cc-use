@@ -677,6 +677,7 @@ export interface TopModelCostItem {
 export interface DailyCostTrendItem {
   date: string
   cost: number
+  tokens: number
   requests: number
 }
 
@@ -715,6 +716,7 @@ export interface DashboardCostStats {
   totalCost: number
   todayRequests: number
   todayTokens: number
+  totalTokens: number
   weeklyTrend: DailyCostTrendItem[]
   topKeys: TopKeyCostItem[]
   topProjects: TopProjectCostItem[]

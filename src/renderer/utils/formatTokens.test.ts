@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatExactTokenCount, formatTokenCount } from './formatTokens'
+import { formatExactTokenCount, formatTokenCount, formatTokenCountWithUnit } from './formatTokens'
 
 describe('formatTokenCount', () => {
   it('uses Chinese ten-thousand and hundred-million units', () => {
@@ -15,5 +15,10 @@ describe('formatTokenCount', () => {
 
   it('can expose the exact value for tooltips', () => {
     expect(formatExactTokenCount(123_456_789, 'zh-CN')).toBe('123,456,789')
+  })
+
+  it('formats trend values with an explicit unit', () => {
+    expect(formatTokenCountWithUnit(123_456, 'zh-CN', 'Token')).toBe('12.3万 Token')
+    expect(formatTokenCountWithUnit(1_230_000, 'en-US', 'Tokens')).toBe('1.2M Tokens')
   })
 })

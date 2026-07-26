@@ -20,6 +20,10 @@
 .filterSection {
   margin-bottom: 16px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .filterSegmented {
@@ -29,6 +33,28 @@
 }
 
 .filterSegmented :global(.ant-segmented-item) {
+  border-radius: var(--radius-sm) !important;
+}
+
+.metricControl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.metricLabel {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.metricSegmented {
+  background: var(--surface-sunken) !important;
+  padding: 4px !important;
+  border-radius: var(--radius-ant) !important;
+}
+
+.metricSegmented :global(.ant-segmented-item) {
   border-radius: var(--radius-sm) !important;
 }
 
@@ -72,6 +98,15 @@
 }
 
 @media (max-width: 500px) {
+  .filterSection {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .metricControl {
+    justify-content: space-between;
+  }
+
   .summaryRow {
     grid-template-columns: 1fr;
   }
@@ -139,6 +174,17 @@
   white-space: nowrap;
   pointer-events: none;
   z-index: 10;
+}
+
+.trendTooltipStart {
+  left: 0;
+  transform: none;
+}
+
+.trendTooltipEnd {
+  right: 0;
+  left: auto;
+  transform: none;
 }
 
 .trendEmpty {

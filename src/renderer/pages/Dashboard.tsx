@@ -16,6 +16,7 @@ import { getApi } from '../api'
 import MonthCalendar from '../components/dashboard/MonthCalendar'
 import type { DashboardCostStats } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
+import { getInitialUsageMetric, saveUsageMetric, type UsageMetric } from '../utils/usageMetric'
 import styles from './Dashboard.module.css'
 
 const { Title, Text } = Typography
@@ -41,27 +42,51 @@ export default function Dashboard() {
 
   const currentYear = new Date().getFullYear()
   const [dashStats, setDashStats] = useState<DashboardCostStats | null>(null)
+  const [dashStatsMetric, setDashStatsMetric] = useState<UsageMetric | null>(null)
+  const [dashStatsLoading, setDashStatsLoading] = useState(true)
+  const [usageMetric, setUsageMetric] = useState<UsageMetric>(getInitialUsageMetric)
   const [calendarView, setCalendarView] = useState<CalendarView>(getInitialCalendarView)
   const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth() + 1)
 
   useEffect(() => {
-    void fetchDashboardStats()
-  }, [])
+    let cancelled = false
 
-  const fetchDashboardStats = async () => {
-    try {
-      const stats = await getApi().requestLog.getDashboardStats()
-      setDashStats(stats)
-    } catch (error) {
-      console.error('Failed to fetch dashboard stats:', error)
+    const fetchDashboardStats = async () => {
+      setDashStatsLoading(true)
+      try {
+        const stats = await getApi().requestLog.getDashboardStats(usageMetric)
+        if (!cancelled) {
+          setDashStats(stats)
+          setDashStatsMetric(usageMetric)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to fetch dashboard stats:', error)
+        }
+      } finally {
+        if (!cancelled) {
+          setDashStatsLoading(false)
+        }
+      }
     }
-  }
+
+    void fetchDashboardStats()
+    return () => {
+      cancelled = true
+    }
+  }, [usageMetric])
 
   const handleCalendarViewChange = (value: string | number) => {
     const nextView = value === 'heatmap' ? 'heatmap' : 'calendar'
     setCalendarView(nextView)
     localStorage.setItem('dashboardTrendView', nextView)
+  }
+
+  const handleUsageMetricChange = (value: string | number) => {
+    const nextMetric: UsageMetric = value === 'cost' ? 'cost' : 'tokens'
+    setUsageMetric(nextMetric)
+    saveUsageMetric(nextMetric)
   }
 
   const calPrev = () => {
@@ -128,9 +153,32 @@ export default function Dashboard() {
     [calMonth, calYear, i18n.language],
   )
 
-  const topKeys = useMemo(() => dashStats?.topKeys.slice(0, 3) ?? [], [dashStats])
-  const topProjects = useMemo(() => dashStats?.topProjects.slice(0, 3) ?? [], [dashStats])
+  const rankingStats = dashStatsMetric === usageMetric ? dashStats : null
+  const topKeys = useMemo(() => rankingStats?.topKeys.slice(0, 3) ?? [], [rankingStats])
+  const topProjects = useMemo(() => rankingStats?.topProjects.slice(0, 3) ?? [], [rankingStats])
   const rankClasses = [styles.topRank1, styles.topRank2, styles.topRank3]
+  const language = i18n.resolvedLanguage || i18n.language
+  const metricOptions = [
+    {
+      value: 'tokens',
+      label: t('statistics.tokenMetric'),
+      icon: <DatabaseOutlined />,
+    },
+    {
+      value: 'cost',
+      label: t('statistics.costMetric'),
+      icon: <DollarOutlined />,
+    },
+  ]
+
+  const renderTokenValue = (value: number) => (
+    <Tooltip title={formatExactTokenCount(value, language)}>
+      <span>{formatTokenCount(value, language)}</span>
+    </Tooltip>
+  )
+
+  const renderUsageValue = (cost: number, tokens: number) =>
+    usageMetric === 'tokens' ? renderTokenValue(tokens) : `$${cost.toFixed(4)}`
 
   return (
     <div className={styles.container}>
@@ -143,6 +191,17 @@ export default function Dashboard() {
             {t('dashboard.subtitle')}
           </Text>
         </div>
+        <div className={styles.metricControl}>
+          <Text type='secondary' className={styles.metricLabel}>
+            {t('statistics.metricLabel')}
+          </Text>
+          <Segmented
+            value={usageMetric}
+            onChange={handleUsageMetricChange}
+            options={metricOptions}
+            className={styles.metricSegmented}
+          />
+        </div>
       </div>
 
       <div className={styles.content}>
@@ -150,13 +209,27 @@ export default function Dashboard() {
           <div className={styles.statsRow}>
             <Card className={styles.statCard} variant='outlined'>
               <div className={styles.statContent}>
-                <DollarOutlined className={styles.statIcon} style={{ color: token.colorWarning }} />
+                {usageMetric === 'tokens' ? (
+                  <DatabaseOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorPrimary }}
+                  />
+                ) : (
+                  <DollarOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorWarning }}
+                  />
+                )}
                 <div className={styles.statInfo}>
                   <Text type='secondary' className={styles.statLabel}>
-                    {t('dashboard.todayCost')}
+                    {usageMetric === 'tokens'
+                      ? t('dashboard.todayTokens')
+                      : t('dashboard.todayCost')}
                   </Text>
                   <Text strong className={styles.statValue}>
-                    ${dashStats?.todayCost.toFixed(4) || '0.0000'}
+                    {usageMetric === 'tokens'
+                      ? renderTokenValue(dashStats?.todayTokens || 0)
+                      : `$${dashStats?.todayCost.toFixed(4) || '0.0000'}`}
                   </Text>
                 </div>
               </div>
@@ -164,13 +237,27 @@ export default function Dashboard() {
 
             <Card className={styles.statCard} variant='outlined'>
               <div className={styles.statContent}>
-                <WalletOutlined className={styles.statIcon} style={{ color: token.colorSuccess }} />
+                {usageMetric === 'tokens' ? (
+                  <DatabaseOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorPrimary }}
+                  />
+                ) : (
+                  <WalletOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorSuccess }}
+                  />
+                )}
                 <div className={styles.statInfo}>
                   <Text type='secondary' className={styles.statLabel}>
-                    {t('dashboard.totalCost')}
+                    {usageMetric === 'tokens'
+                      ? t('dashboard.totalTokens')
+                      : t('dashboard.totalCost')}
                   </Text>
                   <Text strong className={styles.statValue}>
-                    ${dashStats?.totalCost.toFixed(2) || '0.00'}
+                    {usageMetric === 'tokens'
+                      ? renderTokenValue(dashStats?.totalTokens || 0)
+                      : `$${dashStats?.totalCost.toFixed(2) || '0.00'}`}
                   </Text>
                 </div>
               </div>
@@ -195,25 +282,27 @@ export default function Dashboard() {
 
             <Card className={styles.statCard} variant='outlined'>
               <div className={styles.statContent}>
-                <DatabaseOutlined className={styles.statIcon} style={{ color: '#722ed1' }} />
+                {usageMetric === 'tokens' ? (
+                  <DollarOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorWarning }}
+                  />
+                ) : (
+                  <DatabaseOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorPrimary }}
+                  />
+                )}
                 <div className={styles.statInfo}>
                   <Text type='secondary' className={styles.statLabel}>
-                    {t('dashboard.todayTokens')}
+                    {usageMetric === 'tokens'
+                      ? t('dashboard.todayCost')
+                      : t('dashboard.todayTokens')}
                   </Text>
                   <Text strong className={styles.statValue}>
-                    <Tooltip
-                      title={formatExactTokenCount(
-                        dashStats?.todayTokens || 0,
-                        i18n.resolvedLanguage || i18n.language,
-                      )}
-                    >
-                      <span>
-                        {formatTokenCount(
-                          dashStats?.todayTokens || 0,
-                          i18n.resolvedLanguage || i18n.language,
-                        )}
-                      </span>
-                    </Tooltip>
+                    {usageMetric === 'tokens'
+                      ? `$${dashStats?.todayCost.toFixed(4) || '0.0000'}`
+                      : renderTokenValue(dashStats?.todayTokens || 0)}
                   </Text>
                 </div>
               </div>
@@ -229,8 +318,12 @@ export default function Dashboard() {
                   <div className={styles.trendTitleLeft}>
                     <Text strong>
                       {calendarView === 'calendar'
-                        ? t('dashboard.costCalendar')
-                        : t('dashboard.costHeatmap')}
+                        ? usageMetric === 'tokens'
+                          ? t('dashboard.tokenCalendar')
+                          : t('dashboard.costCalendar')
+                        : usageMetric === 'tokens'
+                          ? t('dashboard.tokenHeatmap')
+                          : t('dashboard.costHeatmap')}
                     </Text>
                     {calendarView === 'calendar' ? (
                       <div className={styles.calendarNav}>
@@ -367,14 +460,26 @@ export default function Dashboard() {
                 </div>
               }
             >
-              <MonthCalendar year={calYear} month={calMonth} mode={calendarView} />
+              <MonthCalendar
+                year={calYear}
+                month={calMonth}
+                mode={calendarView}
+                metric={usageMetric}
+              />
             </Card>
 
             <div className={styles.sidebarColumn}>
               <Card
                 className={styles.topCard}
                 variant='outlined'
-                title={<Text strong>{t('dashboard.topKeysByCost')}</Text>}
+                loading={dashStatsLoading}
+                title={
+                  <Text strong>
+                    {usageMetric === 'tokens'
+                      ? t('dashboard.topKeysByTokens')
+                      : t('dashboard.topKeysByCost')}
+                  </Text>
+                }
               >
                 {topKeys.length > 0 ? (
                   <div className={styles.topList}>
@@ -389,7 +494,9 @@ export default function Dashboard() {
                             {item.providerName || t('common.none')}
                           </span>
                         </div>
-                        <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
+                        <span className={styles.topValue}>
+                          {renderUsageValue(item.totalCost, item.totalTokens)}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -401,7 +508,14 @@ export default function Dashboard() {
               <Card
                 className={styles.topCard}
                 variant='outlined'
-                title={<Text strong>{t('dashboard.topProjectsByCost')}</Text>}
+                loading={dashStatsLoading}
+                title={
+                  <Text strong>
+                    {usageMetric === 'tokens'
+                      ? t('dashboard.topProjectsByTokens')
+                      : t('dashboard.topProjectsByCost')}
+                  </Text>
+                }
               >
                 {topProjects.length > 0 ? (
                   <div className={styles.topList}>
@@ -416,7 +530,9 @@ export default function Dashboard() {
                             {item.totalRequests} {t('dashboard.requests')}
                           </span>
                         </div>
-                        <span className={styles.topCost}>${item.totalCost.toFixed(4)}</span>
+                        <span className={styles.topValue}>
+                          {renderUsageValue(item.totalCost, item.totalTokens)}
+                        </span>
                       </div>
                     ))}
                   </div>

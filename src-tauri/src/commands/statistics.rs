@@ -65,9 +65,10 @@ pub fn request_log_get_daily_trend(
 pub fn request_log_get_cost_statistics(
     db: State<'_, Arc<Mutex<Database>>>,
     time_range: String,
+    metric: Option<String>,
 ) -> Result<CostStatistics, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_cost_statistics(&time_range)
+    db.request_log_get_statistics(&time_range, metric.as_deref().unwrap_or("cost"))
         .map_err(|e| e.to_string())
 }
 
@@ -97,9 +98,10 @@ pub fn request_log_get_monthly_trend(
 #[tauri::command]
 pub fn request_log_get_dashboard_stats(
     db: State<'_, Arc<Mutex<Database>>>,
+    metric: Option<String>,
 ) -> Result<DashboardCostStats, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_dashboard_stats()
+    db.request_log_get_dashboard_stats_by_metric(metric.as_deref().unwrap_or("cost"))
         .map_err(|e| e.to_string())
 }
 

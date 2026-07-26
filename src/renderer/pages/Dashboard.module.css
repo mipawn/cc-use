@@ -40,6 +40,28 @@
   font-size: 14px;
 }
 
+.metricControl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.metricLabel {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.metricSegmented {
+  background: var(--surface-sunken) !important;
+  padding: 3px !important;
+  border-radius: var(--radius-ant) !important;
+}
+
+.metricSegmented :global(.ant-segmented-item) {
+  border-radius: var(--radius-sm) !important;
+}
+
 .content {
   flex: 1;
   overflow: hidden;
@@ -320,10 +342,11 @@
   white-space: nowrap;
 }
 
-.topCost {
+.topValue {
   font-weight: 600;
   font-size: 13px;
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .topEmpty {
@@ -348,6 +371,16 @@
 }
 
 @media (max-width: 700px) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .metricControl {
+    justify-content: space-between;
+  }
+
   .statsRow,
   .sidebarColumn {
     grid-template-columns: 1fr;

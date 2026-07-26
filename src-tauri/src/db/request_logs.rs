@@ -200,22 +200,51 @@ impl Database {
         days: i64,
     ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
         let created_date = Self::local_date_expr("created_at");
+        let day_offset = days.clamp(1, 366) - 1;
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
+            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0),
+                    COALESCE(SUM(input_tokens + output_tokens), 0), COUNT(*)
                  FROM request_logs
                  WHERE {} >= DATE('now', 'localtime', '-{} days')
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
             created_date,
             created_date,
-            days
+            day_offset
         ))?;
 
         let rows = stmt.query_map([], |row| {
             Ok(DailyCostTrendItem {
                 date: row.get(0)?,
                 cost: row.get(1)?,
-                requests: row.get(2)?,
+                tokens: row.get(2)?,
+                requests: row.get(3)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    fn request_log_get_daily_trend_for_range(
+        &self,
+        time_range: &str,
+    ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
+        let created_date = Self::local_date_expr("created_at");
+        let where_clause = self.billable_request_logs_where("created_at", time_range);
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0),
+                    COALESCE(SUM(input_tokens + output_tokens), 0), COUNT(*)
+                 FROM request_logs
+                 {} GROUP BY d ORDER BY d ASC",
+            created_date, where_clause
+        ))?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(DailyCostTrendItem {
+                date: row.get(0)?,
+                cost: row.get(1)?,
+                tokens: row.get(2)?,
+                requests: row.get(3)?,
             })
         })?;
 
@@ -230,7 +259,8 @@ impl Database {
         let ym = format!("{:04}-{:02}", year, month);
         let created_date = Self::local_date_expr("created_at");
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0), COUNT(*)
+            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0),
+                    COALESCE(SUM(input_tokens + output_tokens), 0), COUNT(*)
                  FROM request_logs
                  WHERE strftime('%Y-%m', {}) = ?1
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
@@ -242,7 +272,8 @@ impl Database {
             Ok(DailyCostTrendItem {
                 date: row.get(0)?,
                 cost: row.get(1)?,
-                requests: row.get(2)?,
+                tokens: row.get(2)?,
+                requests: row.get(3)?,
             })
         })?;
 
@@ -253,9 +284,27 @@ impl Database {
         &self,
         time_range: &str,
     ) -> Result<CostStatistics, rusqlite::Error> {
+        self.request_log_get_statistics(time_range, "cost")
+    }
+
+    pub fn request_log_get_statistics(
+        &self,
+        time_range: &str,
+        metric: &str,
+    ) -> Result<CostStatistics, rusqlite::Error> {
         let where_clause = self.billable_request_logs_where("created_at", time_range);
         let r_where_clause =
             self.billable_request_logs_where_with_alias("r", "r.created_at", time_range);
+        let ranking_expression = if metric == "tokens" {
+            "SUM(r.input_tokens + r.output_tokens)"
+        } else {
+            "SUM(r.total_cost_usd)"
+        };
+        let model_ranking_expression = if metric == "tokens" {
+            "SUM(input_tokens + output_tokens)"
+        } else {
+            "SUM(total_cost_usd)"
+        };
 
         // Summary
         let summary = self.conn.query_row(
@@ -287,12 +336,13 @@ impl Database {
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
-                 {} GROUP BY r.api_key_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
+                 {} GROUP BY r.api_key_id ORDER BY {} DESC LIMIT 10",
             if r_where_clause.is_empty() {
                 ""
             } else {
                 &r_where_clause
-            }
+            },
+            ranking_expression
         ))?;
         let top_keys: Vec<TopKeyCostItem> = stmt
             .query_map([], |row| {
@@ -314,12 +364,13 @@ impl Database {
                         SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
                  FROM request_logs r
                  LEFT JOIN providers p ON r.provider_id = p.id
-                 {} GROUP BY r.provider_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
+                 {} GROUP BY r.provider_id ORDER BY {} DESC LIMIT 10",
             if r_where_clause.is_empty() {
                 ""
             } else {
                 &r_where_clause
-            }
+            },
+            ranking_expression
         ))?;
         let top_providers: Vec<TopProviderCostItem> = stmt
             .query_map([], |row| {
@@ -358,12 +409,13 @@ impl Database {
                  FROM request_logs r
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
-                 {} GROUP BY 1, 2 ORDER BY SUM(r.total_cost_usd) DESC LIMIT 10",
+                 {} GROUP BY 1, 2 ORDER BY {} DESC LIMIT 10",
             if r_where_clause.is_empty() {
                 ""
             } else {
                 &r_where_clause
-            }
+            },
+            ranking_expression
         ))?;
         let top_projects: Vec<TopProjectCostItem> = stmt
             .query_map([], |row| {
@@ -383,8 +435,8 @@ impl Database {
             "SELECT COALESCE(model, 'unknown'), SUM(total_cost_usd), COUNT(*),
                         SUM(input_tokens + output_tokens)
                  FROM request_logs
-                 {} GROUP BY model ORDER BY SUM(total_cost_usd) DESC LIMIT 10",
-            where_clause
+                 {} GROUP BY model ORDER BY {} DESC LIMIT 10",
+            where_clause, model_ranking_expression
         ))?;
         let top_models: Vec<TopModelCostItem> = stmt
             .query_map([], |row| {
@@ -398,8 +450,8 @@ impl Database {
             .filter_map(|r| r.ok())
             .collect();
 
-        // Daily trend
-        let daily_trend = self.request_log_get_daily_trend(30)?;
+        // Keep the trend on the same local-time range as the summary and rankings.
+        let daily_trend = self.request_log_get_daily_trend_for_range(time_range)?;
 
         Ok(CostStatistics {
             summary,
@@ -494,8 +546,20 @@ impl Database {
     }
 
     pub fn request_log_get_dashboard_stats(&self) -> Result<DashboardCostStats, rusqlite::Error> {
+        self.request_log_get_dashboard_stats_by_metric("cost")
+    }
+
+    pub fn request_log_get_dashboard_stats_by_metric(
+        &self,
+        metric: &str,
+    ) -> Result<DashboardCostStats, rusqlite::Error> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let created_date = Self::local_date_expr("created_at");
+        let ranking_expression = if metric == "tokens" {
+            "SUM(r.input_tokens + r.output_tokens)"
+        } else {
+            "SUM(r.total_cost_usd)"
+        };
 
         let today_cost: f64 = self.conn.query_row(
             &format!(
@@ -537,18 +601,26 @@ impl Database {
             |row| row.get(0),
         )?;
 
+        let total_tokens: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM request_logs
+             WHERE input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0",
+            [],
+            |row| row.get(0),
+        )?;
+
         let weekly_trend = self.request_log_get_daily_trend(7)?;
 
         // Top keys (all time, limit 5)
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT r.api_key_id, COALESCE(r.key_alias, k.alias, ''), COALESCE(r.provider_name, p.name, ''),
                     SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
              FROM request_logs r
              LEFT JOIN api_keys k ON r.api_key_id = k.id
              LEFT JOIN providers p ON r.provider_id = p.id
              WHERE r.input_tokens > 0 OR r.output_tokens > 0 OR r.cache_read_tokens > 0 OR r.cache_creation_tokens > 0
-             GROUP BY r.api_key_id ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5",
-        )?;
+             GROUP BY r.api_key_id ORDER BY {} DESC LIMIT 5",
+            ranking_expression
+        ))?;
         let top_keys: Vec<TopKeyCostItem> = stmt
             .query_map([], |row| {
                 Ok(TopKeyCostItem {
@@ -564,7 +636,7 @@ impl Database {
             .collect();
 
         // Top projects (all time, limit 5)
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT
                     CASE
                         WHEN r.project_id IS NOT NULL THEN r.project_id
@@ -586,8 +658,9 @@ impl Database {
              LEFT JOIN projects pr ON r.project_id = pr.id
              LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
              WHERE r.input_tokens > 0 OR r.output_tokens > 0 OR r.cache_read_tokens > 0 OR r.cache_creation_tokens > 0
-             GROUP BY 1, 2 ORDER BY SUM(r.total_cost_usd) DESC LIMIT 5",
-        )?;
+             GROUP BY 1, 2 ORDER BY {} DESC LIMIT 5",
+            ranking_expression
+        ))?;
         let top_projects: Vec<TopProjectCostItem> = stmt
             .query_map([], |row| {
                 Ok(TopProjectCostItem {
@@ -606,6 +679,7 @@ impl Database {
             total_cost,
             today_requests,
             today_tokens,
+            total_tokens,
             weekly_trend,
             top_keys,
             top_projects,
@@ -797,6 +871,15 @@ mod tests {
         assert!((stats.today_cost - 0.03).abs() < 1e-6);
         assert_eq!(stats.today_requests, 1);
         assert_eq!(stats.today_tokens, 30);
+        assert_eq!(stats.total_tokens, 60);
+        assert_eq!(
+            stats
+                .weekly_trend
+                .iter()
+                .find(|item| item.date == now.format("%Y-%m-%d").to_string())
+                .map(|item| item.tokens),
+            Some(30)
+        );
     }
 
     #[test]
@@ -1000,5 +1083,90 @@ mod tests {
         assert_eq!(recent.total, 1);
         assert_eq!(recent.items.len(), 1);
         assert_eq!(recent.items[0].id, "real-response");
+    }
+
+    #[test]
+    fn statistics_rankings_follow_selected_metric() {
+        let db = Database::new_in_memory().unwrap();
+        let created_at = chrono::Utc::now().to_rfc3339();
+
+        let mut cost_heavy = mk_billable_log("cost-heavy", created_at.clone(), 10.0);
+        cost_heavy.model = Some("cost-heavy-model".into());
+        cost_heavy.input_tokens = 10;
+        cost_heavy.output_tokens = 10;
+
+        let mut token_heavy = mk_billable_log("token-heavy", created_at, 0.01);
+        token_heavy.model = Some("token-heavy-model".into());
+        token_heavy.input_tokens = 10_000;
+        token_heavy.output_tokens = 20_000;
+
+        db.request_log_create(&cost_heavy).unwrap();
+        db.request_log_create(&token_heavy).unwrap();
+
+        let cost_stats = db.request_log_get_statistics("all", "cost").unwrap();
+        let token_stats = db.request_log_get_statistics("all", "tokens").unwrap();
+        let unknown_stats = db.request_log_get_statistics("all", "requests").unwrap();
+
+        assert_eq!(cost_stats.top_models[0].model, "cost-heavy-model");
+        assert_eq!(token_stats.top_models[0].model, "token-heavy-model");
+        assert_eq!(unknown_stats.top_models[0].model, "cost-heavy-model");
+        assert_eq!(
+            token_stats.daily_trend.last().map(|day| day.tokens),
+            Some(30_020)
+        );
+    }
+
+    #[test]
+    fn statistics_trend_uses_the_selected_time_range() {
+        let db = Database::new_in_memory().unwrap();
+        let now = chrono::Local::now();
+
+        db.request_log_create(&mk_billable_log(
+            "today",
+            now.with_timezone(&chrono::Utc).to_rfc3339(),
+            0.03,
+        ))
+        .unwrap();
+        db.request_log_create(&mk_billable_log(
+            "older",
+            (now - chrono::Duration::days(10))
+                .with_timezone(&chrono::Utc)
+                .to_rfc3339(),
+            0.04,
+        ))
+        .unwrap();
+
+        let today = db.request_log_get_statistics("today", "tokens").unwrap();
+        let all = db.request_log_get_statistics("all", "tokens").unwrap();
+
+        assert_eq!(today.summary.total_requests, 1);
+        assert_eq!(today.daily_trend.len(), 1);
+        assert_eq!(today.daily_trend[0].requests, 1);
+        assert_eq!(all.summary.total_requests, 2);
+        assert_eq!(all.daily_trend.len(), 2);
+    }
+
+    #[test]
+    fn cache_only_usage_counts_as_a_request_but_not_as_main_tokens() {
+        let db = Database::new_in_memory().unwrap();
+        let mut cache_only = mk_billable_log("cache-only", chrono::Utc::now().to_rfc3339(), 0.05);
+        cache_only.input_tokens = 0;
+        cache_only.output_tokens = 0;
+        cache_only.cache_read_tokens = 1_000;
+
+        db.request_log_create(&cache_only).unwrap();
+
+        let stats = db.request_log_get_statistics("all", "tokens").unwrap();
+        let dashboard = db
+            .request_log_get_dashboard_stats_by_metric("tokens")
+            .unwrap();
+
+        assert_eq!(stats.summary.total_requests, 1);
+        assert_eq!(stats.summary.total_cache_read_tokens, 1_000);
+        assert_eq!(stats.daily_trend[0].tokens, 0);
+        assert!((stats.daily_trend[0].cost - 0.05).abs() < 1e-6);
+        assert_eq!(dashboard.today_requests, 1);
+        assert_eq!(dashboard.today_tokens, 0);
+        assert_eq!(dashboard.total_tokens, 0);
     }
 }
