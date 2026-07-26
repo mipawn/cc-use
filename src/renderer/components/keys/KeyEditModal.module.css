@@ -49,6 +49,55 @@
   border-radius: var(--radius-ant, 8px);
 }
 
+.familyMappingGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+.exactMappingSection {
+  padding-top: 14px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+}
+
+.exactMappingHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.exactMappingHint,
+.exactMappingEmpty {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.exactMappingEmpty {
+  padding: 12px 0 4px;
+  text-align: center;
+}
+
+.exactMappingList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exactMappingRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.mappingArrow {
+  color: var(--ant-color-text-tertiary);
+}
+
 .templateBtn {
   padding: 0;
   height: auto;

@@ -21,12 +21,11 @@
 //!      "inferenceGatewayApiKey": "<route-token>",
 //!      "inferenceGatewayAuthScheme": "bearer",
 //!      "disableDeploymentModeChooser": true,
-//!      "inferenceModels": [...]
+//!      "modelDiscoveryEnabled": true
 //!    }
 //!    ```
 //! 3. 更新 _meta.json,添加 profile entry 并设置 appliedId
 
-use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -40,12 +39,6 @@ const PROFILE_ID: &str = "00000000-0000-4000-8000-000000157210";
 const PROFILE_NAME: &str = "CC Use";
 const CLAUDE_DESKTOP_PROXY_PREFIX: &str = "/claude-desktop";
 const GATEWAY_TOKEN_SETTING_KEY: &str = "claudeDesktopGatewayToken";
-const DEFAULT_INFERENCE_ROUTES: [(&str, &str); 4] = [
-    ("sonnet", "claude-sonnet-4-6"),
-    ("opus", "claude-opus-4-8"),
-    ("haiku", "claude-haiku-4-5"),
-    ("fable", "claude-fable-5"),
-];
 
 #[derive(Error, Debug)]
 pub enum ClaudeDesktopConfigError {
@@ -78,22 +71,6 @@ struct ClaudeDesktopPaths {
 struct FileSnapshot {
     path: PathBuf,
     content: Option<Vec<u8>>,
-}
-
-#[derive(Debug, Clone)]
-struct InferenceModelSpec {
-    name: String,
-    label_override: Option<String>,
-    supports_1m: bool,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct ModelMapping {
-    haiku: Option<String>,
-    sonnet: Option<String>,
-    opus: Option<String>,
-    fable: Option<String>,
-    default: Option<String>,
 }
 
 /// Claude Desktop 配置状态
@@ -141,13 +118,12 @@ impl ClaudeDesktopConfigManager {
         &self,
         route_token: &str,
         proxy_port: u16,
-        model_mapping: Option<&str>,
     ) -> Result<(), ClaudeDesktopConfigError> {
         // 1. 拍摄所有文件快照用于回滚
         let snapshots = self.snapshot_files()?;
 
         // 2. 尝试写入所有配置
-        let result = self.takeover_inner(route_token, proxy_port, model_mapping);
+        let result = self.takeover_inner(route_token, proxy_port);
 
         // 3. 失败则回滚
         if result.is_err() {
@@ -161,7 +137,6 @@ impl ClaudeDesktopConfigManager {
         &self,
         route_token: &str,
         proxy_port: u16,
-        model_mapping: Option<&str>,
     ) -> Result<(), ClaudeDesktopConfigError> {
         // 1. 写入 deploymentMode: "3p" 到两个配置文件
         self.write_deployment_mode(&self.paths.normal_config_path, "3p")?;
@@ -169,7 +144,7 @@ impl ClaudeDesktopConfigManager {
         self.sanitize_threep_config_for_takeover()?;
 
         // 2. 创建 profile
-        let profile = self.build_gateway_profile(route_token, proxy_port, model_mapping);
+        let profile = self.build_gateway_profile(route_token, proxy_port);
         self.write_json_file(&self.paths.profile_path, &profile)?;
 
         // 3. 更新 _meta.json
@@ -210,27 +185,48 @@ impl ClaudeDesktopConfigManager {
         Ok(())
     }
 
-    fn build_gateway_profile(
-        &self,
-        route_token: &str,
-        proxy_port: u16,
-        model_mapping: Option<&str>,
-    ) -> Value {
-        let mut profile = json!({
+    fn build_gateway_profile(&self, route_token: &str, proxy_port: u16) -> Value {
+        json!({
             "inferenceProvider": "gateway",
             "inferenceGatewayBaseUrl": format!("http://127.0.0.1:{}{}", proxy_port, CLAUDE_DESKTOP_PROXY_PREFIX),
             "inferenceGatewayApiKey": route_token,
             "inferenceGatewayAuthScheme": "bearer",
             "disableDeploymentModeChooser": true,
-            "coworkEgressAllowedHosts": ["*"]
-        });
-        profile["inferenceModels"] = Value::Array(
-            claude_desktop_inference_model_specs(model_mapping)
-                .iter()
-                .map(inference_model_json)
-                .collect(),
+            "coworkEgressAllowedHosts": ["*"],
+            "modelDiscoveryEnabled": true
+        })
+    }
+
+    fn gateway_profile_is_current(&self, route_token: &str, proxy_port: u16) -> bool {
+        let Ok(content) = fs::read_to_string(&self.paths.profile_path) else {
+            return false;
+        };
+        let Ok(profile) = serde_json::from_str::<Value>(&content) else {
+            return false;
+        };
+        let expected_base_url = format!(
+            "http://127.0.0.1:{}{}",
+            proxy_port, CLAUDE_DESKTOP_PROXY_PREFIX
         );
-        profile
+
+        profile.get("inferenceProvider").and_then(Value::as_str) == Some("gateway")
+            && profile
+                .get("inferenceGatewayBaseUrl")
+                .and_then(Value::as_str)
+                == Some(expected_base_url.as_str())
+            && profile
+                .get("inferenceGatewayApiKey")
+                .and_then(Value::as_str)
+                == Some(route_token)
+            && profile
+                .get("inferenceGatewayAuthScheme")
+                .and_then(Value::as_str)
+                == Some("bearer")
+            && profile
+                .get("modelDiscoveryEnabled")
+                .and_then(Value::as_bool)
+                == Some(true)
+            && profile.get("inferenceModels").is_none()
     }
 
     fn snapshot_files(&self) -> Result<Vec<FileSnapshot>, ClaudeDesktopConfigError> {
@@ -478,80 +474,6 @@ impl Default for ClaudeDesktopConfigManager {
     }
 }
 
-fn model_mapping_value(mapping: &ModelMapping, role: &str) -> Option<String> {
-    let value = match role {
-        "haiku" => mapping.haiku.as_deref(),
-        "sonnet" => mapping.sonnet.as_deref(),
-        "opus" => mapping.opus.as_deref(),
-        "fable" => mapping.fable.as_deref().or(mapping.default.as_deref()),
-        _ => mapping.default.as_deref(),
-    };
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-fn claude_desktop_inference_model_specs(model_mapping: Option<&str>) -> Vec<InferenceModelSpec> {
-    let mapping = model_mapping
-        .and_then(|mapping| serde_json::from_str::<ModelMapping>(mapping).ok())
-        .unwrap_or_default();
-
-    DEFAULT_INFERENCE_ROUTES
-        .iter()
-        .map(|(role, route_id)| InferenceModelSpec {
-            name: (*route_id).to_string(),
-            label_override: model_mapping_value(&mapping, role),
-            supports_1m: true,
-        })
-        .collect()
-}
-
-fn inference_model_json(spec: &InferenceModelSpec) -> Value {
-    let mut item = json!({ "name": spec.name });
-    if let Some(label_override) = spec.label_override.as_deref() {
-        item["labelOverride"] = json!(label_override);
-    }
-    if spec.supports_1m {
-        item["supports1m"] = json!(true);
-    }
-    item
-}
-
-pub fn claude_desktop_model_list_response(model_mapping: Option<&str>) -> Value {
-    let data: Vec<Value> = claude_desktop_inference_model_specs(model_mapping)
-        .into_iter()
-        .map(|spec| {
-            let mut item = json!({
-                "type": "model",
-                "id": spec.name,
-                "created_at": "2024-01-01T00:00:00Z",
-            });
-            if spec.supports_1m {
-                item["supports1m"] = json!(true);
-            }
-            item
-        })
-        .collect();
-    let first_id = data
-        .first()
-        .and_then(|item| item.get("id"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let last_id = data
-        .last()
-        .and_then(|item| item.get("id"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
-    json!({
-        "data": data,
-        "has_more": false,
-        "first_id": first_id,
-        "last_id": last_id,
-    })
-}
-
 fn probe_claude_desktop_gateway(session_token: &str, proxy_port: u16) -> Result<(), String> {
     let addr = SocketAddr::from(([127, 0, 0, 1], proxy_port));
     let timeout = Duration::from_millis(800);
@@ -581,7 +503,7 @@ fn probe_claude_desktop_gateway(session_token: &str, proxy_port: u16) -> Result<
     } else {
         let first_line = response.lines().next().unwrap_or("<empty response>");
         Err(format!(
-            "本地代理不支持 Claude Desktop 模型探测: {}",
+            "Claude Desktop 无法通过当前供应商读取模型列表: {}。请确认供应商支持 GET /v1/models 且密钥可用",
             first_line
         ))
     }
@@ -635,6 +557,33 @@ fn get_desktop_proxy_port(db: &Database) -> i32 {
         .unwrap_or(12345)
 }
 
+pub fn refresh_taken_over_profile(db: &Database) -> Result<bool, String> {
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
+    if mgr.read_applied_id().as_deref() != Some(PROFILE_ID) {
+        return Ok(false);
+    }
+
+    let Some(session_token) = db
+        .settings_get_value(GATEWAY_TOKEN_SETTING_KEY)
+        .map_err(|e| format!("读取 Claude Desktop 网关 token 失败: {}", e))?
+    else {
+        return Ok(false);
+    };
+    let session_token = session_token.trim();
+    if !session_token.starts_with(SESSION_TOKEN_PREFIX) {
+        return Ok(false);
+    }
+
+    let proxy_port = get_desktop_proxy_port(db) as u16;
+    if mgr.gateway_profile_is_current(session_token, proxy_port) {
+        return Ok(false);
+    }
+
+    mgr.takeover(session_token, proxy_port)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 fn get_or_create_gateway_session_token(db: &Database) -> Result<String, String> {
     if let Some(token) = db
         .settings_get_value(GATEWAY_TOKEN_SETTING_KEY)
@@ -683,11 +632,10 @@ pub fn claude_desktop_config_takeover_inner(
     provider_id: String,
     api_key_id: String,
 ) -> Result<String, String> {
-    let (port, session_token, model_mapping) = {
+    let (port, session_token) = {
         let db = db.lock().map_err(|e| e.to_string())?;
         let port = get_desktop_proxy_port(&db);
-        let api_key = db
-            .api_key_get(&api_key_id)
+        db.api_key_get(&api_key_id)
             .map_err(|e| format!("读取密钥失败: {}", e))?
             .ok_or_else(|| "密钥不存在".to_string())?;
         let session_token = get_or_create_gateway_session_token(&db)?;
@@ -707,7 +655,7 @@ pub fn claude_desktop_config_takeover_inner(
         };
         db.proxy_session_create(&session)
             .map_err(|e| format!("创建 session 失败: {}", e))?;
-        (port, session_token, api_key.model_mapping)
+        (port, session_token)
     };
 
     if let Err(err) = probe_claude_desktop_gateway(&session_token, port as u16) {
@@ -715,7 +663,7 @@ pub fn claude_desktop_config_takeover_inner(
     }
 
     let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
-    mgr.takeover(&session_token, port as u16, model_mapping.as_deref())
+    mgr.takeover(&session_token, port as u16)
         .map_err(|e| e.to_string())?;
 
     Ok("接管成功".to_string())
@@ -780,7 +728,7 @@ mod tests {
         let paths = create_test_paths(temp_dir.path());
         let mgr = ClaudeDesktopConfigManager { paths };
 
-        mgr.takeover("test-token", 12345, None).unwrap();
+        mgr.takeover("test-token", 12345).unwrap();
 
         // 检查 profile 文件
         assert!(mgr.paths.profile_path.exists());
@@ -803,19 +751,13 @@ mod tests {
                 .and_then(Value::as_str),
             Some("test-token")
         );
-        let models = profile
-            .get("inferenceModels")
-            .and_then(Value::as_array)
-            .expect("inferenceModels");
-        assert_eq!(models.len(), 4);
         assert_eq!(
-            models[0].get("name").and_then(Value::as_str),
-            Some("claude-sonnet-4-6")
-        );
-        assert_eq!(
-            models[0].get("supports1m").and_then(Value::as_bool),
+            profile
+                .get("modelDiscoveryEnabled")
+                .and_then(Value::as_bool),
             Some(true)
         );
+        assert!(profile.get("inferenceModels").is_none());
 
         // 检查 meta 文件
         let meta: Value =
@@ -834,6 +776,34 @@ mod tests {
             normal_config.get("deploymentMode").and_then(Value::as_str),
             Some("3p")
         );
+        assert!(mgr.gateway_profile_is_current("test-token", 12345));
+        assert!(!mgr.gateway_profile_is_current("other-token", 12345));
+        assert!(!mgr.gateway_profile_is_current("test-token", 23456));
+    }
+
+    #[test]
+    fn test_legacy_fixed_model_profile_needs_refresh() {
+        let temp_dir = TempDir::new().unwrap();
+        let paths = create_test_paths(temp_dir.path());
+        fs::create_dir_all(&paths.config_library_path).unwrap();
+        fs::write(
+            &paths.profile_path,
+            serde_json::to_vec_pretty(&json!({
+                "inferenceProvider": "gateway",
+                "inferenceGatewayBaseUrl": "http://127.0.0.1:12345/claude-desktop",
+                "inferenceGatewayApiKey": "test-token",
+                "inferenceGatewayAuthScheme": "bearer",
+                "modelDiscoveryEnabled": true,
+                "inferenceModels": [
+                    { "name": "claude-opus-4-8", "labelOverride": "claude-opus-4-6" }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mgr = ClaudeDesktopConfigManager { paths };
+
+        assert!(!mgr.gateway_profile_is_current("test-token", 12345));
     }
 
     #[test]
@@ -842,24 +812,12 @@ mod tests {
         let paths = create_test_paths(temp_dir.path());
         let mgr = ClaudeDesktopConfigManager { paths };
 
-        mgr.takeover(
-            "test-token",
-            12345,
-            Some(r#"{"sonnet":"deepseek-v4-pro","opus":"deepseek-v4-reasoner"}"#),
-        )
-        .unwrap();
+        mgr.takeover("test-token", 12345).unwrap();
         assert_eq!(mgr.detect_status(), DesktopConfigStatus::TakenOver);
 
         let profile: Value =
             serde_json::from_str(&fs::read_to_string(&mgr.paths.profile_path).unwrap()).unwrap();
-        let models = profile
-            .get("inferenceModels")
-            .and_then(Value::as_array)
-            .expect("inferenceModels");
-        assert_eq!(
-            models[0].get("labelOverride").and_then(Value::as_str),
-            Some("deepseek-v4-pro")
-        );
+        assert!(profile.get("inferenceModels").is_none());
 
         mgr.restore().unwrap();
 
@@ -873,35 +831,6 @@ mod tests {
         assert_eq!(
             normal_config.get("deploymentMode").and_then(Value::as_str),
             Some("1p")
-        );
-    }
-
-    #[test]
-    fn test_model_list_response_uses_safe_routes() {
-        let response = claude_desktop_model_list_response(Some(
-            r#"{"sonnet":"deepseek-v4-pro","default":"deepseek-v4-flash"}"#,
-        ));
-        let data = response
-            .get("data")
-            .and_then(Value::as_array)
-            .expect("data");
-
-        assert_eq!(data.len(), 4);
-        assert_eq!(
-            data[0].get("id").and_then(Value::as_str),
-            Some("claude-sonnet-4-6")
-        );
-        assert_eq!(
-            data[0].get("supports1m").and_then(Value::as_bool),
-            Some(true)
-        );
-        assert_eq!(
-            response.get("first_id").and_then(Value::as_str),
-            Some("claude-sonnet-4-6")
-        );
-        assert_eq!(
-            response.get("last_id").and_then(Value::as_str),
-            Some("claude-fable-5")
         );
     }
 
@@ -927,7 +856,7 @@ mod tests {
         let mgr = ClaudeDesktopConfigManager {
             paths: paths.clone(),
         };
-        let result = mgr.takeover("test-token", 12345, None);
+        let result = mgr.takeover("test-token", 12345);
 
         // 恢复权限以便清理
         #[cfg(unix)]

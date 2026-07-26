@@ -271,45 +271,6 @@ pub async fn proxy_handler(
             .into_response());
     }
 
-    let request_path_only = req_path.split('?').next().unwrap_or(req_path.as_str());
-    if matches!(
-        request_path_only.trim_end_matches('/'),
-        "/v1/models" | "/claude-desktop/v1/models"
-    ) && route_execution.cli_type.as_deref() == Some("claude_desktop")
-    {
-        let body = crate::commands::claude_desktop_config::claude_desktop_model_list_response(
-            route_execution.model_mapping.as_deref(),
-        );
-        let response_body = serde_json::to_vec(&body).unwrap_or_else(|_| b"{}".to_vec());
-        state.emit_console(ConsoleEvent::ok(
-            &request_id,
-            &method_str,
-            &req_path,
-            StatusCode::OK.as_u16(),
-            start_time.elapsed().as_millis() as u64,
-            "cc-use://local/claude-desktop/v1/models",
-            route_execution
-                .log_ctx
-                .as_ref()
-                .and_then(|c| c.provider_name.as_deref()),
-            route_execution
-                .log_ctx
-                .as_ref()
-                .and_then(|c| c.key_alias.as_deref()),
-            false,
-        ));
-        return Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
-            .body(Body::from(response_body))
-            .unwrap_or_else(|_| {
-                Response::builder()
-                    .status(500)
-                    .body(Body::from("Internal error"))
-                    .unwrap()
-            }));
-    }
-
     let method = req.method().clone();
     let mut headers = req.headers().clone();
 
@@ -1101,12 +1062,12 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     };
 
     #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct ModelMapping {
         haiku: Option<String>,
         sonnet: Option<String>,
         opus: Option<String>,
-        fable: Option<String>,
-        default: Option<String>,
+        model_overrides: Option<std::collections::HashMap<String, String>>,
         codex: Option<String>,
         grok: Option<String>,
     }
@@ -1135,24 +1096,30 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
         None => return body_bytes,
     };
 
-    let model_lower = model.to_lowercase();
+    let model_without_context = strip_one_m_model_suffix(model.trim());
+    let exact_mapped = mapping.model_overrides.as_ref().and_then(|overrides| {
+        overrides
+            .get(model.trim())
+            .or_else(|| overrides.get(model_without_context))
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|mapped| !mapped.is_empty())
+    });
+    let model_lower = model_without_context.to_lowercase();
 
-    let mapped = if model_lower.contains("haiku") {
+    let family_mapped = if model_lower.contains("haiku") {
         mapping.haiku.as_deref().map(|m| m.to_string())
     } else if model_lower.contains("opus") {
         mapping.opus.as_deref().map(|m| m.to_string())
-    } else if model_lower.contains("fable") {
-        mapping
-            .fable
-            .as_deref()
-            .or(mapping.opus.as_deref())
-            .or(mapping.default.as_deref())
-            .map(|m| m.to_string())
     } else if model_lower.contains("sonnet") {
         mapping.sonnet.as_deref().map(|m| m.to_string())
     } else {
-        mapping.default.as_deref().map(|m| m.to_string())
+        None
     };
+    let mapped = exact_mapped
+        .map(str::to_string)
+        .or_else(|| family_mapped.map(|mapped| mapped.trim().to_string()))
+        .filter(|mapped| !mapped.is_empty());
 
     if let Some(mapped) = mapped {
         if mapped != model {
@@ -1380,6 +1347,20 @@ fn read_auth_scheme(config: &serde_json::Value) -> Option<UpstreamAuthScheme> {
 /// Strips the [1M] suffix that Claude Code appends to model names for 1M context.
 const ONE_M_MARKER: &str = "[1M]";
 
+fn strip_one_m_model_suffix(model: &str) -> &str {
+    let trimmed = model.trim_end();
+    let bytes = trimmed.as_bytes();
+    let marker = ONE_M_MARKER.as_bytes();
+
+    if bytes.len() >= marker.len()
+        && bytes[bytes.len() - marker.len()..].eq_ignore_ascii_case(marker)
+    {
+        trimmed[..trimmed.len() - marker.len()].trim_end()
+    } else {
+        model
+    }
+}
+
 fn strip_one_m_suffix(body_bytes: axum::body::Bytes) -> axum::body::Bytes {
     let mut json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
         Ok(v) => v,
@@ -1391,14 +1372,8 @@ fn strip_one_m_suffix(body_bytes: axum::body::Bytes) -> axum::body::Bytes {
         None => return body_bytes,
     };
 
-    let trimmed = model.trim_end();
-    let bytes = trimmed.as_bytes();
-    let marker = ONE_M_MARKER.as_bytes();
-
-    if bytes.len() >= marker.len()
-        && bytes[bytes.len() - marker.len()..].eq_ignore_ascii_case(marker)
-    {
-        let stripped = trimmed[..trimmed.len() - marker.len()].trim_end();
+    let stripped = strip_one_m_model_suffix(model);
+    if stripped != model {
         json["model"] = serde_json::Value::String(stripped.to_string());
         return axum::body::Bytes::from(
             serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()),

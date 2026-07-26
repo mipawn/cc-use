@@ -4,7 +4,7 @@ use axum::body::Body;
 use axum::extract::State as AxumState;
 use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use cc_use_lib::db::Database;
 use cc_use_lib::models::{CreateApiKeyInput, ProxySession};
@@ -42,6 +42,16 @@ async fn start_mock_upstream() -> MockUpstream {
                     *received_body.lock().unwrap() = body;
                     (StatusCode::OK, r#"{"object":"response","output":[]}"#).into_response()
                 }
+            }),
+        )
+        .route(
+            "/v1/models",
+            get(|| async {
+                (
+                    StatusCode::OK,
+                    r#"{"data":[{"id":"company-opus-4-6","type":"model"}],"has_more":false}"#,
+                )
+                    .into_response()
             }),
         );
 
@@ -216,7 +226,7 @@ async fn opus_category_maps_opus_variants() {
 }
 
 #[tokio::test]
-async fn default_model_fallback_when_no_category_match() {
+async fn legacy_default_is_ignored_and_unknown_model_passes_through() {
     let mock = start_mock_upstream().await;
     let mapping =
         r#"{"sonnet":"anthropic.claude-sonnet-4-6","default":"anthropic.claude-haiku-4-5"}"#;
@@ -237,7 +247,64 @@ async fn default_model_fallback_when_no_category_match() {
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let body = mock.received_body.lock().unwrap();
-    assert_eq!(extract_model(&body), "anthropic.claude-haiku-4-5");
+    assert_eq!(extract_model(&body), "some-unknown-model");
+}
+
+#[tokio::test]
+async fn exact_model_override_wins_over_family_mapping_for_claude_desktop() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{
+        "opus":"anthropic.claude-opus-family",
+        "modelOverrides":{
+            "claude-opus-4-8":"anthropic.claude-opus-4-6"
+        }
+    }"#;
+    let (state, session_token) =
+        setup_provider_with_mapping(mock.port, "claude_desktop", Some(mapping));
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/claude-desktop/v1/messages")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"claude-opus-4-8","messages":[]}"#))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await;
+    assert!(response.is_ok());
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let body = mock.received_body.lock().unwrap();
+    assert_eq!(extract_model(&body), "anthropic.claude-opus-4-6");
+}
+
+#[tokio::test]
+async fn exact_model_override_applies_to_claude_code_with_one_m_suffix() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{
+        "opus":"anthropic.claude-opus-family",
+        "modelOverrides":{
+            "claude-opus-4-8":"anthropic.claude-opus-4-6"
+        }
+    }"#;
+    let (state, session_token) = setup_provider_with_mapping(mock.port, "claude", Some(mapping));
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("authorization", format!("Bearer {}", session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"claude-opus-4-8[1M]","messages":[]}"#,
+        ))
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await;
+    assert!(response.is_ok());
+
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let body = mock.received_body.lock().unwrap();
+    assert_eq!(extract_model(&body), "anthropic.claude-opus-4-6");
 }
 
 #[tokio::test]
@@ -281,6 +348,27 @@ async fn model_mapping_null_no_rewrite() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let body = mock.received_body.lock().unwrap();
     assert_eq!(extract_model(&body), "claude-sonnet-4-6");
+}
+
+#[tokio::test]
+async fn claude_desktop_model_list_is_forwarded_from_current_provider() {
+    let mock = start_mock_upstream().await;
+    let (state, session_token) = setup_provider_with_mapping(mock.port, "claude_desktop", None);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/claude-desktop/v1/models")
+        .header("authorization", format!("Bearer {}", session_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = proxy_handler(AxumState(state), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["data"][0]["id"], "company-opus-4-6");
 }
 
 #[tokio::test]
@@ -349,7 +437,7 @@ async fn codex_without_mapping_keeps_original_model() {
 }
 
 #[tokio::test]
-async fn codex_does_not_use_claude_default_mapping() {
+async fn codex_ignores_legacy_claude_default_mapping() {
     let mock = start_mock_upstream().await;
     let mapping = r#"{"default":"claude-sonnet-upstream"}"#;
     let (state, session_token) = setup_provider_with_mapping(mock.port, "codex", Some(mapping));

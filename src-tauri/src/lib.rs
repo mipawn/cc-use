@@ -198,6 +198,23 @@ pub fn run() {
                 }
             );
 
+            // Production upgrades keep the existing Desktop route token but
+            // rewrite CC Use's profile to the current schema. In particular,
+            // this removes the legacy fixed inferenceModels/labelOverride list
+            // and enables gateway model discovery.
+            if !cfg!(debug_assertions) {
+                let db_state = handle.state::<Arc<Mutex<Database>>>();
+                if let Ok(db) = db_state.lock() {
+                    match commands::claude_desktop_config::refresh_taken_over_profile(&db) {
+                        Ok(true) => log::info!("refreshed taken-over Claude Desktop profile"),
+                        Ok(false) => {}
+                        Err(error) => {
+                            log::warn!("failed to refresh Claude Desktop profile: {}", error)
+                        }
+                    }
+                };
+            }
+
             // Start the realtime console SSE bridge to the daemon. Must happen
             // before the daemon-start spawn below so the bridge is already up
             // and waiting when the daemon first binds. `.manage()` stores the

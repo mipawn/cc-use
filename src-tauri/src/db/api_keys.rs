@@ -1,6 +1,13 @@
 use crate::db::Database;
 use crate::models::{ApiKey, CreateApiKeyInput, UpdateApiKeyInput, UsageData};
 
+fn normalize_model_mapping(value: Option<&String>) -> Option<String> {
+    value
+        .map(|mapping| mapping.trim())
+        .filter(|mapping| !mapping.is_empty())
+        .map(str::to_string)
+}
+
 fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
     // SELECT: id(0), provider_id(1), alias(2), value(3), priority(4),
     //         is_exhausted(5), is_active(6), config(7), usage_type(8),
@@ -101,6 +108,7 @@ impl Database {
             .client_configs
             .as_ref()
             .map(|c| serde_json::to_string(c).unwrap_or_default());
+        let model_mapping = normalize_model_mapping(input.model_mapping.as_ref());
 
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, secret_ref, types, priority, is_exhausted, is_active,
@@ -121,7 +129,7 @@ impl Database {
                 input.usage_path,
                 input.usage_headers,
                 input.cost_multiplier.unwrap_or(1.0),
-                input.model_mapping,
+                model_mapping,
                 client_configs_json,
             ],
         )?;
@@ -152,7 +160,14 @@ impl Database {
             sets,
             params
         );
-        add_field!(input.model_mapping, "model_mapping", sets, params);
+        if let Some(ref value) = input.model_mapping {
+            if value.trim().is_empty() {
+                sets.push("model_mapping = NULL".to_string());
+            } else {
+                sets.push("model_mapping = ?".to_string());
+                params.push(Box::new(value.trim().to_string()));
+            }
+        }
         if let Some(ref val) = input.client_configs {
             sets.push("client_configs = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));

@@ -77,6 +77,93 @@ fn api_key_crud() {
 }
 
 #[test]
+fn api_key_model_mapping_can_be_explicitly_cleared() {
+    let fixture = TempDb::new();
+    let provider = create_provider(&fixture.db, "Test", "claude");
+    let key = fixture
+        .db
+        .api_key_create(&CreateApiKeyInput {
+            provider_id: provider.id,
+            alias: None,
+            value: "sk-test".to_string(),
+            types: None,
+            priority: None,
+            is_active: None,
+            config: None,
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: Some(r#"{"opus":"claude-opus-4-6"}"#.to_string()),
+            client_configs: None,
+        })
+        .unwrap();
+
+    let cleared = fixture
+        .db
+        .api_key_update(&UpdateApiKeyInput {
+            id: key.id.clone(),
+            value: None,
+            alias: None,
+            types: None,
+            priority: None,
+            is_exhausted: None,
+            is_active: None,
+            config: None,
+            cached_usage: None,
+            last_usage_checked_at: None,
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: Some(String::new()),
+            client_configs: None,
+        })
+        .unwrap();
+
+    assert_eq!(cleared.model_mapping, None);
+    let stored: Option<String> = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT model_mapping FROM api_keys WHERE id = ?1",
+            [&key.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, None);
+}
+
+#[test]
+fn api_key_empty_model_mapping_is_normalized_on_create() {
+    let fixture = TempDb::new();
+    let provider = create_provider(&fixture.db, "Test", "claude");
+    let key = fixture
+        .db
+        .api_key_create(&CreateApiKeyInput {
+            provider_id: provider.id,
+            alias: None,
+            value: "sk-test".to_string(),
+            types: None,
+            priority: None,
+            is_active: None,
+            config: None,
+            cost_multiplier: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: Some("  ".to_string()),
+            client_configs: None,
+        })
+        .unwrap();
+
+    assert_eq!(key.model_mapping, None);
+}
+
+#[test]
 fn plaintext_remains_in_sqlite_after_reopen() {
     let path =
         std::env::temp_dir().join(format!("cc-use-plaintext-reopen-{}.db", nanoid::nanoid!(8)));
