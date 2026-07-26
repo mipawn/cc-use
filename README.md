@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.3.4 更新**：修复 Grok Build 前台启动与缺失 `model` 响应，自定义项目分组，按启动台隔离实例，并优化成功率与 Token 单位展示。
+> **3.4.0 更新**：用量统计新增 Token / 费用双主视角，仪表盘、趋势、排行、月历与年度热力图统一跟随所选指标，并修正近 7 天、本月和趋势图的时间口径。
 >
 > **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
 >
