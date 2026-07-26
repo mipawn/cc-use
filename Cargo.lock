@@ -584,6 +584,7 @@ version = "3.4.0"
 dependencies = [
  "auto-launch",
  "axum",
+ "base64 0.22.1",
  "brotli 7.0.0",
  "chrono",
  "dirs 6.0.0",
@@ -612,6 +613,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-native-tls",
  "tokio-tungstenite 0.28.0",
  "toml 0.8.2",
  "toml_edit 0.25.12+spec-1.1.0",

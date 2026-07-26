@@ -23,6 +23,7 @@ const PALETTE = {
   methodPost: '#4ec9b0',
   methodWs: '#c586c0',
   ok: '#4ec9b0',
+  cancelled: '#d7ba7d',
   rejected: '#dcdcaa',
   upstreamError: '#f48771',
   ws: '#4fc1ff',
@@ -45,6 +46,8 @@ function kindGlyph(kind: string): string {
       return '✓'
     case 'rejected':
       return '✗'
+    case 'cancelled':
+      return '×'
     case 'upstream_error':
       return '⚠'
     case 'ws':
@@ -62,6 +65,8 @@ function kindColor(kind: string): string {
       return PALETTE.ok
     case 'rejected':
       return PALETTE.rejected
+    case 'cancelled':
+      return PALETTE.cancelled
     case 'upstream_error':
       return PALETTE.upstreamError
     case 'ws':
@@ -151,6 +156,8 @@ function formatStatus(s: number | null, kind: string): string {
   switch (kind) {
     case 'rejected':
       return 'REJ'
+    case 'cancelled':
+      return 'CAN'
     case 'upstream_error':
       return 'ERR'
     case 'ws':
@@ -394,7 +401,7 @@ export default function Console() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12 }}>
       <Space align='center' style={{ justifyContent: 'space-between', width: '100%' }}>
-        <Space direction='vertical' size={2}>
+        <Space orientation='vertical' size={2}>
           <Typography.Title level={4} style={{ margin: 0 }}>
             {t('console.title')}
           </Typography.Title>

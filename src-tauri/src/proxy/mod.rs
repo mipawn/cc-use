@@ -61,7 +61,10 @@ impl ProxyState {
             ..
         } = &event
         {
-            if kind != "pending" {
+            // Client-side cancellation is visible in the realtime console, but
+            // it is neither an upstream success nor an upstream failure and
+            // must not distort provider success-rate metrics.
+            if kind != "pending" && kind != "cancelled" {
                 let metric = GatewayRequestEvent {
                     id: request_id.clone().unwrap_or_else(|| nanoid::nanoid!()),
                     created_at: timestamp.clone(),

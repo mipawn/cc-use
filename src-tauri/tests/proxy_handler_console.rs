@@ -166,6 +166,26 @@ fn request_event_serializes_with_category_tag() {
     assert_eq!(json["latencyMs"], 1234);
 }
 
+#[test]
+fn cancelled_stream_event_serializes_as_a_terminal_request_state() {
+    let event = ConsoleEvent::cancelled(
+        "request-cancelled",
+        "POST",
+        "/v1/messages",
+        Some(200),
+        345,
+        "https://api.anthropic.com/v1/messages",
+        Some("claude-provider"),
+        Some("primary-key"),
+    );
+    let json = serde_json::to_value(&event).expect("serialize");
+
+    assert_eq!(json["kind"], "cancelled");
+    assert_eq!(json["requestId"], "request-cancelled");
+    assert_eq!(json["status"], 200);
+    assert_eq!(json["message"], "client disconnected");
+}
+
 #[tokio::test]
 async fn auth_scheme_none_skips_auth_headers() {
     use cc_use_lib::db::Database;

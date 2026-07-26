@@ -259,7 +259,7 @@ pub enum ConsoleEvent {
         request_id: Option<String>,
         /// UTC timestamp `YYYY-MM-DD HH:MM:SS`.
         timestamp: String,
-        /// Classification: "pending" | "ok" | "upstream_error" | "rejected" | "ws".
+        /// Classification: "pending" | "ok" | "cancelled" | "upstream_error" | "rejected" | "ws".
         kind: String,
         /// HTTP method, or "WS" for websocket upgrades.
         method: String,
@@ -394,6 +394,36 @@ impl ConsoleEvent {
             provider: provider.map(String::from),
             key_alias: key_alias.map(String::from),
             message: Some(error.to_string()),
+            request_headers: None,
+            request_body: None,
+            response_headers: None,
+            response_body: None,
+        }
+    }
+
+    /// Client disconnected while waiting for upstream or before a stream completed.
+    pub fn cancelled(
+        request_id: impl Into<String>,
+        method: &str,
+        path: &str,
+        status: Option<u16>,
+        latency_ms: u64,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+    ) -> Self {
+        Self::Request {
+            request_id: Some(request_id.into()),
+            timestamp: now_timestamp(),
+            kind: "cancelled".to_string(),
+            method: method.to_string(),
+            path: path.to_string(),
+            status,
+            latency_ms: Some(latency_ms),
+            upstream: Some(upstream.to_string()),
+            provider: provider.map(String::from),
+            key_alias: key_alias.map(String::from),
+            message: Some("client disconnected".to_string()),
             request_headers: None,
             request_body: None,
             response_headers: None,

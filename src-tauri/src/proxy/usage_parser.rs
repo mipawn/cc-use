@@ -186,10 +186,13 @@ impl StreamUsageAccumulator {
     }
 
     fn process_sse_line(&mut self, line: &str) {
-        if !line.starts_with("data: ") {
+        let Some(json_str) = line.strip_prefix("data:") else {
             return;
-        }
-        let json_str = &line[6..];
+        };
+        // The SSE grammar permits both `data:{...}` and `data: {...}`.
+        // Remove at most the optional separator space; JSON itself may start
+        // with additional insignificant whitespace.
+        let json_str = json_str.strip_prefix(' ').unwrap_or(json_str);
         if json_str == "[DONE]" {
             return;
         }
@@ -220,7 +223,6 @@ impl StreamUsageAccumulator {
                 self.model = Some(m.to_string());
             }
         }
-
         let event_type = data.get("type").and_then(|v| v.as_str());
         if let Some(event_type) = event_type {
             push_limited_unique(&mut self.event_types, event_type);
@@ -350,8 +352,10 @@ pub fn parse_usage_from_response_data(
     response_text: &str,
     content_type: &str,
 ) -> (Option<TokenUsage>, Option<String>, bool) {
-    let is_sse = content_type.contains("text/event-stream")
-        || response_text.trim_start().starts_with("data: ");
+    let is_sse = content_type
+        .to_ascii_lowercase()
+        .contains("text/event-stream")
+        || response_text.trim_start().starts_with("data:");
 
     if is_sse {
         let mut acc = StreamUsageAccumulator::new();

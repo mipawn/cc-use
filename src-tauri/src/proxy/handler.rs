@@ -11,10 +11,12 @@ use crate::shared_runtime::{
 
 use axum::{
     body::Body,
-    extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
+    extract::ws::{
+        CloseFrame as AxumCloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade,
+    },
     extract::FromRequestParts,
     extract::State as AxumState,
-    http::{HeaderValue, Request, Response, StatusCode},
+    http::{HeaderMap, HeaderValue, Request, Response, StatusCode},
     response::IntoResponse,
 };
 use futures::{SinkExt, Stream, StreamExt};
@@ -28,6 +30,10 @@ const MAX_DECOMPRESSED_CAPTURE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_COMPRESSED_STREAM_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_STREAM_DETAIL_CAPTURE_BYTES: usize = 256 * 1024;
 const MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES: usize = 1024 * 1024;
+const MAX_WS_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_WS_FRAME_BYTES: usize = 16 * 1024 * 1024;
+const MAX_WS_WRITE_BUFFER_BYTES: usize = MAX_WS_MESSAGE_BYTES + 128 * 1024;
+const WS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 struct RouteExecution {
     upstream_url: String,
@@ -147,6 +153,71 @@ impl<'a> EmitCtx<'a> {
     }
 }
 
+struct RequestCancellationGuard {
+    state: Arc<ProxyState>,
+    request_id: String,
+    method: String,
+    path: String,
+    upstream_url: String,
+    provider_name: Option<String>,
+    key_alias: Option<String>,
+    start_time: std::time::Instant,
+    status: Option<u16>,
+    armed: bool,
+}
+
+impl RequestCancellationGuard {
+    fn new(
+        state: Arc<ProxyState>,
+        request_id: &str,
+        method: &str,
+        path: &str,
+        upstream_url: &str,
+        provider_name: Option<String>,
+        key_alias: Option<String>,
+        start_time: std::time::Instant,
+    ) -> Self {
+        Self {
+            state,
+            request_id: request_id.to_string(),
+            method: method.to_string(),
+            path: path.to_string(),
+            upstream_url: upstream_url.to_string(),
+            provider_name,
+            key_alias,
+            start_time,
+            status: None,
+            armed: true,
+        }
+    }
+
+    fn set_status(&mut self, status: u16) {
+        self.status = Some(status);
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RequestCancellationGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.state.emit_console(ConsoleEvent::cancelled(
+            &self.request_id,
+            &self.method,
+            &self.path,
+            self.status,
+            self.start_time.elapsed().as_millis() as u64,
+            &self.upstream_url,
+            self.provider_name.as_deref(),
+            self.key_alias.as_deref(),
+        ));
+    }
+}
+
 /// Main proxy handler — forwards HTTP requests and WebSocket connections to the upstream provider
 pub async fn proxy_handler(
     AxumState(state): AxumState<Arc<ProxyState>>,
@@ -240,6 +311,7 @@ pub async fn proxy_handler(
 
     if is_ws_upgrade {
         let (mut parts, _body) = req.into_parts();
+        let incoming_headers = parts.headers.clone();
         let ws_upgrade: WebSocketUpgrade =
             match WebSocketUpgrade::from_request_parts(&mut parts, &state).await {
                 Ok(ws) => ws,
@@ -252,6 +324,58 @@ pub async fn proxy_handler(
                 }
             };
         let ws_url = to_ws_url(&route_execution.upstream_url);
+        let upstream_request = match build_upstream_ws_request(
+            &ws_url,
+            &incoming_headers,
+            &route_execution,
+            &req_path,
+        ) {
+            Ok(request) => request,
+            Err(error) => {
+                emit.reject(&error);
+                return Err(error_response(StatusCode::BAD_REQUEST, &error));
+            }
+        };
+        let upstream_proxy = route_execution
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.http_proxy.as_deref());
+        let (upstream, upstream_response) =
+            match connect_upstream_websocket(upstream_request, upstream_proxy).await {
+                Ok(connection) => connection,
+                Err(error) => {
+                    if let Ok(mut last_err) = state.last_error.lock() {
+                        *last_err = Some(error.clone());
+                    }
+                    emit.upstream_error(
+                        &route_execution.upstream_url,
+                        route_execution
+                            .log_ctx
+                            .as_ref()
+                            .and_then(|ctx| ctx.provider_name.as_deref()),
+                        route_execution
+                            .log_ctx
+                            .as_ref()
+                            .and_then(|ctx| ctx.key_alias.as_deref()),
+                        &error,
+                    );
+                    return Err(error_response(StatusCode::BAD_GATEWAY, &error));
+                }
+            };
+        let selected_protocol = upstream_response
+            .headers()
+            .get("sec-websocket-protocol")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let ws_upgrade = ws_upgrade
+            .max_message_size(MAX_WS_MESSAGE_BYTES)
+            .max_frame_size(MAX_WS_FRAME_BYTES)
+            .max_write_buffer_size(MAX_WS_WRITE_BUFFER_BYTES);
+        let ws_upgrade = if let Some(protocol) = selected_protocol {
+            ws_upgrade.protocols([protocol])
+        } else {
+            ws_upgrade
+        };
         emit.ws_upgraded(
             &route_execution.upstream_url,
             route_execution
@@ -266,7 +390,7 @@ pub async fn proxy_handler(
         return Ok(ws_upgrade
             .on_upgrade(move |socket| async move {
                 let _request_permits = request_permits;
-                ws_relay(socket, ws_url, route_execution.real_api_key).await;
+                ws_relay(socket, upstream).await;
             })
             .into_response());
     }
@@ -274,46 +398,14 @@ pub async fn proxy_handler(
     let method = req.method().clone();
     let mut headers = req.headers().clone();
 
-    if let Some(real_api_key) = route_execution.real_api_key.as_deref() {
-        // auth_scheme=None 时回退到 route_uses_bearer_auth 的默认判断。
-        if route_execution.auth_scheme == Some(UpstreamAuthScheme::None) {
-            // 不发送任何认证头,让上游依赖环境变量或其他鉴权方式
-            headers.remove("x-api-key");
-            headers.remove("authorization");
-        } else if route_uses_bearer_auth(&route_execution, &req_path) {
-            let bearer = format!("Bearer {}", real_api_key);
-            match HeaderValue::from_str(&bearer) {
-                Ok(v) => {
-                    headers.insert("authorization", v);
-                }
-                Err(_) => {
-                    emit.reject("API key contains invalid characters");
-                    return Err(error_response(
-                        StatusCode::BAD_REQUEST,
-                        "API key contains invalid characters",
-                    ));
-                }
-            }
-            headers.remove("x-api-key");
-        } else {
-            match HeaderValue::from_str(real_api_key) {
-                Ok(v) => {
-                    headers.insert("x-api-key", v);
-                }
-                Err(_) => {
-                    emit.reject("API key contains invalid characters");
-                    return Err(error_response(
-                        StatusCode::BAD_REQUEST,
-                        "API key contains invalid characters",
-                    ));
-                }
-            }
-            headers.remove("authorization");
-        }
+    if let Err(error) = apply_upstream_auth_headers(&mut headers, &route_execution, &req_path) {
+        emit.reject(error);
+        return Err(error_response(StatusCode::BAD_REQUEST, error));
     }
 
-    headers.remove("host");
+    strip_hop_by_hop_headers(&mut headers);
     headers.remove("accept-encoding");
+    headers.remove("host");
     headers.remove("content-length");
 
     let body_bytes = match axum::body::to_bytes(req.into_body(), MAX_REQUEST_BODY_BYTES).await {
@@ -401,10 +493,21 @@ pub async fn proxy_handler(
         pending_req_h,
         pending_req_b,
     );
+    let mut cancellation_guard = RequestCancellationGuard::new(
+        state.clone(),
+        &request_id,
+        &method_str,
+        &req_path,
+        &route_execution.upstream_url,
+        provider_snapshot.clone(),
+        key_snapshot.clone(),
+        start_time,
+    );
 
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
         Err(e) => {
+            cancellation_guard.disarm();
             let err_text = e.to_string();
             if let Ok(mut last_err) = state.last_error.lock() {
                 *last_err = Some(err_text.clone());
@@ -423,19 +526,25 @@ pub async fn proxy_handler(
     };
 
     let status = upstream_resp.status();
-    let resp_headers = upstream_resp.headers().clone();
-    let content_type = resp_headers
+    cancellation_guard.set_status(status.as_u16());
+    let raw_resp_headers = upstream_resp.headers().clone();
+    let mut resp_headers = raw_resp_headers.clone();
+    strip_hop_by_hop_headers(&mut resp_headers);
+    let content_type = raw_resp_headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let content_encoding = resp_headers
+    let content_encoding = raw_resp_headers
         .get("content-encoding")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_lowercase();
 
-    if content_type.contains("text/event-stream") {
+    if content_type
+        .to_ascii_lowercase()
+        .contains("text/event-stream")
+    {
         let detail_capture = detail_mode_at_dispatch;
         let accumulator = usage_parser::StreamUsageAccumulator::new();
         let response_model =
@@ -500,6 +609,7 @@ pub async fn proxy_handler(
             }
         }
 
+        cancellation_guard.disarm();
         return Ok(response
             .body(Body::from_stream(tracking_stream))
             .unwrap_or_else(|_| {
@@ -510,13 +620,14 @@ pub async fn proxy_handler(
             }));
     }
 
-    if resp_headers
+    if raw_resp_headers
         .get("content-length")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<usize>().ok())
         .is_some_and(|length| length > MAX_NON_STREAM_RESPONSE_BYTES)
     {
         let reason = "Upstream response exceeds local size limit";
+        cancellation_guard.disarm();
         emit.upstream_error(
             &route_execution.upstream_url,
             provider_snapshot.as_deref(),
@@ -534,6 +645,7 @@ pub async fn proxy_handler(
     {
         Ok(bytes) => bytes,
         Err(err_text) => {
+            cancellation_guard.disarm();
             emit.upstream_error(
                 &route_execution.upstream_url,
                 provider_snapshot.as_deref(),
@@ -651,6 +763,7 @@ pub async fn proxy_handler(
             *response_body = resp_b;
         }
     }
+    cancellation_guard.disarm();
     state.emit_console(evt);
 
     let mut response = Response::builder().status(status.as_u16());
@@ -1335,6 +1448,65 @@ fn route_uses_bearer_auth(route: &RouteExecution, req_path: &str) -> bool {
     }
 }
 
+fn apply_upstream_auth_headers(
+    headers: &mut HeaderMap,
+    route: &RouteExecution,
+    req_path: &str,
+) -> Result<(), &'static str> {
+    let Some(real_api_key) = route.real_api_key.as_deref() else {
+        return Ok(());
+    };
+
+    if route.auth_scheme == Some(UpstreamAuthScheme::None) {
+        headers.remove("x-api-key");
+        headers.remove("authorization");
+        return Ok(());
+    }
+
+    if route_uses_bearer_auth(route, req_path) {
+        let bearer = format!("Bearer {}", real_api_key);
+        let value =
+            HeaderValue::from_str(&bearer).map_err(|_| "API key contains invalid characters")?;
+        headers.insert("authorization", value);
+        headers.remove("x-api-key");
+    } else {
+        let value = HeaderValue::from_str(real_api_key)
+            .map_err(|_| "API key contains invalid characters")?;
+        headers.insert("x-api-key", value);
+        headers.remove("authorization");
+    }
+
+    Ok(())
+}
+
+fn strip_hop_by_hop_headers(headers: &mut HeaderMap) {
+    let connection_headers = headers
+        .get_all("connection")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter_map(|value| value.parse::<axum::http::header::HeaderName>().ok())
+        .collect::<Vec<_>>();
+
+    for name in connection_headers {
+        headers.remove(name);
+    }
+    for name in [
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    ] {
+        headers.remove(name);
+    }
+}
+
 fn read_auth_scheme(config: &serde_json::Value) -> Option<UpstreamAuthScheme> {
     match config.get("authScheme").and_then(|value| value.as_str()) {
         Some("bearer") => Some(UpstreamAuthScheme::Bearer),
@@ -1425,33 +1597,57 @@ where
 }
 
 fn decompress_limited(data: &[u8], encoding: &str, limit: usize) -> Result<Vec<u8>, String> {
-    use std::io::Read;
-
-    if encoding.is_empty() {
+    let encodings = encoding
+        .split(',')
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty() && value != "identity")
+        .collect::<Vec<_>>();
+    if encodings.is_empty() {
         return if data.len() <= limit {
             Ok(data.to_vec())
         } else {
             Err("Decoded response exceeds local capture limit".to_string())
         };
-    }
-
-    let reader: Box<dyn Read> = if encoding.contains("gzip") {
-        Box::new(flate2::read::GzDecoder::new(data))
-    } else if encoding.contains("br") {
-        Box::new(brotli::Decompressor::new(data, 4096))
-    } else if encoding.contains("deflate") {
-        Box::new(flate2::read::DeflateDecoder::new(data))
-    } else {
-        return Ok(data.to_vec());
     };
 
-    let mut decoded = Vec::new();
-    match reader.take(limit as u64 + 1).read_to_end(&mut decoded) {
-        Ok(_) if decoded.len() <= limit => Ok(decoded),
-        Ok(_) => Err("Decoded response exceeds local capture limit".to_string()),
-        Err(_) if data.len() <= limit => Ok(data.to_vec()),
-        Err(error) => Err(format!("Failed to decode bounded response: {}", error)),
+    let mut decoded = data.to_vec();
+    for current_encoding in encodings.iter().rev() {
+        decoded = match current_encoding.as_str() {
+            "gzip" => read_decoded_limited(flate2::read::GzDecoder::new(decoded.as_slice()), limit),
+            "br" => {
+                read_decoded_limited(brotli::Decompressor::new(decoded.as_slice(), 4096), limit)
+            }
+            "deflate" => decode_deflate_limited(&decoded, limit),
+            unsupported => {
+                return Err(format!(
+                    "Unsupported response content encoding: {}",
+                    unsupported
+                ))
+            }
+        }?;
     }
+
+    Ok(decoded)
+}
+
+fn read_decoded_limited<R: std::io::Read>(reader: R, limit: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+
+    let mut decoded = Vec::new();
+    reader
+        .take(limit as u64 + 1)
+        .read_to_end(&mut decoded)
+        .map_err(|error| format!("Failed to decode bounded response: {}", error))?;
+    if decoded.len() > limit {
+        Err("Decoded response exceeds local capture limit".to_string())
+    } else {
+        Ok(decoded)
+    }
+}
+
+fn decode_deflate_limited(data: &[u8], limit: usize) -> Result<Vec<u8>, String> {
+    read_decoded_limited(flate2::read::ZlibDecoder::new(data), limit)
+        .or_else(|_| read_decoded_limited(flate2::read::DeflateDecoder::new(data), limit))
 }
 
 struct LogContext {
@@ -1584,6 +1780,68 @@ struct UsageTrackingStream<S> {
     _request_permits: Option<RequestPermits>,
 }
 
+impl<S> UsageTrackingStream<S> {
+    fn finalize_usage(&mut self) -> bool {
+        self.accumulator.flush();
+        let Some(log_ctx) = self.log_ctx.take() else {
+            return false;
+        };
+        let Some(usage) = self.accumulator.get_usage() else {
+            return false;
+        };
+        if has_billable_usage(&usage) {
+            record_usage(&log_ctx, &usage, self.accumulator.model.as_deref(), true);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn parse_compressed_capture(&mut self) {
+        if self.content_encoding.is_empty() || self.capture_buffer.is_empty() {
+            return;
+        }
+        match decompress_limited(
+            &self.capture_buffer,
+            &self.content_encoding,
+            MAX_DECOMPRESSED_CAPTURE_BYTES,
+        ) {
+            Ok(decoded) => self.accumulator.process_bytes(&decoded),
+            Err(error) => {
+                log::debug!("Compressed stream capture is not parseable: {}", error);
+            }
+        }
+    }
+
+    fn emit_cancelled(&mut self) {
+        let Some(ctx) = self.console_ctx.take() else {
+            return;
+        };
+        ctx.state.emit_console(ConsoleEvent::cancelled(
+            &ctx.request_id,
+            &ctx.method,
+            &ctx.path,
+            Some(ctx.status),
+            ctx.start_time.elapsed().as_millis() as u64,
+            &ctx.upstream_url,
+            ctx.provider_name.as_deref(),
+            ctx.key_alias.as_deref(),
+        ));
+    }
+}
+
+impl<S> Drop for UsageTrackingStream<S> {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        self.parse_compressed_capture();
+        let _ = self.finalize_usage();
+        self.emit_cancelled();
+    }
+}
+
 impl<S> Stream for UsageTrackingStream<S>
 where
     S: Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Unpin,
@@ -1629,15 +1887,9 @@ where
             Poll::Ready(Some(Err(e))) => {
                 this.finished = true;
 
-                // Flush accumulated usage before reporting error
-                this.accumulator.flush();
-                if let (Some(usage), Some(log_ctx)) =
-                    (this.accumulator.get_usage(), this.log_ctx.as_ref())
-                {
-                    if has_billable_usage(&usage) {
-                        record_usage(log_ctx, &usage, this.accumulator.model.as_deref(), true);
-                    }
-                }
+                // Flush accumulated usage before reporting error.
+                this.parse_compressed_capture();
+                let _ = this.finalize_usage();
 
                 let err_text = e.to_string();
                 if let Some(ctx) = this.console_ctx.take() {
@@ -1671,19 +1923,21 @@ where
                         Vec::new()
                     })
                 };
-                if let Some(ctx) = this.log_ctx.take() {
+                if let Some(log_ctx) = this.log_ctx.as_ref() {
+                    let diagnostics = (
+                        log_ctx.path.clone(),
+                        log_ctx.status_code,
+                        log_ctx.response_content_type.clone(),
+                    );
                     if !this.content_encoding.is_empty() && !decoded.is_empty() {
                         this.accumulator.process_bytes(&decoded);
                     }
-                    this.accumulator.flush();
-                    if let Some(usage) = this.accumulator.get_usage() {
-                        record_usage(&ctx, &usage, this.accumulator.model.as_deref(), true);
-                    } else {
+                    if !this.finalize_usage() {
                         log::debug!(
                             "Usage not recorded: no usage parsed from streaming response; path={}, status={}, content_type={}, diagnostics={}",
-                            ctx.path,
-                            ctx.status_code,
-                            ctx.response_content_type,
+                            diagnostics.0,
+                            diagnostics.1,
+                            diagnostics.2,
                             this.accumulator.diagnostics_summary()
                         );
                     }
@@ -1772,41 +2026,242 @@ fn to_ws_url(http_url: &str) -> String {
     }
 }
 
-async fn ws_relay(mut client: WebSocket, upstream_url: String, api_key: Option<String>) {
+trait WebSocketIo: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T> WebSocketIo for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+
+type BoxedWebSocketIo = Box<dyn WebSocketIo>;
+type UpstreamWebSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<BoxedWebSocketIo>>;
+
+fn build_upstream_ws_request(
+    upstream_url: &str,
+    incoming_headers: &HeaderMap,
+    route: &RouteExecution,
+    req_path: &str,
+) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, String> {
     use tokio_tungstenite::tungstenite;
 
+    let mut forwarded_headers = incoming_headers.clone();
+    apply_upstream_auth_headers(&mut forwarded_headers, route, req_path).map_err(str::to_string)?;
+    strip_hop_by_hop_headers(&mut forwarded_headers);
+    for name in [
+        "host",
+        "content-length",
+        "sec-websocket-key",
+        "sec-websocket-version",
+        "sec-websocket-extensions",
+    ] {
+        forwarded_headers.remove(name);
+    }
+
     let mut request = tungstenite::http::Request::builder()
-        .uri(&upstream_url)
-        .header("Host", extract_host(&upstream_url).unwrap_or_default())
+        .uri(upstream_url)
+        .header("Host", extract_host(upstream_url).unwrap_or_default())
         .header("Connection", "Upgrade")
         .header("Upgrade", "websocket")
         .header("Sec-WebSocket-Version", "13")
         .header(
             "Sec-WebSocket-Key",
             tungstenite::handshake::client::generate_key(),
-        );
-    if let Some(api_key) = api_key {
-        request = request.header("Authorization", format!("Bearer {}", api_key));
+        )
+        .body(())
+        .map_err(|error| format!("Failed to build upstream WebSocket request: {}", error))?;
+    for (name, value) in &forwarded_headers {
+        request.headers_mut().append(name.clone(), value.clone());
     }
-    let ws_request = match request.body(()) {
-        Ok(r) => r,
-        Err(e) => {
-            log::error!("Failed to build upstream WS request: {}", e);
-            return;
-        }
+
+    Ok(request)
+}
+
+async fn connect_upstream_websocket(
+    request: tokio_tungstenite::tungstenite::http::Request<()>,
+    proxy_url: Option<&str>,
+) -> Result<
+    (
+        UpstreamWebSocket,
+        tokio_tungstenite::tungstenite::handshake::client::Response,
+    ),
+    String,
+> {
+    let proxy_url = proxy_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    match tokio::time::timeout(WS_CONNECT_TIMEOUT, async move {
+        let upstream_url = url::Url::parse(&request.uri().to_string())
+            .map_err(|error| format!("Invalid upstream WebSocket URL: {}", error))?;
+        let stream = open_websocket_transport(&upstream_url, proxy_url.as_deref()).await?;
+        let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(MAX_WS_MESSAGE_BYTES))
+            .max_frame_size(Some(MAX_WS_FRAME_BYTES))
+            .max_write_buffer_size(MAX_WS_WRITE_BUFFER_BYTES);
+        tokio_tungstenite::client_async_tls_with_config(request, stream, Some(config), None)
+            .await
+            .map_err(|error| format!("Upstream WebSocket error: {}", error))
+    })
+    .await
+    {
+        Ok(Ok(connection)) => Ok(connection),
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err(format!(
+            "Upstream WebSocket connection timed out after {} seconds",
+            WS_CONNECT_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+async fn open_websocket_transport(
+    upstream_url: &url::Url,
+    proxy_url: Option<&str>,
+) -> Result<BoxedWebSocketIo, String> {
+    let upstream_host = upstream_url
+        .host_str()
+        .ok_or_else(|| "Upstream WebSocket URL has no host".to_string())?;
+    let upstream_port = upstream_url
+        .port_or_known_default()
+        .ok_or_else(|| "Upstream WebSocket URL has no port".to_string())?;
+
+    let Some(proxy_url) = proxy_url else {
+        let stream = tokio::net::TcpStream::connect((upstream_host, upstream_port))
+            .await
+            .map_err(|error| format!("Failed to connect upstream WebSocket: {}", error))?;
+        stream
+            .set_nodelay(true)
+            .map_err(|error| format!("Failed to configure upstream WebSocket: {}", error))?;
+        return Ok(Box::new(stream));
     };
 
-    let (mut upstream, _) = match tokio_tungstenite::connect_async(ws_request).await {
-        Ok(conn) => conn,
-        Err(e) => {
-            log::error!(
-                "Failed to connect upstream WebSocket {}: {}",
-                upstream_url,
-                e
-            );
-            return;
-        }
+    let parsed_proxy = url::Url::parse(proxy_url)
+        .map_err(|error| format!("Invalid WebSocket proxy URL: {}", error))?;
+    if !matches!(parsed_proxy.scheme(), "http" | "https") {
+        return Err("WebSocket proxy must use http:// or https://".to_string());
+    }
+    let proxy_host = parsed_proxy
+        .host_str()
+        .ok_or_else(|| "WebSocket proxy URL has no host".to_string())?;
+    let proxy_port = parsed_proxy
+        .port_or_known_default()
+        .ok_or_else(|| "WebSocket proxy URL has no port".to_string())?;
+    let tcp = tokio::net::TcpStream::connect((proxy_host, proxy_port))
+        .await
+        .map_err(|error| format!("Failed to connect WebSocket proxy: {}", error))?;
+    tcp.set_nodelay(true)
+        .map_err(|error| format!("Failed to configure WebSocket proxy: {}", error))?;
+
+    let mut stream: BoxedWebSocketIo = if parsed_proxy.scheme() == "https" {
+        let connector = tokio_native_tls::native_tls::TlsConnector::new()
+            .map_err(|error| format!("Failed to create WebSocket proxy TLS: {}", error))?;
+        let connector = tokio_native_tls::TlsConnector::from(connector);
+        let tls = connector
+            .connect(proxy_host, tcp)
+            .await
+            .map_err(|error| format!("Failed to establish WebSocket proxy TLS: {}", error))?;
+        Box::new(tls)
+    } else {
+        Box::new(tcp)
     };
+
+    let authority = format_host_port(upstream_host, upstream_port);
+    establish_http_connect_tunnel(&mut stream, &authority, &parsed_proxy).await?;
+    Ok(stream)
+}
+
+async fn establish_http_connect_tunnel(
+    stream: &mut BoxedWebSocketIo,
+    authority: &str,
+    proxy_url: &url::Url,
+) -> Result<(), String> {
+    use base64::Engine as _;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let proxy_authorization = if proxy_url.username().is_empty() {
+        String::new()
+    } else {
+        let username = urlencoding::decode(proxy_url.username())
+            .map_err(|_| "Invalid WebSocket proxy username".to_string())?;
+        let password = proxy_url
+            .password()
+            .map(urlencoding::decode)
+            .transpose()
+            .map_err(|_| "Invalid WebSocket proxy password".to_string())?
+            .unwrap_or_default();
+        let credential =
+            base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", username, password));
+        format!("Proxy-Authorization: Basic {}\r\n", credential)
+    };
+    let request =
+        format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n{proxy_authorization}\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|error| format!("Failed to write WebSocket proxy CONNECT: {}", error))?;
+    stream
+        .flush()
+        .await
+        .map_err(|error| format!("Failed to flush WebSocket proxy CONNECT: {}", error))?;
+
+    const MAX_PROXY_RESPONSE_HEADER_BYTES: usize = 16 * 1024;
+    let mut response = Vec::new();
+    let mut chunk = [0u8; 1024];
+    while !response.windows(4).any(|window| window == b"\r\n\r\n") {
+        let read = stream
+            .read(&mut chunk)
+            .await
+            .map_err(|error| format!("Failed to read WebSocket proxy CONNECT: {}", error))?;
+        if read == 0 {
+            return Err("WebSocket proxy closed during CONNECT".to_string());
+        }
+        if response.len().saturating_add(read) > MAX_PROXY_RESPONSE_HEADER_BYTES {
+            return Err("WebSocket proxy CONNECT response header is too large".to_string());
+        }
+        response.extend_from_slice(&chunk[..read]);
+    }
+
+    let status_line = String::from_utf8_lossy(&response)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let status = status_line.split_whitespace().nth(1).unwrap_or_default();
+    if status != "200" {
+        return Err(format!("WebSocket proxy CONNECT failed: {}", status_line));
+    }
+    Ok(())
+}
+
+fn format_host_port(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{}]:{}", host, port)
+    } else {
+        format!("{}:{}", host, port)
+    }
+}
+
+fn axum_close_to_upstream(
+    frame: Option<AxumCloseFrame>,
+) -> Option<tokio_tungstenite::tungstenite::protocol::CloseFrame> {
+    frame.map(
+        |frame| tokio_tungstenite::tungstenite::protocol::CloseFrame {
+            code: frame.code.into(),
+            reason: frame.reason.to_string().into(),
+        },
+    )
+}
+
+fn upstream_close_to_axum(
+    frame: Option<tokio_tungstenite::tungstenite::protocol::CloseFrame>,
+) -> Option<AxumCloseFrame> {
+    frame.map(|frame| AxumCloseFrame {
+        code: frame.code.into(),
+        reason: frame.reason.to_string().into(),
+    })
+}
+
+async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket) {
+    use tokio_tungstenite::tungstenite;
+
+    let mut close_sent_to_client = false;
+    let mut close_sent_to_upstream = false;
 
     loop {
         tokio::select! {
@@ -1824,8 +2279,18 @@ async fn ws_relay(mut client: WebSocket, upstream_url: String, api_key: Option<S
                     Some(Ok(WsMessage::Pong(p))) => {
                         if upstream.send(tungstenite::Message::Pong(p.to_vec().into())).await.is_err() { break; }
                     }
-                    Some(Ok(WsMessage::Close(_))) | None => break,
-                    Some(Err(_)) => break,
+                    Some(Ok(WsMessage::Close(frame))) => {
+                        close_sent_to_upstream = upstream
+                            .send(tungstenite::Message::Close(axum_close_to_upstream(frame)))
+                            .await
+                            .is_ok();
+                        break;
+                    }
+                    None => break,
+                    Some(Err(error)) => {
+                        log::debug!("Client WebSocket closed with error: {}", error);
+                        break;
+                    }
                 }
             }
             msg = upstream.next() => {
@@ -1842,25 +2307,44 @@ async fn ws_relay(mut client: WebSocket, upstream_url: String, api_key: Option<S
                     Some(Ok(tungstenite::Message::Pong(p))) => {
                         if client.send(WsMessage::Pong(p.to_vec().into())).await.is_err() { break; }
                     }
-                    Some(Ok(tungstenite::Message::Close(_))) | None => break,
+                    Some(Ok(tungstenite::Message::Close(frame))) => {
+                        close_sent_to_client = client
+                            .send(WsMessage::Close(upstream_close_to_axum(frame)))
+                            .await
+                            .is_ok();
+                        break;
+                    }
                     Some(Ok(_)) => {}
-                    Some(Err(_)) => break,
+                    None => break,
+                    Some(Err(error)) => {
+                        log::debug!("Upstream WebSocket closed with error: {}", error);
+                        break;
+                    }
                 }
             }
         }
     }
 
-    let _ = client.close().await;
-    let _ = upstream.close(None).await;
+    if !close_sent_to_client {
+        let _ = client.close().await;
+    }
+    if !close_sent_to_upstream {
+        let _ = upstream.close(None).await;
+    }
 }
 
 fn extract_host(url: &str) -> Option<String> {
-    url::Url::parse(url).ok().and_then(|u| {
-        u.host_str().map(|h| {
-            if let Some(port) = u.port() {
-                format!("{}:{}", h, port)
+    url::Url::parse(url).ok().and_then(|url| {
+        url.host_str().map(|host| {
+            let host = if host.contains(':') {
+                format!("[{}]", host)
             } else {
-                h.to_string()
+                host.to_string()
+            };
+            if let Some(port) = url.port() {
+                format!("{}:{}", host, port)
+            } else {
+                host
             }
         })
     })
@@ -1870,12 +2354,12 @@ fn extract_host(url: &str) -> Option<String> {
 mod tests {
     use super::{
         api_key_supports_session_client, append_bounded_tail, apply_model_mapping,
-        collect_response_body_limited, decompress_limited, effective_session_cli_type,
-        has_billable_usage, is_codex_responses_request_path, record_usage,
-        route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
-        should_forward_response_header, LogContext, RouteExecution, SseModelNormalizingStream,
-        StreamConsoleCtx, UpstreamAuthScheme, UsageTrackingStream,
-        MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
+        build_upstream_ws_request, collect_response_body_limited, decompress_limited,
+        effective_session_cli_type, has_billable_usage, is_codex_responses_request_path,
+        record_usage, route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
+        should_forward_response_header, strip_hop_by_hop_headers, LogContext,
+        RequestCancellationGuard, RouteExecution, SseModelNormalizingStream, StreamConsoleCtx,
+        UpstreamAuthScheme, UsageTrackingStream, MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
@@ -1906,6 +2390,55 @@ mod tests {
     fn response_header_filter_keeps_end_to_end_headers() {
         for header in ["content-type", "server", "x-request-id"] {
             assert!(should_forward_response_header(header), "{header}");
+        }
+    }
+
+    #[test]
+    fn request_header_filter_removes_connection_nominated_headers() {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("connection", "keep-alive, x-local-hop".parse().unwrap());
+        headers.insert("keep-alive", "timeout=5".parse().unwrap());
+        headers.insert("x-local-hop", "remove-me".parse().unwrap());
+        headers.insert("user-agent", "cc-client/1.0".parse().unwrap());
+
+        strip_hop_by_hop_headers(&mut headers);
+
+        assert!(!headers.contains_key("connection"));
+        assert!(!headers.contains_key("keep-alive"));
+        assert!(!headers.contains_key("x-local-hop"));
+        assert_eq!(headers["user-agent"], "cc-client/1.0");
+    }
+
+    #[tokio::test]
+    async fn dropping_inflight_request_guard_emits_cancelled_without_upstream_status() {
+        let state = crate::proxy::build_proxy_state(std::sync::Arc::new(std::sync::Mutex::new(
+            Database::new_in_memory().unwrap(),
+        )))
+        .unwrap();
+        let mut rx = state.console_tx.subscribe();
+
+        let guard = RequestCancellationGuard::new(
+            state,
+            "request-inflight",
+            "POST",
+            "/v1/messages",
+            "https://example.com/v1/messages",
+            Some("provider".to_string()),
+            Some("key".to_string()),
+            std::time::Instant::now(),
+        );
+        drop(guard);
+
+        let event = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("cancelled event should be emitted")
+            .expect("cancelled event should be readable");
+        match event {
+            ConsoleEvent::Request { kind, status, .. } => {
+                assert_eq!(kind, "cancelled");
+                assert_eq!(status, None);
+            }
+            _ => panic!("expected request event"),
         }
     }
 
@@ -1952,6 +2485,30 @@ mod tests {
         let mut tail = b"1234".to_vec();
         append_bounded_tail(&mut tail, b"56789", 6);
         assert_eq!(tail, b"456789");
+    }
+
+    #[test]
+    fn gzip_brotli_and_zlib_deflate_captures_decode_with_limits() {
+        let sample = b"transparent gateway";
+        assert_eq!(
+            decompress_limited(&gzip_compress(sample), "gzip", 1024).unwrap(),
+            sample
+        );
+        assert_eq!(
+            decompress_limited(&brotli_compress(sample), "br", 1024).unwrap(),
+            sample
+        );
+        assert_eq!(
+            decompress_limited(&zlib_compress(sample), "deflate", 1024).unwrap(),
+            sample
+        );
+
+        let nested = brotli_compress(&gzip_compress(sample));
+        assert_eq!(
+            decompress_limited(&nested, "gzip, br", 1024).unwrap(),
+            sample
+        );
+        assert!(decompress_limited(sample, "zstd", 1024).is_err());
     }
 
     #[test]
@@ -2114,6 +2671,87 @@ mod tests {
     }
 
     #[test]
+    fn websocket_handshake_preserves_client_metadata_and_replaces_auth() {
+        let route = route_for_auth(Some("codex-app"), "https://gateway.example.com/v1/realtime");
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert(
+            "authorization",
+            "Bearer session-local-token".parse().unwrap(),
+        );
+        headers.insert("user-agent", "codex-cli/9.9".parse().unwrap());
+        headers.insert("origin", "https://desktop.local".parse().unwrap());
+        headers.insert(
+            "sec-websocket-protocol",
+            "realtime, openai-insecure-api-key".parse().unwrap(),
+        );
+        headers.insert(
+            "sec-websocket-key",
+            "dGhlIHNhbXBsZSBub25jZQ==".parse().unwrap(),
+        );
+        headers.insert("openai-beta", "realtime=v1".parse().unwrap());
+        headers.insert("connection", "Upgrade, x-local-hop".parse().unwrap());
+        headers.insert("x-local-hop", "remove-me".parse().unwrap());
+
+        let request = build_upstream_ws_request(
+            "wss://gateway.example.com/v1/realtime",
+            &headers,
+            &route,
+            "/v1/realtime",
+        )
+        .unwrap();
+
+        assert_eq!(request.headers()["host"], "gateway.example.com");
+        assert_eq!(request.headers()["user-agent"], "codex-cli/9.9");
+        assert_eq!(request.headers()["origin"], "https://desktop.local");
+        assert_eq!(request.headers()["openai-beta"], "realtime=v1");
+        assert_eq!(
+            request.headers()["sec-websocket-protocol"],
+            "realtime, openai-insecure-api-key"
+        );
+        assert_eq!(request.headers()["authorization"], "Bearer sk-test");
+        assert!(!request.headers().contains_key("x-api-key"));
+        assert!(!request.headers().contains_key("x-local-hop"));
+        assert_ne!(
+            request.headers()["sec-websocket-key"],
+            headers["sec-websocket-key"]
+        );
+    }
+
+    #[test]
+    fn websocket_handshake_honors_x_api_key_and_no_auth_overrides() {
+        let incoming = hyper::HeaderMap::new();
+        let x_api_route = route_for_auth_with_scheme(
+            Some("codex-app"),
+            "https://gateway.example.com/v1/realtime",
+            UpstreamAuthScheme::XApiKey,
+        );
+        let x_api_request = build_upstream_ws_request(
+            "wss://gateway.example.com/v1/realtime",
+            &incoming,
+            &x_api_route,
+            "/v1/realtime",
+        )
+        .unwrap();
+        assert_eq!(x_api_request.headers()["x-api-key"], "sk-test");
+        assert!(!x_api_request.headers().contains_key("authorization"));
+
+        let no_auth_route = route_for_auth_with_scheme(
+            Some("codex-app"),
+            "https://gateway.example.com/v1/realtime",
+            UpstreamAuthScheme::None,
+        );
+        let no_auth_request = build_upstream_ws_request(
+            "wss://gateway.example.com/v1/realtime",
+            &incoming,
+            &no_auth_route,
+            "/v1/realtime",
+        )
+        .unwrap();
+        assert!(!no_auth_request.headers().contains_key("x-api-key"));
+        assert!(!no_auth_request.headers().contains_key("authorization"));
+    }
+
+    #[test]
     fn cache_only_usage_is_billable_for_request_logs() {
         let usage = usage_parser::TokenUsage {
             input_tokens: 0,
@@ -2237,7 +2875,8 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
         assert_eq!(rows[0].request_model.as_deref(), Some("gpt-5.5"));
-        assert!((rows[0].total_cost_usd - 35.0).abs() < 1e-6);
+        // GPT-5.5 requests above 272K input use 2x input and 1.5x output rates.
+        assert!((rows[0].total_cost_usd - 55.0).abs() < 1e-6);
     }
 
     // ---- Streaming usage recording (Claude) regression tests ----
@@ -2264,6 +2903,25 @@ mod tests {
         use flate2::Compression;
         use std::io::Write;
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn brotli_compress(data: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut output = Vec::new();
+        {
+            let mut writer = brotli::CompressorWriter::new(&mut output, 4096, 5, 22);
+            writer.write_all(data).unwrap();
+        }
+        output
+    }
+
+    fn zlib_compress(data: &[u8]) -> Vec<u8> {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(data).unwrap();
         encoder.finish().unwrap()
     }
@@ -2454,6 +3112,76 @@ mod tests {
         assert_eq!(rows.len(), 1, "expected one billed row from gzip stream");
         assert_eq!(rows[0].input_tokens, 1234);
         assert_eq!(rows[0].output_tokens, 567);
+    }
+
+    #[tokio::test]
+    async fn dropping_stream_records_partial_usage_and_emits_cancelled() {
+        use futures::StreamExt as _;
+
+        let (db, provider_id, api_key_id) = billing_db();
+        let state = crate::proxy::build_proxy_state(db.clone()).unwrap();
+        let mut rx = state.console_tx.subscribe();
+        let chunk = axum::body::Bytes::from_static(
+            b"data:{\"type\":\"message_start\",\"message\":{\"model\":\"claude-3-5-sonnet\",\"usage\":{\"input_tokens\":321}}}\n\n",
+        );
+        let inner = futures::stream::iter(vec![Ok::<_, reqwest::Error>(chunk)])
+            .chain(futures::stream::pending());
+        let mut stream = UsageTrackingStream {
+            inner,
+            accumulator: usage_parser::StreamUsageAccumulator::new(),
+            log_ctx: Some(streaming_log_ctx(&db, &provider_id, &api_key_id)),
+            console_ctx: Some(StreamConsoleCtx {
+                state: state.clone(),
+                request_id: "request-cancelled".to_string(),
+                method: "POST".to_string(),
+                path: "/v1/messages".to_string(),
+                upstream_url: "https://example.com/v1/messages".to_string(),
+                start_time: std::time::Instant::now(),
+                status: 200,
+                provider_name: Some("claude-provider".to_string()),
+                key_alias: Some("claude-key".to_string()),
+                request_headers: hyper::HeaderMap::new(),
+                request_body: Vec::new(),
+                response_headers: hyper::HeaderMap::new(),
+            }),
+            finished: false,
+            content_encoding: String::new(),
+            detail_capture: false,
+            capture_buffer: Vec::new(),
+            capture_truncated: false,
+            _request_permits: Some(
+                state
+                    .try_acquire_request_permits(Some("session-cancelled"))
+                    .unwrap(),
+            ),
+        };
+
+        assert!(futures::StreamExt::next(&mut stream).await.is_some());
+        drop(stream);
+
+        let rows = db.lock().unwrap().request_log_list_all().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].input_tokens, 321);
+        let event = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
+            .await
+            .expect("cancelled event should be emitted")
+            .expect("cancelled event should be readable");
+        match event {
+            ConsoleEvent::Request {
+                kind,
+                request_id,
+                message,
+                ..
+            } => {
+                assert_eq!(kind, "cancelled");
+                assert_eq!(request_id.as_deref(), Some("request-cancelled"));
+                assert_eq!(message.as_deref(), Some("client disconnected"));
+            }
+            _ => panic!("expected request event"),
+        }
+        assert!(state
+            .try_acquire_request_permits(Some("session-cancelled"))
+            .is_ok());
     }
 
     #[tokio::test]
