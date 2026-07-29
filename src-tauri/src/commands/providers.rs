@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::models::{CreateProviderInput, Provider, UpdateProviderInput};
+use crate::models::{ApiKey, CreateProviderInput, Provider, UpdateProviderInput};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -56,31 +56,25 @@ pub fn provider_reorder(
 pub async fn provider_model_list(
     db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
+    api_key_id: String,
 ) -> Result<Vec<String>, String> {
-    let (provider, api_keys) = {
+    let (provider, api_key) = {
         let db = db.lock().map_err(|e| e.to_string())?;
         let provider = db
             .provider_get(&provider_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Provider not found".to_string())?;
-        let keys = db.api_key_list(&provider_id).unwrap_or_default();
-        (provider, keys)
+        let api_key = db
+            .api_key_list(&provider_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|key| key.id == api_key_id)
+            .ok_or_else(|| "API key does not belong to this provider".to_string())?;
+        (provider, api_key)
     };
 
-    let base_url = provider.base_url.trim_end_matches('/');
-
-    // Determine auth token: use provider.token first, then first active API key
-    let token = provider
-        .token
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            api_keys
-                .iter()
-                .find(|k| k.is_active && !k.is_exhausted)
-                .map(|k| k.value.as_str())
-        })
-        .ok_or_else(|| "No available token or API key for this provider".to_string())?;
+    let (base_url, auth_scheme) = model_list_upstream_settings(&provider, &api_key);
+    let endpoint = build_model_list_endpoint(&base_url)?;
 
     let client = crate::services::http_client::outbound_client_builder_for_proxy(
         provider.http_proxy.as_deref(),
@@ -89,10 +83,15 @@ pub async fn provider_model_list(
     .build()
     .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let resp = client
-        .get(format!("{}/v1/models", base_url))
-        .header("Authorization", format!("Bearer {}", token))
-        .header("User-Agent", "cc-use/3.x")
+    let mut request = client.get(endpoint).header("User-Agent", "cc-use/3.x");
+    request = match auth_scheme.as_str() {
+        "bearer" => request.header("Authorization", format!("Bearer {}", api_key.value)),
+        "x-api-key" => request.header("x-api-key", &api_key.value),
+        "none" => request,
+        _ => return Err("Unsupported authentication scheme".to_string()),
+    };
+
+    let resp = request
         .send()
         .await
         .map_err(|e| format!("Failed to fetch models: {}", e))?;
@@ -112,14 +111,169 @@ pub async fn provider_model_list(
         .as_array()
         .ok_or_else(|| "Unexpected response format: missing 'data' array".to_string())?;
 
-    let model_ids: Vec<String> = models
+    let mut model_ids: Vec<String> = models
         .iter()
         .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
         .collect();
+    model_ids.sort();
+    model_ids.dedup();
 
     if model_ids.is_empty() {
         return Err("No models found".to_string());
     }
 
     Ok(model_ids)
+}
+
+fn model_list_upstream_settings(provider: &Provider, api_key: &ApiKey) -> (String, String) {
+    let client_kind = api_key
+        .types
+        .first()
+        .map(String::as_str)
+        .unwrap_or("claude_code");
+    let client_config = api_key
+        .client_configs
+        .as_ref()
+        .and_then(|configs| configs.get(client_kind));
+    let base_url = client_config
+        .and_then(|config| config.get("baseUrl"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&provider.base_url)
+        .to_string();
+    let auth_scheme = client_config
+        .and_then(|config| config.get("authScheme"))
+        .and_then(|value| value.as_str())
+        .filter(|value| matches!(*value, "bearer" | "x-api-key" | "none"))
+        .unwrap_or_else(|| match client_kind {
+            "codex" | "grok" => "bearer",
+            _ => "x-api-key",
+        })
+        .to_string();
+
+    (base_url, auth_scheme)
+}
+
+fn build_model_list_endpoint(base_url: &str) -> Result<String, String> {
+    let base_url = base_url.trim().trim_end_matches('/');
+    let parsed = url::Url::parse(base_url).map_err(|_| "Invalid provider base URL".to_string())?;
+    if parsed.host_str().is_none() {
+        return Err("Invalid provider base URL".to_string());
+    }
+
+    if parsed.path().ends_with("/v1") {
+        Ok(format!("{}/models", base_url))
+    } else {
+        Ok(format!("{}/v1/models", base_url))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_provider() -> Provider {
+        Provider {
+            id: "provider-1".to_string(),
+            name: "Provider".to_string(),
+            base_url: "https://provider.example.com/v1".to_string(),
+            http_proxy: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: "none".to_string(),
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            cached_wallet_balance: None,
+            last_balance_checked_at: None,
+            usage_type: "none".to_string(),
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            cached_usage: None,
+            last_usage_checked_at: None,
+            cost_multiplier: Some(1.0),
+            is_active: true,
+            sort_order: 0,
+        }
+    }
+
+    fn test_key(client_kind: &str, client_configs: Option<serde_json::Value>) -> ApiKey {
+        ApiKey {
+            id: "key-1".to_string(),
+            provider_id: "provider-1".to_string(),
+            alias: None,
+            value: "sk-test".to_string(),
+            types: vec![client_kind.to_string()],
+            priority: 0,
+            is_exhausted: false,
+            is_active: true,
+            config: None,
+            usage_type: "none".to_string(),
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            cached_usage: None,
+            last_usage_checked_at: None,
+            cost_multiplier: 1.0,
+            model_mapping: None,
+            client_configs,
+        }
+    }
+
+    #[test]
+    fn model_list_uses_selected_keys_upstream_settings() {
+        let provider = test_provider();
+        let key = test_key(
+            "claude_code",
+            Some(serde_json::json!({
+                "claude_code": {
+                    "baseUrl": "https://key.example.com/api/v1",
+                    "authScheme": "bearer"
+                }
+            })),
+        );
+
+        assert_eq!(
+            model_list_upstream_settings(&provider, &key),
+            (
+                "https://key.example.com/api/v1".to_string(),
+                "bearer".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn model_list_uses_clients_default_auth_when_key_has_no_override() {
+        let provider = test_provider();
+
+        assert_eq!(
+            model_list_upstream_settings(&provider, &test_key("claude_code", None)).1,
+            "x-api-key"
+        );
+        assert_eq!(
+            model_list_upstream_settings(&provider, &test_key("codex", None)).1,
+            "bearer"
+        );
+    }
+
+    #[test]
+    fn model_list_endpoint_does_not_duplicate_v1() {
+        assert_eq!(
+            build_model_list_endpoint("https://example.com").unwrap(),
+            "https://example.com/v1/models"
+        );
+        assert_eq!(
+            build_model_list_endpoint("https://example.com/v1").unwrap(),
+            "https://example.com/v1/models"
+        );
+        assert_eq!(
+            build_model_list_endpoint("https://example.com/api/v1/").unwrap(),
+            "https://example.com/api/v1/models"
+        );
+    }
 }

@@ -3,7 +3,7 @@ import { getApi } from '../api'
  * Keys - 以 Key 为核心维度的管理页面
  * Provider 作为分组/筛选器
  */
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Typography,
   Button,
@@ -22,6 +22,7 @@ import {
   Modal,
   Divider,
   Progress,
+  Select,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
 import { useServiceStatus } from '../hooks/useServiceStatus'
@@ -197,6 +198,9 @@ export default function Keys() {
   const [modelListProvider, setModelListProvider] = useState<Provider | null>(null)
   const [modelList, setModelList] = useState<string[]>([])
   const [modelListLoading, setModelListLoading] = useState(false)
+  const [modelListApiKeyId, setModelListApiKeyId] = useState<string | undefined>(undefined)
+  const [modelListError, setModelListError] = useState(false)
+  const modelListRequestId = useRef(0)
 
   // Cost stats per key (today and total)
   const [keyCostStats, setKeyCostStats] = useState<
@@ -206,6 +210,10 @@ export default function Keys() {
 
   // Get all API keys
   const allApiKeys = getAllApiKeys()
+  const modelListKeys = useMemo(
+    () => (modelListProvider ? apiKeys[modelListProvider.id] || [] : []),
+    [apiKeys, modelListProvider],
+  )
 
   useEffect(() => {
     fetchProviders()
@@ -467,19 +475,31 @@ export default function Keys() {
 
   // Handle edit key
   // Drag-and-drop reorder handlers
-  const handleViewModels = async (provider: Provider) => {
+  const loadModels = async (provider: Provider, apiKeyId: string) => {
+    const requestId = ++modelListRequestId.current
+    setModelList([])
+    setModelListError(false)
+    setModelListLoading(true)
+    try {
+      const models = await getApi().provider.modelList(provider.id, apiKeyId)
+      if (requestId === modelListRequestId.current) setModelList(models)
+    } catch {
+      if (requestId === modelListRequestId.current) setModelListError(true)
+    } finally {
+      if (requestId === modelListRequestId.current) setModelListLoading(false)
+    }
+  }
+
+  const handleViewModels = (provider: Provider) => {
+    const keys = apiKeys[provider.id] || []
+    const defaultKey = keys.find((key) => key.isActive && !key.isExhausted) || keys[0]
     setModelListProvider(provider)
     setModelListOpen(true)
     setModelList([])
-    setModelListLoading(true)
-    try {
-      const models = await getApi().provider.modelList(provider.id)
-      setModelList(models)
-    } catch {
-      setModelList([])
-    } finally {
-      setModelListLoading(false)
-    }
+    setModelListApiKeyId(defaultKey?.id)
+    setModelListError(false)
+    setModelListLoading(false)
+    if (defaultKey) void loadModels(provider, defaultKey.id)
   }
 
   // dnd-kit sensors — require 8px drag threshold so clicks pass through
@@ -1110,49 +1130,83 @@ export default function Keys() {
         }
         open={modelListOpen}
         onCancel={() => {
+          modelListRequestId.current += 1
           setModelListOpen(false)
           setModelListProvider(null)
           setModelList([])
+          setModelListApiKeyId(undefined)
+          setModelListError(false)
+          setModelListLoading(false)
         }}
         footer={null}
         width={500}
         style={{ top: 24 }}
       >
-        {modelListLoading ? (
-          <div className='empty-state' style={{ padding: '48px 0' }}>
-            <Spin />
+        <Space direction='vertical' size={16} style={{ width: '100%' }}>
+          <div>
+            <Text type='secondary' style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
+              {t('keys.modelListKey') || '读取模型使用的密钥'}
+            </Text>
+            <Select
+              value={modelListApiKeyId}
+              placeholder={t('keys.modelListKeyPlaceholder') || '选择 API Key'}
+              disabled={modelListKeys.length === 0}
+              style={{ width: '100%' }}
+              onChange={(apiKeyId) => {
+                setModelListApiKeyId(apiKeyId)
+                if (modelListProvider) void loadModels(modelListProvider, apiKeyId)
+              }}
+              options={modelListKeys.map((key) => ({
+                value: key.id,
+                label: `${key.alias || t('keys.unnamedKey')}${
+                  key.isExhausted ? ` (${t('keys.exhausted')})` : ''
+                }`,
+              }))}
+            />
           </div>
-        ) : modelList.length === 0 ? (
-          <div className='empty-state' style={{ padding: '48px 0' }}>
-            <Text type='secondary'>{t('keys.modelsFetchFailed') || '无法获取模型列表'}</Text>
-          </div>
-        ) : (
-          <SimpleBar style={{ maxHeight: '60vh' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {modelList.map((model) => (
-                <div
-                  key={model}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    fontSize: 13,
-                    fontFamily: 'var(--font-mono)',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--surface-sunken)',
-                  }}
-                >
-                  {model}
-                </div>
-              ))}
-              {modelList.length > 0 && (
-                <Text type='secondary' style={{ fontSize: 12, textAlign: 'center', marginTop: 8 }}>
-                  {t('keys.modelsCount', { count: modelList.length }) ||
-                    `共 ${modelList.length} 个模型`}
-                </Text>
-              )}
+          {modelListLoading ? (
+            <div className='empty-state' style={{ padding: '48px 0' }}>
+              <Spin />
             </div>
-          </SimpleBar>
-        )}
+          ) : modelListKeys.length === 0 ? (
+            <div className='empty-state' style={{ padding: '48px 0' }}>
+              <Text type='secondary'>{t('keys.modelListNoKey') || '该供应商暂无 API Key'}</Text>
+            </div>
+          ) : modelListError || modelList.length === 0 ? (
+            <div className='empty-state' style={{ padding: '48px 0' }}>
+              <Text type='secondary'>{t('keys.modelsFetchFailed') || '无法获取模型列表'}</Text>
+            </div>
+          ) : (
+            <SimpleBar style={{ maxHeight: '60vh' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {modelList.map((model) => (
+                  <div
+                    key={model}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      fontFamily: 'var(--font-mono)',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--surface-sunken)',
+                    }}
+                  >
+                    {model}
+                  </div>
+                ))}
+                {modelList.length > 0 && (
+                  <Text
+                    type='secondary'
+                    style={{ fontSize: 12, textAlign: 'center', marginTop: 8 }}
+                  >
+                    {t('keys.modelsCount', { count: modelList.length }) ||
+                      `共 ${modelList.length} 个模型`}
+                  </Text>
+                )}
+              </div>
+            </SimpleBar>
+          )}
+        </Space>
       </Modal>
     </div>
   )

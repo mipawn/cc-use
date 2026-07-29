@@ -611,6 +611,9 @@ export default {
     // Model list
     viewModels: '查看模型',
     models: '可用模型',
+    modelListKey: '读取模型使用的密钥',
+    modelListKeyPlaceholder: '选择 API Key',
+    modelListNoKey: '该供应商暂无 API Key',
     modelsFetchFailed: '无法获取模型列表',
     modelsCount: '共 {{count}} 个模型',
   },

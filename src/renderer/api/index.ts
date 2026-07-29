@@ -27,7 +27,7 @@ function buildApi(): Api {
       update: (input) => invoke('provider_update', { input }),
       delete: (id) => invoke('provider_delete', { id }),
       reorder: (providerIds) => invoke('provider_reorder', { providerIds }),
-      modelList: (providerId) => invoke('provider_model_list', { providerId }),
+      modelList: (providerId, apiKeyId) => invoke('provider_model_list', { providerId, apiKeyId }),
     },
     apiKey: {
       list: (providerId) => invoke('api_key_list', { providerId }),

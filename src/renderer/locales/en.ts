@@ -618,6 +618,9 @@ export default {
     // Model list
     viewModels: 'View Models',
     models: 'Available Models',
+    modelListKey: 'API key used to load models',
+    modelListKeyPlaceholder: 'Select an API key',
+    modelListNoKey: 'No API keys for this provider',
     modelsFetchFailed: 'Failed to fetch models',
     modelsCount: '{{count}} models total',
   },

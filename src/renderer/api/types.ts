@@ -48,7 +48,7 @@ export interface Api {
     update: (input: UpdateProviderInput) => Promise<Provider>
     delete: (id: string) => Promise<void>
     reorder: (providerIds: string[]) => Promise<Provider[]>
-    modelList: (providerId: string) => Promise<string[]>
+    modelList: (providerId: string, apiKeyId: string) => Promise<string[]>
   }
   apiKey: {
     list: (providerId: string) => Promise<ApiKey[]>

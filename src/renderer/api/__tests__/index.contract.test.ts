@@ -37,6 +37,7 @@ describe('renderer api contract', () => {
 
     await api.provider.get('provider-1')
     await api.provider.create({ name: 'Provider', baseUrl: 'https://example.com' } as never)
+    await api.provider.modelList('provider-1', 'key-1')
     await api.terminal.getLaunchPreview({ cliType: 'claude', projectId: 'project-1' })
     await api.proxy.restart()
     await api.settings.get()
@@ -45,12 +46,16 @@ describe('renderer api contract', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'provider_create', {
       input: { name: 'Provider', baseUrl: 'https://example.com' },
     })
-    expect(invokeMock).toHaveBeenNthCalledWith(3, 'terminal_get_launch_preview', {
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'provider_model_list', {
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'terminal_get_launch_preview', {
       cliType: 'claude',
       projectId: 'project-1',
     })
-    expect(invokeMock).toHaveBeenNthCalledWith(4, 'proxy_restart', undefined)
-    expect(invokeMock).toHaveBeenNthCalledWith(5, 'settings_get', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'proxy_restart', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'settings_get', undefined)
   })
 
   it('converts ArrayBuffer payloads for icon upload', async () => {
