@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.5.0 更新**：统一收敛受管实例生命周期、HTTP / SSE / WebSocket 透明转发和模型费用口径；新增最近结束实例、缓存命中统计，并同步 Claude 4.6+、GPT-5.4+、DeepSeek V4、Grok 4.5 与 GLM-5.2 价格。
+> **3.5.1 更新**：Claude Desktop 接管不再主动探测供应商；查看模型时可明确选择 API Key，并使用所选 Key 的上游配置读取模型列表。
 >
 > **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
 >

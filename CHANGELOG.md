@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.5.1] - 2026-07-29
+
+### Changed
+
+- 供应商模型列表改为明确选择 API Key，默认使用第一把可用 Key，并按所选 Key 的上游地址和认证方式读取模型
+
+### Fixed
+
+- Claude Desktop 配置接管不再主动探测供应商，供应商暂时不可达或本地 daemon 未运行时仍可完成本地配置写入
+- 修复供应商 Base URL 已包含 `/v1` 时模型列表端点被重复拼接为 `/v1/v1/models` 的问题
+
 ## [3.5.0] - 2026-07-26
 
 ### Added
