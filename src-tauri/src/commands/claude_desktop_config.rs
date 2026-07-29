@@ -29,10 +29,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use thiserror::Error;
 
 const PROFILE_ID: &str = "00000000-0000-4000-8000-000000157210";
@@ -474,41 +471,6 @@ impl Default for ClaudeDesktopConfigManager {
     }
 }
 
-fn probe_claude_desktop_gateway(session_token: &str, proxy_port: u16) -> Result<(), String> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], proxy_port));
-    let timeout = Duration::from_millis(800);
-    let mut stream = TcpStream::connect_timeout(&addr, timeout)
-        .map_err(|e| format!("本地代理未就绪: 127.0.0.1:{} ({})", proxy_port, e))?;
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|e| format!("设置本地代理读取超时失败: {}", e))?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .map_err(|e| format!("设置本地代理写入超时失败: {}", e))?;
-
-    let request = format!(
-        "GET {}/v1/models HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
-        CLAUDE_DESKTOP_PROXY_PREFIX, proxy_port, session_token
-    );
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| format!("本地代理探测请求失败: {}", e))?;
-
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|e| format!("读取本地代理探测响应失败: {}", e))?;
-    if response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200") {
-        Ok(())
-    } else {
-        let first_line = response.lines().next().unwrap_or("<empty response>");
-        Err(format!(
-            "Claude Desktop 无法通过当前供应商读取模型列表: {}。请确认供应商支持 GET /v1/models 且密钥可用",
-            first_line
-        ))
-    }
-}
-
 fn current_platform_paths() -> Result<ClaudeDesktopPaths, ClaudeDesktopConfigError> {
     #[cfg(target_os = "macos")]
     {
@@ -632,6 +594,16 @@ pub fn claude_desktop_config_takeover_inner(
     provider_id: String,
     api_key_id: String,
 ) -> Result<String, String> {
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
+    claude_desktop_config_takeover_with_manager(db, provider_id, api_key_id, &mgr)
+}
+
+fn claude_desktop_config_takeover_with_manager(
+    db: &Arc<Mutex<Database>>,
+    provider_id: String,
+    api_key_id: String,
+    mgr: &ClaudeDesktopConfigManager,
+) -> Result<String, String> {
     let (port, session_token) = {
         let db = db.lock().map_err(|e| e.to_string())?;
         let port = get_desktop_proxy_port(&db);
@@ -658,11 +630,6 @@ pub fn claude_desktop_config_takeover_inner(
         (port, session_token)
     };
 
-    if let Err(err) = probe_claude_desktop_gateway(&session_token, port as u16) {
-        return Err(err);
-    }
-
-    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
     mgr.takeover(&session_token, port as u16)
         .map_err(|e| e.to_string())?;
 
@@ -707,6 +674,7 @@ pub fn claude_desktop_get_config_library_path() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{CreateApiKeyInput, CreateProviderInput};
     use tempfile::TempDir;
 
     fn create_test_paths(temp_dir: &Path) -> ClaudeDesktopPaths {
@@ -804,6 +772,71 @@ mod tests {
         let mgr = ClaudeDesktopConfigManager { paths };
 
         assert!(!mgr.gateway_profile_is_current("test-token", 12345));
+    }
+
+    #[test]
+    fn test_takeover_does_not_probe_provider_or_require_running_daemon() {
+        let temp_dir = TempDir::new().unwrap();
+        let paths = create_test_paths(temp_dir.path());
+        let mgr = ClaudeDesktopConfigManager { paths };
+        let db = Database::new_in_memory().unwrap();
+        let provider = db
+            .provider_create(&CreateProviderInput {
+                name: "No Probe Provider".to_string(),
+                base_url: "http://127.0.0.1:1".to_string(),
+                http_proxy: None,
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+            })
+            .unwrap();
+        let api_key = db
+            .api_key_create(&CreateApiKeyInput {
+                provider_id: provider.id.clone(),
+                alias: Some("Claude Desktop".to_string()),
+                value: "sk-test".to_string(),
+                types: Some(vec!["claude_desktop".to_string()]),
+                priority: None,
+                is_active: Some(true),
+                config: None,
+                cost_multiplier: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                model_mapping: None,
+                client_configs: None,
+            })
+            .unwrap();
+        let db = Arc::new(Mutex::new(db));
+
+        let result = claude_desktop_config_takeover_with_manager(
+            &db,
+            provider.id.clone(),
+            api_key.id.clone(),
+            &mgr,
+        );
+
+        assert_eq!(result.as_deref(), Ok("接管成功"));
+        assert_eq!(mgr.detect_status(), DesktopConfigStatus::TakenOver);
+        let db = db.lock().unwrap();
+        let session_token = db
+            .settings_get_value(GATEWAY_TOKEN_SETTING_KEY)
+            .unwrap()
+            .unwrap();
+        let session = db.proxy_session_get(&session_token).unwrap().unwrap();
+        assert_eq!(session.provider_id, provider.id);
+        assert_eq!(session.api_key_id, api_key.id);
     }
 
     #[test]
