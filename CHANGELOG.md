@@ -5,6 +5,28 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.6.0] - 2026-07-31
+
+### Added
+
+- DeepSeek 官方接入成为内置供应商预设，自动配置 Claude Code、Claude Desktop 与 Codex Desktop 的端点、认证方式和模型映射
+- Codex DeepSeek 接管内置官方模型目录，默认使用 `deepseek-v4-flash`，并保留 cc-use daemon 的热切换、统计和恢复能力
+- 新增统一线路选择器，可按供应商、密钥和模型搜索，并明确显示当前线路与客户端兼容性
+
+### Changed
+
+- Codex Desktop 与 Claude Desktop 启动台收敛为“客户端 → 供应商 → 密钥 → 模型”线路视图
+- Claude Code 与 Grok 项目的下次启动线路改用双栏选择器，不再使用随供应商数量增长的滚动菜单
+- “API 密钥”页更名为“供应商与密钥”，继续承载 CRUD、排序、余额、用量、模型列表与高级映射
+- DeepSeek 官方预设仅面向 Codex 与 Claude 系列，不出现在 Grok 线路中
+
+### Fixed
+
+- 修复 Codex Desktop session 使用 `codex-app` 标记时无法读取密钥 `clientConfigs.codex` 专用上游配置的问题
+- Claude Desktop 接管后会持久化当前密钥，重新打开页面仍可正确展示当前线路
+- 修复统一线路选择器左侧供应商列表无法滚动的问题
+- DeepSeek Codex 接管完成后明确提示完全重启桌面端，避免启动时模型目录尚未加载导致选择器空白
+
 ## [3.5.1] - 2026-07-29
 
 ### Changed

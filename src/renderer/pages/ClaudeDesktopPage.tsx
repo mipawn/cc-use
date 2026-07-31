@@ -30,6 +30,14 @@ export default function ClaudeDesktopPage() {
       switch (s) {
         case 'taken_over':
           setStatus('taken_over')
+          try {
+            const keyId: string | null = await invoke('get_setting', {
+              key: 'claude_desktop_last_api_key_id',
+            })
+            if (keyId) setSelectedKeyId(keyId)
+          } catch {
+            /* ignore */
+          }
           break
         case 'official':
           setStatus('official')
@@ -64,6 +72,7 @@ export default function ClaudeDesktopPage() {
       message.success(result)
       setStatus('taken_over')
       setSelectedKeyId(keyId)
+      await invoke('set_setting', { key: 'claude_desktop_last_api_key_id', value: keyId })
     } catch (e) {
       message.error(`接管失败: ${e}`)
     } finally {
@@ -79,6 +88,7 @@ export default function ClaudeDesktopPage() {
       message.success(result)
       setStatus('official')
       setSelectedKeyId('')
+      await invoke('delete_setting', { key: 'claude_desktop_last_api_key_id' })
     } catch (e) {
       message.error(`恢复失败: ${e}`)
     } finally {

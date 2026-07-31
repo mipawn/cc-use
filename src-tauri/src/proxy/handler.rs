@@ -837,18 +837,19 @@ fn build_route_execution(
             } else {
                 req_path.to_string()
             };
+            let client_config_key = session_client_config_key(cli_type.as_deref());
             // Resolve base_url: clientConfigs[cli_type].baseUrl > provider.baseUrl
             let resolved_base_url = api_key
                 .client_configs
                 .as_ref()
-                .and_then(|configs| configs.get(cli_type.as_deref().unwrap_or("claude_code")))
+                .and_then(|configs| configs.get(client_config_key))
                 .and_then(|cfg| cfg.get("baseUrl"))
                 .and_then(|v| v.as_str())
                 .unwrap_or(&provider.base_url);
             let client_config = api_key
                 .client_configs
                 .as_ref()
-                .and_then(|configs| configs.get(cli_type.as_deref().unwrap_or("claude_code")));
+                .and_then(|configs| configs.get(client_config_key));
             let upstream_url =
                 build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
             Ok(RouteExecution {
@@ -1074,6 +1075,15 @@ fn api_key_supports_session_client(api_key: &ApiKey, cli_type: Option<&str>) -> 
     };
 
     required_type.is_none_or(|required| api_key.types.iter().any(|kind| kind == required))
+}
+
+fn session_client_config_key(cli_type: Option<&str>) -> &str {
+    match cli_type {
+        Some("codex-app") => "codex",
+        Some("claude") => "claude_code",
+        Some(value) => value,
+        None => "claude_code",
+    }
 }
 
 fn build_provider_upstream_url(
@@ -2357,9 +2367,10 @@ mod tests {
         build_upstream_ws_request, collect_response_body_limited, decompress_limited,
         effective_session_cli_type, has_billable_usage, is_codex_responses_request_path,
         record_usage, route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
-        should_forward_response_header, strip_hop_by_hop_headers, LogContext,
-        RequestCancellationGuard, RouteExecution, SseModelNormalizingStream, StreamConsoleCtx,
-        UpstreamAuthScheme, UsageTrackingStream, MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
+        session_client_config_key, should_forward_response_header, strip_hop_by_hop_headers,
+        LogContext, RequestCancellationGuard, RouteExecution, SseModelNormalizingStream,
+        StreamConsoleCtx, UpstreamAuthScheme, UsageTrackingStream,
+        MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
@@ -2586,6 +2597,16 @@ mod tests {
 
         let legacy_route = route_for_auth(None, "https://gateway.example.com/v1/responses");
         assert!(route_uses_bearer_auth(&legacy_route, "/v1/responses"));
+    }
+
+    #[test]
+    fn codex_app_sessions_read_the_codex_client_config() {
+        assert_eq!(session_client_config_key(Some("codex-app")), "codex");
+        assert_eq!(session_client_config_key(Some("claude")), "claude_code");
+        assert_eq!(
+            session_client_config_key(Some("claude_desktop")),
+            "claude_desktop"
+        );
     }
 
     #[test]

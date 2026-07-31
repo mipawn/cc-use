@@ -1,260 +1,149 @@
 .root {
   min-width: 0;
+  max-width: 1120px;
 }
 
-.statusBar {
+.sectionHeading {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   margin-bottom: 14px;
 }
 
-.statusText {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
-.providerPanel {
+.title {
+  margin: 0 !important;
+}
+
+.routeCard,
+.emptyCard {
   overflow: hidden;
-  margin-bottom: 24px;
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--surface-elevated);
   box-shadow: var(--shadow-sm);
 }
 
-.providerHeader {
-  display: flex;
-  min-height: 70px;
+.routeRail {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 0.9fr) auto minmax(180px, 1.1fr) auto minmax(160px, 0.95fr) auto
+    minmax(180px, 1.15fr);
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 24px;
 }
 
-.providerTitle {
+.routeNode {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.providerTools {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.iconFrame {
+.nodeIcon,
+.modelBadge {
   display: inline-flex;
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--color-accent-primary) 8%, var(--surface-sunken));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ant-color-primary) 10%, var(--surface-sunken));
+  color: var(--ant-color-primary);
 }
 
-.providerIcon {
-  width: 21px;
-  height: 21px;
-  object-fit: contain;
+.modelBadge {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 750;
 }
 
-.providerName {
+.nodeBody {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.nodeBody > :global(.ant-typography) {
   overflow: hidden;
-  color: var(--ant-color-text);
-  font-size: 24px;
-  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.keyCount {
-  flex: 0 0 auto;
-  font-size: 12px;
+.nodeBody > :first-child {
+  font-size: 11px;
 }
 
-.table {
-  width: 100%;
-}
-
-.tableHead,
-.tableRow {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(132px, 0.32fr) minmax(118px, 0.24fr);
-  align-items: center;
-}
-
-.tableHead {
-  min-height: 48px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--color-accent-secondary) 5%, var(--surface-default));
-  color: var(--ant-color-text-secondary);
-  font-weight: 650;
-}
-
-.tableRow {
-  min-height: 80px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--surface-elevated) 92%, var(--surface-default));
-  transition:
-    background 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.tableRow:last-child {
-  border-bottom: 0;
-}
-
-.selectedRow {
-  box-shadow: inset 4px 0 0 var(--color-accent-primary);
-  background: color-mix(in srgb, var(--color-accent-primary) 10%, var(--surface-elevated));
-}
-
-.nameCell,
-.statusCell,
-.actionCell {
-  min-width: 0;
-}
-
-.keyNameLine {
+.nodeTitleLine {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
-.keyName {
-  max-width: 100%;
-  color: inherit;
-  font-family: var(--font-mono);
-  font-size: 14px;
+.nodeTitleLine :global(.ant-tag) {
+  margin: 0;
 }
 
-.starIcon {
-  flex: 0 0 auto;
-  color: var(--color-accent-primary);
-  font-size: 15px;
+.routeArrow {
+  color: var(--ant-color-text-quaternary);
 }
 
-.note {
+.routeActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-sunken) 55%, var(--surface-elevated));
+}
+
+.routeHint {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 12px;
 }
 
-.statusCell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+.emptyCard {
+  padding: 46px 24px;
 }
 
-.statusTag {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  border-radius: 999px;
-  font-weight: 600;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.actionCell {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-}
-
-.dragHandle {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  color: var(--ant-color-text-tertiary);
-  cursor: grab;
-  transition:
-    background 0.16s ease,
-    color 0.16s ease;
-}
-
-.dragHandle:hover {
-  background: color-mix(in srgb, var(--color-accent-primary) 10%, transparent);
-  color: var(--ant-color-primary);
-}
-
-.dragging {
-  opacity: 0.55;
-  box-shadow: var(--shadow-md);
-}
-
-.savingTag {
-  margin: 0;
+.emptyHint {
+  display: block;
+  max-width: 500px;
+  margin-top: 5px;
 }
 
 @media (max-width: 900px) {
-  .providerHeader,
-  .tableHead,
-  .tableRow {
-    padding-right: 16px;
-    padding-left: 16px;
+  .routeRail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .tableHead,
-  .tableRow {
-    grid-template-columns: minmax(180px, 1fr) minmax(124px, 0.38fr) minmax(112px, 0.26fr);
+  .routeArrow {
+    display: none;
   }
 }
 
-@media (max-width: 720px) {
-  .providerHeader {
-    min-height: 62px;
+@media (max-width: 620px) {
+  .routeRail {
+    grid-template-columns: 1fr;
+  }
+
+  .routeActions {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .providerName {
-    font-size: 20px;
-  }
-
-  .tableHead {
-    display: none;
-  }
-
-  .tableRow {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    padding-top: 14px;
-    padding-bottom: 14px;
-  }
-
-  .statusCell,
-  .actionCell {
-    justify-content: flex-start;
-  }
-
-  .actionCell {
-    flex-wrap: wrap;
   }
 }

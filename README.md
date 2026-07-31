@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.5.1 更新**：Claude Desktop 接管不再主动探测供应商；查看模型时可明确选择 API Key，并使用所选 Key 的上游配置读取模型列表。
+> **3.6.0 更新**：新增 DeepSeek 内置供应商，原生接管 Codex 与 Claude；各启动台统一为可搜索的线路选择器，并完整保留密钥管理、模型映射和恢复能力。
 >
 > **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
 >

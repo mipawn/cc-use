@@ -49,6 +49,7 @@ import {
   parseModelMapping,
   type ExactModelMapping,
 } from '../../utils/modelMapping'
+import { isBuiltinDeepSeekProvider } from '../../utils/builtinProviders'
 import styles from './KeyEditModal.module.css'
 
 const { Text } = Typography
@@ -111,6 +112,7 @@ export default function KeyEditModal({
     const pid = defaultProviderId || apiKey?.providerId
     return pid ? providers.find((p) => p.id === pid) : null
   }, [defaultProviderId, apiKey, providers])
+  const isDeepSeekPreset = isBuiltinDeepSeekProvider(currentProvider)
 
   const getDefaultAuthSchemeLabel = (clientKind: ClientKind) =>
     clientKind === 'codex' || clientKind === 'grok' ? 'Authorization: Bearer' : 'x-api-key'
@@ -156,14 +158,16 @@ export default function KeyEditModal({
       const nextTypes = (apiKey.types?.length ? apiKey.types : ['claude_code']).map((type) =>
         type === 'claude' ? 'claude_code' : type,
       ) as ClientKind[]
-      setSelectedTypes(nextTypes)
+      setSelectedTypes(isDeepSeekPreset ? nextTypes.filter((type) => type !== 'grok') : nextTypes)
       const config = { ...(apiKey.config || {}) }
       delete config.prelaunchCommand
       setClaudeConfigJson(JSON.stringify(config, null, 2))
     } else {
       form.resetFields()
       form.setFieldsValue({ alias: '', value: '' })
-      setSelectedTypes(['claude_code'])
+      setSelectedTypes(
+        isDeepSeekPreset ? ['claude_code', 'codex', 'claude_desktop'] : ['claude_code'],
+      )
       setClaudeConfigJson('{}')
     }
     setConfigMode('preview')
@@ -196,17 +200,34 @@ export default function KeyEditModal({
       setUsagePath('')
       setUsageHeaders('')
       setCostMultiplier(1)
-      setHaikuModel('')
-      setSonnetModel('')
-      setOpusModel('')
+      setHaikuModel(isDeepSeekPreset ? 'deepseek-v4-flash' : '')
+      setSonnetModel(isDeepSeekPreset ? 'deepseek-v4-pro[1m]' : '')
+      setOpusModel(isDeepSeekPreset ? 'deepseek-v4-pro[1m]' : '')
       setModelOverrides([])
-      setCodexModel('')
+      setCodexModel(isDeepSeekPreset ? 'deepseek-v4-flash' : '')
       setGrokModel('')
-      setClientConfigs({})
+      setClientConfigs(
+        isDeepSeekPreset
+          ? {
+              claude_code: {
+                baseUrl: 'https://api.deepseek.com/anthropic',
+                authScheme: 'bearer',
+              },
+              codex: {
+                baseUrl: 'https://api.deepseek.com',
+                authScheme: 'bearer',
+              },
+              claude_desktop: {
+                baseUrl: 'https://api.deepseek.com/anthropic',
+                authScheme: 'bearer',
+              },
+            }
+          : {},
+      )
     }
 
     setJsonError(null)
-  }, [open, apiKey, form])
+  }, [open, apiKey, form, isDeepSeekPreset])
 
   useEffect(() => {
     if (!open || !apiKey?.id || !selectedTypes.includes('claude_code')) {
@@ -378,7 +399,9 @@ export default function KeyEditModal({
               mode='multiple'
               value={selectedTypes}
               onChange={(values) => handleTypesChange(values as ClientKind[])}
-              options={CLIENT_KIND_CONFIGS.map((client) => ({
+              options={CLIENT_KIND_CONFIGS.filter(
+                (client) => !isDeepSeekPreset || client.kind !== 'grok',
+              ).map((client) => ({
                 value: client.kind,
                 label: client.label,
               }))}

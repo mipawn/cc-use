@@ -14,11 +14,9 @@ import {
   Input,
   Tooltip,
   Popconfirm,
-  Dropdown,
   Badge,
   Tag,
   AutoComplete,
-  type MenuProps,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
 import {
@@ -47,6 +45,7 @@ import { useProjectStore } from '../stores/projectStore'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import KeyCascader from '../components/common/KeyCascader'
+import RoutePickerModal from '../components/common/RoutePickerModal'
 import SimpleBar from 'simplebar-react'
 import type { Project, ApiKey, Provider, ClientKind, ProjectClientBinding } from '@shared/types'
 import styles from './Projects.module.css'
@@ -88,26 +87,6 @@ const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => {
       ? claudeIcon
       : openaiIcon
   return <img src={icon} alt={type} style={{ width: size, height: size }} />
-}
-
-const getKeySwitchItemKey = (providerId: string, keyId: string) =>
-  JSON.stringify([providerId, keyId])
-
-const parseKeySwitchItemKey = (itemKey: string) => {
-  try {
-    const parsed = JSON.parse(itemKey)
-    if (
-      Array.isArray(parsed) &&
-      parsed.length === 2 &&
-      typeof parsed[0] === 'string' &&
-      typeof parsed[1] === 'string'
-    ) {
-      return { providerId: parsed[0], keyId: parsed[1] }
-    }
-  } catch {
-    return null
-  }
-  return null
 }
 
 type CliProjectKind = Extract<ClientKind, 'claude_code' | 'grok'>
@@ -165,13 +144,14 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
     deleteProject,
   } = useProjectStore()
   const { providers, fetchProviders } = useProviderStore()
-  const { fetchAllApiKeys, getAllApiKeys, apiKeys: apiKeysByProvider } = useApiKeyStore()
+  const { fetchAllApiKeys, getAllApiKeys } = useApiKeyStore()
 
   const allApiKeys = getAllApiKeys()
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [routePickerProject, setRoutePickerProject] = useState<Project | null>(null)
   const [form] = Form.useForm()
 
   useEffect(() => {
@@ -289,85 +269,6 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
     } catch {
       message.error(t('messages.error'))
     }
-  }
-
-  const handleKeySwitchMenuClick =
-    (project: Project): MenuProps['onClick'] =>
-    ({ key }) => {
-      const target = parseKeySwitchItemKey(String(key))
-      const binding = getProjectBinding(project, defaultCliType)
-      if (!target || target.keyId === binding?.apiKeyId) {
-        return
-      }
-      handleSwitchKey(project, target.providerId, target.keyId)
-    }
-
-  // Build key switch menu items for a project
-  const getKeySwitchMenuItems = (project: Project): NonNullable<MenuProps['items']> => {
-    const items: NonNullable<MenuProps['items']> = []
-
-    providers.forEach((provider) => {
-      if (!provider.isActive) return
-      const providerKeys = (apiKeysByProvider[provider.id] || []).filter(
-        (key) =>
-          key.isActive && !key.isExhausted && supportsKeyClient(provider, key, defaultCliType),
-      )
-      if (providerKeys.length === 0) return
-
-      if (items.length > 0) {
-        items.push({
-          type: 'divider',
-          key: `divider-${provider.id}`,
-        })
-      }
-
-      items.push({
-        type: 'group',
-        key: `group-${provider.id}`,
-        label: (
-          <div className={styles.keySwitchGroupLabel}>
-            <div className={styles.keySwitchGroupTitle}>
-              <img
-                src={getProviderIconSrc(provider)}
-                alt={provider.name}
-                className={styles.keySwitchGroupIcon}
-              />
-              <span className={styles.keySwitchGroupName}>{provider.name}</span>
-            </div>
-            <span className={styles.keySwitchGroupCount}>{providerKeys.length}</span>
-          </div>
-        ),
-        children: providerKeys.map((key) => {
-          const isCurrent = getProjectBinding(project, defaultCliType)?.apiKeyId === key.id
-
-          return {
-            key: getKeySwitchItemKey(provider.id, key.id),
-            label: (
-              <div className={styles.keySwitchMenuItemContent}>
-                <span
-                  className={`${styles.keySwitchMenuItemName} ${isCurrent ? styles.keySwitchMenuItemNameCurrent : ''}`}
-                >
-                  {key.alias || `Key ${key.priority + 1}`}
-                </span>
-                <div className={styles.keySwitchMenuItemMeta}>
-                  {isCurrent && (
-                    <Badge
-                      status='success'
-                      text={t('common.current')}
-                      className={styles.keySwitchCurrentBadge}
-                    />
-                  )}
-                </div>
-              </div>
-            ),
-            className: isCurrent ? styles.keySwitchMenuItemCurrent : undefined,
-            disabled: isCurrent,
-          }
-        }),
-      })
-    })
-
-    return items
   }
 
   // Save project
@@ -569,27 +470,14 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
                                 / {getKeyAlias(apiKey)}
                               </Text>
                             </div>
-                            <Dropdown
-                              classNames={{ root: styles.keySwitchDropdown }}
-                              menu={{
-                                items: getKeySwitchMenuItems(project),
-                                onClick: handleKeySwitchMenuClick(project),
-                                classNames: {
-                                  root: styles.keySwitchMenu,
-                                },
-                              }}
-                              trigger={['click']}
-                              placement='bottomRight'
-                              popupRender={(menus) => (
-                                <div className={styles.keySwitchMenuFrame}>
-                                  <div className={styles.keySwitchMenuScroller}>{menus}</div>
-                                </div>
-                              )}
-                            >
-                              <Tooltip title={t('projects.nextLaunchRouteHint')}>
-                                <Button type='text' size='small' icon={<SwapOutlined />} />
-                              </Tooltip>
-                            </Dropdown>
+                            <Tooltip title={t('projects.nextLaunchRouteHint')}>
+                              <Button
+                                type='text'
+                                size='small'
+                                icon={<SwapOutlined />}
+                                onClick={() => setRoutePickerProject(project)}
+                              />
+                            </Tooltip>
                           </div>
                         ) : (
                           <div className={styles.noKeyBinding}>
@@ -762,6 +650,27 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
           )}
         </Form>
       </Modal>
+
+      <RoutePickerModal
+        open={Boolean(routePickerProject)}
+        clientKind={defaultCliType}
+        providers={providers}
+        apiKeys={allApiKeys}
+        currentKeyId={
+          routePickerProject
+            ? getProjectBinding(routePickerProject, defaultCliType)?.apiKeyId || undefined
+            : undefined
+        }
+        title={
+          routePickerProject ? `${routePickerProject.name} · 下次启动线路` : '选择下次启动线路'
+        }
+        actionText='设为下次启动线路'
+        onCancel={() => setRoutePickerProject(null)}
+        onSelect={({ provider, apiKey }) => {
+          if (!routePickerProject) return
+          return handleSwitchKey(routePickerProject, provider.id, apiKey.id)
+        }}
+      />
     </div>
   )
 }

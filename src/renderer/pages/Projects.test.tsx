@@ -151,7 +151,7 @@ describe('Projects page', () => {
     expect(groups.find((group) => group.groupName === 'Work')?.projects).toHaveLength(1)
   })
 
-  it('shares projects but only shows Grok keys in the Grok card menu', async () => {
+  it('shares projects but only shows Grok keys in the Grok route picker', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
@@ -184,12 +184,19 @@ describe('Projects page', () => {
     expect(document.body.textContent).toContain('Shared Key')
     expect(document.body.textContent).not.toContain('Claude Only Key')
 
-    const grokKeyLabel = Array.from(document.body.querySelectorAll('span')).find(
-      (element) => element.textContent === 'Grok Only Key',
+    const grokKeyButton = Array.from(document.body.querySelectorAll('[role="button"]')).find(
+      (element) => element.textContent?.includes('Grok Only Key'),
     )
     await act(async () => {
-      grokKeyLabel?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      grokKeyButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    const confirmButton = Array.from(document.body.querySelectorAll('button')).find(
+      (element) => element.textContent === '设为下次启动线路',
+    )
+    await act(async () => {
+      confirmButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushRender()
 
     expect(projectStore.updateProjectBinding).toHaveBeenCalledWith(project.id, {
       cliType: 'grok',

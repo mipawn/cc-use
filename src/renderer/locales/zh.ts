@@ -513,8 +513,8 @@ export default {
     enterKey: '请输入密钥',
   },
   keys: {
-    title: 'API 密钥',
-    subtitle: '管理您的 API 密钥和供应商',
+    title: '供应商与密钥',
+    subtitle: '统一管理供应商、API 密钥、模型映射和客户端兼容性',
     allKeys: '全部密钥',
     noKeys: '暂无密钥',
     noKeysHint: '添加供应商并配置 API 密钥以开始使用',

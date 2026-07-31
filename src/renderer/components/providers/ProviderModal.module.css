@@ -17,6 +17,73 @@
   /* Form container */
 }
 
+.presetSection {
+  margin-bottom: 22px;
+}
+
+.presetLabel {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.presetGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.presetCard {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.presetCard:hover {
+  border-color: color-mix(in srgb, var(--ant-color-primary) 45%, var(--border-default));
+}
+
+.presetCardActive {
+  border-color: var(--ant-color-primary);
+  background: color-mix(in srgb, var(--ant-color-primary) 7%, var(--surface-elevated));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ant-color-primary) 10%, transparent);
+}
+
+.presetIcon,
+.presetCustomIcon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+
+.presetCustomIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ant-color-text-secondary);
+  font-size: 21px;
+}
+
+.presetBody {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.presetBody > :last-child {
+  font-size: 12px;
+}
+
 /* Type Selector */
 .typeSection {
   margin-bottom: 24px;

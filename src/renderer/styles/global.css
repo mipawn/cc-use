@@ -1,8 +1,9 @@
 @layer reset, theme, base, antd, components, utilities;
 
-@import 'tailwindcss';
+@import 'tailwindcss' source(none);
 @import './design-tokens.css';
 @import 'simplebar-react/dist/simplebar.min.css';
+@source '../';
 
 @layer reset {
   * {

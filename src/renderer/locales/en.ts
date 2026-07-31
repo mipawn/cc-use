@@ -519,8 +519,8 @@ export default {
     enterKey: 'Please enter key',
   },
   keys: {
-    title: 'API Keys',
-    subtitle: 'Manage your API keys and providers',
+    title: 'Providers & Keys',
+    subtitle: 'Manage providers, API keys, model mappings, and client compatibility',
     allKeys: 'All Keys',
     noKeys: 'No keys yet',
     noKeysHint: 'Add a provider and configure API keys to get started',

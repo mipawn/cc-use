@@ -47,6 +47,8 @@ use toml_edit::DocumentMut;
 const CC_USE_PROVIDER_KEY: &str = "cc-use";
 /// 默认钉死的 Codex 模型(Codex Desktop 当前主力模型)。
 const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
+const DEEPSEEK_CODEX_MODEL: &str = "deepseek-v4-flash";
+const DEEPSEEK_CODEX_CATALOG: &str = include_str!("../../resources/deepseek-codex-models.json");
 
 #[derive(Error, Debug)]
 pub enum CodexConfigError {
@@ -100,6 +102,8 @@ pub struct CodexConfigManager {
     config_path: PathBuf,
     auth_path: PathBuf,
     backup_dir: PathBuf,
+    model_catalog_path: PathBuf,
+    model_catalog_state_path: PathBuf,
 }
 
 impl CodexConfigManager {
@@ -113,11 +117,14 @@ impl CodexConfigManager {
         let config_path = codex_dir.join("config.toml");
         let auth_path = codex_dir.join("auth.json");
         let backup_dir = home.join(".cc-use").join("backups").join("codex");
+        let runtime_dir = home.join(".cc-use").join("runtime");
 
         Ok(Self {
             config_path,
             auth_path,
             backup_dir,
+            model_catalog_path: runtime_dir.join("codex-deepseek-models.json"),
+            model_catalog_state_path: runtime_dir.join("codex-model-catalog-state.json"),
         })
     }
 
@@ -186,7 +193,7 @@ impl CodexConfigManager {
         session_token: &str,
         proxy_port: u16,
     ) -> Result<PathBuf, CodexConfigError> {
-        self.takeover_with_model(session_token, proxy_port, DEFAULT_CODEX_MODEL)
+        self.takeover_with_profile(session_token, proxy_port, DEFAULT_CODEX_MODEL, false)
     }
 
     /// 接管配置,可指定钉死的 model
@@ -195,6 +202,17 @@ impl CodexConfigManager {
         session_token: &str,
         proxy_port: u16,
         model: &str,
+    ) -> Result<PathBuf, CodexConfigError> {
+        self.takeover_with_profile(session_token, proxy_port, model, false)
+    }
+
+    /// 接管配置并选择是否启用 cc-use 托管的 DeepSeek Codex 模型目录。
+    pub fn takeover_with_profile(
+        &self,
+        session_token: &str,
+        proxy_port: u16,
+        model: &str,
+        use_deepseek_catalog: bool,
     ) -> Result<PathBuf, CodexConfigError> {
         // 1. 读取原配置文本
         let original_text = self.read_text()?;
@@ -228,6 +246,16 @@ impl CodexConfigManager {
         doc["model"] = toml_edit::value(model);
         doc["model_reasoning_effort"] = toml_edit::value("high");
         doc["disable_response_storage"] = toml_edit::value(true);
+        let mut clear_catalog_state_after_write = false;
+        if use_deepseek_catalog {
+            self.remember_original_model_catalog(&doc)?;
+            self.write_deepseek_model_catalog()?;
+            doc["model_catalog_json"] =
+                toml_edit::value(self.model_catalog_path.to_string_lossy().to_string());
+        } else if self.is_our_model_catalog(&doc) {
+            self.restore_original_model_catalog(&mut doc)?;
+            clear_catalog_state_after_write = true;
+        }
 
         // 6. 确保 [model_providers] 存在
         if doc.get("model_providers").is_none() {
@@ -248,8 +276,60 @@ impl CodexConfigManager {
 
         // 8. 原子写入 config.toml
         write_atomic(&self.config_path, &doc.to_string())?;
+        if clear_catalog_state_after_write {
+            let _ = fs::remove_file(&self.model_catalog_state_path);
+        }
 
         Ok(backup_path.unwrap_or_else(|| PathBuf::from("")))
+    }
+
+    fn write_deepseek_model_catalog(&self) -> Result<(), CodexConfigError> {
+        if let Some(parent) = self.model_catalog_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        write_atomic(&self.model_catalog_path, DEEPSEEK_CODEX_CATALOG)
+    }
+
+    fn is_our_model_catalog(&self, doc: &DocumentMut) -> bool {
+        doc.get("model_catalog_json")
+            .and_then(|item| item.as_str())
+            .is_some_and(|path| Path::new(path) == self.model_catalog_path)
+    }
+
+    fn remember_original_model_catalog(&self, doc: &DocumentMut) -> Result<(), CodexConfigError> {
+        if self.model_catalog_state_path.exists() || self.is_our_model_catalog(doc) {
+            return Ok(());
+        }
+        if let Some(parent) = self.model_catalog_state_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let original = doc
+            .get("model_catalog_json")
+            .and_then(|item| item.as_str())
+            .map(ToOwned::to_owned);
+        let serialized = serde_json::to_string(&original)
+            .map_err(|error| CodexConfigError::WriteError(error.to_string()))?;
+        write_atomic(&self.model_catalog_state_path, &serialized)
+    }
+
+    fn restore_original_model_catalog(
+        &self,
+        doc: &mut DocumentMut,
+    ) -> Result<(), CodexConfigError> {
+        let original = if self.model_catalog_state_path.exists() {
+            let text = fs::read_to_string(&self.model_catalog_state_path)?;
+            serde_json::from_str::<Option<String>>(&text)
+                .map_err(|error| CodexConfigError::ParseError(error.to_string()))?
+        } else {
+            None
+        };
+        match original {
+            Some(path) => doc["model_catalog_json"] = toml_edit::value(path),
+            None => {
+                doc.as_table_mut().remove("model_catalog_json");
+            }
+        }
+        Ok(())
     }
 
     /// 恢复配置:优先从最新备份还原 config.toml/auth.json;
@@ -274,11 +354,19 @@ impl CodexConfigManager {
                 }
                 fs::copy(&backup_auth, &self.auth_path)?;
             }
+            self.cleanup_deepseek_runtime();
             return Ok(());
         }
 
         // 无备份:移除 cc-use 痕迹
-        self.strip_cc_use_from_config()
+        self.strip_cc_use_from_config()?;
+        self.cleanup_deepseek_runtime();
+        Ok(())
+    }
+
+    fn cleanup_deepseek_runtime(&self) {
+        let _ = fs::remove_file(&self.model_catalog_path);
+        let _ = fs::remove_file(&self.model_catalog_state_path);
     }
 
     /// 从 config.toml 移除 cc-use provider 及被我们覆写的顶层字段
@@ -302,6 +390,9 @@ impl CodexConfigManager {
             table.remove("model");
             table.remove("model_reasoning_effort");
             table.remove("disable_response_storage");
+        }
+        if self.is_our_model_catalog(&doc) {
+            doc.as_table_mut().remove("model_catalog_json");
         }
 
         if let Some(providers) = doc
@@ -365,9 +456,7 @@ impl CodexConfigManager {
         self.is_taken_over_inner(&text)
     }
 
-    /// config 是否已是「当前 token 的接管」。用于切换 key 时判断
-    /// 是否需要重写本地 Codex 文件:相等说明 provider、token 与 base_url 都没变,
-    /// 只切了 daemon 侧的 session 指向,Codex 无需重启即可生效。
+    /// config 是否已是「当前 token 的接管」。保留旧接口供兼容和测试使用。
     pub fn matches_takeover_token(&self, token: &str) -> Result<bool, CodexConfigError> {
         let text = self.read_text()?;
         if text.trim().is_empty() {
@@ -385,6 +474,43 @@ impl CodexConfigManager {
             .and_then(|table| table.get("experimental_bearer_token"))
             .and_then(|item: &toml_edit::Item| item.as_str());
         Ok(bearer == Some(token))
+    }
+
+    pub fn matches_takeover_profile(
+        &self,
+        token: &str,
+        proxy_port: u16,
+        model: &str,
+        use_deepseek_catalog: bool,
+    ) -> Result<bool, CodexConfigError> {
+        let text = self.read_text()?;
+        if text.trim().is_empty() {
+            return Ok(false);
+        }
+        let doc = text
+            .parse::<DocumentMut>()
+            .map_err(|e| CodexConfigError::ParseError(format!("Invalid TOML: {}", e)))?;
+        let provider_table = doc
+            .get("model_providers")
+            .and_then(|item| item.as_table())
+            .and_then(|table| table.get(CC_USE_PROVIDER_KEY))
+            .and_then(|item| item.as_table());
+        let bearer = provider_table
+            .and_then(|table| table.get("experimental_bearer_token"))
+            .and_then(|item| item.as_str());
+        let base_url = provider_table
+            .and_then(|table| table.get("base_url"))
+            .and_then(|item| item.as_str());
+        let configured_model = doc.get("model").and_then(|item| item.as_str());
+        let catalog_matches = self.is_our_model_catalog(&doc) == use_deepseek_catalog;
+        let catalog_file_ready = !use_deepseek_catalog || self.model_catalog_path.is_file();
+        let expected_base_url = format!("http://127.0.0.1:{}/v1", proxy_port);
+
+        Ok(bearer == Some(token)
+            && base_url == Some(expected_base_url.as_str())
+            && configured_model == Some(model)
+            && catalog_matches
+            && catalog_file_ready)
     }
 }
 
@@ -410,7 +536,7 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), CodexConfigError> {
 // ── Tauri commands ──
 
 use crate::db::Database;
-use crate::models::ProxySession;
+use crate::models::{ApiKey, Provider, ProxySession};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -422,6 +548,31 @@ fn get_proxy_port(db: &Database) -> i32 {
 }
 
 use crate::shared_runtime::session_token::{new_session_token, CODEX_SESSION_TOKEN_SETTING_KEY};
+
+fn is_builtin_deepseek_provider(provider: &Provider) -> bool {
+    if provider.icon.as_deref() != Some("deepseek") {
+        return false;
+    }
+    url::Url::parse(&provider.base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(ToOwned::to_owned))
+        .is_some_and(|host| host == "api.deepseek.com")
+}
+
+fn codex_model_from_mapping(api_key: &ApiKey) -> Option<String> {
+    api_key
+        .model_mapping
+        .as_deref()
+        .and_then(|mapping| serde_json::from_str::<serde_json::Value>(mapping).ok())
+        .and_then(|mapping| {
+            mapping
+                .get("codex")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+}
 
 #[tauri::command]
 pub fn codex_config_read() -> Result<String, String> {
@@ -451,12 +602,32 @@ pub fn codex_config_takeover_inner(
     api_key_id: String,
 ) -> Result<String, String> {
     // 固定的 Codex session token 持久化在 settings 里。token 不随 provider/key
-    // 变化,这样切换密钥时 config.toml 与正在运行的 Codex 都无需改动。
+    // 变化；同一模型目录类型内切换密钥只更新 daemon session。
     let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
 
-    let (port, session_token) = {
+    let (port, session_token, use_deepseek_catalog, codex_model) = {
         let db = db.lock().map_err(|e| e.to_string())?;
         let port = get_proxy_port(&db);
+        let provider = db
+            .provider_get(&provider_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "供应商不存在".to_string())?;
+        let api_key = db
+            .api_key_get(&api_key_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "API 密钥不存在".to_string())?;
+        if api_key.provider_id != provider_id {
+            return Err("API 密钥不属于所选供应商".to_string());
+        }
+        if !api_key.types.iter().any(|kind| kind == "codex") {
+            return Err("所选 API 密钥未启用 Codex Desktop".to_string());
+        }
+        let use_deepseek_catalog = is_builtin_deepseek_provider(&provider);
+        let codex_model = if use_deepseek_catalog {
+            codex_model_from_mapping(&api_key).unwrap_or_else(|| DEEPSEEK_CODEX_MODEL.to_string())
+        } else {
+            DEFAULT_CODEX_MODEL.to_string()
+        };
 
         // 复用已存的固定 token,否则生成并持久化。
         let session_token = match db.settings_get_value(CODEX_SESSION_TOKEN_SETTING_KEY) {
@@ -502,20 +673,37 @@ pub fn codex_config_takeover_inner(
             db.proxy_session_create(&session)
                 .map_err(|e| format!("创建 session 失败: {}", e))?;
         }
-        (port, session_token)
+        (port, session_token, use_deepseek_catalog, codex_model)
     };
 
-    // 仅当 config 还不是「当前 token 的接管」时才重写 config.toml。已接管
-    // 则 token、base_url 都不变,只切了 daemon 指向 → Codex 无需重启。
+    // token、base_url、可见模型和模型目录都相同才只切 daemon 指向。
+    // 普通线路与 DeepSeek 线路互切需要重写启动时目录并提示重启。
     let already_current = mgr
-        .matches_takeover_token(&session_token)
+        .matches_takeover_profile(
+            &session_token,
+            port as u16,
+            &codex_model,
+            use_deepseek_catalog,
+        )
         .map_err(|e| e.to_string())?;
     if already_current {
         Ok("已切换密钥,无需重启 Codex".to_string())
     } else {
-        mgr.takeover(&session_token, port as u16)
-            .map_err(|e| e.to_string())?;
-        Ok("接管完成,请重启 Codex Desktop 加载新配置".to_string())
+        mgr.takeover_with_profile(
+            &session_token,
+            port as u16,
+            &codex_model,
+            use_deepseek_catalog,
+        )
+        .map_err(|e| e.to_string())?;
+        if use_deepseek_catalog {
+            Ok(
+                "接管完成；请完全退出并重新打开 Codex Desktop，模型选择器将显示“自定义”"
+                    .to_string(),
+            )
+        } else {
+            Ok("接管完成,请重启 Codex Desktop 加载新配置".to_string())
+        }
     }
 }
 
@@ -561,11 +749,14 @@ mod tests {
             .join(".cc-use")
             .join("backups")
             .join("codex");
+        let runtime_dir = temp_dir.path().join(".cc-use").join("runtime");
 
         let manager = CodexConfigManager {
             config_path,
             auth_path,
             backup_dir,
+            model_catalog_path: runtime_dir.join("codex-deepseek-models.json"),
+            model_catalog_state_path: runtime_dir.join("codex-model-catalog-state.json"),
         };
 
         (manager, temp_dir)
@@ -619,6 +810,41 @@ mod tests {
 
         assert!(manager.matches_takeover_token("session-fixed").unwrap());
         assert!(!manager.matches_takeover_token("session-other").unwrap());
+    }
+
+    #[test]
+    fn test_deepseek_takeover_writes_managed_catalog_and_restores_previous_catalog() {
+        let (manager, _temp) = create_test_manager();
+        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
+        fs::write(
+            &manager.config_path,
+            "model_catalog_json = \"/custom/models.json\"\n",
+        )
+        .unwrap();
+
+        manager
+            .takeover_with_profile("session-deepseek", 22345, DEEPSEEK_CODEX_MODEL, true)
+            .unwrap();
+
+        let deepseek_config = fs::read_to_string(&manager.config_path).unwrap();
+        assert!(deepseek_config.contains("model = \"deepseek-v4-flash\""));
+        assert!(deepseek_config.contains(manager.model_catalog_path.to_string_lossy().as_ref()));
+        let catalog = fs::read_to_string(&manager.model_catalog_path).unwrap();
+        assert!(catalog.contains("\"slug\": \"deepseek-v4-flash\""));
+        assert!(manager
+            .matches_takeover_profile("session-deepseek", 22345, DEEPSEEK_CODEX_MODEL, true,)
+            .unwrap());
+        fs::remove_file(&manager.model_catalog_path).unwrap();
+        assert!(!manager
+            .matches_takeover_profile("session-deepseek", 22345, DEEPSEEK_CODEX_MODEL, true,)
+            .unwrap());
+
+        manager
+            .takeover_with_profile("session-deepseek", 22345, DEFAULT_CODEX_MODEL, false)
+            .unwrap();
+        let normal_config = fs::read_to_string(&manager.config_path).unwrap();
+        assert!(normal_config.contains("model_catalog_json = \"/custom/models.json\""));
+        assert!(!manager.model_catalog_state_path.exists());
     }
 
     #[test]

@@ -60,6 +60,7 @@ import {
 } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
+import { isBuiltinDeepSeekProvider } from '../utils/builtinProviders'
 import {
   toCreateApiKeyInput,
   toUpdateApiKeyInput,
@@ -461,7 +462,8 @@ export default function Keys() {
       if (isGrok) {
         envVars.XAI_API_KEY = key.value
       } else {
-        envVars['ANTHROPIC_BASE_URL'] = provider.baseUrl
+        const clientKind = type === 'claude' ? 'claude_code' : (type as ClientKind)
+        envVars['ANTHROPIC_BASE_URL'] = key.clientConfigs?.[clientKind]?.baseUrl || provider.baseUrl
         envVars['API_TIMEOUT_MS'] = '3000000'
         envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
         envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
@@ -637,6 +639,11 @@ export default function Keys() {
                       <Text strong className={styles.groupName}>
                         {provider.name}
                       </Text>
+                      {isBuiltinDeepSeekProvider(provider) && (
+                        <Tag color='blue' variant='filled'>
+                          内置
+                        </Tag>
+                      )}
                       {balance !== undefined && (
                         <Tag icon={<WalletOutlined />} color='blue'>
                           ${balance.toFixed(2)}
