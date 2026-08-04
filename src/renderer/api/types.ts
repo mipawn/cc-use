@@ -28,9 +28,12 @@ import type {
   UsageStats,
   UsageLog,
   StatsTimeRange,
-  CostStatistics,
-  DailyCostTrendItem,
-  DashboardCostStats,
+  UsageStatistics,
+  UsageOverview,
+  DailyTrendItem,
+  CliToolStatus,
+  StatuslineState,
+  StatuslineEnableResult,
   PaginatedRecentRequests,
   RecentGatewayMetrics,
   ProviderGatewayMetrics,
@@ -159,40 +162,26 @@ export interface Api {
     }>
   }
   requestLog: {
-    getCostStats: () => Promise<{ todayCost: number; totalBalance: number }>
-    getKeyCosts: () => Promise<{ keyId: string; todayCost: number; totalCost: number }[]>
-    getDailyTrend: (days?: number) => Promise<DailyCostTrendItem[]>
-    getCostStatistics: (
-      timeRange: StatsTimeRange,
-      metric?: 'tokens' | 'cost',
-    ) => Promise<CostStatistics>
+    getDailyTrend: (days?: number) => Promise<DailyTrendItem[]>
+    getStatistics: (timeRange: StatsTimeRange) => Promise<UsageStatistics>
     getRecentPaginated: (
       timeRange: StatsTimeRange,
       page?: number,
       pageSize?: number,
     ) => Promise<PaginatedRecentRequests>
-    getDashboardStats: (metric?: 'tokens' | 'cost') => Promise<DashboardCostStats>
+    getOverview: () => Promise<UsageOverview>
+    getKeyTokenStats: () => Promise<{ keyId: string; todayTokens: number; totalTokens: number }[]>
     getGatewayMetrics: () => Promise<RecentGatewayMetrics>
     getProviderGatewayMetrics: () => Promise<ProviderGatewayMetrics[]>
-    getMonthlyTrend: (year: number, month: number) => Promise<DailyCostTrendItem[]>
-    repairCosts: () => Promise<number>
+    getMonthlyTrend: (year: number, month: number) => Promise<DailyTrendItem[]>
   }
-  modelPricing: {
-    getAll: () => Promise<
-      Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>
-    >
-    getCustom: () => Promise<
-      Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>
-    >
-    updateCustom: (
-      pricing: Record<
-        string,
-        { input: number; output: number; cacheRead?: number; cacheCreation?: number }
-      >,
-    ) => Promise<void>
-    getDefault: () => Promise<
-      Record<string, { input: number; output: number; cacheRead?: number; cacheCreation?: number }>
-    >
+  cliTool: {
+    status: () => Promise<CliToolStatus>
+    install: () => Promise<CliToolStatus>
+    uninstall: () => Promise<CliToolStatus>
+    statuslineStatus: () => Promise<StatuslineState>
+    statuslineEnable: (force?: boolean) => Promise<StatuslineEnableResult>
+    statuslineRestore: () => Promise<boolean>
   }
   app: {
     getVersion: () => Promise<string>

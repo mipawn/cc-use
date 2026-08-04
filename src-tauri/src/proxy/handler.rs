@@ -3,7 +3,6 @@ use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
 use crate::proxy::usage_parser;
 use crate::proxy::{ProxyState, RequestPermits};
-use crate::services::cost_calculator;
 use crate::shared_runtime::{
     classify_request_auth, decide_route_plan, infer_upstream_family_from_path, RequestAuth,
     RoutePlan, UpstreamFamily,
@@ -58,7 +57,6 @@ struct ResolvedSessionContext {
     provider_id: String,
     api_key_id: String,
     project_id: Option<String>,
-    cost_multiplier: f64,
     // Snapshot names
     key_alias: Option<String>,
     provider_name: Option<String>,
@@ -429,7 +427,6 @@ pub async fn proxy_handler(
         .and_then(|v| v.get("stream"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-
     let body_bytes = apply_model_mapping(body_bytes, &route_execution);
     let forwarded_request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
@@ -503,6 +500,21 @@ pub async fn proxy_handler(
         key_snapshot.clone(),
         start_time,
     );
+    let base_log_ctx = route_execution.log_ctx.as_ref().map(|ctx| LogContext {
+        db: state.db.clone(),
+        session_token: ctx.session_token.clone(),
+        provider_id: ctx.provider_id.clone(),
+        api_key_id: ctx.api_key_id.clone(),
+        project_id: ctx.project_id.clone(),
+        request_model: request_model.clone(),
+        status_code: None,
+        start_time,
+        path: req_path.clone(),
+        response_content_type: String::new(),
+        key_alias: ctx.key_alias.clone(),
+        provider_name: ctx.provider_name.clone(),
+        project_name: ctx.project_name.clone(),
+    });
 
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
@@ -518,6 +530,16 @@ pub async fn proxy_handler(
                 key_snapshot.as_deref(),
                 &err_text,
             );
+            if let Some(log_ctx) = base_log_ctx.as_ref() {
+                record_usage(
+                    log_ctx,
+                    &usage_parser::TokenUsage::default(),
+                    None,
+                    request_declares_stream,
+                    RequestOutcome::TransportError,
+                    Some(truncate_bytes(&err_text, MAX_ERROR_MESSAGE_BYTES)),
+                );
+            }
             return Err(error_response(
                 StatusCode::BAD_GATEWAY,
                 &format!("Upstream error: {}", err_text),
@@ -558,21 +580,10 @@ pub async fn proxy_handler(
         let tracking_stream = UsageTrackingStream {
             inner: SseModelNormalizingStream::new(upstream_resp.bytes_stream(), response_model),
             accumulator,
-            log_ctx: route_execution.log_ctx.as_ref().map(|ctx| LogContext {
-                db: state.db.clone(),
-                session_token: ctx.session_token.clone(),
-                provider_id: ctx.provider_id.clone(),
-                api_key_id: ctx.api_key_id.clone(),
-                project_id: ctx.project_id.clone(),
-                request_model,
-                cost_multiplier: ctx.cost_multiplier,
-                status_code: status.as_u16(),
-                start_time,
-                path: req_path.clone(),
-                response_content_type: content_type.clone(),
-                key_alias: ctx.key_alias.clone(),
-                provider_name: ctx.provider_name.clone(),
-                project_name: ctx.project_name.clone(),
+            log_ctx: base_log_ctx.clone().map(|mut ctx| {
+                ctx.status_code = Some(status.as_u16());
+                ctx.response_content_type = content_type.clone();
+                ctx
             }),
             console_ctx: Some(StreamConsoleCtx {
                 state: state.clone(),
@@ -634,6 +645,18 @@ pub async fn proxy_handler(
             key_snapshot.as_deref(),
             reason,
         );
+        if let Some(log_ctx) = base_log_ctx.as_ref() {
+            let mut log_ctx = log_ctx.clone();
+            log_ctx.status_code = Some(status.as_u16());
+            record_usage(
+                &log_ctx,
+                &usage_parser::TokenUsage::default(),
+                None,
+                false,
+                RequestOutcome::TransportError,
+                Some(reason.to_string()),
+            );
+        }
         return Err(error_response(StatusCode::BAD_GATEWAY, reason));
     }
 
@@ -652,6 +675,18 @@ pub async fn proxy_handler(
                 key_snapshot.as_deref(),
                 &err_text,
             );
+            if let Some(log_ctx) = base_log_ctx.as_ref() {
+                let mut log_ctx = log_ctx.clone();
+                log_ctx.status_code = Some(status.as_u16());
+                record_usage(
+                    &log_ctx,
+                    &usage_parser::TokenUsage::default(),
+                    None,
+                    false,
+                    RequestOutcome::TransportError,
+                    Some(truncate_bytes(&err_text, MAX_ERROR_MESSAGE_BYTES)),
+                );
+            }
             return Err(error_response(StatusCode::BAD_GATEWAY, &err_text));
         }
     };
@@ -693,33 +728,44 @@ pub async fn proxy_handler(
     let (usage, model, is_streaming) =
         usage_parser::parse_usage_from_response_data(&response_text, &content_type);
 
-    if let (Some(u), Some(ctx)) = (usage.as_ref(), route_execution.log_ctx.as_ref()) {
-        if has_billable_usage(u) {
-            let log_ctx = LogContext {
-                db: state.db.clone(),
-                session_token: ctx.session_token.clone(),
-                provider_id: ctx.provider_id.clone(),
-                api_key_id: ctx.api_key_id.clone(),
-                project_id: ctx.project_id.clone(),
-                request_model,
-                cost_multiplier: ctx.cost_multiplier,
-                status_code: status.as_u16(),
-                start_time,
-                path: req_path.clone(),
-                response_content_type: content_type.clone(),
-                key_alias: ctx.key_alias.clone(),
-                provider_name: ctx.provider_name.clone(),
-                project_name: ctx.project_name.clone(),
+    // v3.7.0 write policy:
+    //   success + usage   → record (billable)
+    //   any failure       → record (so 401/429/5xx stop being invisible)
+    //   success, no usage → skip; these are non-inference calls like model
+    //                       listing, and recording them would inflate request
+    //                       counts without adding information.
+    if route_execution.log_ctx.is_some() {
+        let outcome = RequestOutcome::from_status(status.as_u16());
+        let billable = usage.as_ref().filter(|u| has_billable_usage(u));
+
+        if billable.is_some() || outcome != RequestOutcome::Success {
+            let mut log_ctx = base_log_ctx
+                .clone()
+                .expect("resolved session has log context");
+            log_ctx.status_code = Some(status.as_u16());
+            log_ctx.response_content_type = content_type.clone();
+            let error_message = if outcome == RequestOutcome::Success {
+                None
+            } else {
+                extract_error_message(&response_text)
             };
-            record_usage(&log_ctx, u, model.as_deref(), is_streaming);
+            let empty_usage = usage_parser::TokenUsage::default();
+            record_usage(
+                &log_ctx,
+                billable.unwrap_or(&empty_usage),
+                model.as_deref(),
+                is_streaming,
+                outcome,
+                error_message,
+            );
+        } else {
+            log::debug!(
+                "Usage not recorded: successful response carried no usage; path={}, status={}, content_type={}",
+                req_path,
+                status.as_u16(),
+                content_type
+            );
         }
-    } else if route_execution.log_ctx.is_some() {
-        log::debug!(
-            "Usage not recorded: no usage parsed from response; path={}, status={}, content_type={}",
-            req_path,
-            status.as_u16(),
-            content_type
-        );
     }
 
     let detail_mode = detail_mode_at_dispatch;
@@ -862,7 +908,6 @@ fn build_route_execution(
                     provider_id: session.provider_id,
                     api_key_id: session.api_key_id,
                     project_id: session.project_id,
-                    cost_multiplier: api_key.cost_multiplier,
                     key_alias: api_key.alias.clone(),
                     provider_name: Some(provider.name.clone()),
                     project_name,
@@ -1202,6 +1247,8 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     };
 
     if route_uses_openai_payload(route) {
+        // This is only a wire-level model-name alias. The request remains a
+        // Codex Responses request; no Chat/Claude protocol conversion happens.
         let target_model = match route.cli_type.as_deref() {
             Some("grok") => mapping.grok.as_deref(),
             _ => mapping.codex.as_deref(),
@@ -1660,6 +1707,7 @@ fn decode_deflate_limited(data: &[u8], limit: usize) -> Result<Vec<u8>, String> 
         .or_else(|_| read_decoded_limited(flate2::read::DeflateDecoder::new(data), limit))
 }
 
+#[derive(Clone)]
 struct LogContext {
     db: Arc<Mutex<crate::db::Database>>,
     session_token: String,
@@ -1667,8 +1715,7 @@ struct LogContext {
     api_key_id: String,
     project_id: Option<String>,
     request_model: Option<String>,
-    cost_multiplier: f64,
-    status_code: u16,
+    status_code: Option<u16>,
     start_time: std::time::Instant,
     path: String,
     response_content_type: String,
@@ -1706,32 +1753,83 @@ fn has_billable_usage(usage: &usage_parser::TokenUsage) -> bool {
         || usage.cache_creation_tokens > 0
 }
 
+/// What actually happened to a request. See `docs/v3.7.0/failed-request-logging.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RequestOutcome {
+    Success,
+    ClientError,
+    UpstreamError,
+    TransportError,
+}
+
+impl RequestOutcome {
+    fn from_status(status: u16) -> Self {
+        match status {
+            200..=299 => RequestOutcome::Success,
+            400..=499 => RequestOutcome::ClientError,
+            _ => RequestOutcome::UpstreamError,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            RequestOutcome::Success => "success",
+            RequestOutcome::ClientError => "client_error",
+            RequestOutcome::UpstreamError => "upstream_error",
+            RequestOutcome::TransportError => "transport_error",
+        }
+    }
+}
+
+const MAX_ERROR_MESSAGE_BYTES: usize = 1024;
+
+/// Pull a human-readable message out of an upstream error body.
+///
+/// Only the message field is kept — never the whole body — so response content
+/// does not end up in `request_logs`.
+fn extract_error_message(body: &str) -> Option<String> {
+    if body.trim().is_empty() {
+        return None;
+    }
+
+    let extracted = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|json| {
+            // Anthropic: {"error": {"message": ...}} / OpenAI: same shape.
+            // Some gateways answer with a bare {"message": ...}.
+            json.get("error")
+                .and_then(|e| e.get("message"))
+                .or_else(|| json.get("error").and_then(|e| e.as_str().map(|_| e)))
+                .or_else(|| json.get("message"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| body.trim().to_string());
+
+    Some(truncate_bytes(&extracted, MAX_ERROR_MESSAGE_BYTES))
+}
+
+fn truncate_bytes(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &value[..end])
+}
+
 fn record_usage(
     ctx: &LogContext,
     usage: &usage_parser::TokenUsage,
     model: Option<&str>,
     is_streaming: bool,
+    outcome: RequestOutcome,
+    error_message: Option<String>,
 ) {
     let latency_ms = ctx.start_time.elapsed().as_millis() as i64;
     let model_name = model.or(ctx.request_model.as_deref()).unwrap_or("unknown");
-
-    let custom_pricing = {
-        let db = ctx.db.lock().unwrap();
-        match db.settings_get_value("customModelPricing") {
-            Ok(Some(json)) => serde_json::from_str(&json).unwrap_or_default(),
-            _ => std::collections::HashMap::new(),
-        }
-    };
-    let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
-        cost_calculator::calculate_cost(
-            model_name,
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.cache_read_tokens,
-            usage.cache_creation_tokens,
-            ctx.cost_multiplier,
-            &custom_pricing,
-        );
 
     let log = RequestLog {
         id: nanoid::nanoid!(),
@@ -1745,16 +1843,11 @@ fn record_usage(
         output_tokens: usage.output_tokens,
         cache_read_tokens: usage.cache_read_tokens,
         cache_creation_tokens: usage.cache_creation_tokens,
-        input_cost_usd: input_cost,
-        output_cost_usd: output_cost,
-        cache_read_cost_usd: cache_read_cost,
-        cache_creation_cost_usd: cache_creation_cost,
-        total_cost_usd: total_cost,
-        cost_multiplier: ctx.cost_multiplier,
         latency_ms: Some(latency_ms),
         first_token_ms: None,
-        status_code: Some(ctx.status_code as i32),
-        error_message: None,
+        status_code: ctx.status_code.map(i32::from),
+        error_message,
+        outcome: Some(outcome.as_str().to_string()),
         is_streaming,
         created_at: chrono::Utc::now().to_rfc3339(),
         key_alias: ctx.key_alias.clone(),
@@ -1765,6 +1858,7 @@ fn record_usage(
     if let Ok(db) = ctx.db.lock() {
         if let Err(e) = db.request_log_create(&log) {
             log::error!("Failed to record usage log: {}", e);
+            return;
         }
     } else {
         log::error!("Failed to lock database for usage recording");
@@ -1791,20 +1885,54 @@ struct UsageTrackingStream<S> {
 }
 
 impl<S> UsageTrackingStream<S> {
-    fn finalize_usage(&mut self) -> bool {
+    fn finalize_usage(&mut self, transport_error: Option<String>) -> bool {
         self.accumulator.flush();
         let Some(log_ctx) = self.log_ctx.take() else {
             return false;
         };
-        let Some(usage) = self.accumulator.get_usage() else {
-            return false;
-        };
-        if has_billable_usage(&usage) {
-            record_usage(&log_ctx, &usage, self.accumulator.model.as_deref(), true);
-            true
-        } else {
-            false
+
+        let usage = self.accumulator.get_usage().unwrap_or_default();
+        let billable = has_billable_usage(&usage);
+        if let Some(error_message) = transport_error {
+            record_usage(
+                &log_ctx,
+                &usage,
+                self.accumulator.model.as_deref(),
+                true,
+                RequestOutcome::TransportError,
+                Some(truncate_bytes(&error_message, MAX_ERROR_MESSAGE_BYTES)),
+            );
+            return billable;
         }
+        if billable {
+            record_usage(
+                &log_ctx,
+                &usage,
+                self.accumulator.model.as_deref(),
+                true,
+                RequestOutcome::from_status(
+                    log_ctx
+                        .status_code
+                        .expect("streaming response always has an upstream status"),
+                ),
+                None,
+            );
+            return true;
+        }
+
+        // The upstream accepted the request and opened an SSE stream, but it
+        // ended without ever reporting usage. For the Anthropic and OpenAI
+        // stream shapes that means the stream was cut short, which is exactly
+        // the failure users currently cannot see anywhere.
+        record_usage(
+            &log_ctx,
+            &usage,
+            self.accumulator.model.as_deref(),
+            true,
+            RequestOutcome::TransportError,
+            Some("Stream ended without reporting usage".to_string()),
+        );
+        false
     }
 
     fn parse_compressed_capture(&mut self) {
@@ -1847,7 +1975,9 @@ impl<S> Drop for UsageTrackingStream<S> {
         }
         self.finished = true;
         self.parse_compressed_capture();
-        let _ = self.finalize_usage();
+        let _ = self.finalize_usage(Some(
+            "Client disconnected before stream completion".to_string(),
+        ));
         self.emit_cancelled();
     }
 }
@@ -1899,9 +2029,8 @@ where
 
                 // Flush accumulated usage before reporting error.
                 this.parse_compressed_capture();
-                let _ = this.finalize_usage();
-
                 let err_text = e.to_string();
+                let _ = this.finalize_usage(Some(err_text.clone()));
                 if let Some(ctx) = this.console_ctx.take() {
                     ctx.state.emit_console(ConsoleEvent::upstream_error(
                         &ctx.request_id,
@@ -1942,9 +2071,9 @@ where
                     if !this.content_encoding.is_empty() && !decoded.is_empty() {
                         this.accumulator.process_bytes(&decoded);
                     }
-                    if !this.finalize_usage() {
+                    if !this.finalize_usage(None) {
                         log::debug!(
-                            "Usage not recorded: no usage parsed from streaming response; path={}, status={}, content_type={}, diagnostics={}",
+                            "Streaming response ended without billable usage; path={}, status={:?}, content_type={}, diagnostics={}",
                             diagnostics.0,
                             diagnostics.1,
                             diagnostics.2,
@@ -2365,12 +2494,12 @@ mod tests {
     use super::{
         api_key_supports_session_client, append_bounded_tail, apply_model_mapping,
         build_upstream_ws_request, collect_response_body_limited, decompress_limited,
-        effective_session_cli_type, has_billable_usage, is_codex_responses_request_path,
-        record_usage, route_plan_with_codex_takeover_fallback, route_uses_bearer_auth,
-        session_client_config_key, should_forward_response_header, strip_hop_by_hop_headers,
-        LogContext, RequestCancellationGuard, RouteExecution, SseModelNormalizingStream,
-        StreamConsoleCtx, UpstreamAuthScheme, UsageTrackingStream,
-        MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
+        effective_session_cli_type, extract_error_message, has_billable_usage,
+        is_codex_responses_request_path, record_usage, route_plan_with_codex_takeover_fallback,
+        route_uses_bearer_auth, session_client_config_key, should_forward_response_header,
+        strip_hop_by_hop_headers, LogContext, RequestCancellationGuard, RequestOutcome,
+        RouteExecution, SseModelNormalizingStream, StreamConsoleCtx, UpstreamAuthScheme,
+        UsageTrackingStream, MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
@@ -2658,7 +2787,6 @@ mod tests {
                 priority: None,
                 is_active: None,
                 config: None,
-                cost_multiplier: None,
                 usage_type: None,
                 usage_url: None,
                 usage_path: None,
@@ -2773,6 +2901,72 @@ mod tests {
     }
 
     #[test]
+    fn request_outcome_classifies_status_codes() {
+        assert_eq!(RequestOutcome::from_status(200), RequestOutcome::Success);
+        assert_eq!(RequestOutcome::from_status(204), RequestOutcome::Success);
+        assert_eq!(
+            RequestOutcome::from_status(401),
+            RequestOutcome::ClientError
+        );
+        assert_eq!(
+            RequestOutcome::from_status(429),
+            RequestOutcome::ClientError
+        );
+        assert_eq!(
+            RequestOutcome::from_status(500),
+            RequestOutcome::UpstreamError
+        );
+        assert_eq!(
+            RequestOutcome::from_status(502),
+            RequestOutcome::UpstreamError
+        );
+        // 3xx should never reach the recorder, but must not be mistaken for success.
+        assert_eq!(
+            RequestOutcome::from_status(302),
+            RequestOutcome::UpstreamError
+        );
+    }
+
+    #[test]
+    fn extract_error_message_reads_nested_anthropic_shape() {
+        let body = r#"{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}"#;
+        assert_eq!(
+            extract_error_message(body).as_deref(),
+            Some("Rate limit exceeded")
+        );
+    }
+
+    #[test]
+    fn extract_error_message_reads_flat_message_shape() {
+        let body = r#"{"message":"upstream unavailable"}"#;
+        assert_eq!(
+            extract_error_message(body).as_deref(),
+            Some("upstream unavailable")
+        );
+    }
+
+    #[test]
+    fn extract_error_message_falls_back_to_raw_text() {
+        assert_eq!(
+            extract_error_message("502 Bad Gateway").as_deref(),
+            Some("502 Bad Gateway")
+        );
+        assert_eq!(extract_error_message("   "), None);
+    }
+
+    #[test]
+    fn extract_error_message_truncates_long_bodies_on_char_boundaries() {
+        // Multi-byte content must not be cut mid-character.
+        let body = "错误".repeat(2000);
+        let extracted = extract_error_message(&body).unwrap();
+        assert!(extracted.len() <= super::MAX_ERROR_MESSAGE_BYTES + 4);
+        assert!(extracted.ends_with('…'));
+        // Round-trips as valid UTF-8 by construction; this asserts we did not
+        // slice a multi-byte sequence in half.
+        assert!(std::str::from_utf8(extracted.as_bytes()).is_ok());
+    }
+
+    #[test]
     fn cache_only_usage_is_billable_for_request_logs() {
         let usage = usage_parser::TokenUsage {
             input_tokens: 0,
@@ -2857,7 +3051,6 @@ mod tests {
                 priority: None,
                 is_active: None,
                 config: None,
-                cost_multiplier: None,
                 usage_type: None,
                 usage_url: None,
                 usage_path: None,
@@ -2874,8 +3067,7 @@ mod tests {
             api_key_id: api_key.id.clone(),
             project_id: None,
             request_model: Some("gpt-5.5".to_string()),
-            cost_multiplier: 1.0,
-            status_code: 200,
+            status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/responses".to_string(),
             response_content_type: "text/event-stream".to_string(),
@@ -2890,14 +3082,35 @@ mod tests {
             cache_creation_tokens: 0,
         };
 
-        record_usage(&ctx, &usage, None, true);
+        record_usage(&ctx, &usage, None, true, RequestOutcome::Success, None);
 
         let rows = db.lock().unwrap().request_log_list_all().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
         assert_eq!(rows[0].request_model.as_deref(), Some("gpt-5.5"));
-        // GPT-5.5 requests above 272K input use 2x input and 1.5x output rates.
-        assert!((rows[0].total_cost_usd - 55.0).abs() < 1e-6);
+        assert_eq!(rows[0].input_tokens, 1_000_000);
+        assert_eq!(rows[0].output_tokens, 1_000_000);
+
+        let mut transport_ctx = ctx.clone();
+        transport_ctx.status_code = None;
+        record_usage(
+            &transport_ctx,
+            &crate::proxy::usage_parser::TokenUsage::default(),
+            None,
+            false,
+            RequestOutcome::TransportError,
+            Some("connection timed out".to_string()),
+        );
+        let rows = db.lock().unwrap().request_log_list_all().unwrap();
+        let transport = rows
+            .iter()
+            .find(|row| row.outcome.as_deref() == Some("transport_error"))
+            .expect("transport failure persisted");
+        assert_eq!(transport.status_code, None);
+        assert_eq!(
+            transport.error_message.as_deref(),
+            Some("connection timed out")
+        );
     }
 
     // ---- Streaming usage recording (Claude) regression tests ----
@@ -2967,8 +3180,7 @@ mod tests {
             api_key_id: api_key_id.to_string(),
             project_id: None,
             request_model: Some("claude-3-5-sonnet".to_string()),
-            cost_multiplier: 1.0,
-            status_code: 200,
+            status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/messages".to_string(),
             response_content_type: "text/event-stream".to_string(),
@@ -3079,7 +3291,6 @@ mod tests {
                 priority: None,
                 is_active: None,
                 config: None,
-                cost_multiplier: None,
                 usage_type: None,
                 usage_url: None,
                 usage_path: None,
@@ -3183,6 +3394,11 @@ mod tests {
         let rows = db.lock().unwrap().request_log_list_all().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].input_tokens, 321);
+        assert_eq!(rows[0].outcome.as_deref(), Some("transport_error"));
+        assert_eq!(
+            rows[0].error_message.as_deref(),
+            Some("Client disconnected before stream completion")
+        );
         let event = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv())
             .await
             .expect("cancelled event should be emitted")

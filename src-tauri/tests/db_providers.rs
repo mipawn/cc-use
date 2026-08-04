@@ -104,7 +104,6 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
         usage_headers: None,
         cached_usage: None,
         last_usage_checked_at: None,
-        cost_multiplier: None,
         is_active: None,
     };
 
@@ -244,7 +243,6 @@ fn provider_update_no_changes() {
         usage_headers: None,
         cached_usage: None,
         last_usage_checked_at: None,
-        cost_multiplier: None,
         is_active: None,
     });
 
@@ -306,7 +304,6 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             usage_headers: None,
             cached_usage: None,
             last_usage_checked_at: None,
-            cost_multiplier: None,
             is_active: None,
         })
         .unwrap();

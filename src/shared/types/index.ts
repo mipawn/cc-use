@@ -232,8 +232,6 @@ export interface Provider {
   usageHeaders: string | null
   cachedUsage: UsageData | null
   lastUsageCheckedAt: string | null
-  // Cost multiplier for this provider (e.g., 1.5 means 150% of base price)
-  costMultiplier?: number
   isActive: boolean
   sortOrder: number
 }
@@ -280,8 +278,6 @@ export interface ApiKey {
   usageHeaders: string | null
   cachedUsage: UsageData | null
   lastUsageCheckedAt: string | null
-  // Cost multiplier for this key (e.g., 1.5 means 150% of base price)
-  costMultiplier: number
   modelMapping: string | null
   clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
   // Failover state — managed by the proxy's key_selector
@@ -299,7 +295,6 @@ export interface CreateApiKeyInput {
   priority?: number
   isActive?: boolean
   config?: CliConfig
-  costMultiplier?: number
   usageType?: 'none' | 'newapi' | 'custom'
   usageUrl?: string
   usagePath?: string
@@ -317,7 +312,6 @@ export interface UpdateApiKeyInput {
   isExhausted?: boolean
   isActive?: boolean
   config?: CliConfig
-  costMultiplier?: number
   usageType?: 'none' | 'newapi' | 'custom'
   usageUrl?: string
   usagePath?: string
@@ -507,8 +501,10 @@ export interface ExportApiKey {
   value: string
   types?: ProviderType[]
   priority: number
-  costMultiplier?: number
 }
+
+/** v3.7.0: request outcome recorded on every logged request. */
+export type RequestOutcome = 'success' | 'client_error' | 'upstream_error' | 'transport_error'
 
 export interface RequestLog {
   id: string
@@ -522,16 +518,12 @@ export interface RequestLog {
   outputTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
-  inputCostUsd: number
-  outputCostUsd: number
-  cacheReadCostUsd: number
-  cacheCreationCostUsd: number
-  totalCostUsd: number
-  costMultiplier: number
   latencyMs: number | null
   firstTokenMs: number | null
   statusCode: number | null
   errorMessage: string | null
+  /** v3.7.0: what actually happened to the request. */
+  outcome: RequestOutcome | null
   isStreaming: boolean
   createdAt: string
   // Snapshot columns — preserve display names after entity deletion
@@ -629,57 +621,50 @@ export interface UsageStats {
 }
 
 // Time range for statistics query
-export type StatsTimeRange = 'today' | 'yesterday' | 'week' | 'month' | 'all'
+export type StatsTimeRange =
+  | 'today'
+  | 'yesterday'
+  | 'week'
+  | 'month'
+  | 'lastMonth'
+  | 'all'
+  | `custom:${string}:${string}`
 
-// Cost statistics types
-export interface CostStatsSummary {
+// v3.7.0 usage statistics — token-only, see docs/v3.7.0/usage-stats-rework.md
+export interface UsageStatsSummary {
+  /** Billable requests (carried tokens). */
   totalRequests: number
+  /** Requests with outcome != success, counted over the full log. */
+  failedRequests: number
   totalInputTokens: number
   totalOutputTokens: number
   totalCacheReadTokens: number
   totalCacheCreationTokens: number
-  totalCacheCostUsd: number
-  totalCostUsd: number
+  /** input + output + cache_read + cache_creation */
+  totalTokens: number
+  /** cache_read / (input + cache_read + cache_creation) */
+  cacheHitRate: number
   avgLatencyMs: number | null
 }
 
-export interface TopKeyCostItem {
-  keyId: string
-  keyAlias: string
-  providerName: string
-  totalCost: number
-  totalRequests: number
-  totalTokens: number
-}
-
-export interface TopProviderCostItem {
-  providerId: string
-  providerName: string
-  totalCost: number
-  totalRequests: number
-  totalTokens: number
-}
-
-export interface TopProjectCostItem {
-  projectId: string
-  projectName: string
-  totalCost: number
-  totalRequests: number
-  totalTokens: number
-}
-
-export interface TopModelCostItem {
-  model: string
-  totalCost: number
-  totalRequests: number
-  totalTokens: number
-}
-
-export interface DailyCostTrendItem {
+export interface DailyTrendItem {
   date: string
-  cost: number
+  /** All four buckets combined. */
   tokens: number
   requests: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+}
+
+export interface FailureStatsItem {
+  providerName: string
+  keyAlias: string
+  statusCode: number | null
+  outcome: string
+  count: number
+  lastSeenAt: string
 }
 
 export interface RecentRequestLogDisplay {
@@ -688,13 +673,14 @@ export interface RecentRequestLogDisplay {
   keyAlias: string | null
   providerName: string | null
   projectName: string | null
-  totalCostUsd: number
   inputTokens: number
   outputTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
   latencyMs: number | null
   statusCode: number | null
+  outcome: RequestOutcome | null
+  errorMessage: string | null
   createdAt: string
 }
 
@@ -705,24 +691,47 @@ export interface PaginatedRecentRequests {
   pageSize: number
 }
 
-export interface CostStatistics {
-  summary: CostStatsSummary
-  topKeys: TopKeyCostItem[]
-  topProviders: TopProviderCostItem[]
-  topProjects: TopProjectCostItem[]
-  topModels: TopModelCostItem[]
-  dailyTrend: DailyCostTrendItem[]
+export interface UsageDimensionItem {
+  id: string
+  name: string
+  detail: string
+  tokens: number
+  requests: number
 }
 
-export interface DashboardCostStats {
-  todayCost: number
-  totalCost: number
-  todayRequests: number
+export interface UsageStatistics {
+  summary: UsageStatsSummary
+  dailyTrend: DailyTrendItem[]
+  keyUsage: UsageDimensionItem[]
+  projectUsage: UsageDimensionItem[]
+  failures: FailureStatsItem[]
+}
+
+// v3.7.0 CLI tool + statusline setup
+export interface CliToolStatus {
+  available: boolean
+  bundledPath: string | null
+  installed: boolean
+  managed: boolean
+  current: boolean
+  target: string | null
+}
+
+export type StatuslineState =
+  | { state: 'notConfigured' }
+  | { state: 'enabled'; command: string; current: boolean }
+  | { state: 'thirdParty'; command: string }
+
+export interface StatuslineEnableResult {
+  enabled: boolean
+  blockedBy: string | null
+  backupPath: string | null
+}
+
+export interface UsageOverview {
   todayTokens: number
-  totalTokens: number
-  weeklyTrend: DailyCostTrendItem[]
-  topKeys: TopKeyCostItem[]
-  topProjects: TopProjectCostItem[]
+  todayRequests: number
+  todayFailedRequests: number
 }
 
 export interface GatewayMetricsWindow {

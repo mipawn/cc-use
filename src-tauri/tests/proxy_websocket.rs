@@ -82,7 +82,6 @@ fn setup_proxy(
             priority: None,
             is_active: Some(true),
             config: None,
-            cost_multiplier: None,
             usage_type: None,
             usage_url: None,
             usage_path: None,

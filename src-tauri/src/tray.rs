@@ -583,6 +583,7 @@ fn switch_desktop_key(app: &AppHandle, client_kind: &str, provider_id: String, a
                     provider_id,
                     api_key_id.clone(),
                 )
+                .await
                 .map(|_| CODEX_LAST_API_KEY_SETTING_KEY)
             }
             "claude_desktop" => {
@@ -721,16 +722,16 @@ fn calculate_tray_badge_text(app: &AppHandle) -> String {
     let db_state = app.state::<Arc<Mutex<Database>>>();
     let db_arc = db_state.inner().clone();
 
-    let today_cost = {
+    let today_tokens = {
         let Ok(db) = db_arc.lock() else {
-            return UsageAggregator::calculate_badge(true, 0, 0.0, 0).to_display_text();
+            return UsageAggregator::calculate_badge(0).to_display_text();
         };
-        db.request_log_get_dashboard_stats()
-            .map(|stats| stats.today_cost)
-            .unwrap_or(0.0)
+        db.request_log_get_overview()
+            .map(|overview| overview.today_tokens)
+            .unwrap_or(0)
     };
 
-    UsageAggregator::calculate_badge(true, 0, today_cost, 0).to_display_text()
+    UsageAggregator::calculate_badge(today_tokens).to_display_text()
 }
 
 /// Handle close-to-tray behavior. Returns true if the window should be hidden instead of closed.
@@ -769,7 +770,6 @@ mod tests {
             usage_headers: None,
             cached_usage: None,
             last_usage_checked_at: None,
-            cost_multiplier: 1.0,
             model_mapping: None,
             client_configs: None,
         }

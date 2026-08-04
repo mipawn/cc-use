@@ -1,7 +1,7 @@
 import { getApi } from '../api'
 /**
  * Statistics - 用量统计页面
- * 展示 API 请求 Token / 费用、Top 10 排行、每日趋势、最近请求
+ * v3.7.0: 只讲 Token 与真实行为 —— 构成、趋势、Key/项目、失败与请求。
  */
 import { useEffect, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
@@ -15,42 +15,49 @@ import {
   theme,
   Space,
   Statistic,
-  Button,
   Tooltip,
+  DatePicker,
 } from 'antd'
 import {
-  DollarOutlined,
   ThunderboltOutlined,
   DatabaseOutlined,
   FieldTimeOutlined,
   BarChartOutlined,
+  WarningOutlined,
   KeyOutlined,
-  CloudServerOutlined,
-  RobotOutlined,
-  SettingOutlined,
-  FolderOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import type { CostStatistics, PaginatedRecentRequests, StatsTimeRange } from '@shared/types'
-import ModelPricingModal from '../components/common/ModelPricingModal'
+import type {
+  UsageStatistics,
+  PaginatedRecentRequests,
+  StatsTimeRange,
+  RequestOutcome,
+  UsageDimensionItem,
+} from '@shared/types'
 import {
   formatExactTokenCount,
   formatTokenCount,
   formatTokenCountWithUnit,
 } from '../utils/formatTokens'
-import { getInitialUsageMetric, saveUsageMetric, type UsageMetric } from '../utils/usageMetric'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
+const { RangePicker } = DatePicker
 
-function formatCost(n: number): string {
-  return `$${n.toFixed(4)}`
-}
+type TimeRangeMode = 'today' | 'yesterday' | 'week' | 'month' | 'lastMonth' | 'all' | 'custom'
 
 function displayName(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim()
   return trimmed || fallback
+}
+
+const OUTCOME_COLORS: Record<string, string> = {
+  success: 'green',
+  client_error: 'orange',
+  upstream_error: 'red',
+  transport_error: 'volcano',
 }
 
 export default function Statistics() {
@@ -65,22 +72,22 @@ export default function Statistics() {
   )
 
   const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
-  const [usageMetric, setUsageMetric] = useState<UsageMetric>(getInitialUsageMetric)
-  const [stats, setStats] = useState<CostStatistics | null>(null)
+  const [timeRangeMode, setTimeRangeMode] = useState<TimeRangeMode>('week')
+  const [stats, setStats] = useState<UsageStatistics | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentRequests, setRecentRequests] = useState<PaginatedRecentRequests | null>(null)
   const [recentLoading, setRecentLoading] = useState(true)
   const [recentPage, setRecentPage] = useState(1)
   const [recentPageSize, setRecentPageSize] = useState(10)
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
-  const [pricingModalOpen, setPricingModalOpen] = useState(false)
   useEffect(() => {
     let cancelled = false
 
     const fetchStats = async () => {
       setLoading(true)
+      setStats(null)
       try {
-        const data = await getApi().requestLog.getCostStatistics(timeRange, usageMetric)
+        const data = await getApi().requestLog.getStatistics(timeRange)
         if (!cancelled) {
           setStats(data)
         }
@@ -99,13 +106,14 @@ export default function Statistics() {
     return () => {
       cancelled = true
     }
-  }, [timeRange, usageMetric])
+  }, [timeRange])
 
   useEffect(() => {
     let cancelled = false
 
     const fetchRecentRequests = async () => {
       setRecentLoading(true)
+      setRecentRequests(null)
       try {
         const data = await getApi().requestLog.getRecentPaginated(
           timeRange,
@@ -141,90 +149,14 @@ export default function Statistics() {
     { value: 'yesterday', label: t('statistics.yesterday') },
     { value: 'week', label: t('statistics.week') },
     { value: 'month', label: t('statistics.month') },
+    { value: 'lastMonth', label: t('statistics.lastMonth') },
     { value: 'all', label: t('statistics.all') },
+    { value: 'custom', label: t('statistics.custom') },
   ]
 
-  const handleUsageMetricChange = (value: string | number) => {
-    const nextMetric: UsageMetric = value === 'cost' ? 'cost' : 'tokens'
-    setUsageMetric(nextMetric)
-    saveUsageMetric(nextMetric)
-  }
+  const maxTrendValue = stats ? Math.max(...stats.dailyTrend.map((day) => day.tokens), 1) : 1
 
-  const metricOptions = [
-    {
-      value: 'tokens',
-      label: t('statistics.tokenMetric'),
-      icon: <DatabaseOutlined />,
-    },
-    {
-      value: 'cost',
-      label: t('statistics.costMetric'),
-      icon: <DollarOutlined />,
-    },
-  ]
-
-  const getTrendValue = (day: CostStatistics['dailyTrend'][number]) =>
-    usageMetric === 'tokens' ? day.tokens : day.cost
-  const maxTrendValue = stats
-    ? Math.max(...stats.dailyTrend.map((day) => getTrendValue(day)), 0.0001)
-    : 1
-  const metricColor = usageMetric === 'tokens' ? token.colorPrimary : token.colorWarning
-
-  const costColumn = {
-    title: t('statistics.cost'),
-    dataIndex: 'totalCost',
-    key: 'totalCost',
-    width: 110,
-    align: 'right' as const,
-    render: (v: number) => <Text strong={usageMetric === 'cost'}>{formatCost(v)}</Text>,
-  }
-
-  const tokenColumn = {
-    title: t('statistics.tokens'),
-    dataIndex: 'totalTokens',
-    key: 'totalTokens',
-    width: 100,
-    align: 'right' as const,
-    render: (v: number) => <Text strong={usageMetric === 'tokens'}>{renderTokens(v)}</Text>,
-  }
-
-  // Top table columns (shared pattern)
-  const makeTopColumns = (nameLabel: string, showNameTooltip = false) => [
-    {
-      title: t('statistics.rank'),
-      key: 'rank',
-      width: 50,
-      render: (_: unknown, __: unknown, index: number) => (
-        <span style={{ fontWeight: index < 3 ? 600 : 400 }}>{index + 1}</span>
-      ),
-    },
-    {
-      title: nameLabel,
-      dataIndex: 'name',
-      key: 'name',
-      ellipsis: true,
-      render: (v: string | null) => {
-        const name = displayName(v, t('statistics.other'))
-        return showNameTooltip ? (
-          <Tooltip title={name}>
-            <span className={styles.tooltipCellText}>{name}</span>
-          </Tooltip>
-        ) : (
-          name
-        )
-      },
-    },
-    ...(usageMetric === 'tokens' ? [tokenColumn, costColumn] : [costColumn, tokenColumn]),
-    {
-      title: t('statistics.requests'),
-      dataIndex: 'totalRequests',
-      key: 'totalRequests',
-      width: 80,
-      align: 'right' as const,
-    },
-  ]
-
-  const recentIdentityColumns = [
+  const recentColumns = [
     {
       title: t('statistics.model'),
       dataIndex: 'model',
@@ -257,39 +189,27 @@ export default function Statistics() {
       ellipsis: true,
       render: (v: string | null) => displayName(v, t('statistics.other')),
     },
-  ]
-
-  const recentCostColumn = {
-    title: t('statistics.cost'),
-    dataIndex: 'totalCostUsd',
-    key: 'totalCostUsd',
-    width: 100,
-    align: 'right' as const,
-    render: (v: number) => <Text strong={usageMetric === 'cost'}>{formatCost(v)}</Text>,
-  }
-
-  const recentTokenColumns = [
     {
       title: t('statistics.inputTokens'),
       dataIndex: 'inputTokens',
       key: 'inputTokens',
-      width: 100,
+      width: 90,
       align: 'right' as const,
-      render: (v: number) => <Text strong={usageMetric === 'tokens'}>{renderTokens(v)}</Text>,
+      render: (v: number) => renderTokens(v),
     },
     {
       title: t('statistics.outputTokens'),
       dataIndex: 'outputTokens',
       key: 'outputTokens',
-      width: 100,
+      width: 90,
       align: 'right' as const,
-      render: (v: number) => <Text strong={usageMetric === 'tokens'}>{renderTokens(v)}</Text>,
+      render: (v: number) => renderTokens(v),
     },
     {
       title: t('statistics.cacheReadTokens'),
       dataIndex: 'cacheReadTokens',
       key: 'cacheReadTokens',
-      width: 110,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => renderTokens(v),
     },
@@ -297,13 +217,10 @@ export default function Statistics() {
       title: t('statistics.cacheCreationTokens'),
       dataIndex: 'cacheCreationTokens',
       key: 'cacheCreationTokens',
-      width: 110,
+      width: 100,
       align: 'right' as const,
       render: (v: number) => renderTokens(v),
     },
-  ]
-
-  const recentMetaColumns = [
     {
       title: t('statistics.latency'),
       dataIndex: 'latencyMs',
@@ -316,10 +233,14 @@ export default function Statistics() {
       title: t('statistics.status'),
       dataIndex: 'statusCode',
       key: 'statusCode',
-      width: 70,
-      render: (v: number | null) => {
-        if (v == null) return '-'
-        return <Tag color={v >= 200 && v < 300 ? 'green' : 'red'}>{v}</Tag>
+      width: 90,
+      render: (
+        v: number | null,
+        record: { outcome: RequestOutcome | null; errorMessage: string | null },
+      ) => {
+        const outcome = record.outcome ?? 'success'
+        const tag = <Tag color={OUTCOME_COLORS[outcome] || 'default'}>{v ?? outcome}</Tag>
+        return record.errorMessage ? <Tooltip title={record.errorMessage}>{tag}</Tooltip> : tag
       },
     },
     {
@@ -331,24 +252,118 @@ export default function Statistics() {
     },
   ]
 
-  const recentColumns = [
-    ...recentIdentityColumns,
-    ...(usageMetric === 'tokens'
-      ? [...recentTokenColumns, recentCostColumn]
-      : [recentCostColumn, ...recentTokenColumns]),
-    ...recentMetaColumns,
+  const failureColumns = [
+    {
+      title: t('statistics.provider'),
+      dataIndex: 'providerName',
+      key: 'providerName',
+      ellipsis: true,
+      render: (v: string) => displayName(v, '-'),
+    },
+    {
+      title: t('statistics.key'),
+      dataIndex: 'keyAlias',
+      key: 'keyAlias',
+      ellipsis: true,
+      render: (v: string) => displayName(v, '-'),
+    },
+    {
+      title: t('statistics.status'),
+      dataIndex: 'statusCode',
+      key: 'statusCode',
+      width: 100,
+      render: (v: number | null, record: { outcome: string }) => (
+        <Tag color={OUTCOME_COLORS[record.outcome] || 'default'}>{v ?? record.outcome}</Tag>
+      ),
+    },
+    {
+      title: t('statistics.failureCount'),
+      dataIndex: 'count',
+      key: 'count',
+      width: 90,
+      align: 'right' as const,
+    },
+    {
+      title: t('statistics.lastSeenAt'),
+      dataIndex: 'lastSeenAt',
+      key: 'lastSeenAt',
+      width: 170,
+      render: (v: string) => new Date(v).toLocaleString(),
+    },
   ]
 
-  const hasData = stats && stats.summary.totalRequests > 0
-  const cacheInputTokens = stats
-    ? stats.summary.totalInputTokens +
-      stats.summary.totalCacheReadTokens +
-      stats.summary.totalCacheCreationTokens
-    : 0
-  const cacheHitRate =
-    stats && cacheInputTokens > 0
-      ? (stats.summary.totalCacheReadTokens / cacheInputTokens) * 100
-      : 0
+  const dimensionColumns = [
+    {
+      title: t('statistics.name'),
+      dataIndex: 'name',
+      key: 'name',
+      ellipsis: true,
+      render: (value: string, record: UsageDimensionItem) => (
+        <div className={styles.dimensionName}>
+          <Text strong ellipsis={{ tooltip: value }}>
+            {displayName(value, t('statistics.other'))}
+          </Text>
+          {record.detail && (
+            <Text type='secondary' ellipsis={{ tooltip: record.detail }}>
+              {record.detail}
+            </Text>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: t('statistics.tokens'),
+      dataIndex: 'tokens',
+      key: 'tokens',
+      width: 110,
+      align: 'right' as const,
+      render: (value: number) => renderTokens(value),
+    },
+    {
+      title: t('statistics.requests'),
+      dataIndex: 'requests',
+      key: 'requests',
+      width: 88,
+      align: 'right' as const,
+      render: (value: number) => value.toLocaleString(),
+    },
+  ]
+
+  const hasData = stats
+    ? stats.summary.totalRequests > 0 || stats.summary.failedRequests > 0
+    : false
+  const summary = stats?.summary
+
+  // Token 构成条：input / output / cache_read / cache_creation
+  const compositionParts = summary
+    ? [
+        {
+          key: 'input',
+          label: t('statistics.inputTokens'),
+          value: summary.totalInputTokens,
+          color: token.colorPrimary,
+        },
+        {
+          key: 'output',
+          label: t('statistics.outputTokens'),
+          value: summary.totalOutputTokens,
+          color: token.colorSuccess,
+        },
+        {
+          key: 'cacheRead',
+          label: t('statistics.cacheReadTokens'),
+          value: summary.totalCacheReadTokens,
+          color: token.colorInfo,
+        },
+        {
+          key: 'cacheCreation',
+          label: t('statistics.cacheCreationTokens'),
+          value: summary.totalCacheCreationTokens,
+          color: token.colorWarning,
+        },
+      ]
+    : []
+  const compositionTotal = compositionParts.reduce((sum, part) => sum + part.value, 0)
 
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
     setRecentPage(pagination.current || 1)
@@ -365,30 +380,33 @@ export default function Statistics() {
           </Title>
           <Text type='secondary'>{t('statistics.subtitle')}</Text>
         </div>
-        <Button icon={<SettingOutlined />} onClick={() => setPricingModalOpen(true)} size='large'>
-          {t('modelPricing.editPricing')}
-        </Button>
       </div>
 
       {/* Time Range Filter */}
       <div className={styles.filterSection}>
         <Segmented
-          value={timeRange}
-          onChange={(value) => setTimeRange(value as StatsTimeRange)}
+          value={timeRangeMode}
+          onChange={(value) => {
+            const mode = value as TimeRangeMode
+            setTimeRangeMode(mode)
+            if (mode !== 'custom') setTimeRange(mode)
+          }}
           options={timeRangeOptions}
           className={styles.filterSegmented}
         />
-        <div className={styles.metricControl}>
-          <Text type='secondary' className={styles.metricLabel}>
-            {t('statistics.metricLabel')}
-          </Text>
-          <Segmented
-            value={usageMetric}
-            onChange={handleUsageMetricChange}
-            options={metricOptions}
-            className={styles.metricSegmented}
+        {timeRangeMode === 'custom' && (
+          <RangePicker
+            className={styles.customRangePicker}
+            allowClear={false}
+            format='YYYY-MM-DD'
+            disabledDate={(current) => current.valueOf() > Date.now()}
+            onChange={(dates, dateStrings) => {
+              if (dates?.[0] && dates[1] && dateStrings[0] && dateStrings[1]) {
+                setTimeRange(`custom:${dateStrings[0]}:${dateStrings[1]}`)
+              }
+            }}
           />
-        </div>
+        )}
       </div>
 
       {/* Content */}
@@ -398,65 +416,25 @@ export default function Statistics() {
             <div className={styles.loadingState}>
               <Spin size='large' />
             </div>
-          ) : hasData ? (
+          ) : hasData && summary ? (
             <div className={styles.statsContent}>
               {/* Summary Cards */}
               <div className={styles.summaryRow}>
                 <Card className={styles.summaryCard} variant='outlined'>
-                  {usageMetric === 'tokens' ? (
-                    <Statistic
-                      title={t('statistics.totalTokens')}
-                      value={stats!.summary.totalInputTokens + stats!.summary.totalOutputTokens}
-                      prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
-                      formatter={(v) => renderTokens(Number(v))}
-                    />
-                  ) : (
-                    <Statistic
-                      title={t('statistics.totalCost')}
-                      value={stats!.summary.totalCostUsd}
-                      precision={4}
-                      prefix={<DollarOutlined style={{ color: token.colorWarning }} />}
-                      formatter={(v) => `$${Number(v).toFixed(4)}`}
-                    />
-                  )}
+                  <Statistic
+                    title={t('statistics.totalTokens')}
+                    value={summary.totalTokens}
+                    prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
+                    formatter={(v) => renderTokens(Number(v))}
+                  />
                 </Card>
                 <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
                     title={t('statistics.totalRequests')}
-                    value={stats!.summary.totalRequests}
+                    value={summary.totalRequests}
                     prefix={<ThunderboltOutlined style={{ color: token.colorPrimary }} />}
                   />
                 </Card>
-                <Card className={styles.summaryCard} variant='outlined'>
-                  {usageMetric === 'tokens' ? (
-                    <Statistic
-                      title={t('statistics.totalCost')}
-                      value={stats!.summary.totalCostUsd}
-                      precision={4}
-                      prefix={<DollarOutlined style={{ color: token.colorWarning }} />}
-                      formatter={(v) => `$${Number(v).toFixed(4)}`}
-                    />
-                  ) : (
-                    <Statistic
-                      title={t('statistics.totalTokens')}
-                      value={stats!.summary.totalInputTokens + stats!.summary.totalOutputTokens}
-                      prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
-                      formatter={(v) => renderTokens(Number(v))}
-                    />
-                  )}
-                </Card>
-                <Card className={styles.summaryCard} variant='outlined'>
-                  <Statistic
-                    title={t('statistics.avgLatency')}
-                    value={stats!.summary.avgLatencyMs || 0}
-                    suffix='ms'
-                    precision={0}
-                    prefix={<FieldTimeOutlined style={{ color: token.colorSuccess }} />}
-                  />
-                </Card>
-              </div>
-
-              <div className={styles.summaryRow}>
                 <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
                     title={
@@ -464,7 +442,7 @@ export default function Statistics() {
                         <span>{t('statistics.cacheHitRate')}</span>
                       </Tooltip>
                     }
-                    value={cacheHitRate}
+                    value={summary.cacheHitRate * 100}
                     precision={1}
                     suffix='%'
                     prefix={<ThunderboltOutlined style={{ color: token.colorSuccess }} />}
@@ -472,30 +450,103 @@ export default function Statistics() {
                 </Card>
                 <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
-                    title={t('statistics.cacheReadTokens')}
-                    value={stats!.summary.totalCacheReadTokens}
-                    prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
-                    formatter={(v) => renderTokens(Number(v))}
+                    title={t('statistics.failedRequests')}
+                    value={summary.failedRequests}
+                    prefix={
+                      <WarningOutlined
+                        style={{
+                          color:
+                            summary.failedRequests > 0
+                              ? token.colorError
+                              : token.colorTextSecondary,
+                        }}
+                      />
+                    }
                   />
                 </Card>
                 <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
-                    title={t('statistics.cacheCreationTokens')}
-                    value={stats!.summary.totalCacheCreationTokens}
-                    prefix={<DatabaseOutlined style={{ color: token.colorWarning }} />}
-                    formatter={(v) => renderTokens(Number(v))}
-                  />
-                </Card>
-                <Card className={styles.summaryCard} variant='outlined'>
-                  <Statistic
-                    title={t('statistics.cacheCost')}
-                    value={stats!.summary.totalCacheCostUsd}
-                    precision={4}
-                    prefix={<DollarOutlined style={{ color: token.colorWarning }} />}
-                    formatter={(v) => `$${Number(v).toFixed(4)}`}
+                    title={t('statistics.avgLatency')}
+                    value={summary.avgLatencyMs || 0}
+                    suffix='ms'
+                    precision={0}
+                    prefix={<FieldTimeOutlined style={{ color: token.colorSuccess }} />}
                   />
                 </Card>
               </div>
+
+              {/* Token Composition */}
+              <Card
+                className={styles.trendCard}
+                variant='outlined'
+                title={
+                  <Space>
+                    <DatabaseOutlined style={{ color: token.colorPrimary }} />
+                    <span>{t('statistics.tokenComposition')}</span>
+                  </Space>
+                }
+              >
+                {compositionTotal > 0 ? (
+                  <div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        height: 12,
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        marginBottom: 12,
+                      }}
+                    >
+                      {compositionParts
+                        .filter((part) => part.value > 0)
+                        .map((part) => (
+                          <Tooltip
+                            key={part.key}
+                            title={`${part.label} · ${formatExactTokenCount(part.value, language)} (${((part.value / compositionTotal) * 100).toFixed(1)}%)`}
+                          >
+                            <div
+                              style={{
+                                width: `${(part.value / compositionTotal) * 100}%`,
+                                background: part.color,
+                                minWidth: 3,
+                              }}
+                            />
+                          </Tooltip>
+                        ))}
+                    </div>
+                    <Space size='large' wrap>
+                      {compositionParts.map((part) => (
+                        <Space key={part.key} size={6}>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 8,
+                              height: 8,
+                              borderRadius: 2,
+                              background: part.color,
+                            }}
+                          />
+                          <Text type='secondary' style={{ fontSize: 12 }}>
+                            {part.label}
+                          </Text>
+                          <Text strong style={{ fontSize: 12 }}>
+                            {formatTokenCount(part.value, language)}
+                          </Text>
+                          <Text type='secondary' style={{ fontSize: 12 }}>
+                            {compositionTotal > 0
+                              ? `${((part.value / compositionTotal) * 100).toFixed(1)}%`
+                              : '0%'}
+                          </Text>
+                        </Space>
+                      ))}
+                    </Space>
+                  </div>
+                ) : (
+                  <div className={styles.trendEmpty}>
+                    <Text type='secondary'>{t('statistics.noData')}</Text>
+                  </div>
+                )}
+              </Card>
 
               {/* Daily Trend Chart */}
               {stats!.dailyTrend.length > 0 && (
@@ -504,16 +555,12 @@ export default function Statistics() {
                   variant='outlined'
                   title={
                     <Space>
-                      <BarChartOutlined style={{ color: metricColor }} />
-                      <span>
-                        {usageMetric === 'tokens'
-                          ? t('statistics.dailyTokenTrend')
-                          : t('statistics.dailyCostTrend')}
-                      </span>
+                      <BarChartOutlined style={{ color: token.colorPrimary }} />
+                      <span>{t('statistics.dailyTokenTrend')}</span>
                     </Space>
                   }
                 >
-                  {stats!.dailyTrend.some((day) => getTrendValue(day) > 0) ? (
+                  {stats!.dailyTrend.some((day) => day.tokens > 0) ? (
                     <div className={styles.trendChart}>
                       {stats!.dailyTrend.map((day, i) => (
                         <div
@@ -535,8 +582,8 @@ export default function Statistics() {
                             <div
                               className={styles.trendBar}
                               style={{
-                                height: `${Math.max((getTrendValue(day) / maxTrendValue) * 100, 2)}%`,
-                                background: metricColor,
+                                height: `${Math.max((day.tokens / maxTrendValue) * 100, 2)}%`,
+                                background: token.colorPrimary,
                               }}
                             >
                               {hoveredBar === i && (
@@ -553,13 +600,11 @@ export default function Statistics() {
                                   }`}
                                 >
                                   {day.date} ·{' '}
-                                  {usageMetric === 'tokens'
-                                    ? formatTokenCountWithUnit(
-                                        day.tokens,
-                                        language,
-                                        t('statistics.tokenUnit'),
-                                      )
-                                    : formatCost(day.cost)}{' '}
+                                  {formatTokenCountWithUnit(
+                                    day.tokens,
+                                    language,
+                                    t('statistics.tokenUnit'),
+                                  )}{' '}
                                   · {day.requests} {t('statistics.requestUnit')}
                                 </div>
                               )}
@@ -582,125 +627,82 @@ export default function Statistics() {
                 </Card>
               )}
 
-              {/* Top 10 Tables - Row 1 */}
-              <div className={styles.tablesGrid}>
+              {/* Key / project dimensions for the selected range */}
+              <div className={styles.dimensionGrid}>
                 <Card
                   className={styles.tableCard}
                   variant='outlined'
                   title={
                     <Space>
                       <KeyOutlined style={{ color: token.colorPrimary }} />
-                      <span>
-                        {usageMetric === 'tokens'
-                          ? t('statistics.topKeysByTokens')
-                          : t('statistics.topKeysByCost')}
-                      </span>
+                      <span>{t('statistics.keyUsage')}</span>
                     </Space>
                   }
+                  extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
                 >
                   <Table
-                    dataSource={stats!.topKeys.map((k) => ({
-                      ...k,
-                      name: k.keyAlias,
-                      key: k.keyId,
-                    }))}
-                    columns={makeTopColumns(t('statistics.key'), true)}
-                    rowKey='keyId'
+                    dataSource={stats!.keyUsage}
+                    columns={dimensionColumns}
+                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
                     size='small'
-                    pagination={false}
-                    scroll={{ y: 240 }}
+                    pagination={
+                      stats!.keyUsage.length > 8
+                        ? { pageSize: 8, showSizeChanger: false, size: 'small' }
+                        : false
+                    }
+                    locale={{ emptyText: t('statistics.noData') }}
                   />
                 </Card>
-
                 <Card
                   className={styles.tableCard}
                   variant='outlined'
                   title={
                     <Space>
-                      <CloudServerOutlined style={{ color: token.colorPrimary }} />
-                      <span>
-                        {usageMetric === 'tokens'
-                          ? t('statistics.topProvidersByTokens')
-                          : t('statistics.topProvidersByCost')}
-                      </span>
+                      <FolderOpenOutlined style={{ color: token.colorPrimary }} />
+                      <span>{t('statistics.projectUsage')}</span>
                     </Space>
                   }
+                  extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
                 >
                   <Table
-                    dataSource={stats!.topProviders.map((p) => ({
-                      ...p,
-                      name: p.providerName,
-                      key: p.providerId,
-                    }))}
-                    columns={makeTopColumns(t('statistics.provider'), true)}
-                    rowKey='providerId'
+                    dataSource={stats!.projectUsage}
+                    columns={dimensionColumns}
+                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
                     size='small'
-                    pagination={false}
-                    scroll={{ y: 240 }}
+                    pagination={
+                      stats!.projectUsage.length > 8
+                        ? { pageSize: 8, showSizeChanger: false, size: 'small' }
+                        : false
+                    }
+                    locale={{ emptyText: t('statistics.noData') }}
                   />
                 </Card>
               </div>
 
-              {/* Top 10 Tables - Row 2 */}
-              <div className={styles.tablesGrid}>
+              {/* Failures */}
+              {stats!.failures.length > 0 && (
                 <Card
-                  className={styles.tableCard}
+                  className={styles.recentCard}
                   variant='outlined'
                   title={
                     <Space>
-                      <FolderOutlined style={{ color: token.colorPrimary }} />
-                      <span>
-                        {usageMetric === 'tokens'
-                          ? t('statistics.topProjectsByTokens')
-                          : t('statistics.topProjectsByCost')}
-                      </span>
+                      <WarningOutlined style={{ color: token.colorError }} />
+                      <span>{t('statistics.failures')}</span>
                     </Space>
                   }
                 >
                   <Table
-                    dataSource={stats!.topProjects.map((p) => ({
-                      ...p,
-                      name: p.projectName,
-                      key: p.projectId,
-                    }))}
-                    columns={makeTopColumns(t('statistics.project'), true)}
-                    rowKey='projectId'
-                    size='small'
-                    pagination={false}
-                    scroll={{ y: 240 }}
-                  />
-                </Card>
-
-                <Card
-                  className={styles.tableCard}
-                  variant='outlined'
-                  title={
-                    <Space>
-                      <RobotOutlined style={{ color: token.colorPrimary }} />
-                      <span>
-                        {usageMetric === 'tokens'
-                          ? t('statistics.topModelsByTokens')
-                          : t('statistics.topModelsByCost')}
-                      </span>
-                    </Space>
-                  }
-                >
-                  <Table
-                    dataSource={stats!.topModels.map((m) => ({
-                      ...m,
-                      name: m.model,
-                      key: m.model,
-                    }))}
-                    columns={makeTopColumns(t('statistics.model'), true)}
+                    dataSource={stats!.failures}
+                    columns={failureColumns}
                     rowKey={(record) =>
-                      `${record.model || 'unknown'}-${record.totalRequests}-${record.totalTokens}`
+                      `${record.providerName}-${record.keyAlias}-${record.statusCode}-${record.outcome}`
                     }
                     size='small'
                     pagination={false}
                     scroll={{ y: 240 }}
                   />
                 </Card>
-              </div>
+              )}
 
               {/* Recent Requests */}
               <Card
@@ -728,7 +730,7 @@ export default function Statistics() {
                     pageSizeOptions: ['10', '20', '50', '100'],
                     showTotal: (total) => t('statistics.totalItems', { total }),
                   }}
-                  scroll={{ x: 1340 }}
+                  scroll={{ x: 1250 }}
                 />
               </Card>
             </div>
@@ -748,9 +750,6 @@ export default function Statistics() {
           )}
         </SimpleBar>
       </div>
-
-      {/* Model Pricing Modal */}
-      <ModelPricingModal open={pricingModalOpen} onClose={() => setPricingModalOpen(false)} />
     </div>
   )
 }

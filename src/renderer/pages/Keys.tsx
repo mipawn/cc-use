@@ -44,6 +44,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
+import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -164,7 +165,7 @@ function getProviderIconSrc(provider: Provider): string {
 }
 
 export default function Keys() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const message = useAppMessage()
   const { token } = theme.useToken()
   const {
@@ -203,9 +204,9 @@ export default function Keys() {
   const [modelListError, setModelListError] = useState(false)
   const modelListRequestId = useRef(0)
 
-  // Cost stats per key (today and total)
-  const [keyCostStats, setKeyCostStats] = useState<
-    Record<string, { todayCost: number; totalCost: number }>
+  // Token stats per key (today and total)
+  const [keyTokenStats, setKeyTokenStats] = useState<
+    Record<string, { todayTokens: number; totalTokens: number }>
   >({})
   const [providerMetrics, setProviderMetrics] = useState<Record<string, ProviderGatewayMetrics>>({})
 
@@ -242,26 +243,26 @@ export default function Keys() {
     }
   }, [providers, fetchAllApiKeys])
 
-  // Fetch cost stats for all keys
+  // Fetch token stats for all keys
   useEffect(() => {
     if (allApiKeys.length === 0) return
 
-    const fetchCostStats = async () => {
+    const fetchTokenStats = async () => {
       try {
-        const stats = await getApi().requestLog.getKeyCosts()
-        const costMap: Record<string, { todayCost: number; totalCost: number }> = {}
+        const stats = await getApi().requestLog.getKeyTokenStats()
+        const tokenMap: Record<string, { todayTokens: number; totalTokens: number }> = {}
         stats.forEach((item) => {
-          costMap[item.keyId] = {
-            todayCost: item.todayCost,
-            totalCost: item.totalCost,
+          tokenMap[item.keyId] = {
+            todayTokens: item.todayTokens,
+            totalTokens: item.totalTokens,
           }
         })
-        setKeyCostStats(costMap)
+        setKeyTokenStats(tokenMap)
       } catch (error) {
-        console.error('Failed to fetch cost stats:', error)
+        console.error('Failed to fetch key token stats:', error)
       }
     }
-    fetchCostStats()
+    fetchTokenStats()
   }, [allApiKeys.length])
 
   // Group keys by provider for display
@@ -805,21 +806,41 @@ export default function Keys() {
                                 </div>
                               </Tooltip>
                             )}
-                            {/* Today's cost - 今日费用 */}
+                            {/* Today's tokens */}
                             <div className={styles.statItem}>
                               <FireOutlined style={{ color: token.colorWarning }} />
-                              <span className={styles.statValue}>
-                                {t('keys.todayCost') || '今日'}: $
-                                {(keyCostStats[key.id]?.todayCost || 0).toFixed(4)}
-                              </span>
+                              <Tooltip
+                                title={formatExactTokenCount(
+                                  keyTokenStats[key.id]?.todayTokens || 0,
+                                  i18n.language,
+                                )}
+                              >
+                                <span className={styles.statValue}>
+                                  {t('keys.todayTokens') || '今日'}:{' '}
+                                  {formatTokenCount(
+                                    keyTokenStats[key.id]?.todayTokens || 0,
+                                    i18n.language,
+                                  )}
+                                </span>
+                              </Tooltip>
                             </div>
-                            {/* Total cost - 累计费用 */}
+                            {/* Total tokens */}
                             <div className={styles.statItem}>
                               <PlayCircleOutlined style={{ color: token.colorTextSecondary }} />
-                              <span className={styles.statValue}>
-                                {t('keys.totalCost') || '累计'}: $
-                                {(keyCostStats[key.id]?.totalCost || 0).toFixed(4)}
-                              </span>
+                              <Tooltip
+                                title={formatExactTokenCount(
+                                  keyTokenStats[key.id]?.totalTokens || 0,
+                                  i18n.language,
+                                )}
+                              >
+                                <span className={styles.statValue}>
+                                  {t('keys.totalTokens') || '累计'}:{' '}
+                                  {formatTokenCount(
+                                    keyTokenStats[key.id]?.totalTokens || 0,
+                                    i18n.language,
+                                  )}
+                                </span>
+                              </Tooltip>
                             </div>
                           </div>
 

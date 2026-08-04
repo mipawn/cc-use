@@ -104,9 +104,6 @@ impl Database {
                 usage_headers TEXT,
                 cached_usage TEXT,
                 last_usage_checked_at TEXT,
-                cost_multiplier REAL DEFAULT 1,
-                cached_model_pricing TEXT,
-                last_pricing_synced_at TEXT,
                 is_active INTEGER DEFAULT 1,
                 sort_order INTEGER DEFAULT 0
             );
@@ -128,7 +125,6 @@ impl Database {
                 usage_headers TEXT,
                 cached_usage TEXT,
                 last_usage_checked_at TEXT,
-                cost_multiplier REAL DEFAULT 1,
                 client_configs TEXT
             );
 
@@ -189,16 +185,11 @@ impl Database {
                 output_tokens INTEGER DEFAULT 0,
                 cache_read_tokens INTEGER DEFAULT 0,
                 cache_creation_tokens INTEGER DEFAULT 0,
-                input_cost_usd REAL DEFAULT 0,
-                output_cost_usd REAL DEFAULT 0,
-                cache_read_cost_usd REAL DEFAULT 0,
-                cache_creation_cost_usd REAL DEFAULT 0,
-                total_cost_usd REAL DEFAULT 0,
-                cost_multiplier REAL DEFAULT 1,
                 latency_ms INTEGER,
                 first_token_ms INTEGER,
                 status_code INTEGER,
                 error_message TEXT,
+                outcome TEXT,
                 is_streaming INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL
             );
@@ -256,26 +247,14 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_managed_instances_status_seen
             ON managed_instances(status, last_seen_at DESC);
 
-            CREATE TABLE IF NOT EXISTS discovered_sessions (
-                id TEXT PRIMARY KEY,
-                pid INTEGER NOT NULL,
-                process_name TEXT NOT NULL,
-                executable_path TEXT,
-                cwd TEXT,
-                cli_type TEXT NOT NULL DEFAULT 'unknown',
-                provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
-                api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
-                routing_mode TEXT NOT NULL DEFAULT 'pass_through',
-                assignment_source TEXT,
-                source_port_last_seen INTEGER,
-                last_upstream_family TEXT,
-                last_error TEXT,
-                is_active INTEGER DEFAULT 1,
-                last_seen_at TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
 ",
         )?;
+
+        // v3.7.0: `discovered_sessions` belonged to the V1 PID-observation model,
+        // which V2 replaced with explicit launch-time identity. Nothing has read
+        // or written it since; see docs/v3.7.0/cleanup-legacy.md.
+        self.conn
+            .execute_batch("DROP TABLE IF EXISTS discovered_sessions;")?;
 
         // Run ALTER TABLE migrations for backward compatibility with existing databases
         self.run_alter_migrations();
@@ -338,6 +317,30 @@ impl Database {
                 "WHERE {} >= DATE('now', 'localtime', 'start of month')",
                 local_date
             ),
+            "lastMonth" => format!(
+                "WHERE {} >= DATE('now', 'localtime', 'start of month', '-1 month') AND {} < DATE('now', 'localtime', 'start of month')",
+                local_date, local_date
+            ),
+            custom if custom.starts_with("custom:") => {
+                let mut parts = custom.split(':');
+                let _ = parts.next();
+                let start = parts.next();
+                let end = parts.next();
+                let no_more = parts.next().is_none();
+                match (start, end, no_more) {
+                    (Some(start), Some(end), true)
+                        if chrono::NaiveDate::parse_from_str(start, "%Y-%m-%d").is_ok()
+                            && chrono::NaiveDate::parse_from_str(end, "%Y-%m-%d").is_ok()
+                            && start <= end =>
+                    {
+                        format!(
+                            "WHERE {} >= DATE('{}') AND {} <= DATE('{}')",
+                            local_date, start, local_date, end
+                        )
+                    }
+                    _ => "WHERE 1 = 0".to_string(),
+                }
+            }
             _ => String::new(), // "all"
         }
     }
@@ -361,10 +364,7 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN usage_headers TEXT",
             "ALTER TABLE providers ADD COLUMN cached_usage TEXT",
             "ALTER TABLE providers ADD COLUMN last_usage_checked_at TEXT",
-            "ALTER TABLE providers ADD COLUMN cost_multiplier REAL DEFAULT 1",
             "ALTER TABLE providers ADD COLUMN wallet_balance_user_id TEXT",
-            "ALTER TABLE providers ADD COLUMN cached_model_pricing TEXT",
-            "ALTER TABLE providers ADD COLUMN last_pricing_synced_at TEXT",
             "ALTER TABLE providers ADD COLUMN sort_order INTEGER DEFAULT 0",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
@@ -375,7 +375,6 @@ impl Database {
             "ALTER TABLE api_keys ADD COLUMN usage_headers TEXT",
             "ALTER TABLE api_keys ADD COLUMN cached_usage TEXT",
             "ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT",
-            "ALTER TABLE api_keys ADD COLUMN cost_multiplier REAL DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN client_configs TEXT",
             "ALTER TABLE api_keys ADD COLUMN secret_ref TEXT",
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
@@ -396,11 +395,21 @@ impl Database {
             "ALTER TABLE proxy_sessions ADD COLUMN expires_at TEXT",
             "ALTER TABLE proxy_sessions ADD COLUMN revoked_at TEXT",
             "ALTER TABLE proxy_sessions ADD COLUMN revoked_reason TEXT",
+            // v3.7.0: failed requests are recorded too, so every row states its outcome.
+            "ALTER TABLE request_logs ADD COLUMN outcome TEXT",
         ];
 
         for stmt in &alter_statements {
             let _ = self.conn.execute(stmt, []);
         }
+
+        // Pre-v3.7.0 rows only existed when usage parsed, i.e. the request had
+        // succeeded. Backfilling keeps the new outcome filters meaningful over
+        // history instead of leaving it NULL.
+        let _ = self.conn.execute(
+            "UPDATE request_logs SET outcome = 'success' WHERE outcome IS NULL",
+            [],
+        );
 
         // Backfill lifecycle metadata for sessions created before v3.3.0.
         let _ = self.conn.execute(

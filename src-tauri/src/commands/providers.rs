@@ -73,7 +73,28 @@ pub async fn provider_model_list(
         (provider, api_key)
     };
 
-    let (base_url, auth_scheme) = model_list_upstream_settings(&provider, &api_key);
+    let client_kind = preferred_model_list_client_kind(&api_key);
+    fetch_provider_model_ids(&provider, &api_key, client_kind).await
+}
+
+/// The shared model-list dialog has no client selector. For a multi-client key,
+/// prefer an OpenAI-compatible route because Anthropic-compatible base URLs do
+/// not generally expose `GET /models`.
+fn preferred_model_list_client_kind(api_key: &ApiKey) -> Option<&str> {
+    ["codex", "grok"]
+        .into_iter()
+        .find(|kind| api_key.types.iter().any(|value| value == kind))
+}
+
+/// Fetch the real model ids exposed by a provider. Passing a client kind makes
+/// sure multi-client keys use that client's base URL and auth settings instead
+/// of whichever type happens to be first in the stored array.
+pub(crate) async fn fetch_provider_model_ids(
+    provider: &Provider,
+    api_key: &ApiKey,
+    client_kind: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let (base_url, auth_scheme) = model_list_upstream_settings(provider, api_key, client_kind);
     let endpoint = build_model_list_endpoint(&base_url)?;
 
     let client = crate::services::http_client::outbound_client_builder_for_proxy(
@@ -125,12 +146,18 @@ pub async fn provider_model_list(
     Ok(model_ids)
 }
 
-fn model_list_upstream_settings(provider: &Provider, api_key: &ApiKey) -> (String, String) {
-    let client_kind = api_key
-        .types
-        .first()
-        .map(String::as_str)
-        .unwrap_or("claude_code");
+fn model_list_upstream_settings(
+    provider: &Provider,
+    api_key: &ApiKey,
+    requested_client_kind: Option<&str>,
+) -> (String, String) {
+    let client_kind = requested_client_kind.unwrap_or_else(|| {
+        api_key
+            .types
+            .first()
+            .map(String::as_str)
+            .unwrap_or("claude_code")
+    });
     let client_config = api_key
         .client_configs
         .as_ref()
@@ -196,7 +223,6 @@ mod tests {
             usage_headers: None,
             cached_usage: None,
             last_usage_checked_at: None,
-            cost_multiplier: Some(1.0),
             is_active: true,
             sort_order: 0,
         }
@@ -219,7 +245,6 @@ mod tests {
             usage_headers: None,
             cached_usage: None,
             last_usage_checked_at: None,
-            cost_multiplier: 1.0,
             model_mapping: None,
             client_configs,
         }
@@ -239,7 +264,7 @@ mod tests {
         );
 
         assert_eq!(
-            model_list_upstream_settings(&provider, &key),
+            model_list_upstream_settings(&provider, &key, None),
             (
                 "https://key.example.com/api/v1".to_string(),
                 "bearer".to_string()
@@ -252,13 +277,53 @@ mod tests {
         let provider = test_provider();
 
         assert_eq!(
-            model_list_upstream_settings(&provider, &test_key("claude_code", None)).1,
+            model_list_upstream_settings(&provider, &test_key("claude_code", None), None).1,
             "x-api-key"
         );
         assert_eq!(
-            model_list_upstream_settings(&provider, &test_key("codex", None)).1,
+            model_list_upstream_settings(&provider, &test_key("codex", None), None).1,
             "bearer"
         );
+    }
+
+    #[test]
+    fn requested_client_kind_wins_for_multi_client_keys() {
+        let provider = test_provider();
+        let mut key = test_key("claude_code", None);
+        key.types.push("codex".to_string());
+        key.client_configs = Some(serde_json::json!({
+            "claude_code": {
+                "baseUrl": "https://anthropic.example.com",
+                "authScheme": "x-api-key"
+            },
+            "codex": {
+                "baseUrl": "https://responses.example.com/v1",
+                "authScheme": "bearer"
+            }
+        }));
+
+        assert_eq!(
+            model_list_upstream_settings(&provider, &key, Some("codex")),
+            (
+                "https://responses.example.com/v1".to_string(),
+                "bearer".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn shared_model_list_prefers_codex_for_multi_client_keys() {
+        let mut key = test_key("claude_code", None);
+        key.types.push("codex".to_string());
+
+        assert_eq!(preferred_model_list_client_kind(&key), Some("codex"));
+    }
+
+    #[test]
+    fn shared_model_list_keeps_claude_only_keys_on_their_default_route() {
+        let key = test_key("claude_code", None);
+
+        assert_eq!(preferred_model_list_client_kind(&key), None);
     }
 
     #[test]

@@ -62,7 +62,6 @@ pub fn create_api_key(db: &Database, provider_id: &str, cli_type: &str) -> ApiKe
         priority: Some(0),
         is_active: Some(true),
         config: None,
-        cost_multiplier: None,
         usage_type: None,
         usage_url: None,
         usage_path: None,

@@ -134,25 +134,24 @@ function buildApi(): Api {
       getTodayQuickStats: () => invoke('usage_log_today_quick_stats'),
     },
     requestLog: {
-      getCostStats: () => invoke('request_log_get_cost_stats'),
-      getKeyCosts: () => invoke('request_log_get_key_costs'),
       getDailyTrend: (days) => invoke('request_log_get_daily_trend', { days }),
-      getCostStatistics: (timeRange, metric) =>
-        invoke('request_log_get_cost_statistics', { timeRange, metric }),
+      getStatistics: (timeRange) => invoke('request_log_get_statistics', { timeRange }),
       getRecentPaginated: (timeRange, page, pageSize) =>
         invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
-      getDashboardStats: (metric) => invoke('request_log_get_dashboard_stats', { metric }),
+      getOverview: () => invoke('request_log_get_overview'),
+      getKeyTokenStats: () => invoke('request_log_get_key_token_stats'),
       getGatewayMetrics: () => invoke('gateway_metrics_get_recent'),
       getProviderGatewayMetrics: () => invoke('gateway_metrics_get_by_provider'),
       getMonthlyTrend: (year: number, month: number) =>
         invoke('request_log_get_monthly_trend', { year, month }),
-      repairCosts: () => invoke('request_log_repair_costs'),
     },
-    modelPricing: {
-      getAll: () => invoke('model_pricing_get_all'),
-      getCustom: () => invoke('model_pricing_get_custom'),
-      updateCustom: (pricing) => invoke('model_pricing_update_custom', { pricing }),
-      getDefault: () => invoke('model_pricing_get_default'),
+    cliTool: {
+      status: () => invoke('cli_tool_status'),
+      install: () => invoke('cli_tool_install'),
+      uninstall: () => invoke('cli_tool_uninstall'),
+      statuslineStatus: () => invoke('statusline_status'),
+      statuslineEnable: (force) => invoke('statusline_enable', { force: !!force }),
+      statuslineRestore: () => invoke('statusline_restore'),
     },
     app: {
       getVersion: () => invoke('app_get_version'),

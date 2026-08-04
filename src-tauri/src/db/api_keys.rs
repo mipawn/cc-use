@@ -12,14 +12,14 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
     // SELECT: id(0), provider_id(1), alias(2), value(3), priority(4),
     //         is_exhausted(5), is_active(6), config(7), usage_type(8),
     //         usage_url(9), usage_path(10), usage_headers(11),
-    //         cached_usage(12), last_usage_checked_at(13), cost_multiplier(14), model_mapping(15),
-    //         types(16), client_configs(17)
+    //         cached_usage(12), last_usage_checked_at(13), model_mapping(14),
+    //         types(15), client_configs(16)
     let config_str: Option<String> = row.get(7)?;
     let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
-    let client_configs_str: Option<String> = row.get(17)?;
+    let client_configs_str: Option<String> = row.get(16)?;
     let client_configs = client_configs_str.and_then(|s| serde_json::from_str(&s).ok());
     let types = row
-        .get::<_, Option<String>>(16)?
+        .get::<_, Option<String>>(15)?
         .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
         .filter(|types| !types.is_empty())
         .unwrap_or_else(|| vec!["claude_code".to_string()]);
@@ -44,8 +44,7 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
             .get::<_, Option<String>>(12)?
             .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
         last_usage_checked_at: row.get(13)?,
-        cost_multiplier: row.get::<_, Option<f64>>(14)?.unwrap_or(1.0),
-        model_mapping: row.get(15)?,
+        model_mapping: row.get(14)?,
         client_configs,
     })
 }
@@ -55,7 +54,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
+                    cached_usage, last_usage_checked_at, model_mapping, types,
                     client_configs
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC",
         )?;
@@ -68,7 +67,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at, cost_multiplier, model_mapping, types,
+                    cached_usage, last_usage_checked_at, model_mapping, types,
                     client_configs
              FROM api_keys WHERE id = ?1",
         )?;
@@ -112,9 +111,9 @@ impl Database {
 
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, secret_ref, types, priority, is_exhausted, is_active,
-                config, usage_type, usage_url, usage_path, usage_headers, cost_multiplier, model_mapping,
+                config, usage_type, usage_url, usage_path, usage_headers, model_mapping,
                 client_configs)
-             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             rusqlite::params![
                 id,
                 input.provider_id,
@@ -128,7 +127,6 @@ impl Database {
                 input.usage_url,
                 input.usage_path,
                 input.usage_headers,
-                input.cost_multiplier.unwrap_or(1.0),
                 model_mapping,
                 client_configs_json,
             ],
@@ -149,7 +147,6 @@ impl Database {
             sets.push("secret_ref = NULL".to_string());
         }
         add_field!(input.priority, "priority", sets, params);
-        add_field!(input.cost_multiplier, "cost_multiplier", sets, params);
         add_field!(input.usage_type, "usage_type", sets, params);
         add_field!(input.usage_url, "usage_url", sets, params);
         add_field!(input.usage_path, "usage_path", sets, params);

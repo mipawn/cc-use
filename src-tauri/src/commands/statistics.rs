@@ -1,9 +1,8 @@
 use crate::db::Database;
 use crate::models::{
-    CostStatistics, DashboardCostStats, ModelPricing, PaginatedRecentRequests,
-    ProviderGatewayMetrics, RecentGatewayMetrics, UsageStats,
+    PaginatedRecentRequests, ProviderGatewayMetrics, RecentGatewayMetrics, UsageOverview,
+    UsageStatistics, UsageStats,
 };
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -36,39 +35,22 @@ pub fn usage_log_today_quick_stats(
 }
 
 #[tauri::command]
-pub fn request_log_get_cost_stats(
-    db: State<'_, Arc<Mutex<Database>>>,
-) -> Result<serde_json::Value, String> {
-    let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_cost_stats().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn request_log_get_key_costs(
-    db: State<'_, Arc<Mutex<Database>>>,
-) -> Result<Vec<serde_json::Value>, String> {
-    let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_key_costs().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub fn request_log_get_daily_trend(
     db: State<'_, Arc<Mutex<Database>>>,
     days: Option<i64>,
-) -> Result<Vec<crate::models::DailyCostTrendItem>, String> {
+) -> Result<Vec<crate::models::DailyTrendItem>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.request_log_get_daily_trend(days.unwrap_or(30))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn request_log_get_cost_statistics(
+pub fn request_log_get_statistics(
     db: State<'_, Arc<Mutex<Database>>>,
     time_range: String,
-    metric: Option<String>,
-) -> Result<CostStatistics, String> {
+) -> Result<UsageStatistics, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_statistics(&time_range, metric.as_deref().unwrap_or("cost"))
+    db.request_log_get_statistics(&time_range)
         .map_err(|e| e.to_string())
 }
 
@@ -89,19 +71,26 @@ pub fn request_log_get_monthly_trend(
     db: State<'_, Arc<Mutex<Database>>>,
     year: i64,
     month: i64,
-) -> Result<Vec<crate::models::DailyCostTrendItem>, String> {
+) -> Result<Vec<crate::models::DailyTrendItem>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.request_log_get_monthly_trend(year, month)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn request_log_get_dashboard_stats(
+pub fn request_log_get_overview(
     db: State<'_, Arc<Mutex<Database>>>,
-    metric: Option<String>,
-) -> Result<DashboardCostStats, String> {
+) -> Result<UsageOverview, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_dashboard_stats_by_metric(metric.as_deref().unwrap_or("cost"))
+    db.request_log_get_overview().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn request_log_get_key_token_stats(
+    db: State<'_, Arc<Mutex<Database>>>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.request_log_get_key_token_stats()
         .map_err(|e| e.to_string())
 }
 
@@ -119,55 +108,4 @@ pub fn gateway_metrics_get_by_provider(
 ) -> Result<Vec<ProviderGatewayMetrics>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     db.gateway_metrics_by_provider().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn model_pricing_get_all(
-    db: State<'_, Arc<Mutex<Database>>>,
-) -> Result<HashMap<String, ModelPricing>, String> {
-    let db = db.lock().map_err(|e| e.to_string())?;
-    let custom = get_custom_pricing(&db)?;
-    let mut all = crate::services::cost_calculator::default_pricing();
-    all.extend(custom);
-    Ok(all)
-}
-
-#[tauri::command]
-pub fn model_pricing_get_custom(
-    db: State<'_, Arc<Mutex<Database>>>,
-) -> Result<HashMap<String, ModelPricing>, String> {
-    let db = db.lock().map_err(|e| e.to_string())?;
-    get_custom_pricing(&db)
-}
-
-#[tauri::command]
-pub fn model_pricing_update_custom(
-    db: State<'_, Arc<Mutex<Database>>>,
-    pricing: HashMap<String, ModelPricing>,
-) -> Result<(), String> {
-    let db = db.lock().map_err(|e| e.to_string())?;
-    let json = serde_json::to_string(&pricing).map_err(|e| e.to_string())?;
-    db.settings_set_value("customModelPricing", &json)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn model_pricing_get_default() -> Result<HashMap<String, ModelPricing>, String> {
-    Ok(crate::services::cost_calculator::default_pricing())
-}
-
-fn get_custom_pricing(db: &Database) -> Result<HashMap<String, ModelPricing>, String> {
-    match db
-        .settings_get_value("customModelPricing")
-        .map_err(|e| e.to_string())?
-    {
-        Some(json) => serde_json::from_str(&json).map_err(|e| e.to_string()),
-        None => Ok(HashMap::new()),
-    }
-}
-
-#[tauri::command]
-pub fn request_log_repair_costs(db: State<'_, Arc<Mutex<Database>>>) -> Result<i64, String> {
-    let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_repair_costs().map_err(|e| e.to_string())
 }

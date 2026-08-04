@@ -1,11 +1,17 @@
 use crate::db::Database;
 use crate::models::{
-    CostStatistics, CostStatsSummary, DailyCostTrendItem, DashboardCostStats,
-    PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog, TopKeyCostItem, TopModelCostItem,
-    TopProjectCostItem, TopProviderCostItem,
+    DailyTrendItem, FailureStatsItem, PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog,
+    UsageDimensionItem, UsageOverview, UsageStatistics, UsageStatsSummary,
 };
 
+/// input + output + cache_read + cache_creation — the v3.7.0 token definition.
+/// Cache tokens are real traffic the user pays for and are often the dominant
+/// share under Claude Code; hiding them made totals unexplainable.
+const TOKEN_SUM: &str = "input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens";
+
 impl Database {
+    /// Billable scope: rows that carried usage. Failure rows (tokens all zero)
+    /// are excluded here and surfaced through the failure queries instead.
     fn billable_request_logs_where(&self, col: &str, time_range: &str) -> String {
         let usage_clause = "input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0";
         match self.time_range_where(col, time_range) {
@@ -16,16 +22,16 @@ impl Database {
 
     fn billable_request_logs_where_with_alias(
         &self,
-        alias: &str,
         col: &str,
+        alias: &str,
         time_range: &str,
     ) -> String {
         let usage_clause = format!(
-            "{}.input_tokens > 0 OR {}.output_tokens > 0 OR {}.cache_read_tokens > 0 OR {}.cache_creation_tokens > 0",
-            alias, alias, alias, alias
+            "{0}.input_tokens > 0 OR {0}.output_tokens > 0 OR {0}.cache_read_tokens > 0 OR {0}.cache_creation_tokens > 0",
+            alias
         );
         match self.time_range_where(col, time_range) {
-            where_clause if where_clause.is_empty() => format!("WHERE {}", usage_clause),
+            where_clause if where_clause.is_empty() => format!("WHERE ({})", usage_clause),
             where_clause => format!("{} AND ({})", where_clause, usage_clause),
         }
     }
@@ -35,16 +41,14 @@ impl Database {
             "SELECT id, provider_id, api_key_id, project_id, session_id,
                     model, request_model, input_tokens, output_tokens,
                     cache_read_tokens, cache_creation_tokens,
-                    input_cost_usd, output_cost_usd, cache_read_cost_usd,
-                    cache_creation_cost_usd, total_cost_usd, cost_multiplier,
                     latency_ms, first_token_ms, status_code, error_message,
                     is_streaming, created_at,
-                    key_alias, provider_name, project_name
+                    key_alias, provider_name, project_name, outcome
              FROM request_logs ORDER BY created_at ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
-            let is_streaming: i32 = row.get(21)?;
+            let is_streaming: i32 = row.get(15)?;
             Ok(RequestLog {
                 id: row.get(0)?,
                 provider_id: row.get(1)?,
@@ -57,21 +61,16 @@ impl Database {
                 output_tokens: row.get(8)?,
                 cache_read_tokens: row.get(9)?,
                 cache_creation_tokens: row.get(10)?,
-                input_cost_usd: row.get(11)?,
-                output_cost_usd: row.get(12)?,
-                cache_read_cost_usd: row.get(13)?,
-                cache_creation_cost_usd: row.get(14)?,
-                total_cost_usd: row.get(15)?,
-                cost_multiplier: row.get(16)?,
-                latency_ms: row.get(17)?,
-                first_token_ms: row.get(18)?,
-                status_code: row.get(19)?,
-                error_message: row.get(20)?,
+                latency_ms: row.get(11)?,
+                first_token_ms: row.get(12)?,
+                status_code: row.get(13)?,
+                error_message: row.get(14)?,
                 is_streaming: is_streaming != 0,
-                created_at: row.get(22)?,
-                key_alias: row.get(23)?,
-                provider_name: row.get(24)?,
-                project_name: row.get(25)?,
+                created_at: row.get(16)?,
+                key_alias: row.get(17)?,
+                provider_name: row.get(18)?,
+                project_name: row.get(19)?,
+                outcome: row.get(20)?,
             })
         })?;
 
@@ -82,20 +81,16 @@ impl Database {
         self.conn.execute(
             "INSERT INTO request_logs (id, provider_id, api_key_id, project_id, session_id,
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
-                cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
-                cache_creation_cost_usd, total_cost_usd, cost_multiplier, latency_ms,
-                first_token_ms, status_code, error_message, is_streaming, created_at,
-                key_alias, provider_name, project_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                cache_creation_tokens, latency_ms, first_token_ms, status_code, error_message,
+                is_streaming, created_at, key_alias, provider_name, project_name, outcome)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             rusqlite::params![
                 log.id, log.provider_id, log.api_key_id, log.project_id, log.session_id,
                 log.model, log.request_model, log.input_tokens, log.output_tokens,
                 log.cache_read_tokens, log.cache_creation_tokens,
-                log.input_cost_usd, log.output_cost_usd, log.cache_read_cost_usd,
-                log.cache_creation_cost_usd, log.total_cost_usd, log.cost_multiplier,
                 log.latency_ms, log.first_token_ms, log.status_code, log.error_message,
                 if log.is_streaming { 1i32 } else { 0i32 }, log.created_at,
-                log.key_alias, log.provider_name, log.project_name,
+                log.key_alias, log.provider_name, log.project_name, log.outcome,
             ],
         )?;
         Ok(())
@@ -105,11 +100,9 @@ impl Database {
         self.conn.execute(
             "INSERT OR REPLACE INTO request_logs (id, provider_id, api_key_id, project_id, session_id,
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
-                cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
-                cache_creation_cost_usd, total_cost_usd, cost_multiplier, latency_ms,
-                first_token_ms, status_code, error_message, is_streaming, created_at,
-                key_alias, provider_name, project_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                cache_creation_tokens, latency_ms, first_token_ms, status_code, error_message,
+                is_streaming, created_at, key_alias, provider_name, project_name, outcome)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             rusqlite::params![
                 log.id,
                 log.provider_id,
@@ -122,12 +115,6 @@ impl Database {
                 log.output_tokens,
                 log.cache_read_tokens,
                 log.cache_creation_tokens,
-                log.input_cost_usd,
-                log.output_cost_usd,
-                log.cache_read_cost_usd,
-                log.cache_creation_cost_usd,
-                log.total_cost_usd,
-                log.cost_multiplier,
                 log.latency_ms,
                 log.first_token_ms,
                 log.status_code,
@@ -137,117 +124,51 @@ impl Database {
                 log.key_alias,
                 log.provider_name,
                 log.project_name,
+                log.outcome,
             ],
         )?;
         Ok(())
     }
 
-    pub fn request_log_get_cost_stats(&self) -> Result<serde_json::Value, rusqlite::Error> {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let created_date = Self::local_date_expr("created_at");
-
-        let today_cost: f64 = self.conn.query_row(
-            &format!(
-                "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
-                 WHERE {} = ?1
-                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
-                created_date
-            ),
-            [&today],
-            |row| row.get(0),
-        )?;
-
-        let total_balance: f64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(cached_wallet_balance), 0) FROM providers WHERE cached_wallet_balance IS NOT NULL",
-            [],
-            |row| row.get(0),
-        )?;
-
-        Ok(serde_json::json!({
-            "todayCost": today_cost,
-            "totalBalance": total_balance,
-        }))
-    }
-
-    pub fn request_log_get_key_costs(&self) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let created_date = Self::local_date_expr("created_at");
-
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT api_key_id,
-                    COALESCE(SUM(CASE WHEN {} = ?1 THEN total_cost_usd ELSE 0 END), 0) as today_cost,
-                    COALESCE(SUM(total_cost_usd), 0) as total_cost
-             FROM request_logs
-             WHERE api_key_id IS NOT NULL
-               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
-             GROUP BY api_key_id",
-            created_date
-        ))?;
-
-        let rows = stmt.query_map([&today], |row| {
-            Ok(serde_json::json!({
-                "keyId": row.get::<_, String>(0)?,
-                "todayCost": row.get::<_, f64>(1)?,
-                "totalCost": row.get::<_, f64>(2)?,
-            }))
-        })?;
-
-        rows.collect()
-    }
-
     pub fn request_log_get_daily_trend(
         &self,
         days: i64,
-    ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
+    ) -> Result<Vec<DailyTrendItem>, rusqlite::Error> {
         let created_date = Self::local_date_expr("created_at");
         let day_offset = days.clamp(1, 366) - 1;
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0),
-                    COALESCE(SUM(input_tokens + output_tokens), 0), COUNT(*)
+            "SELECT {} as d,
+                    COALESCE(SUM({}), 0), COUNT(*),
+                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
                  FROM request_logs
                  WHERE {} >= DATE('now', 'localtime', '-{} days')
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
-            created_date,
-            created_date,
-            day_offset
+            created_date, TOKEN_SUM, created_date, day_offset
         ))?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(DailyCostTrendItem {
-                date: row.get(0)?,
-                cost: row.get(1)?,
-                tokens: row.get(2)?,
-                requests: row.get(3)?,
-            })
-        })?;
-
+        let rows = stmt.query_map([], Self::map_daily_trend_row)?;
         rows.collect()
     }
 
     fn request_log_get_daily_trend_for_range(
         &self,
         time_range: &str,
-    ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
+    ) -> Result<Vec<DailyTrendItem>, rusqlite::Error> {
         let created_date = Self::local_date_expr("created_at");
         let where_clause = self.billable_request_logs_where("created_at", time_range);
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0),
-                    COALESCE(SUM(input_tokens + output_tokens), 0), COUNT(*)
+            "SELECT {} as d,
+                    COALESCE(SUM({}), 0), COUNT(*),
+                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
                  FROM request_logs
                  {} GROUP BY d ORDER BY d ASC",
-            created_date, where_clause
+            created_date, TOKEN_SUM, where_clause
         ))?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(DailyCostTrendItem {
-                date: row.get(0)?,
-                cost: row.get(1)?,
-                tokens: row.get(2)?,
-                requests: row.get(3)?,
-            })
-        })?;
-
+        let rows = stmt.query_map([], Self::map_daily_trend_row)?;
         rows.collect()
     }
 
@@ -255,217 +176,210 @@ impl Database {
         &self,
         year: i64,
         month: i64,
-    ) -> Result<Vec<DailyCostTrendItem>, rusqlite::Error> {
+    ) -> Result<Vec<DailyTrendItem>, rusqlite::Error> {
         let ym = format!("{:04}-{:02}", year, month);
         let created_date = Self::local_date_expr("created_at");
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d, COALESCE(SUM(total_cost_usd), 0),
-                    COALESCE(SUM(input_tokens + output_tokens), 0), COUNT(*)
+            "SELECT {} as d,
+                    COALESCE(SUM({}), 0), COUNT(*),
+                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
                  FROM request_logs
                  WHERE strftime('%Y-%m', {}) = ?1
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
-            created_date, created_date
+            created_date, TOKEN_SUM, created_date
         ))?;
 
-        let rows = stmt.query_map([&ym], |row| {
-            Ok(DailyCostTrendItem {
-                date: row.get(0)?,
-                cost: row.get(1)?,
-                tokens: row.get(2)?,
-                requests: row.get(3)?,
-            })
-        })?;
-
+        let rows = stmt.query_map([&ym], Self::map_daily_trend_row)?;
         rows.collect()
     }
 
-    pub fn request_log_get_cost_statistics(
-        &self,
-        time_range: &str,
-    ) -> Result<CostStatistics, rusqlite::Error> {
-        self.request_log_get_statistics(time_range, "cost")
+    fn map_daily_trend_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailyTrendItem> {
+        Ok(DailyTrendItem {
+            date: row.get(0)?,
+            tokens: row.get(1)?,
+            requests: row.get(2)?,
+            input_tokens: row.get(3)?,
+            output_tokens: row.get(4)?,
+            cache_read_tokens: row.get(5)?,
+            cache_creation_tokens: row.get(6)?,
+        })
     }
 
+    /// Statistics page payload: composition, daily trend, dimensions, failures.
     pub fn request_log_get_statistics(
         &self,
         time_range: &str,
-        metric: &str,
-    ) -> Result<CostStatistics, rusqlite::Error> {
+    ) -> Result<UsageStatistics, rusqlite::Error> {
         let where_clause = self.billable_request_logs_where("created_at", time_range);
-        let r_where_clause =
-            self.billable_request_logs_where_with_alias("r", "r.created_at", time_range);
-        let ranking_expression = if metric == "tokens" {
-            "SUM(r.input_tokens + r.output_tokens)"
-        } else {
-            "SUM(r.total_cost_usd)"
-        };
-        let model_ranking_expression = if metric == "tokens" {
-            "SUM(input_tokens + output_tokens)"
-        } else {
-            "SUM(total_cost_usd)"
-        };
 
-        // Summary
-        let summary = self.conn.query_row(
+        let (
+            total_requests,
+            total_input_tokens,
+            total_output_tokens,
+            total_cache_read_tokens,
+            total_cache_creation_tokens,
+            avg_latency_ms,
+        ) = self.conn.query_row(
             &format!(
                 "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                         COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
-                        COALESCE(SUM(COALESCE(cache_read_cost_usd, 0) +
-                                     COALESCE(cache_creation_cost_usd, 0)), 0),
-                        COALESCE(SUM(total_cost_usd), 0), AVG(latency_ms)
+                        AVG(latency_ms)
                  FROM request_logs {}",
                 where_clause
             ),
             [],
             |row| {
-                Ok(CostStatsSummary {
-                    total_requests: row.get(0)?,
-                    total_input_tokens: row.get(1)?,
-                    total_output_tokens: row.get(2)?,
-                    total_cache_read_tokens: row.get(3)?,
-                    total_cache_creation_tokens: row.get(4)?,
-                    total_cache_cost_usd: row.get(5)?,
-                    total_cost_usd: row.get(6)?,
-                    avg_latency_ms: row.get(7)?,
-                })
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, Option<f64>>(5)?,
+                ))
             },
         )?;
 
-        // Top keys
+        // Failures are counted over the full log for the same range, not the
+        // billable subset — a failed request never carries tokens.
+        let failure_where = match self.time_range_where("created_at", time_range) {
+            clause if clause.is_empty() => {
+                "WHERE outcome IS NOT NULL AND outcome != 'success'".to_string()
+            }
+            clause => format!(
+                "{} AND outcome IS NOT NULL AND outcome != 'success'",
+                clause
+            ),
+        };
+
+        let failed_requests: i64 = self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM request_logs {}", failure_where),
+            [],
+            |row| row.get(0),
+        )?;
+
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.api_key_id, COALESCE(r.key_alias, k.alias, ''), COALESCE(r.provider_name, p.name, ''),
-                        SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
-                 FROM request_logs r
-                 LEFT JOIN api_keys k ON r.api_key_id = k.id
-                 LEFT JOIN providers p ON r.provider_id = p.id
-                 {} GROUP BY r.api_key_id ORDER BY {} DESC LIMIT 10",
-            if r_where_clause.is_empty() {
-                ""
-            } else {
-                &r_where_clause
-            },
-            ranking_expression
+            "SELECT COALESCE(provider_name, ''), COALESCE(key_alias, ''),
+                    status_code, COALESCE(outcome, ''), COUNT(*), MAX(created_at)
+             FROM request_logs {}
+             GROUP BY provider_name, key_alias, status_code, outcome
+             ORDER BY MAX(created_at) DESC
+             LIMIT 50",
+            failure_where
         ))?;
-        let top_keys: Vec<TopKeyCostItem> = stmt
+        let failures: Vec<FailureStatsItem> = stmt
             .query_map([], |row| {
-                Ok(TopKeyCostItem {
-                    key_id: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                Ok(FailureStatsItem {
+                    provider_name: row.get(0)?,
                     key_alias: row.get(1)?,
-                    provider_name: row.get(2)?,
-                    total_cost: row.get(3)?,
-                    total_requests: row.get(4)?,
-                    total_tokens: row.get(5)?,
+                    status_code: row.get(2)?,
+                    outcome: row.get(3)?,
+                    count: row.get(4)?,
+                    last_seen_at: row.get(5)?,
                 })
             })?
             .filter_map(|r| r.ok())
             .collect();
 
-        // Top providers
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.provider_id, COALESCE(r.provider_name, p.name, ''),
-                        SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
-                 FROM request_logs r
-                 LEFT JOIN providers p ON r.provider_id = p.id
-                 {} GROUP BY r.provider_id ORDER BY {} DESC LIMIT 10",
-            if r_where_clause.is_empty() {
-                ""
-            } else {
-                &r_where_clause
-            },
-            ranking_expression
-        ))?;
-        let top_providers: Vec<TopProviderCostItem> = stmt
-            .query_map([], |row| {
-                Ok(TopProviderCostItem {
-                    provider_id: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                    provider_name: row.get(1)?,
-                    total_cost: row.get(2)?,
-                    total_requests: row.get(3)?,
-                    total_tokens: row.get(4)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+        let input_side = total_input_tokens + total_cache_read_tokens + total_cache_creation_tokens;
+        let cache_hit_rate = if input_side > 0 {
+            total_cache_read_tokens as f64 / input_side as f64
+        } else {
+            0.0
+        };
 
-        // Top projects. Config-takeover clients such as Codex Desktop do not
-        // carry a project_id, so group them under a clear client bucket instead
-        // of surfacing an ambiguous "Unknown" project.
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT
-                        CASE
-                            WHEN r.project_id IS NOT NULL THEN r.project_id
-                            WHEN ps.cli_type IS NOT NULL THEN '__client__' || ps.cli_type
-                            ELSE '__other__'
-                        END,
-                        COALESCE(
-                            r.project_name,
-                            pr.name,
-                            CASE ps.cli_type
-                                WHEN 'codex-app' THEN 'Codex Desktop'
-                                WHEN 'claude_desktop' THEN 'Claude Desktop'
-                                ELSE NULL
-                            END,
-                            'Other'
-                        ),
-                        SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
-                 FROM request_logs r
-                 LEFT JOIN projects pr ON r.project_id = pr.id
-                 LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
-                 {} GROUP BY 1, 2 ORDER BY {} DESC LIMIT 10",
-            if r_where_clause.is_empty() {
-                ""
-            } else {
-                &r_where_clause
-            },
-            ranking_expression
-        ))?;
-        let top_projects: Vec<TopProjectCostItem> = stmt
-            .query_map([], |row| {
-                Ok(TopProjectCostItem {
-                    project_id: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                    project_name: row.get(1)?,
-                    total_cost: row.get(2)?,
-                    total_requests: row.get(3)?,
-                    total_tokens: row.get(4)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+        let summary = UsageStatsSummary {
+            total_requests,
+            failed_requests,
+            total_input_tokens,
+            total_output_tokens,
+            total_cache_read_tokens,
+            total_cache_creation_tokens,
+            total_tokens: total_input_tokens
+                + total_output_tokens
+                + total_cache_read_tokens
+                + total_cache_creation_tokens,
+            cache_hit_rate,
+            avg_latency_ms,
+        };
 
-        // Top models
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT COALESCE(model, 'unknown'), SUM(total_cost_usd), COUNT(*),
-                        SUM(input_tokens + output_tokens)
-                 FROM request_logs
-                 {} GROUP BY model ORDER BY {} DESC LIMIT 10",
-            where_clause, model_ranking_expression
-        ))?;
-        let top_models: Vec<TopModelCostItem> = stmt
-            .query_map([], |row| {
-                Ok(TopModelCostItem {
-                    model: row.get(0)?,
-                    total_cost: row.get(1)?,
-                    total_requests: row.get(2)?,
-                    total_tokens: row.get(3)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        // Keep the trend on the same local-time range as the summary and rankings.
         let daily_trend = self.request_log_get_daily_trend_for_range(time_range)?;
+        let dimension_where =
+            self.billable_request_logs_where_with_alias("r.created_at", "r", time_range);
 
-        Ok(CostStatistics {
+        let mut key_stmt = self.conn.prepare(&format!(
+            "SELECT COALESCE(r.api_key_id, 'unassigned'),
+                    COALESCE(NULLIF(r.key_alias, ''), NULLIF(k.alias, ''), 'Unknown key'),
+                    COALESCE(NULLIF(r.provider_name, ''), NULLIF(p.name, ''), ''),
+                    COALESCE(SUM(r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens), 0),
+                    COUNT(*)
+             FROM request_logs r
+             LEFT JOIN api_keys k ON r.api_key_id = k.id
+             LEFT JOIN providers p ON r.provider_id = p.id
+             {}
+             GROUP BY 1, 2, 3
+             ORDER BY 4 DESC, 5 DESC",
+            dimension_where
+        ))?;
+        let key_usage = key_stmt
+            .query_map([], |row| {
+                Ok(UsageDimensionItem {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    detail: row.get(2)?,
+                    tokens: row.get(3)?,
+                    requests: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut project_stmt = self.conn.prepare(&format!(
+            "SELECT COALESCE(r.project_id, ps.cli_type, 'unassigned'),
+                    COALESCE(
+                        NULLIF(r.project_name, ''),
+                        NULLIF(pr.name, ''),
+                        CASE ps.cli_type
+                            WHEN 'codex-app' THEN 'Codex Desktop'
+                            WHEN 'claude_desktop' THEN 'Claude Desktop'
+                            ELSE 'Unassigned'
+                        END
+                    ),
+                    COALESCE(NULLIF(pr.path, ''), ''),
+                    COALESCE(SUM(r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens), 0),
+                    COUNT(*)
+             FROM request_logs r
+             LEFT JOIN projects pr ON r.project_id = pr.id
+             LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
+             {}
+             GROUP BY 1, 2, 3
+             ORDER BY 4 DESC, 5 DESC",
+            dimension_where
+        ))?;
+        let project_usage = project_stmt
+            .query_map([], |row| {
+                Ok(UsageDimensionItem {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    detail: row.get(2)?,
+                    tokens: row.get(3)?,
+                    requests: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(UsageStatistics {
             summary,
-            top_keys,
-            top_providers,
-            top_projects,
-            top_models,
             daily_trend,
+            key_usage,
+            project_usage,
+            failures,
         })
     }
 
+    /// Recent request list. Includes failures (they are the rows people come
+    /// here to find); successful non-inference calls were never recorded.
     pub fn request_log_get_recent_paginated(
         &self,
         time_range: &str,
@@ -475,23 +389,10 @@ impl Database {
         let page = page.max(1);
         let page_size = page_size.max(1).min(100);
         let offset = (page - 1) * page_size;
-        let where_clause =
-            self.billable_request_logs_where_with_alias("r", "r.created_at", time_range);
+        let where_clause = self.time_range_where("r.created_at", time_range);
 
         let total: i64 = self.conn.query_row(
-            &format!(
-                "SELECT COUNT(*)
-                 FROM request_logs r
-                 LEFT JOIN api_keys k ON r.api_key_id = k.id
-                 LEFT JOIN providers p ON r.provider_id = p.id
-                 LEFT JOIN projects pr ON r.project_id = pr.id
-                 {}",
-                if where_clause.is_empty() {
-                    ""
-                } else {
-                    &where_clause
-                }
-            ),
+            &format!("SELECT COUNT(*) FROM request_logs r {}", where_clause),
             [],
             |row| row.get(0),
         )?;
@@ -507,20 +408,16 @@ impl Database {
                                 ELSE NULL
                             END
                         ),
-                        r.total_cost_usd, r.input_tokens, r.output_tokens,
+                        r.input_tokens, r.output_tokens,
                         r.cache_read_tokens, r.cache_creation_tokens,
-                        r.latency_ms, r.status_code, r.created_at
+                        r.latency_ms, r.status_code, r.outcome, r.error_message, r.created_at
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
                  {} ORDER BY r.created_at DESC LIMIT ?1 OFFSET ?2",
-            if where_clause.is_empty() {
-                ""
-            } else {
-                &where_clause
-            }
+            where_clause
         ))?;
         let items: Vec<RecentRequestLogDisplay> = stmt
             .query_map([page_size, offset], |row| {
@@ -530,14 +427,15 @@ impl Database {
                     key_alias: row.get(2)?,
                     provider_name: row.get(3)?,
                     project_name: row.get(4)?,
-                    total_cost_usd: row.get(5)?,
-                    input_tokens: row.get(6)?,
-                    output_tokens: row.get(7)?,
-                    cache_read_tokens: row.get(8)?,
-                    cache_creation_tokens: row.get(9)?,
-                    latency_ms: row.get(10)?,
-                    status_code: row.get(11)?,
-                    created_at: row.get(12)?,
+                    input_tokens: row.get(5)?,
+                    output_tokens: row.get(6)?,
+                    cache_read_tokens: row.get(7)?,
+                    cache_creation_tokens: row.get(8)?,
+                    latency_ms: row.get(9)?,
+                    status_code: row.get(10)?,
+                    outcome: row.get(11)?,
+                    error_message: row.get(12)?,
+                    created_at: row.get(13)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -551,145 +449,67 @@ impl Database {
         })
     }
 
-    pub fn request_log_get_dashboard_stats(&self) -> Result<DashboardCostStats, rusqlite::Error> {
-        self.request_log_get_dashboard_stats_by_metric("cost")
-    }
-
-    pub fn request_log_get_dashboard_stats_by_metric(
-        &self,
-        metric: &str,
-    ) -> Result<DashboardCostStats, rusqlite::Error> {
+    /// Dashboard overview: a compact, trustworthy view of today's activity.
+    pub fn request_log_get_overview(&self) -> Result<UsageOverview, rusqlite::Error> {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let created_date = Self::local_date_expr("created_at");
-        let ranking_expression = if metric == "tokens" {
-            "SUM(r.input_tokens + r.output_tokens)"
-        } else {
-            "SUM(r.total_cost_usd)"
-        };
+        let usage_clause = "input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0";
 
-        let today_cost: f64 = self.conn.query_row(
+        let (today_tokens, today_requests) = self.conn.query_row(
             &format!(
-                "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
-                 WHERE {} = ?1
-                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
-                created_date
+                "SELECT COALESCE(SUM({}), 0), COUNT(*)
+                 FROM request_logs
+                 WHERE {} = ?1 AND ({})",
+                TOKEN_SUM, created_date, usage_clause
             ),
             [&today],
-            |row| row.get(0),
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
         )?;
 
-        let total_cost: f64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(total_cost_usd), 0) FROM request_logs
-             WHERE input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0",
-            [],
-            |row| row.get(0),
-        )?;
-
-        let today_requests: i64 = self.conn.query_row(
+        let today_failed_requests: i64 = self.conn.query_row(
             &format!(
                 "SELECT COUNT(*) FROM request_logs
-                 WHERE {} = ?1
-                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
+                 WHERE {} = ?1 AND outcome IS NOT NULL AND outcome != 'success'",
                 created_date
             ),
             [&today],
             |row| row.get(0),
         )?;
 
-        let today_tokens: i64 = self.conn.query_row(
-            &format!(
-                "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM request_logs
-                 WHERE {} = ?1
-                   AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)",
-                created_date
-            ),
-            [&today],
-            |row| row.get(0),
-        )?;
-
-        let total_tokens: i64 = self.conn.query_row(
-            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM request_logs
-             WHERE input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0",
-            [],
-            |row| row.get(0),
-        )?;
-
-        let weekly_trend = self.request_log_get_daily_trend(7)?;
-
-        // Top keys (all time, limit 5)
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.api_key_id, COALESCE(r.key_alias, k.alias, ''), COALESCE(r.provider_name, p.name, ''),
-                    SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
-             FROM request_logs r
-             LEFT JOIN api_keys k ON r.api_key_id = k.id
-             LEFT JOIN providers p ON r.provider_id = p.id
-             WHERE r.input_tokens > 0 OR r.output_tokens > 0 OR r.cache_read_tokens > 0 OR r.cache_creation_tokens > 0
-             GROUP BY r.api_key_id ORDER BY {} DESC LIMIT 5",
-            ranking_expression
-        ))?;
-        let top_keys: Vec<TopKeyCostItem> = stmt
-            .query_map([], |row| {
-                Ok(TopKeyCostItem {
-                    key_id: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                    key_alias: row.get(1)?,
-                    provider_name: row.get(2)?,
-                    total_cost: row.get(3)?,
-                    total_requests: row.get(4)?,
-                    total_tokens: row.get(5)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        // Top projects (all time, limit 5)
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT
-                    CASE
-                        WHEN r.project_id IS NOT NULL THEN r.project_id
-                        WHEN ps.cli_type IS NOT NULL THEN '__client__' || ps.cli_type
-                        ELSE '__other__'
-                    END,
-                    COALESCE(
-                        r.project_name,
-                        pr.name,
-                        CASE ps.cli_type
-                            WHEN 'codex-app' THEN 'Codex Desktop'
-                            WHEN 'claude_desktop' THEN 'Claude Desktop'
-                            ELSE NULL
-                        END,
-                        'Other'
-                    ),
-                    SUM(r.total_cost_usd), COUNT(*), SUM(r.input_tokens + r.output_tokens)
-             FROM request_logs r
-             LEFT JOIN projects pr ON r.project_id = pr.id
-             LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
-             WHERE r.input_tokens > 0 OR r.output_tokens > 0 OR r.cache_read_tokens > 0 OR r.cache_creation_tokens > 0
-             GROUP BY 1, 2 ORDER BY {} DESC LIMIT 5",
-            ranking_expression
-        ))?;
-        let top_projects: Vec<TopProjectCostItem> = stmt
-            .query_map([], |row| {
-                Ok(TopProjectCostItem {
-                    project_id: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                    project_name: row.get(1)?,
-                    total_cost: row.get(2)?,
-                    total_requests: row.get(3)?,
-                    total_tokens: row.get(4)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        Ok(DashboardCostStats {
-            today_cost,
-            total_cost,
-            today_requests,
+        Ok(UsageOverview {
             today_tokens,
-            total_tokens,
-            weekly_trend,
-            top_keys,
-            top_projects,
+            today_requests,
+            today_failed_requests,
         })
+    }
+
+    /// Per-key today/total token totals for the Keys page chips.
+    pub fn request_log_get_key_token_stats(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let created_date = Self::local_date_expr("created_at");
+
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT api_key_id,
+                    COALESCE(SUM(CASE WHEN {} = ?1 THEN {} ELSE 0 END), 0) as today_tokens,
+                    COALESCE(SUM({}), 0) as total_tokens
+             FROM request_logs
+             WHERE api_key_id IS NOT NULL
+               AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
+             GROUP BY api_key_id",
+            created_date, TOKEN_SUM, TOKEN_SUM
+        ))?;
+
+        let rows = stmt.query_map([&today], |row| {
+            Ok(serde_json::json!({
+                "keyId": row.get::<_, String>(0)?,
+                "todayTokens": row.get::<_, i64>(1)?,
+                "totalTokens": row.get::<_, i64>(2)?,
+            }))
+        })?;
+
+        rows.collect()
     }
 
     pub fn request_log_cleanup_old(&self, max_age_days: i64) -> Result<i64, rusqlite::Error> {
@@ -701,69 +521,6 @@ impl Database {
         )?;
         Ok(deleted as i64)
     }
-
-    /// Recalculate and update costs for all request_logs using current default + custom pricing.
-    /// Returns the count of rows updated.
-    pub fn request_log_repair_costs(&self) -> Result<i64, rusqlite::Error> {
-        let custom_pricing: std::collections::HashMap<String, crate::models::ModelPricing> = self
-            .settings_get_value("customModelPricing")
-            .ok()
-            .flatten()
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default();
-
-        let mut stmt = self.conn.prepare(
-            "SELECT id, model, input_tokens, output_tokens, cache_read_tokens,
-                    cache_creation_tokens, cost_multiplier
-             FROM request_logs WHERE model IS NOT NULL",
-        )?;
-
-        let rows: Vec<(String, String, i64, i64, i64, i64, f64)> = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                ))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
-        let mut updated = 0i64;
-        for (id, model, input, output, cache_read, cache_creation, multiplier) in rows {
-            let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
-                crate::services::cost_calculator::calculate_cost(
-                    &model,
-                    input,
-                    output,
-                    cache_read,
-                    cache_creation,
-                    multiplier,
-                    &custom_pricing,
-                );
-
-            self.conn.execute(
-                "UPDATE request_logs SET input_cost_usd = ?1, output_cost_usd = ?2,
-                        cache_read_cost_usd = ?3, cache_creation_cost_usd = ?4,
-                        total_cost_usd = ?5 WHERE id = ?6",
-                rusqlite::params![
-                    input_cost,
-                    output_cost,
-                    cache_read_cost,
-                    cache_creation_cost,
-                    total_cost,
-                    id,
-                ],
-            )?;
-            updated += 1;
-        }
-
-        Ok(updated)
-    }
 }
 
 #[cfg(test)]
@@ -771,7 +528,7 @@ mod tests {
     use super::*;
     use crate::models::ProxySession;
 
-    fn mk_billable_log(id: &str, created_at: String, total_cost_usd: f64) -> RequestLog {
+    fn mk_billable_log(id: &str, created_at: String) -> RequestLog {
         RequestLog {
             id: id.into(),
             provider_id: None,
@@ -784,16 +541,11 @@ mod tests {
             output_tokens: 20,
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
-            input_cost_usd: 0.01,
-            output_cost_usd: 0.02,
-            cache_read_cost_usd: 0.0,
-            cache_creation_cost_usd: 0.0,
-            total_cost_usd,
-            cost_multiplier: 1.0,
             latency_ms: Some(100),
             first_token_ms: None,
             status_code: Some(200),
             error_message: None,
+            outcome: Some("success".into()),
             is_streaming: false,
             created_at,
             key_alias: Some("codex-key".into()),
@@ -802,101 +554,44 @@ mod tests {
         }
     }
 
+    fn mk_failed_log(id: &str, created_at: String, status_code: i32, outcome: &str) -> RequestLog {
+        let mut log = mk_billable_log(id, created_at);
+        log.input_tokens = 0;
+        log.output_tokens = 0;
+        log.status_code = Some(status_code);
+        log.outcome = Some(outcome.into());
+        log.error_message = Some("Rate limit exceeded".into());
+        log
+    }
+
     #[test]
     fn cleanup_removes_old_logs() {
         let db = Database::new_in_memory().unwrap();
 
-        fn mk_log(id: &str, created_at: String) -> RequestLog {
-            RequestLog {
-                id: id.into(),
-                provider_id: None,
-                api_key_id: None,
-                project_id: None,
-                session_id: None,
-                model: None,
-                request_model: None,
-                input_tokens: 0,
-                output_tokens: 0,
-                cache_read_tokens: 0,
-                cache_creation_tokens: 0,
-                input_cost_usd: 0.0,
-                output_cost_usd: 0.0,
-                cache_read_cost_usd: 0.0,
-                cache_creation_cost_usd: 0.0,
-                total_cost_usd: 0.0,
-                cost_multiplier: 1.0,
-                latency_ms: None,
-                first_token_ms: None,
-                status_code: None,
-                error_message: None,
-                is_streaming: false,
-                created_at,
-                key_alias: None,
-                provider_name: None,
-                project_name: None,
-            }
-        }
-
-        let old_log = mk_log(
+        let old_log = mk_billable_log(
             "old-1",
             (chrono::Utc::now() - chrono::Duration::days(100)).to_rfc3339(),
         );
         db.request_log_create(&old_log).unwrap();
 
-        let recent_log = mk_log("recent-1", chrono::Utc::now().to_rfc3339());
+        let recent_log = mk_billable_log("recent-1", chrono::Utc::now().to_rfc3339());
         db.request_log_create(&recent_log).unwrap();
 
         let deleted = db.request_log_cleanup_old(90).unwrap();
         assert!(deleted >= 1);
 
         let remaining = db.request_log_list_all().unwrap();
-        let has_recent = remaining.iter().any(|r| r.id == "recent-1");
-        let has_old = remaining.iter().any(|r| r.id == "old-1");
-        assert!(has_recent);
-        assert!(!has_old);
+        assert!(remaining.iter().any(|r| r.id == "recent-1"));
+        assert!(!remaining.iter().any(|r| r.id == "old-1"));
     }
 
     #[test]
-    fn dashboard_today_cost_uses_local_day_for_utc_logs() {
+    fn overview_today_uses_local_day_for_utc_logs() {
         let db = Database::new_in_memory().unwrap();
         let now = chrono::Local::now();
-        let today_log =
-            mk_billable_log("today", now.with_timezone(&chrono::Utc).to_rfc3339(), 0.03);
-        let yesterday_log = mk_billable_log(
-            "yesterday",
-            (now - chrono::Duration::days(1))
-                .with_timezone(&chrono::Utc)
-                .to_rfc3339(),
-            9.99,
-        );
-
-        db.request_log_create(&today_log).unwrap();
-        db.request_log_create(&yesterday_log).unwrap();
-
-        let stats = db.request_log_get_dashboard_stats().unwrap();
-        assert!((stats.today_cost - 0.03).abs() < 1e-6);
-        assert_eq!(stats.today_requests, 1);
-        assert_eq!(stats.today_tokens, 30);
-        assert_eq!(stats.total_tokens, 60);
-        assert_eq!(
-            stats
-                .weekly_trend
-                .iter()
-                .find(|item| item.date == now.format("%Y-%m-%d").to_string())
-                .map(|item| item.tokens),
-            Some(30)
-        );
-    }
-
-    #[test]
-    fn cost_stats_today_uses_local_day_for_utc_logs() {
-        let db = Database::new_in_memory().unwrap();
-        let now = chrono::Local::now();
-
         db.request_log_create(&mk_billable_log(
             "today",
             now.with_timezone(&chrono::Utc).to_rfc3339(),
-            0.03,
         ))
         .unwrap();
         db.request_log_create(&mk_billable_log(
@@ -904,16 +599,133 @@ mod tests {
             (now - chrono::Duration::days(1))
                 .with_timezone(&chrono::Utc)
                 .to_rfc3339(),
-            9.99,
         ))
         .unwrap();
 
-        let stats = db.request_log_get_cost_stats().unwrap();
-        assert!((stats["todayCost"].as_f64().unwrap() - 0.03).abs() < 1e-6);
+        let overview = db.request_log_get_overview().unwrap();
+        assert_eq!(overview.today_requests, 1);
+        assert_eq!(overview.today_tokens, 30);
     }
 
     #[test]
-    fn cost_statistics_labels_codex_app_without_project_as_client_source() {
+    fn overview_counts_cache_tokens_in_totals() {
+        let db = Database::new_in_memory().unwrap();
+        let mut cache_heavy = mk_billable_log("cache-heavy", chrono::Utc::now().to_rfc3339());
+        cache_heavy.input_tokens = 100;
+        cache_heavy.output_tokens = 50;
+        cache_heavy.cache_read_tokens = 10_000;
+        cache_heavy.cache_creation_tokens = 500;
+        db.request_log_create(&cache_heavy).unwrap();
+
+        let overview = db.request_log_get_overview().unwrap();
+        assert_eq!(overview.today_tokens, 10_650);
+    }
+
+    #[test]
+    fn statistics_summary_reports_composition_and_cache_hit_rate() {
+        let db = Database::new_in_memory().unwrap();
+        let mut log = mk_billable_log("log-1", chrono::Utc::now().to_rfc3339());
+        log.input_tokens = 1_000;
+        log.output_tokens = 400;
+        log.cache_read_tokens = 3_000;
+        log.cache_creation_tokens = 0;
+        db.request_log_create(&log).unwrap();
+
+        let stats = db.request_log_get_statistics("all").unwrap();
+        assert_eq!(stats.summary.total_tokens, 4_400);
+        assert_eq!(stats.summary.total_input_tokens, 1_000);
+        assert_eq!(stats.summary.total_cache_read_tokens, 3_000);
+        // 3000 / (1000 + 3000 + 0) = 0.75
+        assert!((stats.summary.cache_hit_rate - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn statistics_includes_key_and_project_dimensions() {
+        let db = Database::new_in_memory().unwrap();
+        let mut log = mk_billable_log("dimension-log", chrono::Utc::now().to_rfc3339());
+        log.input_tokens = 1_200;
+        log.output_tokens = 300;
+        db.request_log_create(&log).unwrap();
+
+        let stats = db.request_log_get_statistics("all").unwrap();
+        assert_eq!(stats.key_usage.len(), 1);
+        assert_eq!(stats.key_usage[0].name, "codex-key");
+        assert_eq!(stats.key_usage[0].detail, "codex-provider");
+        assert_eq!(stats.key_usage[0].tokens, 1_500);
+        assert_eq!(stats.project_usage.len(), 1);
+        assert_eq!(stats.project_usage[0].name, "Codex Desktop");
+        assert_eq!(stats.project_usage[0].requests, 1);
+    }
+
+    #[test]
+    fn statistics_supports_custom_date_ranges() {
+        let db = Database::new_in_memory().unwrap();
+        db.request_log_create(&mk_billable_log("july", "2026-07-15T04:00:00Z".to_string()))
+            .unwrap();
+        db.request_log_create(&mk_billable_log(
+            "august",
+            "2026-08-01T04:00:00Z".to_string(),
+        ))
+        .unwrap();
+
+        let july = db
+            .request_log_get_statistics("custom:2026-07-01:2026-07-31")
+            .unwrap();
+        assert_eq!(july.summary.total_requests, 1);
+        assert_eq!(july.daily_trend[0].date, "2026-07-15");
+
+        let invalid = db
+            .request_log_get_statistics("custom:not-a-date:2026-07-31")
+            .unwrap();
+        assert_eq!(invalid.summary.total_requests, 0);
+    }
+
+    #[test]
+    fn statistics_counts_failures_separately_from_billable_requests() {
+        let db = Database::new_in_memory().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        db.request_log_create(&mk_billable_log("ok-1", now.clone()))
+            .unwrap();
+        db.request_log_create(&mk_failed_log("fail-1", now.clone(), 429, "client_error"))
+            .unwrap();
+        db.request_log_create(&mk_failed_log("fail-2", now, 502, "upstream_error"))
+            .unwrap();
+
+        let stats = db.request_log_get_statistics("all").unwrap();
+        assert_eq!(stats.summary.total_requests, 1, "billable scope");
+        assert_eq!(stats.summary.failed_requests, 2, "failure scope");
+        assert_eq!(stats.failures.len(), 2);
+        let rate_limited = stats
+            .failures
+            .iter()
+            .find(|f| f.status_code == Some(429))
+            .expect("429 aggregated");
+        assert_eq!(rate_limited.count, 1);
+        assert_eq!(rate_limited.outcome, "client_error");
+    }
+
+    #[test]
+    fn recent_requests_include_failures_with_error_details() {
+        let db = Database::new_in_memory().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        db.request_log_create(&mk_billable_log("ok-1", now.clone()))
+            .unwrap();
+        db.request_log_create(&mk_failed_log("fail-1", now, 429, "client_error"))
+            .unwrap();
+
+        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
+        assert_eq!(recent.total, 2);
+        let failed = recent
+            .items
+            .iter()
+            .find(|item| item.id == "fail-1")
+            .expect("failed row visible");
+        assert_eq!(failed.outcome.as_deref(), Some("client_error"));
+        assert_eq!(failed.error_message.as_deref(), Some("Rate limit exceeded"));
+    }
+
+    #[test]
+    fn statistics_labels_codex_app_without_project_as_client_source() {
         let db = Database::new_in_memory().unwrap();
 
         let session = ProxySession {
@@ -931,194 +743,15 @@ mod tests {
         };
         db.proxy_session_create(&session).unwrap();
 
-        let log = RequestLog {
-            id: "log-1".into(),
-            provider_id: None,
-            api_key_id: None,
-            project_id: None,
-            session_id: Some(session.session_token),
-            model: Some("gpt-5.5".into()),
-            request_model: Some("gpt-5.5".into()),
-            input_tokens: 10,
-            output_tokens: 20,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
-            input_cost_usd: 0.01,
-            output_cost_usd: 0.02,
-            cache_read_cost_usd: 0.0,
-            cache_creation_cost_usd: 0.0,
-            total_cost_usd: 0.03,
-            cost_multiplier: 1.0,
-            latency_ms: Some(100),
-            first_token_ms: None,
-            status_code: Some(200),
-            error_message: None,
-            is_streaming: false,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            key_alias: Some("codex-key".into()),
-            provider_name: Some("codex-provider".into()),
-            project_name: None,
-        };
+        let mut log = mk_billable_log("log-1", chrono::Utc::now().to_rfc3339());
+        log.session_id = Some(session.session_token);
+        log.project_name = None;
         db.request_log_create(&log).unwrap();
-
-        let stats = db.request_log_get_cost_statistics("all").unwrap();
-        assert_eq!(stats.top_projects.len(), 1);
-        assert_eq!(stats.top_projects[0].project_id, "__client__codex-app");
-        assert_eq!(stats.top_projects[0].project_name, "Codex Desktop");
 
         let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
         assert_eq!(
             recent.items[0].project_name.as_deref(),
             Some("Codex Desktop")
-        );
-    }
-
-    #[test]
-    fn cost_statistics_labels_claude_desktop_without_project_as_client_source() {
-        let db = Database::new_in_memory().unwrap();
-
-        let session = ProxySession {
-            session_token: "session-claude-desktop".into(),
-            provider_id: "provider-1".into(),
-            api_key_id: "key-1".into(),
-            project_id: None,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            session_kind: "desktop".into(),
-            last_seen_at: chrono::Utc::now().to_rfc3339(),
-            expires_at: None,
-            revoked_at: None,
-            revoked_reason: None,
-            cli_type: Some("claude_desktop".into()),
-        };
-        db.proxy_session_create(&session).unwrap();
-
-        let log = RequestLog {
-            id: "log-1".into(),
-            provider_id: None,
-            api_key_id: None,
-            project_id: None,
-            session_id: Some(session.session_token),
-            model: Some("claude-sonnet-4".into()),
-            request_model: Some("claude-sonnet-4".into()),
-            input_tokens: 10,
-            output_tokens: 20,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
-            input_cost_usd: 0.01,
-            output_cost_usd: 0.02,
-            cache_read_cost_usd: 0.0,
-            cache_creation_cost_usd: 0.0,
-            total_cost_usd: 0.03,
-            cost_multiplier: 1.0,
-            latency_ms: Some(100),
-            first_token_ms: None,
-            status_code: Some(200),
-            error_message: None,
-            is_streaming: false,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            key_alias: Some("desktop-key".into()),
-            provider_name: Some("desktop-provider".into()),
-            project_name: None,
-        };
-        db.request_log_create(&log).unwrap();
-
-        let stats = db.request_log_get_cost_statistics("all").unwrap();
-        assert_eq!(stats.top_projects.len(), 1);
-        assert_eq!(stats.top_projects[0].project_id, "__client__claude_desktop");
-        assert_eq!(stats.top_projects[0].project_name, "Claude Desktop");
-
-        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
-        assert_eq!(
-            recent.items[0].project_name.as_deref(),
-            Some("Claude Desktop")
-        );
-    }
-
-    #[test]
-    fn cost_statistics_ignore_zero_usage_request_logs() {
-        let db = Database::new_in_memory().unwrap();
-
-        fn mk_log(id: &str, input_tokens: i64, output_tokens: i64) -> RequestLog {
-            RequestLog {
-                id: id.into(),
-                provider_id: None,
-                api_key_id: None,
-                project_id: None,
-                session_id: None,
-                model: Some("gpt-5.5".into()),
-                request_model: Some("gpt-5.5".into()),
-                input_tokens,
-                output_tokens,
-                cache_read_tokens: 0,
-                cache_creation_tokens: 0,
-                input_cost_usd: if input_tokens > 0 { 0.01 } else { 0.0 },
-                output_cost_usd: if output_tokens > 0 { 0.02 } else { 0.0 },
-                cache_read_cost_usd: 0.0,
-                cache_creation_cost_usd: 0.0,
-                total_cost_usd: if input_tokens > 0 || output_tokens > 0 {
-                    0.03
-                } else {
-                    0.0
-                },
-                cost_multiplier: 1.0,
-                latency_ms: Some(100),
-                first_token_ms: None,
-                status_code: Some(200),
-                error_message: None,
-                is_streaming: false,
-                created_at: chrono::Utc::now().to_rfc3339(),
-                key_alias: Some("codex-key".into()),
-                provider_name: Some("codex-provider".into()),
-                project_name: Some("Codex Desktop".into()),
-            }
-        }
-
-        db.request_log_create(&mk_log("models-request", 0, 0))
-            .unwrap();
-        db.request_log_create(&mk_log("real-response", 10, 20))
-            .unwrap();
-
-        let stats = db.request_log_get_cost_statistics("all").unwrap();
-        assert_eq!(stats.summary.total_requests, 1);
-        assert_eq!(stats.summary.total_input_tokens, 10);
-        assert_eq!(stats.summary.total_output_tokens, 20);
-        assert_eq!(stats.top_models.len(), 1);
-        assert_eq!(stats.top_models[0].total_requests, 1);
-
-        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
-        assert_eq!(recent.total, 1);
-        assert_eq!(recent.items.len(), 1);
-        assert_eq!(recent.items[0].id, "real-response");
-    }
-
-    #[test]
-    fn statistics_rankings_follow_selected_metric() {
-        let db = Database::new_in_memory().unwrap();
-        let created_at = chrono::Utc::now().to_rfc3339();
-
-        let mut cost_heavy = mk_billable_log("cost-heavy", created_at.clone(), 10.0);
-        cost_heavy.model = Some("cost-heavy-model".into());
-        cost_heavy.input_tokens = 10;
-        cost_heavy.output_tokens = 10;
-
-        let mut token_heavy = mk_billable_log("token-heavy", created_at, 0.01);
-        token_heavy.model = Some("token-heavy-model".into());
-        token_heavy.input_tokens = 10_000;
-        token_heavy.output_tokens = 20_000;
-
-        db.request_log_create(&cost_heavy).unwrap();
-        db.request_log_create(&token_heavy).unwrap();
-
-        let cost_stats = db.request_log_get_statistics("all", "cost").unwrap();
-        let token_stats = db.request_log_get_statistics("all", "tokens").unwrap();
-        let unknown_stats = db.request_log_get_statistics("all", "requests").unwrap();
-
-        assert_eq!(cost_stats.top_models[0].model, "cost-heavy-model");
-        assert_eq!(token_stats.top_models[0].model, "token-heavy-model");
-        assert_eq!(unknown_stats.top_models[0].model, "cost-heavy-model");
-        assert_eq!(
-            token_stats.daily_trend.last().map(|day| day.tokens),
-            Some(30_020)
         );
     }
 
@@ -1130,7 +763,6 @@ mod tests {
         db.request_log_create(&mk_billable_log(
             "today",
             now.with_timezone(&chrono::Utc).to_rfc3339(),
-            0.03,
         ))
         .unwrap();
         db.request_log_create(&mk_billable_log(
@@ -1138,46 +770,34 @@ mod tests {
             (now - chrono::Duration::days(10))
                 .with_timezone(&chrono::Utc)
                 .to_rfc3339(),
-            0.04,
         ))
         .unwrap();
 
-        let today = db.request_log_get_statistics("today", "tokens").unwrap();
-        let all = db.request_log_get_statistics("all", "tokens").unwrap();
+        let today = db.request_log_get_statistics("today").unwrap();
+        let all = db.request_log_get_statistics("all").unwrap();
 
         assert_eq!(today.summary.total_requests, 1);
         assert_eq!(today.daily_trend.len(), 1);
-        assert_eq!(today.daily_trend[0].requests, 1);
         assert_eq!(all.summary.total_requests, 2);
         assert_eq!(all.daily_trend.len(), 2);
     }
 
     #[test]
-    fn cache_only_usage_counts_as_a_request_but_not_as_main_tokens() {
+    fn daily_trend_totals_include_cache_buckets() {
         let db = Database::new_in_memory().unwrap();
-        let mut cache_only = mk_billable_log("cache-only", chrono::Utc::now().to_rfc3339(), 0.05);
+        let mut cache_only = mk_billable_log("cache-only", chrono::Utc::now().to_rfc3339());
         cache_only.input_tokens = 0;
         cache_only.output_tokens = 0;
         cache_only.cache_read_tokens = 1_000;
-        cache_only.cache_read_cost_usd = 0.05;
-
         db.request_log_create(&cache_only).unwrap();
 
-        let stats = db.request_log_get_statistics("all", "tokens").unwrap();
-        let dashboard = db
-            .request_log_get_dashboard_stats_by_metric("tokens")
-            .unwrap();
-
+        let stats = db.request_log_get_statistics("all").unwrap();
         assert_eq!(stats.summary.total_requests, 1);
-        assert_eq!(stats.summary.total_cache_read_tokens, 1_000);
-        assert!((stats.summary.total_cache_cost_usd - 0.05).abs() < 1e-6);
-        assert_eq!(stats.daily_trend[0].tokens, 0);
-        assert!((stats.daily_trend[0].cost - 0.05).abs() < 1e-6);
-        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
-        assert_eq!(recent.items[0].cache_read_tokens, 1_000);
-        assert_eq!(recent.items[0].cache_creation_tokens, 0);
-        assert_eq!(dashboard.today_requests, 1);
-        assert_eq!(dashboard.today_tokens, 0);
-        assert_eq!(dashboard.total_tokens, 0);
+        // v3.7.0: cache traffic is part of the headline token number.
+        assert_eq!(stats.daily_trend[0].tokens, 1_000);
+        assert_eq!(stats.daily_trend[0].cache_read_tokens, 1_000);
+
+        let overview = db.request_log_get_overview().unwrap();
+        assert_eq!(overview.today_tokens, 1_000);
     }
 }

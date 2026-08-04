@@ -63,7 +63,7 @@ export default function Sidebar() {
     {
       key: '/stats',
       icon: <BarChartOutlined />,
-      label: t('statistics.title') || '费用统计',
+      label: t('statistics.title') || '用量统计',
     },
     {
       key: '/console',

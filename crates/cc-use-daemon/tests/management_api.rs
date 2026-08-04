@@ -58,7 +58,6 @@ fn seed_managed_instance(db: &Database) -> String {
             priority: Some(0),
             is_active: Some(true),
             config: None,
-            cost_multiplier: None,
             usage_type: None,
             usage_url: None,
             usage_path: None,

@@ -30,9 +30,8 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
             .get::<_, Option<String>>(19)?
             .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
         last_usage_checked_at: row.get(20)?,
-        cost_multiplier: row.get(21)?,
-        is_active: row.get::<_, i32>(22)? != 0,
-        sort_order: row.get(23)?,
+        is_active: row.get::<_, i32>(21)? != 0,
+        sort_order: row.get(22)?,
     })
 }
 
@@ -52,7 +51,7 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order
+                    is_active, sort_order
              FROM providers ORDER BY sort_order ASC, name ASC",
         )?;
 
@@ -68,7 +67,7 @@ impl Database {
                     cached_wallet_balance, last_balance_checked_at,
                     usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at,
-                    cost_multiplier, is_active, sort_order
+                    is_active, sort_order
              FROM providers WHERE id = ?1",
         )?;
 
@@ -181,7 +180,6 @@ impl Database {
         add_field!(input.usage_url, "usage_url", sets, params);
         add_field!(input.usage_path, "usage_path", sets, params);
         add_field!(input.usage_headers, "usage_headers", sets, params);
-        add_field!(input.cost_multiplier, "cost_multiplier", sets, params);
         add_field!(
             input.cached_wallet_balance,
             "cached_wallet_balance",

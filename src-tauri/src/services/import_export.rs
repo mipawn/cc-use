@@ -27,7 +27,6 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                     },
                     types: Some(k.types),
                     priority: k.priority,
-                    cost_multiplier: Some(k.cost_multiplier),
                 })
                 .collect();
 
@@ -161,7 +160,6 @@ pub fn import_all(
                         priority: Some(ek.priority),
                         is_active: Some(true),
                         config: None,
-                        cost_multiplier: ek.cost_multiplier,
                         client_configs: None,
                         usage_type: None,
                         usage_url: None,
@@ -208,7 +206,6 @@ pub fn import_all(
                             priority: Some(ek.priority),
                             is_active: Some(true),
                             config: None,
-                            cost_multiplier: ek.cost_multiplier,
                             client_configs: None,
                             usage_type: None,
                             usage_url: None,

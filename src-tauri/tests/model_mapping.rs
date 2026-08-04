@@ -112,7 +112,6 @@ fn setup_provider_with_mapping(
             priority: Some(0),
             is_active: Some(true),
             config: None,
-            cost_multiplier: None,
             usage_type: None,
             usage_url: None,
             usage_path: None,
@@ -394,9 +393,9 @@ async fn codex_provider_skips_model_mapping() {
 }
 
 #[tokio::test]
-async fn codex_model_mapping_rewrites_responses_model() {
+async fn codex_model_mapping_only_renames_responses_model() {
     let mock = start_mock_upstream().await;
-    let mapping = r#"{"codex":"deepseek-chat"}"#;
+    let mapping = r#"{"codex":"deepseek-v4-pro"}"#;
     let (state, session_token) = setup_provider_with_mapping(mock.port, "codex", Some(mapping));
 
     let request = Request::builder()
@@ -412,7 +411,7 @@ async fn codex_model_mapping_rewrites_responses_model() {
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let body = mock.received_body.lock().unwrap();
-    assert_eq!(extract_model(&body), "deepseek-chat");
+    assert_eq!(extract_model(&body), "deepseek-v4-pro");
 }
 
 #[tokio::test]

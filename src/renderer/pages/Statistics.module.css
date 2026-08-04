@@ -1,4 +1,4 @@
-/* Statistics Page - Cost Statistics */
+/* Statistics Page - Token Usage */
 
 .container {
   width: 100%;
@@ -24,6 +24,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .filterSegmented {
@@ -34,6 +35,10 @@
 
 .filterSegmented :global(.ant-segmented-item) {
   border-radius: var(--radius-sm) !important;
+}
+
+.customRangePicker {
+  min-width: 250px;
 }
 
 .metricControl {
@@ -202,8 +207,26 @@
   gap: 16px;
 }
 
+.dimensionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.dimensionName {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dimensionName > * {
+  min-width: 0;
+}
+
 @media (max-width: 900px) {
-  .tablesGrid {
+  .tablesGrid,
+  .dimensionGrid {
     grid-template-columns: 1fr;
   }
 }

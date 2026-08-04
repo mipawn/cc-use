@@ -59,11 +59,6 @@ export default function ProviderKeyCard({
           <Text type='secondary' style={{ fontSize: 12 }}>
             P{apiKey.priority}
           </Text>
-          {apiKey.costMultiplier !== 1 && (
-            <Text type='secondary' style={{ fontSize: 12 }} ellipsis>
-              {apiKey.costMultiplier}x
-            </Text>
-          )}
           {!apiKey.isActive && (
             <Tag color='default' style={{ margin: 0 }}>
               已禁用

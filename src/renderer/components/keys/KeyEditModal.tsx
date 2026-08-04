@@ -9,7 +9,6 @@ import {
   Modal,
   Form,
   Input,
-  InputNumber,
   Typography,
   Space,
   Segmented,
@@ -99,7 +98,6 @@ export default function KeyEditModal({
   const [usageUrl, setUsageUrl] = useState('')
   const [usagePath, setUsagePath] = useState('')
   const [usageHeaders, setUsageHeaders] = useState('')
-  const [costMultiplier, setCostMultiplier] = useState<number>(1)
   const [haikuModel, setHaikuModel] = useState('')
   const [sonnetModel, setSonnetModel] = useState('')
   const [opusModel, setOpusModel] = useState('')
@@ -176,7 +174,6 @@ export default function KeyEditModal({
       setUsageType(apiKey.usageType || 'none')
       setUsageUrl(apiKey.usageUrl || '')
       setUsagePath(apiKey.usagePath || '')
-      setCostMultiplier(apiKey.costMultiplier ?? 1)
       const mapping = parseModelMapping(apiKey.modelMapping)
       setHaikuModel(mapping.haiku)
       setSonnetModel(mapping.sonnet)
@@ -199,12 +196,13 @@ export default function KeyEditModal({
       setUsageUrl('')
       setUsagePath('')
       setUsageHeaders('')
-      setCostMultiplier(1)
       setHaikuModel(isDeepSeekPreset ? 'deepseek-v4-flash' : '')
       setSonnetModel(isDeepSeekPreset ? 'deepseek-v4-pro[1m]' : '')
       setOpusModel(isDeepSeekPreset ? 'deepseek-v4-pro[1m]' : '')
       setModelOverrides([])
-      setCodexModel(isDeepSeekPreset ? 'deepseek-v4-flash' : '')
+      // Keep Codex model selection truthful by default. This optional field is
+      // only for gateways whose wire model name differs from the picker entry.
+      setCodexModel('')
       setGrokModel('')
       setClientConfigs(
         isDeepSeekPreset
@@ -313,7 +311,6 @@ export default function KeyEditModal({
         value: values.value?.trim(),
         types: selectedTypes,
         config: localConfig,
-        costMultiplier,
         usageType,
         usageUrl: usageType === 'custom' ? usageUrl?.trim() : undefined,
         usagePath: usageType === 'custom' ? usagePath?.trim() : undefined,
@@ -456,24 +453,6 @@ export default function KeyEditModal({
                       <Input.Password
                         placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
                         size='large'
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t('keys.costMultiplier') || '费用倍率'}
-                      extra={
-                        t('keys.costMultiplierHint') || '中转站分组倍率，默认 1 表示按官方价格计算'
-                      }
-                    >
-                      <InputNumber
-                        value={costMultiplier}
-                        onChange={(val) => setCostMultiplier(val ?? 1)}
-                        min={0}
-                        step={0.1}
-                        precision={2}
-                        style={{ width: '100%' }}
-                        size='large'
-                        addonAfter='x'
                       />
                     </Form.Item>
 
@@ -715,14 +694,14 @@ export default function KeyEditModal({
                           label={t('keys.modelMapCodex') || '上游模型'}
                           extra={
                             t('keys.modelMapCodexExtra') ||
-                            '仅改写发给中转站的 model，不改变 Codex 模型列表'
+                            '留空时使用 Codex 里选择的模型；填写后只替换请求中的模型名称，不转换 Responses 协议'
                           }
                         >
                           <Input
                             value={codexModel}
                             onChange={(e) => setCodexModel(e.target.value)}
                             placeholder={
-                              t('keys.modelMapCodexPlaceholder') || '例如：deepseek-chat'
+                              t('keys.modelMapCodexPlaceholder') || '例如：deepseek-v4-pro'
                             }
                           />
                         </Form.Item>

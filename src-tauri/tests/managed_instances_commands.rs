@@ -167,7 +167,6 @@ fn assignment_rejects_an_exhausted_key() {
             is_exhausted: Some(true),
             is_active: None,
             config: None,
-            cost_multiplier: None,
             usage_type: None,
             usage_url: None,
             usage_path: None,

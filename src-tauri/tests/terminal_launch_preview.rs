@@ -32,7 +32,6 @@ fn merges_global_key_and_runtime_for_claude_preview() {
               "ANTHROPIC_MODEL": "key-model",
               "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.4"
             })),
-            cost_multiplier: None,
             usage_type: None,
             usage_url: None,
             usage_path: None,
@@ -221,7 +220,6 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
               "RETRY_COUNT": 5,
               "JSON_VALUE": { "mode": "relaxed" }
             })),
-            cost_multiplier: None,
             usage_type: None,
             usage_url: None,
             usage_path: None,
@@ -269,7 +267,6 @@ fn project_preview_returns_project_prelaunch_command_and_keeps_it_out_of_env() {
               "prelaunchCommand": "direnv allow",
               "ANTHROPIC_MODEL": "key-model"
             })),
-            cost_multiplier: None,
             usage_type: None,
             usage_url: None,
             usage_path: None,

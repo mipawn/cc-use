@@ -29,8 +29,6 @@ pub struct Provider {
     pub usage_headers: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
-    // Cost
-    pub cost_multiplier: Option<f64>,
     pub is_active: bool,
     pub sort_order: i32,
 }
@@ -77,7 +75,6 @@ pub struct UpdateProviderInput {
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
     pub is_active: Option<bool>,
-    pub cost_multiplier: Option<f64>,
     pub cached_wallet_balance: Option<f64>,
     pub last_balance_checked_at: Option<String>,
     pub cached_usage: Option<UsageData>,
@@ -105,7 +102,6 @@ pub struct ApiKey {
     pub usage_headers: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
-    pub cost_multiplier: f64,
     pub model_mapping: Option<String>,
     pub client_configs: Option<serde_json::Value>,
 }
@@ -120,7 +116,6 @@ pub struct CreateApiKeyInput {
     pub priority: Option<i32>,
     pub is_active: Option<bool>,
     pub config: Option<serde_json::Value>,
-    pub cost_multiplier: Option<f64>,
     pub usage_type: Option<String>,
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
@@ -140,7 +135,6 @@ pub struct UpdateApiKeyInput {
     pub is_exhausted: Option<bool>,
     pub is_active: Option<bool>,
     pub config: Option<serde_json::Value>,
-    pub cost_multiplier: Option<f64>,
     pub usage_type: Option<String>,
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
@@ -347,15 +341,6 @@ pub struct UsageData {
     pub expire_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelPricing {
-    pub input: f64,
-    pub output: f64,
-    pub cache_read: Option<f64>,
-    pub cache_creation: Option<f64>,
-}
-
 // ── Usage Log ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,16 +374,13 @@ pub struct RequestLog {
     pub output_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
-    pub input_cost_usd: f64,
-    pub output_cost_usd: f64,
-    pub cache_read_cost_usd: f64,
-    pub cache_creation_cost_usd: f64,
-    pub total_cost_usd: f64,
-    pub cost_multiplier: f64,
     pub latency_ms: Option<i64>,
     pub first_token_ms: Option<i64>,
     pub status_code: Option<i32>,
     pub error_message: Option<String>,
+    /// v3.7.0: `success` | `client_error` | `upstream_error` | `transport_error`.
+    /// See `docs/v3.7.0/failed-request-logging.md`.
+    pub outcome: Option<String>,
     pub is_streaming: bool,
     pub created_at: String,
     // Snapshot columns — preserve display names after entity deletion
@@ -447,62 +429,52 @@ pub struct DateCount {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CostStatsSummary {
+pub struct UsageStatsSummary {
+    /// Billable requests (carried tokens).
     pub total_requests: i64,
+    /// Requests with outcome != success, counted over the full log.
+    pub failed_requests: i64,
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
     pub total_cache_read_tokens: i64,
     pub total_cache_creation_tokens: i64,
-    pub total_cache_cost_usd: f64,
-    pub total_cost_usd: f64,
+    /// input + output + cache_read + cache_creation.
+    pub total_tokens: i64,
+    /// cache_read / (input + cache_read + cache_creation); 0 when no input side.
+    pub cache_hit_rate: f64,
     pub avg_latency_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TopKeyCostItem {
-    pub key_id: String,
-    pub key_alias: String,
-    pub provider_name: String,
-    pub total_cost: f64,
-    pub total_requests: i64,
-    pub total_tokens: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TopProviderCostItem {
-    pub provider_id: String,
-    pub provider_name: String,
-    pub total_cost: f64,
-    pub total_requests: i64,
-    pub total_tokens: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TopProjectCostItem {
-    pub project_id: String,
-    pub project_name: String,
-    pub total_cost: f64,
-    pub total_requests: i64,
-    pub total_tokens: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TopModelCostItem {
-    pub model: String,
-    pub total_cost: f64,
-    pub total_requests: i64,
-    pub total_tokens: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DailyCostTrendItem {
+pub struct DailyTrendItem {
     pub date: String,
-    pub cost: f64,
+    /// All four buckets combined.
+    pub tokens: i64,
+    pub requests: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailureStatsItem {
+    pub provider_name: String,
+    pub key_alias: String,
+    pub status_code: Option<i32>,
+    pub outcome: String,
+    pub count: i64,
+    pub last_seen_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageDimensionItem {
+    pub id: String,
+    pub name: String,
+    pub detail: String,
     pub tokens: i64,
     pub requests: i64,
 }
@@ -515,13 +487,14 @@ pub struct RecentRequestLogDisplay {
     pub key_alias: Option<String>,
     pub provider_name: Option<String>,
     pub project_name: Option<String>,
-    pub total_cost_usd: f64,
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub latency_ms: Option<i64>,
     pub status_code: Option<i32>,
+    pub outcome: Option<String>,
+    pub error_message: Option<String>,
     pub created_at: String,
 }
 
@@ -536,26 +509,21 @@ pub struct PaginatedRecentRequests {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CostStatistics {
-    pub summary: CostStatsSummary,
-    pub top_keys: Vec<TopKeyCostItem>,
-    pub top_providers: Vec<TopProviderCostItem>,
-    pub top_projects: Vec<TopProjectCostItem>,
-    pub top_models: Vec<TopModelCostItem>,
-    pub daily_trend: Vec<DailyCostTrendItem>,
+pub struct UsageStatistics {
+    pub summary: UsageStatsSummary,
+    pub daily_trend: Vec<DailyTrendItem>,
+    pub key_usage: Vec<UsageDimensionItem>,
+    pub project_usage: Vec<UsageDimensionItem>,
+    pub failures: Vec<FailureStatsItem>,
 }
 
+/// Dashboard overview: a compact view of today's activity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DashboardCostStats {
-    pub today_cost: f64,
-    pub total_cost: f64,
-    pub today_requests: i64,
+pub struct UsageOverview {
     pub today_tokens: i64,
-    pub total_tokens: i64,
-    pub weekly_trend: Vec<DailyCostTrendItem>,
-    pub top_keys: Vec<TopKeyCostItem>,
-    pub top_projects: Vec<TopProjectCostItem>,
+    pub today_requests: i64,
+    pub today_failed_requests: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -651,7 +619,6 @@ pub struct ExportApiKey {
     #[serde(default)]
     pub types: Option<Vec<String>>,
     pub priority: i32,
-    pub cost_multiplier: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
