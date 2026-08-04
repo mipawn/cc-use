@@ -64,30 +64,37 @@ if (!hostTriple) {
 const targetTriple =
   readFlag('target') || process.env.TAURI_ENV_TARGET_TRIPLE || hostTriple;
 
-const binaryName = 'cc-use-daemon';
-const stagedName = `cc-use-daemon-${targetTriple}`;
+// v3.7.0: the CLI ships in the bundle alongside the daemon and gets the
+// same externalBin staging treatment.
+const binaries = [
+  { crate: 'cc-use-daemon', name: 'cc-use-daemon' },
+  { crate: 'cc-use-cli', name: 'cc-use-cli' },
+];
 
 const destDir = join(workspaceRoot, 'src-tauri', 'binaries');
-const destPath = join(destDir, stagedName);
 
 // Circular-dependency workaround: tauri-build (a build script of the
 // cc-use crate) validates externalBin entries up front and aborts if
-// any staged binary is missing. But the daemon crate depends on
-// cc-use-lib, so a fresh `cargo build -p cc-use-daemon` would need to
-// compile cc-use first — before the daemon binary it wants to stage
-// even exists. A zero-byte placeholder satisfies the existence check;
-// we overwrite it once cargo succeeds.
+// any staged binary is missing. But both crates depend on cc-use-lib,
+// so a fresh cargo build would need to compile cc-use first — before
+// the binaries it wants to stage even exist. Zero-byte placeholders
+// satisfy the existence check; we overwrite them once cargo succeeds.
 mkdirSync(destDir, { recursive: true });
-if (!existsSync(destPath)) {
-  writeFileSync(destPath, '');
-  chmodSync(destPath, 0o755);
-  console.log(`prepare-daemon: wrote empty placeholder at ${destPath}`);
+for (const { name } of binaries) {
+  const placeholder = join(destDir, `${name}-${targetTriple}`);
+  if (!existsSync(placeholder)) {
+    writeFileSync(placeholder, '');
+    chmodSync(placeholder, 0o755);
+    console.log(`prepare-daemon: wrote empty placeholder at ${placeholder}`);
+  }
 }
 
-const cargoArgs = ['cargo', 'build', '-p', 'cc-use-daemon'];
-if (profile === 'release') cargoArgs.push('--release');
-
 const isCrossBuild = targetTriple !== hostTriple;
+const cargoArgs = ['cargo', 'build'];
+for (const { crate } of binaries) {
+  cargoArgs.push('-p', crate);
+}
+if (profile === 'release') cargoArgs.push('--release');
 if (isCrossBuild) {
   cargoArgs.push('--target', targetTriple);
 }
@@ -105,13 +112,15 @@ execSync(cargoArgs.join(' '), { stdio: 'inherit', cwd: workspaceRoot });
 const sourceDir = isCrossBuild
   ? join(workspaceRoot, 'target', targetTriple, profile)
   : join(workspaceRoot, 'target', profile);
-const sourcePath = join(sourceDir, binaryName);
 
-if (!existsSync(sourcePath)) {
-  console.error(`prepare-daemon: cargo finished but binary missing at ${sourcePath}`);
-  process.exit(1);
+for (const { name } of binaries) {
+  const sourcePath = join(sourceDir, name);
+  if (!existsSync(sourcePath)) {
+    console.error(`prepare-daemon: cargo finished but binary missing at ${sourcePath}`);
+    process.exit(1);
+  }
+  const destPath = join(destDir, `${name}-${targetTriple}`);
+  copyFileSync(sourcePath, destPath);
+  const { size } = statSync(destPath);
+  console.log(`prepare-daemon: staged ${destPath} (${size.toLocaleString()} bytes)`);
 }
-
-copyFileSync(sourcePath, destPath);
-const { size } = statSync(destPath);
-console.log(`prepare-daemon: staged ${destPath} (${size.toLocaleString()} bytes)`);

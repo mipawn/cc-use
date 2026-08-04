@@ -1,6 +1,7 @@
 pub mod api_keys;
 pub mod balance;
 pub mod claude_desktop_config;
+pub mod cli_tool;
 pub mod codex_config;
 pub mod import_export;
 pub mod managed_instances;

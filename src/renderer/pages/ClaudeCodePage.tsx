@@ -13,6 +13,7 @@ import Projects from './Projects'
 import Instances from './Instances'
 import Sessions from './Sessions'
 import GlobalConfigModal from '../components/providers/GlobalConfigModal'
+import TerminalToolsPanel from '../components/providers/TerminalToolsPanel'
 import type { ClientKind } from '@shared/types'
 import styles from './ClaudeCodePage.module.css'
 
@@ -57,6 +58,11 @@ export default function ClaudeCodePage({ clientKind = 'claude_code' }: ClaudeCod
             key: 'global-config',
             label: '全局配置',
             children: <GlobalConfigModal embedded />,
+          },
+          {
+            key: 'terminal-tools',
+            label: t('terminalTools.tabTitle'),
+            children: <TerminalToolsPanel />,
           },
         ]
       : []),

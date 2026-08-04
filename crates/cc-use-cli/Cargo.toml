@@ -1,0 +1,27 @@
+[package]
+name = "cc-use-cli"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "cc_use_cli"
+path = "src/lib.rs"
+
+# The installed command is `cc-use`, but the build artifact must not collide
+# with the Tauri app binary, which is also named `cc-use`. `cc-use install`
+# symlinks /usr/local/bin/cc-use to this artifact inside the app bundle.
+[[bin]]
+name = "cc-use-cli"
+path = "src/main.rs"
+
+[dependencies]
+cc_use_lib = { path = "../../src-tauri", package = "cc-use", default-features = false }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+
+[dev-dependencies]
+nanoid = "0.4"
+tempfile = "3"

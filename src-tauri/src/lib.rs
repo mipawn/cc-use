@@ -6,6 +6,7 @@ pub mod models;
 pub mod proxy;
 pub mod services;
 pub mod shared_runtime;
+pub mod statusline_config;
 pub mod terminal;
 pub mod tray;
 pub mod usage_stats;
@@ -69,6 +70,13 @@ pub fn run() {
             commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_overview,
             commands::statistics::request_log_get_key_token_stats,
+            // CLI tool + statusline (v3.7.0)
+            commands::cli_tool::cli_tool_status,
+            commands::cli_tool::cli_tool_install,
+            commands::cli_tool::cli_tool_uninstall,
+            commands::cli_tool::statusline_status,
+            commands::cli_tool::statusline_enable,
+            commands::cli_tool::statusline_restore,
             commands::statistics::gateway_metrics_get_recent,
             commands::statistics::gateway_metrics_get_by_provider,
             // Balance commands

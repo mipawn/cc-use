@@ -57,7 +57,7 @@
       "icons/icon.png",
       "icons/icon.icns"
     ],
-    "externalBin": ["binaries/cc-use-daemon"],
+    "externalBin": ["binaries/cc-use-daemon", "binaries/cc-use-cli"],
     "resources": [
       "icons/dock.png",
       "icons/tray.png",

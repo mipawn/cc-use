@@ -1,3 +1,3 @@
 [workspace]
-members = ["src-tauri", "crates/cc-use-daemon"]
+members = ["src-tauri", "crates/cc-use-daemon", "crates/cc-use-cli"]
 resolver = "2"

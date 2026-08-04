@@ -30,6 +30,7 @@ import { useServiceStatus } from '../hooks/useServiceStatus'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
+import type { CliToolStatus } from '@shared/types'
 import {
   GlobalOutlined,
   BgColorsOutlined,
@@ -155,6 +156,47 @@ export default function Settings() {
   const [shortcutCombo, setShortcutCombo] = useState('')
   const [recording, setRecording] = useState(false)
 
+  // CLI tool install (v3.7.0)
+  const [cliToolStatus, setCliToolStatus] = useState<CliToolStatus | null>(null)
+  const [cliToolInstalling, setCliToolInstalling] = useState(false)
+
+  const handleCliToolInstall = async () => {
+    setCliToolInstalling(true)
+    try {
+      const status = await getApi().cliTool.install()
+      setCliToolStatus(status)
+      if (status.installed && status.current) {
+        message.success(t('settings.cliToolInstallSuccess'))
+      }
+    } catch (error) {
+      message.error(String(error))
+    } finally {
+      setCliToolInstalling(false)
+    }
+  }
+
+  const handleCliToolUninstall = () => {
+    Modal.confirm({
+      title: t('settings.cliToolUninstallTitle'),
+      content: t('settings.cliToolUninstallConfirm'),
+      okText: t('settings.cliToolUninstall'),
+      cancelText: t('common.cancel'),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setCliToolInstalling(true)
+        try {
+          const status = await getApi().cliTool.uninstall()
+          setCliToolStatus(status)
+          if (!status.installed) message.success(t('settings.cliToolUninstallSuccess'))
+        } catch (error) {
+          message.error(String(error))
+        } finally {
+          setCliToolInstalling(false)
+        }
+      },
+    })
+  }
+
   useEffect(() => {
     fetchGlobalSettings()
     getApi().app.getVersion().then(setAppVersion)
@@ -167,6 +209,10 @@ export default function Settings() {
       setLaunchAtLogin(enabled)
       setShortcutCombo(combo || '')
     })
+    getApi()
+      .cliTool.status()
+      .then(setCliToolStatus)
+      .catch(() => setCliToolStatus(null))
   }, [fetchGlobalSettings])
 
   const handleToggleLaunchAtLogin = async (checked: boolean) => {
@@ -645,6 +691,65 @@ export default function Settings() {
                   style={{ width: 160 }}
                 />
               </div>
+            </Card>
+
+            {/* CLI tool install (v3.7.0) */}
+            <Card className={styles.settingCard} variant='outlined'>
+              <div className={styles.settingRow}>
+                <Space>
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
+                    <CodeOutlined
+                      className={styles.settingIcon}
+                      style={{ color: token.colorText }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong>{t('settings.cliTool')}</Text>
+                    <br />
+                    <Text type='secondary' className={styles.settingDesc}>
+                      {t('settings.cliToolDesc')}
+                    </Text>
+                  </div>
+                </Space>
+                <Space>
+                  {cliToolStatus?.installed && cliToolStatus.current && (
+                    <Tag color='green'>{t('settings.cliToolInstalled')}</Tag>
+                  )}
+                  {cliToolStatus?.installed && !cliToolStatus.current && (
+                    <Tag color='orange'>{t('settings.cliToolOutdated')}</Tag>
+                  )}
+                  {(!cliToolStatus?.installed || !cliToolStatus.current) && (
+                    <Button
+                      size='small'
+                      type='primary'
+                      loading={cliToolInstalling}
+                      disabled={!cliToolStatus?.available}
+                      onClick={() => void handleCliToolInstall()}
+                    >
+                      {cliToolStatus?.installed
+                        ? t('settings.cliToolUpdate')
+                        : t('settings.cliToolInstall')}
+                    </Button>
+                  )}
+                  {cliToolStatus?.installed && cliToolStatus.managed && (
+                    <Button
+                      size='small'
+                      danger
+                      disabled={cliToolInstalling}
+                      onClick={handleCliToolUninstall}
+                    >
+                      {t('settings.cliToolUninstall')}
+                    </Button>
+                  )}
+                </Space>
+              </div>
+              {cliToolStatus?.installed && cliToolStatus.current && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type='secondary' style={{ fontSize: 12 }}>
+                    {t('settings.cliToolHint')}
+                  </Text>
+                </div>
+              )}
             </Card>
 
             <Divider className={styles.divider} />

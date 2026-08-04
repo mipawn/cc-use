@@ -420,12 +420,78 @@ fn prepare_managed_launch(
         override_api_key_id,
         override_cli_type,
     )?;
+    create_managed_launch(
+        db,
+        &context.cli_type,
+        &context.provider_id,
+        &context.api_key_id,
+        Some(context.project_id.as_str()),
+        &context.project_name,
+        &context.project_path,
+        &context.terminal_type,
+        context.prelaunch_command.clone(),
+        "project_launch",
+    )
+}
+
+/// Everything the CLI needs to run a freshly prepared instance inside the
+/// terminal it was invoked from.
+pub struct CliPreparedLaunch {
+    pub instance_id: String,
+    pub instance_label: String,
+    pub script_path: PathBuf,
+}
+
+/// v3.7.0 CLI launch: same session/instance/wrapper preparation as a GUI
+/// launch, but no terminal window is opened — the caller execs the wrapper in
+/// the terminal it already owns. Instance semantics (heartbeat, stop, hot
+/// switch) are identical to GUI-launched instances.
+pub fn prepare_cli_terminal_launch(
+    db: &Database,
+    cli_type: &str,
+    provider_id: &str,
+    api_key_id: &str,
+    project_id: Option<&str>,
+    project_name: &str,
+    project_path: &str,
+    prelaunch_command: Option<String>,
+) -> Result<CliPreparedLaunch, String> {
+    let prepared = create_managed_launch(
+        db,
+        cli_type,
+        provider_id,
+        api_key_id,
+        project_id,
+        project_name,
+        project_path,
+        // The user's own terminal hosts the process; no strategy involved.
+        "cli",
+        prelaunch_command,
+        "cli_launch",
+    )?;
+    Ok(CliPreparedLaunch {
+        instance_id: prepared.instance_id,
+        instance_label: prepared.instance_label,
+        script_path: prepared.script_path,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_managed_launch(
+    db: &Database,
+    cli_type: &str,
+    provider_id: &str,
+    api_key_id: &str,
+    project_id: Option<&str>,
+    project_name: &str,
+    project_path: &str,
+    terminal_type: &str,
+    prelaunch_command: Option<String>,
+    assignment_source: &str,
+) -> Result<PreparedManagedLaunch, String> {
     let settings = db.settings_get().map_err(|e| e.to_string())?;
-    if context.cli_type == "grok" {
-        grok::ensure_user_config(
-            settings.proxy_port,
-            &grok_upstream_model(db, &context.api_key_id),
-        )?;
+    if cli_type == "grok" {
+        grok::ensure_user_config(settings.proxy_port, &grok_upstream_model(db, api_key_id))?;
     }
     let launched_at = chrono::Utc::now().to_rfc3339();
     let session_token = new_session_token();
@@ -433,17 +499,17 @@ fn prepare_managed_launch(
     let instance_label = build_instance_label(&session_token);
     let preview = resolve_launch_preview(
         db,
-        &context.cli_type,
-        &context.api_key_id,
+        cli_type,
+        api_key_id,
         &session_token,
         settings.proxy_port,
-        context.prelaunch_command.clone(),
+        prelaunch_command,
     )?;
     let management_token = resolve_management_token()?;
     let script_path = runtime_script_dir()?.join(format!("{}.sh", instance_id));
     write_managed_launch_script(
         &script_path,
-        &context.project_path,
+        project_path,
         &preview,
         &instance_id,
         &instance_label,
@@ -453,16 +519,16 @@ fn prepare_managed_launch(
 
     let session = ProxySession {
         session_token: session_token.clone(),
-        provider_id: context.provider_id.clone(),
-        api_key_id: context.api_key_id.clone(),
-        project_id: Some(context.project_id.clone()),
+        provider_id: provider_id.to_string(),
+        api_key_id: api_key_id.to_string(),
+        project_id: project_id.map(str::to_string),
         created_at: launched_at.clone(),
         session_kind: "managed".to_string(),
         last_seen_at: launched_at.clone(),
         expires_at: None,
         revoked_at: None,
         revoked_reason: None,
-        cli_type: Some(context.cli_type.clone()),
+        cli_type: Some(cli_type.to_string()),
     };
     if let Err(error) = db.proxy_session_create(&session) {
         let _ = std::fs::remove_file(&script_path);
@@ -472,16 +538,16 @@ fn prepare_managed_launch(
     let managed_instance = ManagedInstance {
         id: instance_id.clone(),
         session_token,
-        project_id: Some(context.project_id.clone()),
-        provider_id: Some(context.provider_id.clone()),
-        api_key_id: Some(context.api_key_id.clone()),
-        cli_type: context.cli_type.clone(),
-        terminal_type: context.terminal_type.clone(),
-        project_path: context.project_path.clone(),
+        project_id: project_id.map(str::to_string),
+        provider_id: Some(provider_id.to_string()),
+        api_key_id: Some(api_key_id.to_string()),
+        cli_type: cli_type.to_string(),
+        terminal_type: terminal_type.to_string(),
+        project_path: project_path.to_string(),
         shell_pid: None,
         process_pid: None,
         status: "launching".to_string(),
-        assignment_source: Some("project_launch".to_string()),
+        assignment_source: Some(assignment_source.to_string()),
         last_seen_at: launched_at.clone(),
         launched_at: launched_at.clone(),
         stopped_at: None,
@@ -497,12 +563,12 @@ fn prepare_managed_launch(
 
     Ok(PreparedManagedLaunch {
         instance_id,
-        project_name: context.project_name,
-        project_path: context.project_path,
-        provider_id: context.provider_id,
-        api_key_id: context.api_key_id,
-        cli_type: context.cli_type,
-        terminal_type: context.terminal_type,
+        project_name: project_name.to_string(),
+        project_path: project_path.to_string(),
+        provider_id: provider_id.to_string(),
+        api_key_id: api_key_id.to_string(),
+        cli_type: cli_type.to_string(),
+        terminal_type: terminal_type.to_string(),
         instance_label,
         env: EnvObject::new(),
         script_path,
