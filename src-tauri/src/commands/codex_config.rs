@@ -30,9 +30,9 @@
 //! experimental_bearer_token = "session-xxxx"
 //! ```
 //!
-//! **不设 `requires_openai_auth = true`**(那会让 Codex 走 auth.json 的
-//! OAuth 直连官方,忽略我们的 base_url)。bearer token 走 Authorization
-//! header,daemon 识别 `session-` 前缀路由到对应 provider。
+//! `requires_openai_auth = true` 用于通过 Codex Desktop 的模型/思考强度
+//! 控件门槛；请求地址仍由 `base_url` 决定，代理鉴权继续使用 provider 的
+//! `experimental_bearer_token`。daemon 识别 `session-` 前缀路由到对应 provider。
 //!
 //! 适配点:`cli_type = "codex-app"` session 用于标记 Codex Desktop
 //! 接管请求；请求会按原始路径转发到当前 provider。
@@ -47,8 +47,165 @@ use toml_edit::DocumentMut;
 const CC_USE_PROVIDER_KEY: &str = "cc-use";
 /// 默认钉死的 Codex 模型(Codex Desktop 当前主力模型)。
 const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
+#[cfg(test)]
 const DEEPSEEK_CODEX_MODEL: &str = "deepseek-v4-flash";
 const DEEPSEEK_CODEX_CATALOG: &str = include_str!("../../resources/deepseek-codex-models.json");
+const DEEPSEEK_FALLBACK_MODEL_IDS: [&str; 2] = ["deepseek-v4-flash", "deepseek-v4-pro"];
+
+fn is_builtin_deepseek_provider(provider: &crate::models::Provider) -> bool {
+    if provider.icon.as_deref() != Some("deepseek") {
+        return false;
+    }
+
+    url::Url::parse(&provider.base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(ToOwned::to_owned))
+        .is_some_and(|host| host.eq_ignore_ascii_case("api.deepseek.com"))
+}
+
+fn deepseek_fallback_model_ids() -> Vec<String> {
+    DEEPSEEK_FALLBACK_MODEL_IDS
+        .iter()
+        .map(|model| (*model).to_string())
+        .collect()
+}
+
+fn is_deepseek_reasoning_model(model_id: &str) -> bool {
+    let model_id = model_id.to_ascii_lowercase();
+    let model_name = model_id.rsplit('/').next().unwrap_or(&model_id);
+    model_name.starts_with("deepseek-v4-") || model_name == "deepseek-reasoner"
+}
+
+fn is_deepseek_flash_model(model_id: &str) -> bool {
+    model_id
+        .rsplit('/')
+        .next()
+        .is_some_and(|model_name| model_name.eq_ignore_ascii_case("deepseek-v4-flash"))
+}
+
+fn model_display_name(model_id: &str) -> String {
+    match model_id.to_ascii_lowercase().as_str() {
+        "deepseek-v4-flash" => "DeepSeek V4 Flash".to_string(),
+        "deepseek-v4-pro" => "DeepSeek V4 Pro".to_string(),
+        _ => model_id.to_string(),
+    }
+}
+
+fn select_default_codex_model(model_ids: &[String]) -> Option<String> {
+    [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "gpt-5.6-sol",
+        "gpt-5.5",
+    ]
+    .iter()
+    .find_map(|preferred| {
+        model_ids
+            .iter()
+            .find(|model| {
+                model.eq_ignore_ascii_case(preferred)
+                    || model
+                        .rsplit('/')
+                        .next()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(preferred))
+            })
+            .cloned()
+    })
+    .or_else(|| model_ids.first().cloned())
+}
+
+/// Build the catalog Codex Desktop reads at startup. Slugs are the provider's
+/// real model ids: selecting a row must never require rewriting `model` later.
+fn build_codex_model_catalog(provider_name: &str, model_ids: &[String]) -> Result<String, String> {
+    if model_ids.is_empty() {
+        return Err("供应商未返回可用模型".to_string());
+    }
+
+    let models = model_ids
+        .iter()
+        .enumerate()
+        .map(|(priority, model_id)| {
+            let is_deepseek = is_deepseek_reasoning_model(model_id);
+            let context_window = if is_deepseek { 1_000_000 } else { 128_000 };
+            let reasoning_levels = if is_deepseek_flash_model(model_id) {
+                serde_json::json!([
+                    {
+                        "effort": "low",
+                        "description": "Low DeepSeek reasoning effort"
+                    },
+                    {
+                        "effort": "high",
+                        "description": "High DeepSeek reasoning effort"
+                    },
+                    {
+                        "effort": "xhigh",
+                        "description": "Maximum DeepSeek reasoning effort"
+                    }
+                ])
+            } else if is_deepseek {
+                serde_json::json!([
+                    {
+                        "effort": "high",
+                        "description": "High reasoning effort"
+                    },
+                    {
+                        "effort": "xhigh",
+                        "description": "Maximum DeepSeek reasoning effort"
+                    }
+                ])
+            } else {
+                serde_json::json!([])
+            };
+
+            let mut entry = serde_json::json!({
+                "slug": model_id,
+                "display_name": model_display_name(model_id),
+                "description": format!("{} via {}", model_id, provider_name),
+                "shell_type": "shell_command",
+                "visibility": "list",
+                "supported_in_api": true,
+                "priority": priority,
+                "base_instructions": "You are Codex, a coding agent. Follow the user's instructions and work carefully in the current repository.",
+                "supported_reasoning_levels": reasoning_levels,
+                "supports_reasoning_summaries": is_deepseek,
+                "default_reasoning_summary": if is_deepseek { "auto" } else { "none" },
+                "support_verbosity": false,
+                "default_verbosity": "low",
+                "apply_patch_tool_type": "freeform",
+                "truncation_policy": { "mode": "tokens", "limit": 10000 },
+                "supports_parallel_tool_calls": true,
+                "supports_image_detail_original": false,
+                "experimental_supported_tools": [],
+                "input_modalities": ["text"],
+                "context_window": context_window,
+                "max_context_window": context_window,
+                "effective_context_window_percent": 95,
+                "auto_compact_token_limit": context_window * 9 / 10,
+                "comp_hash": "cc-use-v1"
+            });
+            if is_deepseek {
+                entry["default_reasoning_level"] = serde_json::json!("high");
+            }
+            entry
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string_pretty(&serde_json::json!({ "models": models }))
+        .map_err(|error| format!("生成 Codex 模型目录失败: {}", error))
+}
+
+fn catalog_default_reasoning_effort(catalog: &str, model: &str) -> Option<String> {
+    let catalog: serde_json::Value = serde_json::from_str(catalog).ok()?;
+    catalog["models"].as_array()?.iter().find_map(|entry| {
+        let slug = entry["slug"].as_str()?;
+        if slug != model {
+            return None;
+        }
+        entry["default_reasoning_level"]
+            .as_str()
+            .map(ToOwned::to_owned)
+    })
+}
 
 #[derive(Error, Debug)]
 pub enum CodexConfigError {
@@ -214,6 +371,31 @@ impl CodexConfigManager {
         model: &str,
         use_deepseek_catalog: bool,
     ) -> Result<PathBuf, CodexConfigError> {
+        self.takeover_with_optional_catalog(
+            session_token,
+            proxy_port,
+            model,
+            use_deepseek_catalog.then_some(DEEPSEEK_CODEX_CATALOG),
+        )
+    }
+
+    pub fn takeover_with_catalog(
+        &self,
+        session_token: &str,
+        proxy_port: u16,
+        model: &str,
+        catalog: &str,
+    ) -> Result<PathBuf, CodexConfigError> {
+        self.takeover_with_optional_catalog(session_token, proxy_port, model, Some(catalog))
+    }
+
+    fn takeover_with_optional_catalog(
+        &self,
+        session_token: &str,
+        proxy_port: u16,
+        model: &str,
+        catalog: Option<&str>,
+    ) -> Result<PathBuf, CodexConfigError> {
         // 1. 读取原配置文本
         let original_text = self.read_text()?;
 
@@ -244,12 +426,18 @@ impl CodexConfigManager {
         // 5. 顶层字段
         doc["model_provider"] = toml_edit::value(CC_USE_PROVIDER_KEY);
         doc["model"] = toml_edit::value(model);
-        doc["model_reasoning_effort"] = toml_edit::value("high");
+        match catalog.and_then(|catalog| catalog_default_reasoning_effort(catalog, model)) {
+            Some(effort) => doc["model_reasoning_effort"] = toml_edit::value(effort),
+            None if catalog.is_some() => {
+                doc.as_table_mut().remove("model_reasoning_effort");
+            }
+            None => doc["model_reasoning_effort"] = toml_edit::value("high"),
+        }
         doc["disable_response_storage"] = toml_edit::value(true);
         let mut clear_catalog_state_after_write = false;
-        if use_deepseek_catalog {
+        if let Some(catalog) = catalog {
             self.remember_original_model_catalog(&doc)?;
-            self.write_deepseek_model_catalog()?;
+            self.write_model_catalog(catalog)?;
             doc["model_catalog_json"] =
                 toml_edit::value(self.model_catalog_path.to_string_lossy().to_string());
         } else if self.is_our_model_catalog(&doc) {
@@ -270,7 +458,10 @@ impl CodexConfigManager {
                 toml_edit::value(format!("http://127.0.0.1:{}/v1", proxy_port));
             cc_use_table["wire_api"] = toml_edit::value("responses");
             cc_use_table["experimental_bearer_token"] = toml_edit::value(session_token);
-            // 不设 requires_openai_auth — 那会让 Codex 走 OAuth 直连官方
+            // Desktop only renders its model/reasoning controls for providers
+            // that participate in the OpenAI auth surface. The provider-scoped
+            // bearer token and base_url still keep requests on the cc-use proxy.
+            cc_use_table["requires_openai_auth"] = toml_edit::value(true);
             providers[CC_USE_PROVIDER_KEY] = toml_edit::Item::Table(cc_use_table);
         }
 
@@ -283,11 +474,11 @@ impl CodexConfigManager {
         Ok(backup_path.unwrap_or_else(|| PathBuf::from("")))
     }
 
-    fn write_deepseek_model_catalog(&self) -> Result<(), CodexConfigError> {
+    fn write_model_catalog(&self, catalog: &str) -> Result<(), CodexConfigError> {
         if let Some(parent) = self.model_catalog_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        write_atomic(&self.model_catalog_path, DEEPSEEK_CODEX_CATALOG)
+        write_atomic(&self.model_catalog_path, catalog)
     }
 
     fn is_our_model_catalog(&self, doc: &DocumentMut) -> bool {
@@ -483,6 +674,21 @@ impl CodexConfigManager {
         model: &str,
         use_deepseek_catalog: bool,
     ) -> Result<bool, CodexConfigError> {
+        self.matches_takeover_catalog(
+            token,
+            proxy_port,
+            model,
+            use_deepseek_catalog.then_some(DEEPSEEK_CODEX_CATALOG),
+        )
+    }
+
+    pub fn matches_takeover_catalog(
+        &self,
+        token: &str,
+        proxy_port: u16,
+        model: &str,
+        catalog: Option<&str>,
+    ) -> Result<bool, CodexConfigError> {
         let text = self.read_text()?;
         if text.trim().is_empty() {
             return Ok(false);
@@ -501,14 +707,31 @@ impl CodexConfigManager {
         let base_url = provider_table
             .and_then(|table| table.get("base_url"))
             .and_then(|item| item.as_str());
+        let requires_openai_auth = provider_table
+            .and_then(|table| table.get("requires_openai_auth"))
+            .and_then(|item| item.as_bool());
         let configured_model = doc.get("model").and_then(|item| item.as_str());
-        let catalog_matches = self.is_our_model_catalog(&doc) == use_deepseek_catalog;
-        let catalog_file_ready = !use_deepseek_catalog || self.model_catalog_path.is_file();
+        let configured_reasoning_effort = doc
+            .get("model_reasoning_effort")
+            .and_then(|item| item.as_str());
+        let expected_reasoning_effort = match catalog {
+            Some(catalog) => catalog_default_reasoning_effort(catalog, model),
+            None => Some("high".to_string()),
+        };
+        let catalog_matches = self.is_our_model_catalog(&doc) == catalog.is_some();
+        let catalog_file_ready = match catalog {
+            Some(expected) => fs::read_to_string(&self.model_catalog_path)
+                .map(|actual| actual == expected)
+                .unwrap_or(false),
+            None => true,
+        };
         let expected_base_url = format!("http://127.0.0.1:{}/v1", proxy_port);
 
         Ok(bearer == Some(token)
             && base_url == Some(expected_base_url.as_str())
+            && requires_openai_auth == Some(true)
             && configured_model == Some(model)
+            && configured_reasoning_effort == expected_reasoning_effort.as_deref()
             && catalog_matches
             && catalog_file_ready)
     }
@@ -536,7 +759,7 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), CodexConfigError> {
 // ── Tauri commands ──
 
 use crate::db::Database;
-use crate::models::{ApiKey, Provider, ProxySession};
+use crate::models::ProxySession;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
@@ -548,31 +771,6 @@ fn get_proxy_port(db: &Database) -> i32 {
 }
 
 use crate::shared_runtime::session_token::{new_session_token, CODEX_SESSION_TOKEN_SETTING_KEY};
-
-fn is_builtin_deepseek_provider(provider: &Provider) -> bool {
-    if provider.icon.as_deref() != Some("deepseek") {
-        return false;
-    }
-    url::Url::parse(&provider.base_url)
-        .ok()
-        .and_then(|url| url.host_str().map(ToOwned::to_owned))
-        .is_some_and(|host| host == "api.deepseek.com")
-}
-
-fn codex_model_from_mapping(api_key: &ApiKey) -> Option<String> {
-    api_key
-        .model_mapping
-        .as_deref()
-        .and_then(|mapping| serde_json::from_str::<serde_json::Value>(mapping).ok())
-        .and_then(|mapping| {
-            mapping
-                .get("codex")
-                .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-        })
-}
 
 #[tauri::command]
 pub fn codex_config_read() -> Result<String, String> {
@@ -588,26 +786,22 @@ pub fn codex_config_is_taken_over() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn codex_config_takeover(
+pub async fn codex_config_takeover(
     db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
     api_key_id: String,
 ) -> Result<String, String> {
-    codex_config_takeover_inner(&db, provider_id, api_key_id)
+    codex_config_takeover_inner(db.inner(), provider_id, api_key_id).await
 }
 
-pub fn codex_config_takeover_inner(
+pub async fn codex_config_takeover_inner(
     db: &Arc<Mutex<Database>>,
     provider_id: String,
     api_key_id: String,
 ) -> Result<String, String> {
-    // 固定的 Codex session token 持久化在 settings 里。token 不随 provider/key
-    // 变化；同一模型目录类型内切换密钥只更新 daemon session。
     let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
-
-    let (port, session_token, use_deepseek_catalog, codex_model) = {
+    let (provider, api_key) = {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let port = get_proxy_port(&db);
         let provider = db
             .provider_get(&provider_id)
             .map_err(|e| e.to_string())?
@@ -622,26 +816,49 @@ pub fn codex_config_takeover_inner(
         if !api_key.types.iter().any(|kind| kind == "codex") {
             return Err("所选 API 密钥未启用 Codex Desktop".to_string());
         }
-        let use_deepseek_catalog = is_builtin_deepseek_provider(&provider);
-        let codex_model = if use_deepseek_catalog {
-            codex_model_from_mapping(&api_key).unwrap_or_else(|| DEEPSEEK_CODEX_MODEL.to_string())
-        } else {
-            DEFAULT_CODEX_MODEL.to_string()
-        };
+        (provider, api_key)
+    };
 
-        // 复用已存的固定 token,否则生成并持久化。
+    // The catalog comes from the provider's real model list. A key-level Codex
+    // alias remains optional and only renames `model` on the outgoing request;
+    // it does not change this catalog or select another wire protocol.
+    let (model_ids, used_deepseek_fallback) =
+        match crate::commands::providers::fetch_provider_model_ids(
+            &provider,
+            &api_key,
+            Some("codex"),
+        )
+        .await
+        {
+            Ok(model_ids) => (model_ids, false),
+            Err(error) if is_builtin_deepseek_provider(&provider) => {
+                log::warn!(
+                    "DeepSeek model discovery failed; using the built-in Codex model catalog: {}",
+                    error
+                );
+                (deepseek_fallback_model_ids(), true)
+            }
+            Err(error) => {
+                return Err(format!("无法从所选 Codex 线路读取模型列表: {}", error));
+            }
+        };
+    let codex_model =
+        select_default_codex_model(&model_ids).ok_or_else(|| "供应商未返回可用模型".to_string())?;
+    let catalog = build_codex_model_catalog(&provider.name, &model_ids)?;
+
+    let (port, session_token) = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let port = get_proxy_port(&db);
         let session_token = match db.settings_get_value(CODEX_SESSION_TOKEN_SETTING_KEY) {
-            Ok(Some(t)) if !t.trim().is_empty() => t,
+            Ok(Some(token)) if !token.trim().is_empty() => token,
             _ => {
-                let t = new_session_token();
-                db.settings_set_value(CODEX_SESSION_TOKEN_SETTING_KEY, &t)
+                let token = new_session_token();
+                db.settings_set_value(CODEX_SESSION_TOKEN_SETTING_KEY, &token)
                     .map_err(|e| format!("保存 session token 失败: {}", e))?;
-                t
+                token
             }
         };
 
-        // upsert proxy_session:已存在则只改 provider/key 指向(切换密钥),
-        // 否则创建。daemon 每次请求按 token 查表,下个请求即走新 provider/key。
         if db
             .proxy_session_get(&session_token)
             .ok()
@@ -657,7 +874,7 @@ pub fn codex_config_takeover_inner(
             .map_err(|e| format!("更新 session 失败: {}", e))?;
         } else {
             let now = chrono::Utc::now().to_rfc3339();
-            let session = ProxySession {
+            db.proxy_session_create(&ProxySession {
                 session_token: session_token.clone(),
                 provider_id: provider_id.clone(),
                 api_key_id: api_key_id.clone(),
@@ -669,41 +886,41 @@ pub fn codex_config_takeover_inner(
                 revoked_at: None,
                 revoked_reason: None,
                 cli_type: Some("codex-app".to_string()),
-            };
-            db.proxy_session_create(&session)
-                .map_err(|e| format!("创建 session 失败: {}", e))?;
+            })
+            .map_err(|e| format!("创建 session 失败: {}", e))?;
         }
-        (port, session_token, use_deepseek_catalog, codex_model)
+        (port, session_token)
     };
 
-    // token、base_url、可见模型和模型目录都相同才只切 daemon 指向。
-    // 普通线路与 DeepSeek 线路互切需要重写启动时目录并提示重启。
     let already_current = mgr
-        .matches_takeover_profile(
-            &session_token,
-            port as u16,
-            &codex_model,
-            use_deepseek_catalog,
-        )
+        .matches_takeover_catalog(&session_token, port as u16, &codex_model, Some(&catalog))
         .map_err(|e| e.to_string())?;
     if already_current {
-        Ok("已切换密钥,无需重启 Codex".to_string())
-    } else {
-        mgr.takeover_with_profile(
-            &session_token,
-            port as u16,
-            &codex_model,
-            use_deepseek_catalog,
-        )
-        .map_err(|e| e.to_string())?;
-        if use_deepseek_catalog {
-            Ok(
-                "接管完成；请完全退出并重新打开 Codex Desktop，模型选择器将显示“自定义”"
-                    .to_string(),
-            )
+        return if used_deepseek_fallback {
+            Ok(format!(
+                "已切换密钥，模型接口暂不可用，Codex 保持 {} 个 DeepSeek 预置模型",
+                model_ids.len()
+            ))
         } else {
-            Ok("接管完成,请重启 Codex Desktop 加载新配置".to_string())
-        }
+            Ok(format!(
+                "已切换密钥，Codex 保持 {} 个真实模型",
+                model_ids.len()
+            ))
+        };
+    }
+
+    mgr.takeover_with_catalog(&session_token, port as u16, &codex_model, &catalog)
+        .map_err(|e| e.to_string())?;
+    if used_deepseek_fallback {
+        Ok(format!(
+            "接管完成，模型接口暂不可用，已加载 {} 个 DeepSeek 预置模型；请完全退出并重新打开 Codex Desktop",
+            model_ids.len()
+        ))
+    } else {
+        Ok(format!(
+            "接管完成，已加载 {} 个真实模型；请完全退出并重新打开 Codex Desktop",
+            model_ids.len()
+        ))
     }
 }
 
@@ -739,6 +956,80 @@ pub fn codex_config_list_backups() -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn generated_catalog_keeps_real_model_ids_and_deepseek_efforts() {
+        let ids = vec![
+            "deepseek-v4-flash".to_string(),
+            "deepseek-v4-pro".to_string(),
+        ];
+        let catalog = build_codex_model_catalog("DeepSeek", &ids).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&catalog).unwrap();
+        let models = json["models"].as_array().unwrap();
+
+        assert_eq!(models[0]["slug"], "deepseek-v4-flash");
+        assert_eq!(models[1]["slug"], "deepseek-v4-pro");
+        assert_eq!(models[0]["context_window"], 1_000_000);
+        assert_eq!(models[0]["default_reasoning_level"], "high");
+        assert_eq!(models[0]["supported_reasoning_levels"][0]["effort"], "low");
+        assert_eq!(models[0]["supported_reasoning_levels"][1]["effort"], "high");
+        assert_eq!(
+            models[0]["supported_reasoning_levels"][2]["effort"],
+            "xhigh"
+        );
+        assert_eq!(models[1]["supported_reasoning_levels"][0]["effort"], "high");
+        assert_eq!(
+            models[1]["supported_reasoning_levels"][1]["effort"],
+            "xhigh"
+        );
+    }
+
+    #[test]
+    fn generated_catalog_does_not_invent_reasoning_for_unknown_models() {
+        let catalog = build_codex_model_catalog("Example", &["vendor-chat".to_string()]).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&catalog).unwrap();
+        let model = &json["models"][0];
+
+        assert_eq!(model["slug"], "vendor-chat");
+        assert_eq!(model["supported_reasoning_levels"], serde_json::json!([]));
+        assert!(model.get("default_reasoning_level").is_none());
+    }
+
+    #[test]
+    fn namespaced_deepseek_models_keep_their_slug_and_capabilities() {
+        let catalog =
+            build_codex_model_catalog("OpenRouter", &["deepseek/deepseek-v4-pro".to_string()])
+                .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&catalog).unwrap();
+        let model = &json["models"][0];
+
+        assert_eq!(model["slug"], "deepseek/deepseek-v4-pro");
+        assert_eq!(model["default_reasoning_level"], "high");
+        assert_eq!(model["supported_reasoning_levels"][1]["effort"], "xhigh");
+    }
+
+    #[test]
+    fn default_model_prefers_current_deepseek_flash_without_aliasing() {
+        let ids = vec![
+            "deepseek-v4-pro".to_string(),
+            "deepseek-v4-flash".to_string(),
+        ];
+        assert_eq!(
+            select_default_codex_model(&ids).as_deref(),
+            Some("deepseek-v4-flash")
+        );
+    }
+
+    #[test]
+    fn deepseek_fallback_contains_current_official_models() {
+        assert_eq!(
+            deepseek_fallback_model_ids(),
+            vec![
+                "deepseek-v4-flash".to_string(),
+                "deepseek-v4-pro".to_string()
+            ]
+        );
+    }
 
     fn create_test_manager() -> (CodexConfigManager, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -776,8 +1067,7 @@ mod tests {
         assert!(text.contains("base_url = \"http://127.0.0.1:22345/v1\""));
         assert!(text.contains("wire_api = \"responses\""));
         assert!(text.contains("experimental_bearer_token = \"session-abc123\""));
-        // 不设 requires_openai_auth(那会让 Codex 走 OAuth 直连官方)
-        assert!(!text.contains("requires_openai_auth"));
+        assert!(text.contains("requires_openai_auth = true"));
     }
 
     #[test]
@@ -800,7 +1090,7 @@ mod tests {
         );
         let cfg = fs::read_to_string(&manager.config_path).unwrap();
         assert!(cfg.contains("experimental_bearer_token = \"session-keep\""));
-        assert!(!cfg.contains("requires_openai_auth"));
+        assert!(cfg.contains("requires_openai_auth = true"));
     }
 
     #[test]
@@ -828,6 +1118,7 @@ mod tests {
 
         let deepseek_config = fs::read_to_string(&manager.config_path).unwrap();
         assert!(deepseek_config.contains("model = \"deepseek-v4-flash\""));
+        assert!(deepseek_config.contains("model_reasoning_effort = \"high\""));
         assert!(deepseek_config.contains(manager.model_catalog_path.to_string_lossy().as_ref()));
         let catalog = fs::read_to_string(&manager.model_catalog_path).unwrap();
         assert!(catalog.contains("\"slug\": \"deepseek-v4-flash\""));
