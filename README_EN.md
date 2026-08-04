@@ -4,9 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.6.0 Update**: Adds a built-in DeepSeek provider for native Codex and Claude takeover, plus a searchable route picker that preserves key management, model mapping, and restore workflows.
->
-> **🎉 3.2.0 Update**: The app is now organized around three clients: Claude Code, Codex Desktop, and Claude Desktop. Codex CLI launch support has been removed; Codex Desktop and Claude Desktop use config takeover instead. See [CHANGELOG](./CHANGELOG.md).
+> **3.7.0 Update**: Adds `cc-use claude` / `cc-use grok`, an optional two-line Claude Code status line, token-and-failure statistics with key/project and custom-date views, plus real provider models and DeepSeek reasoning levels in Codex Desktop. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
@@ -30,16 +28,17 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 ## Features
 
-- **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can target Claude Code, Grok Build, Codex Desktop, and Claude Desktop, with priority ordering, balance/usage queries, cost multipliers, and model mapping
+- **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can target Claude Code, Grok Build, Codex Desktop, and Claude Desktop, with priority ordering, balance/usage queries, and model mapping
 - **Separate CLI Workspaces** - Claude Code and Grok Build each have their own launchpad in the sidebar; project directories can be reused, while provider, key, pre-launch command, and runtime instances stay isolated per client
 - **Custom Project Groups** - Create or reuse named groups when editing a project; legacy projects fall back to Ungrouped instead of being forced into filesystem parent-directory groups
 - **CLI Launch** - Click a project to launch a terminal; the wrapper injects a session token, instance metadata, and the local daemon URL while keeping the real key out of the terminal environment
-- **Codex Desktop Config Takeover** - Writes a `cc-use` provider and stable `experimental_bearer_token` to `~/.codex/config.toml` while preserving `auth.json`; after the first restart, switching keys can update the daemon route without rewriting the desktop config
+- **Command & Optional Status Line** - `cc-use claude` and `cc-use grok` show an arrow-key route picker with the GUI default preselected; users may opt into a two-line color Claude Code HUD
+- **Codex Desktop Config Takeover** - Preserves `auth.json` and official login while loading the selected route's real model catalog; DeepSeek exposes Flash / Pro and their reasoning levels, while key-level model mapping only renames the upstream model and never converts the Responses protocol
 - **Claude Desktop Config Takeover** - Writes a Claude 3P profile and configLibrary entries pointing to `http://127.0.0.1:<port>/claude-desktop`, with config preview, official restore, and model-list takeover
-- **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, routing by session token to the current provider/key and enabling cost tracking and hot-switching
+- **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, routing by session token to the current provider/key and enabling usage tracking and hot-switching
 - **Instance Management** - Each launchpad's Instances tab only shows managed instances from that client and only allows hot-switching to compatible keys
-- **Cost Tracking** - Automatically logs token usage and cost for every API request; Chinese uses ten-thousand/hundred-million units, English uses `K / M / B`, and tooltips show exact counts
-- **Statistics** - Dashboard shows today's cost, request count, daily trends, and top keys/projects; Statistics page provides detailed breakdowns by key/provider/client/model with request history
+- **Token Tracking** - Logs token usage, including both cache buckets, plus failure details; Chinese uses ten-thousand/hundred-million units, English uses `K / M / B`, and tooltips show exact counts
+- **Statistics** - Dashboard shows today's tokens, requests, failures, and a daily heatmap; Statistics provides custom date queries, token composition, trends, key/project usage, failures, and request history
 - **System Tray** - Minimize to tray on close while the daemon keeps running; tray menu supports service control and quick-launching recent projects
 - **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
 - **Claude Code Config Management** - Global and per-key local configuration (JSON), automatically merged and injected at launch; the editor now lives on the Claude Code page
@@ -62,7 +61,7 @@ Go to the Provider Keys page:
 
 1. Click "Add Provider" - fill in name, Base URL, choose an icon, optionally configure token and balance query
 2. Click "Add Key" under a provider - enter the key value and select target clients (Claude Code / Grok Build / Codex Desktop / Claude Desktop)
-3. Configure cost multiplier, usage query, and model mapping as needed; only Claude Code shows local CLI config
+3. Configure usage queries and model mapping as needed; only Claude Code shows local CLI config
 
 ### 2. Use Claude Code / Grok Build
 
@@ -80,10 +79,10 @@ Claude Code launches with `ANTHROPIC_BASE_URL`; Grok Build maintains a `cc-use` 
 Go to the Codex Desktop page:
 
 1. Select a key that supports Codex Desktop
-2. Apply takeover; CC Use writes `~/.codex/config.toml` and backs up `config.toml` / `auth.json`
+2. Apply takeover; CC Use reads that key's Codex model list, writes `~/.codex/config.toml` plus a local model catalog, and backs up the original config
 3. Restart Codex Desktop after first takeover or official restore
 
-Takeover does not rewrite `auth.json`, so official ChatGPT login and plugin capability are preserved. Once already taken over, switching keys only updates the daemon session route, so Codex Desktop's next request can use the new key.
+Takeover does not rewrite `auth.json`, so official ChatGPT login and plugin capability are preserved. Built-in DeepSeek falls back to its bundled Flash / Pro catalog when model discovery is unavailable. Flash exposes `low / high / xhigh`; Pro exposes `high / xhigh`. The optional Codex model mapping only renames the model sent upstream. Fully quit and reopen Codex Desktop whenever the catalog or default model changes.
 
 ### 4. Take Over Claude Desktop
 
@@ -100,38 +99,22 @@ Before takeover, CC Use probes the local daemon's model-list endpoint. Model map
 The local daemon service is launched with the app and stays resident — terminals always go through it:
 
 - Requests use session tokens instead of real API keys
-- Token usage and cost are automatically logged for every request
+- Token usage is logged for real inference requests, with failures retained for diagnostics
 - Hot-switch keys: Claude Code / Grok Build switch running instances from the Instances tab; Codex Desktop / Claude Desktop update daemon routing through stable config-takeover tokens
 
 Check service status and port on the Settings page; click "Restart Service" if anything goes wrong.
 
-### 6. Identify the Current Instance · Claude Code Status Line
+### 6. Optional Claude Code Status Line
 
-When launching a terminal, cc-use injects a handful of environment variables so you can tell which managed instance the current window belongs to:
+The “Status Line” tab on the Claude Code page lets the user opt into a colored two-line status line. It shows
+the CC Use instance, provider, and key on the first line, then model, Git branch, and context
+usage on the second. An ordinary Claude Code session keeps the general information and labels the
+CC Use route as unmanaged.
 
-| Variable                  | Purpose                                                                 |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `CC_USE_INSTANCE_ID`      | Instance UUID — matches a row on the Instances page                     |
-| `CC_USE_INSTANCE_LABEL`   | Short code (last 8 chars of the session token), ideal for the statusbar |
-| `CC_USE_PROXY_PORT`       | Local daemon port                                                       |
-| `CC_USE_MANAGEMENT_TOKEN` | Management token — **do not display**; used only by wrapper ↔ daemon    |
-
-When running multiple windows, surface `CC_USE_INSTANCE_LABEL` via the Claude Code [statusLine](https://docs.claude.com/en/docs/claude-code/statusline) so you can tell at a glance which instance a window is bound to.
-
-**The author personally uses [claude-hud](https://github.com/jarrodwatts/claude-hud)** — its `--extra-cmd` option appends `CC_USE_INSTANCE_LABEL` to the rendered status line as `{"label":"..."}` JSON. Reference `~/.claude/settings.json`:
-
-```jsonc
-{
-  "statusLine": {
-    "type": "command",
-    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'",
-  },
-}
-```
-
-Install steps: inside Claude Code, run `/plugin marketplace add jarrodwatts/claude-hud` → `/plugin install claude-hud` → `/claude-hud:setup`, then extend the generated `statusLine.command` with `--extra-cmd` as shown above.
-
-Don't want claude-hud? Any command that reads `$CC_USE_INSTANCE_LABEL` and prints a single line works as a `statusLine`.
+This is not enabled by default and does not require the global `cc-use` command. If claude-hud or
+another third-party `statusLine` already exists, cc-use asks whether to keep it or back it up and
+replace it. Restore puts the previous configuration back. Claude Code refreshes the change on the
+next interaction.
 
 ## How It Works
 
@@ -147,7 +130,7 @@ Claude Desktop 3P gateway → localhost:12345/claude-desktop (daemon) → actual
 The daemon handles:
 
 - Routing to the right provider/key via session token, so real API keys never reach client config or terminal environment
-- Automatically logs token usage and cost for every request
+- Logs inference token usage and failure details
 - Hot-switching keys
 - Tracks the lifecycle of every managed instance via wrapper heartbeat and stop reporting
 - Adds the correct upstream auth header by provider type and forwards the client's native request shape

@@ -4,9 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.6.0 更新**：新增 DeepSeek 内置供应商，原生接管 Codex 与 Claude；各启动台统一为可搜索的线路选择器，并完整保留密钥管理、模型映射和恢复能力。
->
-> **🎉 3.2.0 更新**：入口收敛为 Claude Code / Codex Desktop / Claude Desktop 三个客户端；Codex CLI 启动链路已移除，Codex Desktop 与 Claude Desktop 改为配置接管。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.7.0 更新**：新增 `cc-use claude` / `cc-use grok` 终端入口和可选 Claude Code 双行状态栏；用量统计收敛为真实 Token、失败、Key/项目维度与自定义日期；Codex Desktop 接管可展示供应商真实模型及 DeepSeek 思考强度。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >
@@ -30,17 +28,18 @@
 
 ## 功能
 
-- **供应商与密钥管理** - 在「供应商密钥」页面统一管理供应商和 API 密钥；每个密钥可勾选 Claude Code、Grok Build、Codex Desktop、Claude Desktop，支持优先级排序、额度查询、费用倍率和模型映射
+- **供应商与密钥管理** - 在「供应商密钥」页面统一管理供应商和 API 密钥；每个密钥可勾选 Claude Code、Grok Build、Codex Desktop、Claude Desktop，支持优先级排序、额度查询和模型映射
 - **独立 CLI 工作区** - Claude Code 与 Grok Build 在侧边栏分别拥有启动台；项目目录可复用，但供应商、密钥、启动命令和运行实例按客户端隔离
 - **自定义项目分组** - 创建或编辑项目时可输入新分组或复用已有分组；历史项目自动归入「未分组」，不再根据文件系统上级目录强制分组
 - **CLI 一键启动** - 点击项目即启动终端，wrapper 自动注入 session token、实例标识和本地 daemon 地址，真实密钥不会进入终端环境
-- **Codex Desktop 配置接管** - 写入 `~/.codex/config.toml` 的 `cc-use` provider 和固定 `experimental_bearer_token`，保留 `auth.json`；首次接管后重启 Codex Desktop，后续切换密钥可直接更新 daemon 路由
+- **命令行工具与状态栏** - `cc-use claude` / `cc-use grok` 每次用方向键选择线路并预选 GUI 默认项；Claude Code 可选彩色双行 HUD，详见 [CLI 使用指南](./guides/CLI.md)
+- **Codex Desktop 配置接管** - 保留 `auth.json` 和官方登录，加载所选线路的真实模型目录；DeepSeek 可选择 Flash / Pro 与对应思考强度，密钥级模型映射只替换上游模型名，不转换 Responses 协议
 - **Claude Desktop 配置接管** - 写入 Claude 3P profile 和 configLibrary，网关地址指向 `http://127.0.0.1:<port>/claude-desktop`，支持配置预览、恢复官方配置和模型列表接管
-- **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，按 session token 路由到当前供应商/密钥，支持费用追踪与热切换
+- **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，按 session token 路由到当前供应商/密钥，支持用量追踪与热切换
 - **实例管理** - Claude Code 与 Grok Build 各自的「实例」Tab 只展示当前客户端启动的 managed instance，并且只能热切换到兼容密钥
-- **费用追踪** - 自动记录每次请求的 Token 用量和费用；中文界面使用「万 / 亿」、英文界面使用 `K / M / B`，悬停可查看精确数量
-- **统计分析** - 仪表盘展示今日费用、请求量、每日趋势、Top 密钥/项目；统计页提供按密钥/供应商/客户端/模型的详细分析和请求明细
-- **系统托盘** - 关闭窗口时最小化到托盘，daemon 服务持续运行；托盘菜单支持服务控制和最近项目快速启动
+- **Token 用量追踪** - 自动记录每次请求的 Token 用量（含缓存读取与缓存创建）与失败原因；中文界面使用「万 / 亿」、英文界面使用 `K / M / B`，悬停可查看精确数量
+- **统计分析** - 仪表盘展示今日 Token、请求、失败和每日 Token 热力图；统计页提供自定义日期查询、Token 构成、每日趋势、Key/项目用量、失败明细和请求明细
+- **系统托盘** - 关闭窗口时最小化到托盘，daemon 服务持续运行；托盘徽章显示今日 Token，菜单支持服务控制和最近项目快速启动
 - **自动更新** - 应用内检测并下载新版本，支持下载进度显示（`tauri-plugin-updater` 签名校验）
 - **Claude Code 配置管理** - 支持全局配置和密钥级别局部配置（JSON），启动时自动合并注入；配置编辑入口位于 Claude Code 页面
 - **国际化** - 中文 / 英文界面
@@ -62,7 +61,7 @@
 
 1. 点击「添加供应商」，填写名称、Base URL，选择图标，可选配置 Token 和余额查询
 2. 在供应商分组下点击「添加密钥」，填写密钥值，选择适用客户端（Claude Code / Grok Build / Codex Desktop / Claude Desktop）
-3. 按需配置费用倍率、额度查询和模型映射；只有 Claude Code 会展示局部 CLI 配置
+3. 按需配置额度查询和模型映射；只有 Claude Code 会展示局部 CLI 配置
 
 ### 2. 使用 Claude Code / Grok Build
 
@@ -80,10 +79,10 @@ Claude Code 启动时会设置 `ANTHROPIC_BASE_URL`；Grok Build 会在 `~/.grok
 进入「Codex Desktop」页面：
 
 1. 选择支持 Codex Desktop 的密钥
-2. 点击接管，CC Use 会写入 `~/.codex/config.toml`，并备份 `config.toml` / `auth.json`
+2. 点击接管，CC Use 会读取该密钥的 Codex 模型列表，写入 `~/.codex/config.toml` 与本地模型目录，并备份原配置
 3. 首次接管或恢复官方配置后，重启 Codex Desktop 让配置生效
 
-接管不会改写 `auth.json`，会保留官方 ChatGPT 登录和插件能力。已接管状态下切换密钥只更新 daemon session 指向，Codex Desktop 下一次请求即可走新密钥。
+接管不会改写 `auth.json`，会保留官方 ChatGPT 登录和插件能力。内置 DeepSeek 在模型接口不可用时回退到 Flash / Pro 预置目录；Flash 提供 `low / high / xhigh`，Pro 提供 `high / xhigh`。密钥编辑页仍可填写 Codex 上游模型映射，它只替换请求中的模型名称。模型目录或默认模型变化后需要完全退出并重新打开 Codex Desktop。
 
 ### 4. 接管 Claude Desktop
 
@@ -100,38 +99,20 @@ Claude Desktop 接管前会探测本地 daemon 的模型列表接口；模型映
 本地 daemon 服务随应用启动并常驻运行，终端总是经它中转：
 
 - 请求使用 session token 替代真实密钥
-- 自动记录每次请求的 Token 用量和费用
+- 自动记录真实推理请求的 Token 用量，并保留失败请求用于排查
 - 支持热切换密钥：Claude Code / Grok Build 在「实例」页切换当前运行实例；Codex Desktop / Claude Desktop 通过固定配置接管 token 更新 daemon 路由
 
 在「设置」页面可以查看服务运行状态和端口，异常时点击「重启服务」。
 
-### 6. 识别当前实例 · Claude Code Status Line
+### 6. 可选的 Claude Code 状态栏
 
-启动终端时，cc-use 会给子进程注入一组环境变量，用来识别当前窗口对应的 managed instance：
+Claude Code 页的「状态栏」Tab 可以由用户主动启用彩色双行状态栏。第一行显示当前 CC Use
+实例、供应商和 Key，第二行显示模型、Git 分支与上下文占用。普通 Claude Code 会
+保留通用信息，并把 CC Use 线路标记为 `unmanaged`。
 
-| 变量                      | 说明                                                  |
-| ------------------------- | ----------------------------------------------------- |
-| `CC_USE_INSTANCE_ID`      | 实例 UUID，对应「实例」页中的一条记录                 |
-| `CC_USE_INSTANCE_LABEL`   | 短码（session token 后 8 位），适合展示在状态栏       |
-| `CC_USE_PROXY_PORT`       | 本地 daemon 端口                                      |
-| `CC_USE_MANAGEMENT_TOKEN` | 管理 token，**不要展示**，仅供 wrapper 与 daemon 通信 |
-
-多开窗口时，推荐把 `CC_USE_INSTANCE_LABEL` 挂到 Claude Code 的 [statusLine](https://docs.claude.com/en/docs/claude-code/statusline) 上，一眼区分当前窗口跑的是哪条实例。
-
-**作者本人使用 [claude-hud](https://github.com/jarrodwatts/claude-hud)**：通过它的 `--extra-cmd` 选项把 `CC_USE_INSTANCE_LABEL` 以 `{"label":"..."}` JSON 的形式塞进 claude-hud 渲染的状态栏。参考 `~/.claude/settings.json`：
-
-```jsonc
-{
-  "statusLine": {
-    "type": "command",
-    "command": "bash -lc 'hud_dir=$(ls -td ~/.claude/plugins/cache/claude-hud/claude-hud/*/ 2>/dev/null | head -1); [ -n \"$hud_dir\" ] || exit 0; bun \"${hud_dir}src/index.ts\" --extra-cmd \"bash -lc '\\''[ -n \\\"\\$CC_USE_INSTANCE_LABEL\\\" ] && printf \\\"{\\\\\\\"label\\\\\\\":\\\\\\\"%s\\\\\\\"}\\\" \\\"\\$CC_USE_INSTANCE_LABEL\\\"'\\''\"'",
-  },
-}
-```
-
-安装步骤：在 Claude Code 中执行 `/plugin marketplace add jarrodwatts/claude-hud` → `/plugin install claude-hud` → `/claude-hud:setup`，然后把生成的 `statusLine.command` 按上面的样子补上 `--extra-cmd`。
-
-不用 claude-hud 也可以：任何能读取 `$CC_USE_INSTANCE_LABEL` 并输出一行文本的命令，都能作为 `statusLine` 使用。
+该功能不是默认安装项，也不要求安装 `cc-use` 命令。若检测到 claude-hud 等第三方
+`statusLine`，cc-use 会让用户选择保留还是备份并覆盖；恢复时会还原原第三方配置。
+配置修改会在 Claude Code 下一次交互时自动刷新。
 
 ## 工作原理
 
@@ -147,7 +128,7 @@ Claude Desktop 3P gateway → localhost:12345/claude-desktop (daemon) → 实际
 daemon 做这些事：
 
 - 用 session token 路由到对应供应商/密钥，不把真实密钥暴露给客户端配置或终端环境
-- 自动记录每次请求的 Token 用量和费用
+- 自动记录推理请求的 Token 用量与失败信息
 - 支持热切换密钥
 - 通过 wrapper 的 heartbeat + stop 上报追踪每个 managed instance 的生命周期
 - 按供应商类型补齐正确认证 Header，并透传客户端原始请求形态
