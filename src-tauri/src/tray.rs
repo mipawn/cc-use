@@ -491,20 +491,41 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Keep the tray's daemon, instance and usage summaries on the same
-    // eventually-consistent refresh cadence.
-    let app_handle = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(30));
-        let main_app = app_handle.clone();
-        if let Err(error) = app_handle.run_on_main_thread(move || {
-            refresh_tray_menu(&main_app);
-        }) {
-            log::warn!("Failed to schedule tray menu refresh: {}", error);
-        }
-    });
+    // Badge maintenance must stay independent from menu rebuilding. Running
+    // the full menu path on the app event thread previously made the midnight
+    // reset depend on menu construction completing. The dedicated badge path
+    // performs its database work off-thread and only dispatches set_title back
+    // to the event thread, so a day rollover clears yesterday's usage even
+    // when there are no new requests and the window remains hidden.
+    start_badge_maintenance_loop(app.clone());
 
     Ok(())
+}
+
+fn start_badge_maintenance_loop(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut observed_day = chrono::Local::now().date_naive();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            let current_day = chrono::Local::now().date_naive();
+            if did_local_day_roll_over(observed_day, current_day) {
+                log::info!(
+                    "Tray usage day rolled over ({} -> {}); clearing yesterday's badge",
+                    observed_day,
+                    current_day
+                );
+                observed_day = current_day;
+            }
+            refresh_tray_badge(&app);
+        }
+    });
+}
+
+fn did_local_day_roll_over(
+    observed_day: chrono::NaiveDate,
+    current_day: chrono::NaiveDate,
+) -> bool {
+    observed_day != current_day
 }
 
 fn handle_menu_event(app: &AppHandle, id: &str) {
@@ -750,7 +771,9 @@ pub fn should_close_to_tray(app: &AppHandle) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{key_available_for_client, mask_key_value, normalize_client_kind};
+    use super::{
+        did_local_day_roll_over, key_available_for_client, mask_key_value, normalize_client_kind,
+    };
     use crate::models::ApiKey;
 
     fn api_key(types: Vec<&str>, is_active: bool, is_exhausted: bool) -> ApiKey {
@@ -773,6 +796,14 @@ mod tests {
             model_mapping: None,
             client_configs: None,
         }
+    }
+
+    #[test]
+    fn detects_local_day_rollover_without_waiting_for_a_request() {
+        let day_one = chrono::NaiveDate::from_ymd_opt(2026, 8, 9).unwrap();
+        let day_two = chrono::NaiveDate::from_ymd_opt(2026, 8, 10).unwrap();
+        assert!(!did_local_day_roll_over(day_one, day_one));
+        assert!(did_local_day_roll_over(day_one, day_two));
     }
 
     #[test]
