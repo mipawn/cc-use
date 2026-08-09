@@ -67,6 +67,7 @@ pub fn run() {
             commands::statistics::request_log_get_daily_trend,
             commands::statistics::request_log_get_monthly_trend,
             commands::statistics::request_log_get_statistics,
+            commands::statistics::request_log_get_resource_statistics,
             commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_overview,
             commands::statistics::request_log_get_key_token_stats,

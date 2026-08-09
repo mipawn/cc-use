@@ -1,7 +1,7 @@
 use crate::db::Database;
 use crate::models::{
-    PaginatedRecentRequests, ProviderGatewayMetrics, RecentGatewayMetrics, UsageOverview,
-    UsageStatistics, UsageStats,
+    PaginatedRecentRequests, ProviderGatewayMetrics, RecentGatewayMetrics, ResourceUsageStatistics,
+    UsageOverview, UsageStatistics, UsageStats,
 };
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -52,6 +52,25 @@ pub fn request_log_get_statistics(
     let db = db.lock().map_err(|e| e.to_string())?;
     db.request_log_get_statistics(&time_range)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn request_log_get_resource_statistics(
+    db: State<'_, Arc<Mutex<Database>>>,
+    time_range: String,
+    provider_id: Option<String>,
+    api_key_id: Option<String>,
+) -> Result<ResourceUsageStatistics, String> {
+    if provider_id.is_none() && api_key_id.is_none() {
+        return Err("A provider or API key scope is required".to_string());
+    }
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.request_log_get_resource_statistics(
+        &time_range,
+        provider_id.as_deref(),
+        api_key_id.as_deref(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

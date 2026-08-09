@@ -29,6 +29,7 @@ import type {
   UsageLog,
   StatsTimeRange,
   UsageStatistics,
+  ResourceUsageStatistics,
   UsageOverview,
   DailyTrendItem,
   CliToolStatus,
@@ -164,6 +165,11 @@ export interface Api {
   requestLog: {
     getDailyTrend: (days?: number) => Promise<DailyTrendItem[]>
     getStatistics: (timeRange: StatsTimeRange) => Promise<UsageStatistics>
+    getResourceStatistics: (
+      timeRange: StatsTimeRange,
+      providerId?: string,
+      apiKeyId?: string,
+    ) => Promise<ResourceUsageStatistics>
     getRecentPaginated: (
       timeRange: StatsTimeRange,
       page?: number,

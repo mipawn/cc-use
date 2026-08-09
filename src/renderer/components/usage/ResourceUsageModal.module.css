@@ -1,0 +1,70 @@
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.titleMeta {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.loading,
+.empty {
+  min-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summaryGrid :global(.ant-statistic-content) {
+  font-size: 20px;
+}
+
+.chartCard {
+  border-radius: var(--radius-ant-lg) !important;
+}
+
+.chartScroller {
+  overflow-x: auto;
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  min-width: 620px;
+  height: 230px;
+}
+
+.chartHint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .summaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

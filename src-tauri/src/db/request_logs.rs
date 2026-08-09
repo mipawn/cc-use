@@ -1,7 +1,8 @@
 use crate::db::Database;
 use crate::models::{
     DailyTrendItem, FailureStatsItem, PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog,
-    UsageDimensionItem, UsageOverview, UsageStatistics, UsageStatsSummary,
+    ResourceUsageStatistics, ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem,
+    UsageOverview, UsageStatistics, UsageStatsSummary,
 };
 
 /// input + output + cache_read + cache_creation — the v3.7.0 token definition.
@@ -375,6 +376,128 @@ impl Database {
             key_usage,
             project_usage,
             failures,
+        })
+    }
+
+    /// Provider/key-level trends used from the route cards. Request-based
+    /// quality metrics deliberately include zero-token failures; token and
+    /// cache metrics naturally remain zero for those rows.
+    pub fn request_log_get_resource_statistics(
+        &self,
+        time_range: &str,
+        provider_id: Option<&str>,
+        api_key_id: Option<&str>,
+    ) -> Result<ResourceUsageStatistics, rusqlite::Error> {
+        let range_clause = self.time_range_where("created_at", time_range);
+        let scoped_where = if range_clause.is_empty() {
+            "WHERE (?1 IS NULL OR provider_id = ?1) AND (?2 IS NULL OR api_key_id = ?2)".to_string()
+        } else {
+            format!(
+                "{} AND (?1 IS NULL OR provider_id = ?1) AND (?2 IS NULL OR api_key_id = ?2)",
+                range_clause
+            )
+        };
+
+        let (
+            total_tokens,
+            total_requests,
+            successful_requests,
+            failed_requests,
+            input_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+            avg_latency_ms,
+            avg_first_token_ms,
+        ) = self.conn.query_row(
+            &format!(
+                "SELECT COALESCE(SUM({}), 0), COUNT(*),
+                        COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') = 'success' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(input_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
+                        COALESCE(SUM(cache_creation_tokens), 0), AVG(latency_ms), AVG(first_token_ms)
+                 FROM request_logs {}",
+                TOKEN_SUM, scoped_where
+            ),
+            rusqlite::params![provider_id, api_key_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, Option<f64>>(7)?,
+                    row.get::<_, Option<f64>>(8)?,
+                ))
+            },
+        )?;
+
+        let success_rate = if total_requests > 0 {
+            successful_requests as f64 / total_requests as f64
+        } else {
+            0.0
+        };
+        let cacheable_input = input_tokens + cache_read_tokens + cache_creation_tokens;
+        let cache_hit_rate = if cacheable_input > 0 {
+            cache_read_tokens as f64 / cacheable_input as f64
+        } else {
+            0.0
+        };
+
+        let summary = ResourceUsageSummary {
+            total_tokens,
+            total_requests,
+            successful_requests,
+            failed_requests,
+            success_rate,
+            cache_hit_rate,
+            avg_latency_ms,
+            avg_first_token_ms,
+        };
+
+        let created_date = Self::local_date_expr("created_at");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} AS d, COALESCE(SUM({}), 0), COUNT(*),
+                    COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
+                    COALESCE(SUM(cache_creation_tokens), 0), AVG(latency_ms), AVG(first_token_ms)
+             FROM request_logs {} GROUP BY d ORDER BY d ASC",
+            created_date, TOKEN_SUM, scoped_where
+        ))?;
+        let daily_trend = stmt
+            .query_map(rusqlite::params![provider_id, api_key_id], |row| {
+                let requests = row.get::<_, i64>(2)?;
+                let failed_requests = row.get::<_, i64>(3)?;
+                let input_tokens = row.get::<_, i64>(4)?;
+                let cache_read_tokens = row.get::<_, i64>(5)?;
+                let cache_creation_tokens = row.get::<_, i64>(6)?;
+                let cacheable_input = input_tokens + cache_read_tokens + cache_creation_tokens;
+                Ok(ResourceUsageTrendItem {
+                    date: row.get(0)?,
+                    tokens: row.get(1)?,
+                    requests,
+                    failed_requests,
+                    success_rate: if requests > 0 {
+                        (requests - failed_requests) as f64 / requests as f64
+                    } else {
+                        0.0
+                    },
+                    cache_hit_rate: if cacheable_input > 0 {
+                        cache_read_tokens as f64 / cacheable_input as f64
+                    } else {
+                        0.0
+                    },
+                    avg_latency_ms: row.get(7)?,
+                    avg_first_token_ms: row.get(8)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ResourceUsageStatistics {
+            summary,
+            daily_trend,
         })
     }
 
@@ -799,5 +922,76 @@ mod tests {
 
         let overview = db.request_log_get_overview().unwrap();
         assert_eq!(overview.today_tokens, 1_000);
+    }
+
+    #[test]
+    fn resource_statistics_scope_provider_and_key_with_quality_metrics() {
+        let db = Database::new_in_memory().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        db.conn
+            .execute(
+                "INSERT INTO providers (id, name, base_url) VALUES
+                    ('provider-1', 'Provider 1', 'https://one.test'),
+                    ('provider-2', 'Provider 2', 'https://two.test')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO api_keys (id, provider_id, value) VALUES
+                    ('key-1', 'provider-1', 'secret-1'),
+                    ('key-2', 'provider-1', 'secret-2'),
+                    ('key-3', 'provider-2', 'secret-3')",
+                [],
+            )
+            .unwrap();
+
+        let mut selected = mk_billable_log("selected", now.clone());
+        selected.provider_id = Some("provider-1".into());
+        selected.api_key_id = Some("key-1".into());
+        selected.input_tokens = 100;
+        selected.output_tokens = 50;
+        selected.cache_read_tokens = 300;
+        selected.cache_creation_tokens = 0;
+        selected.latency_ms = Some(800);
+        selected.first_token_ms = Some(200);
+        db.request_log_create(&selected).unwrap();
+
+        let mut failed = mk_failed_log("failed", now.clone(), 502, "upstream_error");
+        failed.provider_id = Some("provider-1".into());
+        failed.api_key_id = Some("key-1".into());
+        failed.latency_ms = Some(1_200);
+        db.request_log_create(&failed).unwrap();
+
+        let mut other_key = mk_billable_log("other-key", now.clone());
+        other_key.provider_id = Some("provider-1".into());
+        other_key.api_key_id = Some("key-2".into());
+        db.request_log_create(&other_key).unwrap();
+
+        let mut other_provider = mk_billable_log("other-provider", now);
+        other_provider.provider_id = Some("provider-2".into());
+        other_provider.api_key_id = Some("key-3".into());
+        db.request_log_create(&other_provider).unwrap();
+
+        let key_stats = db
+            .request_log_get_resource_statistics("all", Some("provider-1"), Some("key-1"))
+            .unwrap();
+        assert_eq!(key_stats.summary.total_requests, 2);
+        assert_eq!(key_stats.summary.successful_requests, 1);
+        assert_eq!(key_stats.summary.failed_requests, 1);
+        assert_eq!(key_stats.summary.total_tokens, 450);
+        assert!((key_stats.summary.success_rate - 0.5).abs() < 1e-9);
+        assert!((key_stats.summary.cache_hit_rate - 0.75).abs() < 1e-9);
+        assert_eq!(key_stats.summary.avg_latency_ms, Some(1_000.0));
+        assert_eq!(key_stats.summary.avg_first_token_ms, Some(200.0));
+        assert_eq!(key_stats.daily_trend.len(), 1);
+        assert_eq!(key_stats.daily_trend[0].failed_requests, 1);
+
+        let provider_stats = db
+            .request_log_get_resource_statistics("all", Some("provider-1"), None)
+            .unwrap();
+        assert_eq!(provider_stats.summary.total_requests, 3);
+        assert_eq!(provider_stats.summary.total_tokens, 480);
     }
 }

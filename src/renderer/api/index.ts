@@ -136,6 +136,8 @@ function buildApi(): Api {
     requestLog: {
       getDailyTrend: (days) => invoke('request_log_get_daily_trend', { days }),
       getStatistics: (timeRange) => invoke('request_log_get_statistics', { timeRange }),
+      getResourceStatistics: (timeRange, providerId, apiKeyId) =>
+        invoke('request_log_get_resource_statistics', { timeRange, providerId, apiKeyId }),
       getRecentPaginated: (timeRange, page, pageSize) =>
         invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
       getOverview: () => invoke('request_log_get_overview'),

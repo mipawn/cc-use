@@ -707,6 +707,34 @@ export interface UsageStatistics {
   failures: FailureStatsItem[]
 }
 
+export interface ResourceUsageSummary {
+  totalTokens: number
+  /** Includes both successful and failed recorded requests. */
+  totalRequests: number
+  successfulRequests: number
+  failedRequests: number
+  successRate: number
+  cacheHitRate: number
+  avgLatencyMs: number | null
+  avgFirstTokenMs: number | null
+}
+
+export interface ResourceUsageTrendItem {
+  date: string
+  tokens: number
+  requests: number
+  failedRequests: number
+  successRate: number
+  cacheHitRate: number
+  avgLatencyMs: number | null
+  avgFirstTokenMs: number | null
+}
+
+export interface ResourceUsageStatistics {
+  summary: ResourceUsageSummary
+  dailyTrend: ResourceUsageTrendItem[]
+}
+
 // v3.7.0 CLI tool + statusline setup
 export interface CliToolStatus {
   available: boolean

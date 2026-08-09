@@ -41,6 +41,7 @@ import {
   CopyOutlined,
   DollarOutlined,
   EyeOutlined,
+  LineChartOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -52,6 +53,7 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
+import ResourceUsageModal, { type ResourceScope } from '../components/usage/ResourceUsageModal'
 import type { Provider, ApiKey, ClientKind, ProviderGatewayMetrics } from '@shared/types'
 import {
   formatEnvCommand,
@@ -190,6 +192,7 @@ export default function Keys() {
   const [keyEditOpen, setKeyEditOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null)
   const [defaultProviderId, setDefaultProviderId] = useState<string | undefined>(undefined)
+  const [usageScope, setUsageScope] = useState<ResourceScope | null>(null)
 
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
@@ -693,6 +696,20 @@ export default function Keys() {
                       )}
                     </div>
                     <Space size={8}>
+                      <Tooltip title={t('usageDetail.openProvider')}>
+                        <Button
+                          type='text'
+                          size='small'
+                          icon={<LineChartOutlined />}
+                          onClick={() =>
+                            setUsageScope({
+                              type: 'provider',
+                              providerId: provider.id,
+                              name: provider.name,
+                            })
+                          }
+                        />
+                      </Tooltip>
                       <Tooltip
                         title={provider.isActive ? t('common.active') : t('common.inactive')}
                       >
@@ -864,6 +881,23 @@ export default function Keys() {
                               <Tag color='blue'>配置接管</Tag>
                             )}
                             <Space size={4}>
+                              <Tooltip title={t('usageDetail.openKey')}>
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  icon={<LineChartOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setUsageScope({
+                                      type: 'key',
+                                      providerId: provider.id,
+                                      apiKeyId: key.id,
+                                      name: key.alias || t('keys.unnamedKey'),
+                                      providerName: provider.name,
+                                    })
+                                  }}
+                                />
+                              </Tooltip>
                               <Tooltip title={t('keys.copyKey')}>
                                 <Button
                                   type='text'
@@ -984,6 +1018,12 @@ export default function Keys() {
           setDefaultProviderId(undefined)
         }}
         onSave={handleSaveKey}
+      />
+
+      <ResourceUsageModal
+        open={usageScope != null}
+        scope={usageScope}
+        onClose={() => setUsageScope(null)}
       />
 
       {/* Copy Command List Modal */}

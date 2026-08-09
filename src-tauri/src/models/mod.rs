@@ -517,6 +517,42 @@ pub struct UsageStatistics {
     pub failures: Vec<FailureStatsItem>,
 }
 
+/// Provider/key-level observability. Unlike the global statistics summary,
+/// request counts include failed requests so the success rate has one clear
+/// denominator for deciding whether a route is usable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceUsageSummary {
+    pub total_tokens: i64,
+    pub total_requests: i64,
+    pub successful_requests: i64,
+    pub failed_requests: i64,
+    pub success_rate: f64,
+    pub cache_hit_rate: f64,
+    pub avg_latency_ms: Option<f64>,
+    pub avg_first_token_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceUsageTrendItem {
+    pub date: String,
+    pub tokens: i64,
+    pub requests: i64,
+    pub failed_requests: i64,
+    pub success_rate: f64,
+    pub cache_hit_rate: f64,
+    pub avg_latency_ms: Option<f64>,
+    pub avg_first_token_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceUsageStatistics {
+    pub summary: ResourceUsageSummary,
+    pub daily_trend: Vec<ResourceUsageTrendItem>,
+}
+
 /// Dashboard overview: a compact view of today's activity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
