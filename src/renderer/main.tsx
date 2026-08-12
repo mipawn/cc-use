@@ -4,6 +4,8 @@ import { ConfigProvider, theme, App as AntdApp } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
+import dayjs from 'dayjs'
+import 'dayjs/locale/zh-cn'
 import App from './App'
 import { useSettingsStore } from './stores/settingsStore'
 import { installRendererConsoleTap } from './api/consoleBus'
@@ -21,15 +23,20 @@ installConsoleStore()
 
 function Root() {
   const { language, resolvedTheme, initSettings } = useSettingsStore()
+  const isChinese = language.toLowerCase().startsWith('zh')
 
   useEffect(() => {
     initSettings()
   }, [initSettings])
 
+  useEffect(() => {
+    dayjs.locale(isChinese ? 'zh-cn' : 'en')
+  }, [isChinese])
+
   return (
     <StyleProvider layer>
       <ConfigProvider
-        locale={language === 'zh' ? zhCN : enUS}
+        locale={isChinese ? zhCN : enUS}
         theme={{
           algorithm: resolvedTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
           token: {

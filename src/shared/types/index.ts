@@ -626,8 +626,10 @@ export type StatsTimeRange =
   | 'yesterday'
   | 'week'
   | 'last30Days'
+  | 'lastYear'
   | 'month'
   | 'lastMonth'
+  | 'year'
   | 'all'
   | `custom:${string}:${string}`
 
@@ -657,15 +659,6 @@ export interface DailyTrendItem {
   outputTokens: number
   cacheReadTokens: number
   cacheCreationTokens: number
-}
-
-export interface FailureStatsItem {
-  providerName: string
-  keyAlias: string
-  statusCode: number | null
-  outcome: string
-  count: number
-  lastSeenAt: string
 }
 
 export interface RecentRequestLogDisplay {
@@ -702,10 +695,8 @@ export interface UsageDimensionItem {
 
 export interface UsageStatistics {
   summary: UsageStatsSummary
-  dailyTrend: DailyTrendItem[]
   keyUsage: UsageDimensionItem[]
   projectUsage: UsageDimensionItem[]
-  failures: FailureStatsItem[]
 }
 
 export interface ResourceUsageSummary {

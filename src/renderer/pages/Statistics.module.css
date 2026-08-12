@@ -86,12 +86,6 @@
   border-radius: var(--radius-ant-lg) !important;
 }
 
-.trendHint {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-}
-
 .trendEmpty {
   display: flex;
   align-items: center;

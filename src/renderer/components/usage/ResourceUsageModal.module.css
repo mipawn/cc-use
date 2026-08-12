@@ -39,7 +39,12 @@
 }
 
 .summaryGrid :global(.ant-statistic-content) {
-  font-size: 20px;
+  font-size: 18px;
+}
+
+.summaryGrid :global(.ant-statistic-title) {
+  margin-bottom: 2px;
+  font-size: 12px;
 }
 
 .chartCard {

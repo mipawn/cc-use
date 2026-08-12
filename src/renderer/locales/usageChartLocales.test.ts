@@ -7,6 +7,9 @@ describe('usage chart locales', () => {
     for (const locale of [zh, en]) {
       expect(locale.statistics.chartSampledHint).toBeTruthy()
       expect(locale.statistics.legendToggleHint).toBeTruthy()
+      expect(locale.statistics.lastYear).toBeTruthy()
+      expect(locale.statistics.year).toBeTruthy()
+      expect(locale.statistics.today).toBeTruthy()
       expect(locale.usageDetail.firstTokenLatency).toBeTruthy()
       expect(locale.usageDetail.usageTrend).toBeTruthy()
       expect(locale.usageDetail.qualityTrend).toBeTruthy()
@@ -17,5 +20,8 @@ describe('usage chart locales', () => {
     expect(zh.usageDetail.firstTokenLatency).toBe('首 Token 延迟')
     expect(zh.usageDetail.usageTrend).toBe('Token 构成')
     expect(zh.usageDetail.qualityTrend).toBe('线路质量')
+    expect(zh.statistics.lastYear).toBe('近一年')
+    expect(zh.statistics.year).toBe('本年')
+    expect(zh.statistics.today).toBe('今日')
   })
 })

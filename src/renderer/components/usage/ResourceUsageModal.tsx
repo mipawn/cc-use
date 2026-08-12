@@ -192,7 +192,7 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
       destroyOnHidden
     >
       <div className={styles.toolbar}>
-        <UsageTimeRangePicker value={timeRange} onChange={setTimeRange} />
+        <UsageTimeRangePicker value={timeRange} onChange={setTimeRange} compact />
       </div>
 
       {loading ? (

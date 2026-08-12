@@ -460,17 +460,6 @@ pub struct DailyTrendItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FailureStatsItem {
-    pub provider_name: String,
-    pub key_alias: String,
-    pub status_code: Option<i32>,
-    pub outcome: String,
-    pub count: i64,
-    pub last_seen_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UsageDimensionItem {
     pub id: String,
     pub name: String,
@@ -511,10 +500,8 @@ pub struct PaginatedRecentRequests {
 #[serde(rename_all = "camelCase")]
 pub struct UsageStatistics {
     pub summary: UsageStatsSummary,
-    pub daily_trend: Vec<DailyTrendItem>,
     pub key_usage: Vec<UsageDimensionItem>,
     pub project_usage: Vec<UsageDimensionItem>,
-    pub failures: Vec<FailureStatsItem>,
 }
 
 /// Provider/key-level observability. Unlike the global statistics summary,

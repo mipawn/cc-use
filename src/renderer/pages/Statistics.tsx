@@ -1,7 +1,7 @@
 import { getApi } from '../api'
 /**
  * Statistics - 用量统计页面
- * v3.7.0: 只讲 Token 与真实行为 —— 构成、趋势、Key/项目、失败与请求。
+ * v3.8.0: 聚焦 Token 构成、Key / 项目归因和可追溯的请求记录。
  */
 import { useEffect, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
@@ -14,7 +14,6 @@ import {
   WarningOutlined,
   KeyOutlined,
   FolderOpenOutlined,
-  LineChartOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -24,24 +23,13 @@ import type {
   StatsTimeRange,
   RequestOutcome,
   UsageDimensionItem,
-  DailyTrendItem,
 } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
-import MultiMetricLineChart, {
-  type LineAxisDefinition,
-  type LineSeries,
-  type TooltipMetric,
-} from '../components/usage/MultiMetricLineChart'
 import UsageTimeRangePicker from '../components/usage/UsageTimeRangePicker'
 import usageChartColors from '../components/usage/usageChartColors'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
-
-function dailyCacheHitRate(day: DailyTrendItem): number {
-  const inputSide = day.inputTokens + day.cacheReadTokens + day.cacheCreationTokens
-  return inputSide > 0 ? day.cacheReadTokens / inputSide : 0
-}
 
 function displayName(value: string | null | undefined, fallback: string): string {
   const trimmed = value?.trim()
@@ -233,46 +221,6 @@ export default function Statistics() {
     },
   ]
 
-  const failureColumns = [
-    {
-      title: t('statistics.provider'),
-      dataIndex: 'providerName',
-      key: 'providerName',
-      ellipsis: true,
-      render: (v: string) => displayName(v, '-'),
-    },
-    {
-      title: t('statistics.key'),
-      dataIndex: 'keyAlias',
-      key: 'keyAlias',
-      ellipsis: true,
-      render: (v: string) => displayName(v, '-'),
-    },
-    {
-      title: t('statistics.status'),
-      dataIndex: 'statusCode',
-      key: 'statusCode',
-      width: 100,
-      render: (v: number | null, record: { outcome: string }) => (
-        <Tag color={OUTCOME_COLORS[record.outcome] || 'default'}>{v ?? record.outcome}</Tag>
-      ),
-    },
-    {
-      title: t('statistics.failureCount'),
-      dataIndex: 'count',
-      key: 'count',
-      width: 90,
-      align: 'right' as const,
-    },
-    {
-      title: t('statistics.lastSeenAt'),
-      dataIndex: 'lastSeenAt',
-      key: 'lastSeenAt',
-      width: 170,
-      render: (v: string) => new Date(v).toLocaleString(),
-    },
-  ]
-
   const dimensionColumns = [
     {
       title: t('statistics.name'),
@@ -345,72 +293,6 @@ export default function Statistics() {
       ]
     : []
   const compositionTotal = compositionParts.reduce((sum, part) => sum + part.value, 0)
-  const tokenAxis: LineAxisDefinition = {
-    key: 'tokens',
-    label: t('statistics.axisTokens'),
-    orientation: 'left',
-    formatTick: (value) => formatTokenCount(value, language),
-  }
-  const percentAxis: LineAxisDefinition = {
-    key: 'percent',
-    label: t('statistics.axisPercent'),
-    orientation: 'right',
-    formatTick: (value) => `${Math.round(value * 100)}%`,
-    domain: [0, 1],
-    allowDecimals: true,
-  }
-  const globalTrendSeries: LineSeries<DailyTrendItem>[] = [
-    {
-      key: 'inputTokens',
-      label: t('statistics.inputTokens'),
-      color: usageChartColors.input,
-      axisKey: 'tokens',
-      value: (item) => item.inputTokens,
-      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
-    },
-    {
-      key: 'outputTokens',
-      label: t('statistics.outputTokens'),
-      color: usageChartColors.output,
-      axisKey: 'tokens',
-      value: (item) => item.outputTokens,
-      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
-    },
-    {
-      key: 'cacheReadTokens',
-      label: t('statistics.cacheReadTokens'),
-      color: usageChartColors.cacheRead,
-      axisKey: 'tokens',
-      value: (item) => item.cacheReadTokens,
-      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
-    },
-    {
-      key: 'cacheCreationTokens',
-      label: t('statistics.cacheCreationTokens'),
-      color: usageChartColors.cacheCreation,
-      axisKey: 'tokens',
-      value: (item) => item.cacheCreationTokens,
-      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
-    },
-    {
-      key: 'cacheHitRate',
-      label: t('statistics.cacheHitRate'),
-      color: usageChartColors.cacheRate,
-      axisKey: 'percent',
-      value: dailyCacheHitRate,
-      format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
-    },
-  ]
-  const globalTooltipMetrics: TooltipMetric<DailyTrendItem>[] = [
-    {
-      key: 'requests',
-      label: t('statistics.requests'),
-      color: token.colorTextTertiary,
-      value: (item) => item.requests,
-      format: (value) => (value == null ? '-' : Math.round(value).toLocaleString()),
-    },
-  ]
-
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
     setRecentPage(pagination.current || 1)
     setRecentPageSize(pagination.pageSize || 10)
@@ -572,36 +454,6 @@ export default function Statistics() {
                 )}
               </Card>
 
-              {/* Daily Trend Chart */}
-              {stats!.dailyTrend.length > 0 && (
-                <Card
-                  className={styles.trendCard}
-                  variant='outlined'
-                  title={
-                    <Space>
-                      <LineChartOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.dailyUsageTrend')}</span>
-                    </Space>
-                  }
-                >
-                  <MultiMetricLineChart
-                    data={stats.dailyTrend}
-                    series={globalTrendSeries}
-                    tooltipMetrics={globalTooltipMetrics}
-                    axes={[tokenAxis, percentAxis]}
-                    getDate={(item) => item.date}
-                    ariaLabel={t('statistics.dailyUsageTrend')}
-                    legendHint={t('statistics.legendToggleHint')}
-                    sampledHint={(shown, total) =>
-                      t('statistics.chartSampledHint', { shown, total })
-                    }
-                  />
-                  <Text type='secondary' className={styles.trendHint}>
-                    {t('statistics.multiLineHint')}
-                  </Text>
-                </Card>
-              )}
-
               {/* Key / project dimensions for the selected range */}
               <div className={styles.dimensionGrid}>
                 <Card
@@ -653,31 +505,6 @@ export default function Statistics() {
                   />
                 </Card>
               </div>
-
-              {/* Failures */}
-              {stats!.failures.length > 0 && (
-                <Card
-                  className={styles.recentCard}
-                  variant='outlined'
-                  title={
-                    <Space>
-                      <WarningOutlined style={{ color: token.colorError }} />
-                      <span>{t('statistics.failures')}</span>
-                    </Space>
-                  }
-                >
-                  <Table
-                    dataSource={stats!.failures}
-                    columns={failureColumns}
-                    rowKey={(record) =>
-                      `${record.providerName}-${record.keyAlias}-${record.statusCode}-${record.outcome}`
-                    }
-                    size='small'
-                    pagination={false}
-                    scroll={{ y: 240 }}
-                  />
-                </Card>
-              )}
 
               {/* Recent Requests */}
               <Card

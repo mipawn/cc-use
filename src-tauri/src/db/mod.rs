@@ -317,6 +317,10 @@ impl Database {
                 "WHERE {} >= DATE('now', 'localtime', '-29 days')",
                 local_date
             ),
+            "lastYear" => format!(
+                "WHERE {} >= DATE('now', 'localtime', '-364 days')",
+                local_date
+            ),
             "month" => format!(
                 "WHERE {} >= DATE('now', 'localtime', 'start of month')",
                 local_date
@@ -324,6 +328,10 @@ impl Database {
             "lastMonth" => format!(
                 "WHERE {} >= DATE('now', 'localtime', 'start of month', '-1 month') AND {} < DATE('now', 'localtime', 'start of month')",
                 local_date, local_date
+            ),
+            "year" => format!(
+                "WHERE {} >= DATE('now', 'localtime', 'start of year')",
+                local_date
             ),
             custom if custom.starts_with("custom:") => {
                 let mut parts = custom.split(':');
@@ -617,8 +625,12 @@ mod tests {
 
         let rolling_week = db.time_range_where("created_at", "week");
         let rolling_month = db.time_range_where("created_at", "last30Days");
+        let rolling_year = db.time_range_where("created_at", "lastYear");
+        let current_year = db.time_range_where("created_at", "year");
         assert!(rolling_week.contains("'-6 days'"));
         assert!(rolling_month.contains("'-29 days'"));
+        assert!(rolling_year.contains("'-364 days'"));
+        assert!(current_year.contains("'start of year'"));
     }
 
     fn seed_legacy_keychain_references(db: &Database) {

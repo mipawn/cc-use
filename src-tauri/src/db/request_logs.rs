@@ -1,6 +1,6 @@
 use crate::db::Database;
 use crate::models::{
-    DailyTrendItem, FailureStatsItem, PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog,
+    DailyTrendItem, PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog,
     ResourceUsageStatistics, ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem,
     UsageOverview, UsageStatistics, UsageStatsSummary,
 };
@@ -208,7 +208,7 @@ impl Database {
         })
     }
 
-    /// Statistics page payload: composition, daily trend, dimensions, failures.
+    /// Statistics page payload: composition, dimensions and summary quality signals.
     pub fn request_log_get_statistics(
         &self,
         time_range: &str,
@@ -261,29 +261,6 @@ impl Database {
             |row| row.get(0),
         )?;
 
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT COALESCE(provider_name, ''), COALESCE(key_alias, ''),
-                    status_code, COALESCE(outcome, ''), COUNT(*), MAX(created_at)
-             FROM request_logs {}
-             GROUP BY provider_name, key_alias, status_code, outcome
-             ORDER BY MAX(created_at) DESC
-             LIMIT 50",
-            failure_where
-        ))?;
-        let failures: Vec<FailureStatsItem> = stmt
-            .query_map([], |row| {
-                Ok(FailureStatsItem {
-                    provider_name: row.get(0)?,
-                    key_alias: row.get(1)?,
-                    status_code: row.get(2)?,
-                    outcome: row.get(3)?,
-                    count: row.get(4)?,
-                    last_seen_at: row.get(5)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
         let input_side = total_input_tokens + total_cache_read_tokens + total_cache_creation_tokens;
         let cache_hit_rate = if input_side > 0 {
             total_cache_read_tokens as f64 / input_side as f64
@@ -306,7 +283,6 @@ impl Database {
             avg_latency_ms,
         };
 
-        let daily_trend = self.request_log_get_daily_trend_for_range(time_range)?;
         let dimension_where =
             self.billable_request_logs_where_with_alias("r.created_at", "r", time_range);
 
@@ -372,10 +348,8 @@ impl Database {
 
         Ok(UsageStatistics {
             summary,
-            daily_trend,
             key_usage,
             project_usage,
-            failures,
         })
     }
 
@@ -801,8 +775,6 @@ mod tests {
             .request_log_get_statistics("custom:2026-07-01:2026-07-31")
             .unwrap();
         assert_eq!(july.summary.total_requests, 1);
-        assert_eq!(july.daily_trend[0].date, "2026-07-15");
-
         let invalid = db
             .request_log_get_statistics("custom:not-a-date:2026-07-31")
             .unwrap();
@@ -823,14 +795,6 @@ mod tests {
         let stats = db.request_log_get_statistics("all").unwrap();
         assert_eq!(stats.summary.total_requests, 1, "billable scope");
         assert_eq!(stats.summary.failed_requests, 2, "failure scope");
-        assert_eq!(stats.failures.len(), 2);
-        let rate_limited = stats
-            .failures
-            .iter()
-            .find(|f| f.status_code == Some(429))
-            .expect("429 aggregated");
-        assert_eq!(rate_limited.count, 1);
-        assert_eq!(rate_limited.outcome, "client_error");
     }
 
     #[test]
@@ -885,7 +849,7 @@ mod tests {
     }
 
     #[test]
-    fn statistics_trend_uses_the_selected_time_range() {
+    fn statistics_summary_uses_the_selected_time_range() {
         let db = Database::new_in_memory().unwrap();
         let now = chrono::Local::now();
 
@@ -906,9 +870,7 @@ mod tests {
         let all = db.request_log_get_statistics("all").unwrap();
 
         assert_eq!(today.summary.total_requests, 1);
-        assert_eq!(today.daily_trend.len(), 1);
         assert_eq!(all.summary.total_requests, 2);
-        assert_eq!(all.daily_trend.len(), 2);
     }
 
     #[test]
@@ -923,8 +885,9 @@ mod tests {
         let stats = db.request_log_get_statistics("all").unwrap();
         assert_eq!(stats.summary.total_requests, 1);
         // v3.7.0: cache traffic is part of the headline token number.
-        assert_eq!(stats.daily_trend[0].tokens, 1_000);
-        assert_eq!(stats.daily_trend[0].cache_read_tokens, 1_000);
+        let trend = db.request_log_get_daily_trend_for_range("all").unwrap();
+        assert_eq!(trend[0].tokens, 1_000);
+        assert_eq!(trend[0].cache_read_tokens, 1_000);
 
         let overview = db.request_log_get_overview().unwrap();
         assert_eq!(overview.today_tokens, 1_000);

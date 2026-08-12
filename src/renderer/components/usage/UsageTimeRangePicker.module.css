@@ -20,6 +20,18 @@
   width: 250px;
 }
 
+.compact {
+  gap: 8px;
+}
+
+.compact .presetSegmented {
+  padding: 2px !important;
+}
+
+.compact .rangePicker {
+  width: 228px;
+}
+
 @media (max-width: 640px) {
   .presetSegmented,
   .rangePicker {

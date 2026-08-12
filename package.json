@@ -40,6 +40,7 @@
     "@tauri-apps/plugin-updater": "^2.10.0",
     "antd": "^6.2.3",
     "clsx": "^2.1.1",
+    "dayjs": "^1.11.19",
     "i18next": "^25.8.0",
     "lodash-es": "^4.17.21",
     "nanoid": "^5.0.9",
