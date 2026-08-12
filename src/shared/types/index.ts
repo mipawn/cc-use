@@ -626,8 +626,6 @@ export type StatsTimeRange =
   | 'yesterday'
   | 'week'
   | 'last30Days'
-  | 'thisWeek'
-  | 'lastWeek'
   | 'month'
   | 'lastMonth'
   | 'all'
@@ -725,6 +723,10 @@ export interface ResourceUsageSummary {
 export interface ResourceUsageTrendItem {
   date: string
   tokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
   requests: number
   failedRequests: number
   successRate: number

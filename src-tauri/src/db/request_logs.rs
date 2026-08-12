@@ -461,8 +461,9 @@ impl Database {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {} AS d, COALESCE(SUM({}), 0), COUNT(*),
                     COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
-                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
-                    COALESCE(SUM(cache_creation_tokens), 0), AVG(latency_ms), AVG(first_token_ms)
+                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
+                    AVG(latency_ms), AVG(first_token_ms)
              FROM request_logs {} GROUP BY d ORDER BY d ASC",
             created_date, TOKEN_SUM, scoped_where
         ))?;
@@ -471,12 +472,17 @@ impl Database {
                 let requests = row.get::<_, i64>(2)?;
                 let failed_requests = row.get::<_, i64>(3)?;
                 let input_tokens = row.get::<_, i64>(4)?;
-                let cache_read_tokens = row.get::<_, i64>(5)?;
-                let cache_creation_tokens = row.get::<_, i64>(6)?;
+                let output_tokens = row.get::<_, i64>(5)?;
+                let cache_read_tokens = row.get::<_, i64>(6)?;
+                let cache_creation_tokens = row.get::<_, i64>(7)?;
                 let cacheable_input = input_tokens + cache_read_tokens + cache_creation_tokens;
                 Ok(ResourceUsageTrendItem {
                     date: row.get(0)?,
                     tokens: row.get(1)?,
+                    input_tokens,
+                    output_tokens,
+                    cache_read_tokens,
+                    cache_creation_tokens,
                     requests,
                     failed_requests,
                     success_rate: if requests > 0 {
@@ -489,8 +495,8 @@ impl Database {
                     } else {
                         0.0
                     },
-                    avg_latency_ms: row.get(7)?,
-                    avg_first_token_ms: row.get(8)?,
+                    avg_latency_ms: row.get(8)?,
+                    avg_first_token_ms: row.get(9)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -987,6 +993,10 @@ mod tests {
         assert_eq!(key_stats.summary.avg_first_token_ms, Some(200.0));
         assert_eq!(key_stats.daily_trend.len(), 1);
         assert_eq!(key_stats.daily_trend[0].failed_requests, 1);
+        assert_eq!(key_stats.daily_trend[0].input_tokens, 100);
+        assert_eq!(key_stats.daily_trend[0].output_tokens, 50);
+        assert_eq!(key_stats.daily_trend[0].cache_read_tokens, 300);
+        assert_eq!(key_stats.daily_trend[0].cache_creation_tokens, 0);
 
         let provider_stats = db
             .request_log_get_resource_statistics("all", Some("provider-1"), None)

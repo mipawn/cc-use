@@ -125,6 +125,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+.tooltipMetaGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 1px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
 @media (max-width: 720px) {
   .legend {
     flex-direction: column;

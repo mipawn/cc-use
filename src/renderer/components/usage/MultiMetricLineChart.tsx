@@ -30,18 +30,40 @@ interface LineSeries<T> {
   format: (value: number | null) => string
 }
 
+interface TooltipMetric<T> {
+  key: string
+  label: string
+  color: string
+  value: (item: T) => number | null
+  format: (value: number | null) => string
+}
+
 interface MultiMetricLineChartProps<T> {
   data: T[]
   series: LineSeries<T>[]
+  tooltipMetrics?: TooltipMetric<T>[]
   axes: LineAxisDefinition[]
   getDate: (item: T) => string
   ariaLabel: string
   legendHint: string
+  sampledHint: (shown: number, total: number) => string
 }
 
 interface ChartDatum {
   date: string
   [key: string]: string | number | null
+}
+
+const MAX_RENDERED_POINTS = 400
+
+function sampleEvenly<T>(data: T[], limit = MAX_RENDERED_POINTS): T[] {
+  if (limit <= 0) return []
+  if (limit === 1) return data.length === 0 ? [] : [data[0]]
+  if (data.length <= limit) return data
+  return Array.from({ length: limit }, (_, index) => {
+    const sourceIndex = Math.round((index * (data.length - 1)) / (limit - 1))
+    return data[sourceIndex]
+  })
 }
 
 function dateLabel(date: string): string {
@@ -52,24 +74,28 @@ function dateLabel(date: string): string {
 function MultiMetricLineChart<T>({
   data,
   series,
+  tooltipMetrics = [],
   axes,
   getDate,
   ariaLabel,
   legendHint,
+  sampledHint,
 }: MultiMetricLineChartProps<T>) {
   const { token } = theme.useToken()
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(() => new Set())
 
+  const renderedData = useMemo(() => sampleEvenly(data), [data])
   const chartData = useMemo<ChartDatum[]>(
     () =>
-      data.map((item) => {
+      renderedData.map((item) => {
         const datum: ChartDatum = { date: getDate(item) }
-        series.forEach((definition) => {
+        const metricDefinitions = [...series, ...tooltipMetrics]
+        metricDefinitions.forEach((definition) => {
           datum[definition.key] = definition.value(item)
         })
         return datum
       }),
-    [data, getDate, series],
+    [getDate, renderedData, series, tooltipMetrics],
   )
 
   const visibleSeries = series.filter((item) => !hiddenSeries.has(item.key))
@@ -87,6 +113,7 @@ function MultiMetricLineChart<T>({
 
   const renderTooltip = ({ active, payload, label }: TooltipContentProps<number, string>) => {
     if (!active || !payload?.length) return null
+    const datum = payload[0]?.payload as ChartDatum | undefined
     return (
       <div className={styles.tooltip} role='tooltip' data-testid='multi-metric-chart-tooltip'>
         <strong className={styles.tooltipDate}>{String(label)}</strong>
@@ -102,6 +129,21 @@ function MultiMetricLineChart<T>({
             </span>
           )
         })}
+        {datum && tooltipMetrics.length > 0 && (
+          <span className={styles.tooltipMetaGroup}>
+            {tooltipMetrics.map((metric) => {
+              const rawValue = datum[metric.key]
+              const value = typeof rawValue === 'number' ? rawValue : null
+              return (
+                <span key={metric.key} className={styles.tooltipRow}>
+                  <span className={styles.tooltipDot} style={{ background: metric.color }} />
+                  <span className={styles.tooltipLabel}>{metric.label}</span>
+                  <strong>{metric.format(value)}</strong>
+                </span>
+              )
+            })}
+          </span>
+        )}
       </div>
     )
   }
@@ -126,7 +168,11 @@ function MultiMetricLineChart<T>({
             )
           })}
         </div>
-        <span className={styles.legendHint}>{legendHint}</span>
+        <span className={styles.legendHint}>
+          {data.length > renderedData.length
+            ? sampledHint(renderedData.length, data.length)
+            : legendHint}
+        </span>
       </div>
 
       <div className={styles.axisCaptions} aria-hidden='true'>
@@ -134,7 +180,11 @@ function MultiMetricLineChart<T>({
         <span>{visibleAxes.find((axis) => axis.orientation === 'right')?.label}</span>
       </div>
 
-      <div className={styles.chartWrap}>
+      <div
+        className={styles.chartWrap}
+        data-input-points={data.length}
+        data-rendered-points={renderedData.length}
+      >
         <ResponsiveContainer width='100%' height={286} minWidth={0}>
           <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
             <CartesianGrid
@@ -193,4 +243,5 @@ function MultiMetricLineChart<T>({
 }
 
 export default MultiMetricLineChart
-export type { LineAxisDefinition, LineSeries }
+export { MAX_RENDERED_POINTS, sampleEvenly }
+export type { LineAxisDefinition, LineSeries, TooltipMetric }

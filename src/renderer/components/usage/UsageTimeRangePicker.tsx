@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
-import { CalendarOutlined } from '@ant-design/icons'
-import { DatePicker, Select } from 'antd'
+import { DatePicker, Segmented } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { StatsTimeRange } from '@shared/types'
 import styles from './UsageTimeRangePicker.module.css'
 
 const { RangePicker } = DatePicker
 
-type TimeRangeMode = Exclude<StatsTimeRange, `custom:${string}:${string}`> | 'custom'
+type TimeRangeMode = 'week' | 'last30Days' | 'month' | 'lastMonth' | 'custom'
 
 interface UsageTimeRangePickerProps {
   value: StatsTimeRange
@@ -15,7 +14,9 @@ interface UsageTimeRangePickerProps {
 }
 
 function modeFromValue(value: StatsTimeRange): TimeRangeMode {
-  return value.startsWith('custom:') ? 'custom' : (value as TimeRangeMode)
+  if (value.startsWith('custom:')) return 'custom'
+  if (value === 'last30Days' || value === 'month' || value === 'lastMonth') return value
+  return 'week'
 }
 
 export default function UsageTimeRangePicker({ value, onChange }: UsageTimeRangePickerProps) {
@@ -29,27 +30,21 @@ export default function UsageTimeRangePicker({ value, onChange }: UsageTimeRange
   const options: { value: TimeRangeMode; label: string }[] = [
     { value: 'week', label: t('statistics.week') },
     { value: 'last30Days', label: t('statistics.last30Days') },
-    { value: 'thisWeek', label: t('statistics.thisWeek') },
-    { value: 'lastWeek', label: t('statistics.lastWeek') },
     { value: 'month', label: t('statistics.month') },
     { value: 'lastMonth', label: t('statistics.lastMonth') },
-    { value: 'today', label: t('statistics.today') },
-    { value: 'yesterday', label: t('statistics.yesterday') },
-    { value: 'all', label: t('statistics.all') },
     { value: 'custom', label: t('statistics.custom') },
   ]
 
   return (
     <div className={styles.root}>
-      <Select<TimeRangeMode>
+      <Segmented<TimeRangeMode>
         value={mode}
         options={options}
         onChange={(next) => {
           setMode(next)
           if (next !== 'custom') onChange(next)
         }}
-        suffixIcon={<CalendarOutlined />}
-        className={styles.presetSelect}
+        className={styles.presetSegmented}
         aria-label={t('statistics.timeRange')}
       />
       {mode === 'custom' && (
@@ -57,6 +52,8 @@ export default function UsageTimeRangePicker({ value, onChange }: UsageTimeRange
           className={styles.rangePicker}
           allowClear={false}
           format='YYYY-MM-DD'
+          placeholder={[t('statistics.startDate'), t('statistics.endDate')]}
+          separator={t('statistics.rangeSeparator')}
           disabledDate={(current) => current.valueOf() > Date.now()}
           onChange={(dates, dateStrings) => {
             if (dates?.[0] && dates[1] && dateStrings[0] && dateStrings[1]) {

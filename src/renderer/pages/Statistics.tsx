@@ -5,18 +5,7 @@ import { getApi } from '../api'
  */
 import { useEffect, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
-import {
-  Typography,
-  Card,
-  Segmented,
-  Table,
-  Tag,
-  Spin,
-  theme,
-  Space,
-  Statistic,
-  Tooltip,
-} from 'antd'
+import { Typography, Card, Table, Tag, Spin, theme, Space, Statistic, Tooltip } from 'antd'
 import {
   ThunderboltOutlined,
   DatabaseOutlined,
@@ -41,12 +30,13 @@ import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import MultiMetricLineChart, {
   type LineAxisDefinition,
   type LineSeries,
+  type TooltipMetric,
 } from '../components/usage/MultiMetricLineChart'
 import UsageTimeRangePicker from '../components/usage/UsageTimeRangePicker'
+import usageChartColors from '../components/usage/usageChartColors'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
-type GlobalTrendView = 'tokens' | 'requests'
 
 function dailyCacheHitRate(day: DailyTrendItem): number {
   const inputSide = day.inputTokens + day.cacheReadTokens + day.cacheCreationTokens
@@ -77,7 +67,6 @@ export default function Statistics() {
   )
 
   const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
-  const [trendView, setTrendView] = useState<GlobalTrendView>('tokens')
   const [stats, setStats] = useState<UsageStatistics | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentRequests, setRecentRequests] = useState<PaginatedRecentRequests | null>(null)
@@ -333,25 +322,25 @@ export default function Statistics() {
           key: 'input',
           label: t('statistics.inputTokens'),
           value: summary.totalInputTokens,
-          color: token.colorPrimary,
+          color: usageChartColors.input,
         },
         {
           key: 'output',
           label: t('statistics.outputTokens'),
           value: summary.totalOutputTokens,
-          color: token.colorSuccess,
+          color: usageChartColors.output,
         },
         {
           key: 'cacheRead',
           label: t('statistics.cacheReadTokens'),
           value: summary.totalCacheReadTokens,
-          color: token.colorInfo,
+          color: usageChartColors.cacheRead,
         },
         {
           key: 'cacheCreation',
           label: t('statistics.cacheCreationTokens'),
           value: summary.totalCacheCreationTokens,
-          color: token.colorWarning,
+          color: usageChartColors.cacheCreation,
         },
       ]
     : []
@@ -362,12 +351,6 @@ export default function Statistics() {
     orientation: 'left',
     formatTick: (value) => formatTokenCount(value, language),
   }
-  const requestAxis: LineAxisDefinition = {
-    key: 'requests',
-    label: t('statistics.axisRequests'),
-    orientation: 'left',
-    formatTick: (value) => Math.round(value).toLocaleString(),
-  }
   const percentAxis: LineAxisDefinition = {
     key: 'percent',
     label: t('statistics.axisPercent'),
@@ -376,61 +359,57 @@ export default function Statistics() {
     domain: [0, 1],
     allowDecimals: true,
   }
-  const globalTrendSeries: LineSeries<DailyTrendItem>[] =
-    trendView === 'tokens'
-      ? [
-          {
-            key: 'inputTokens',
-            label: t('statistics.inputTokens'),
-            color: token.colorPrimary,
-            axisKey: 'tokens',
-            value: (item) => item.inputTokens,
-            format: (value) => (value == null ? '-' : formatTokenCount(value, language)),
-          },
-          {
-            key: 'outputTokens',
-            label: t('statistics.outputTokens'),
-            color: token.colorSuccess,
-            axisKey: 'tokens',
-            value: (item) => item.outputTokens,
-            format: (value) => (value == null ? '-' : formatTokenCount(value, language)),
-          },
-          {
-            key: 'cacheReadTokens',
-            label: t('statistics.cacheReadTokens'),
-            color: token.colorInfo,
-            axisKey: 'tokens',
-            value: (item) => item.cacheReadTokens,
-            format: (value) => (value == null ? '-' : formatTokenCount(value, language)),
-          },
-          {
-            key: 'cacheCreationTokens',
-            label: t('statistics.cacheCreationTokens'),
-            color: token.colorWarning,
-            axisKey: 'tokens',
-            value: (item) => item.cacheCreationTokens,
-            format: (value) => (value == null ? '-' : formatTokenCount(value, language)),
-          },
-        ]
-      : [
-          {
-            key: 'requests',
-            label: t('statistics.requests'),
-            color: token.colorWarning,
-            axisKey: 'requests',
-            value: (item) => item.requests,
-            format: (value) => (value == null ? '-' : Math.round(value).toLocaleString()),
-          },
-          {
-            key: 'cacheHitRate',
-            label: t('statistics.cacheHitRate'),
-            color: '#9254de',
-            axisKey: 'percent',
-            value: dailyCacheHitRate,
-            format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
-          },
-        ]
-  const globalTrendAxes = trendView === 'tokens' ? [tokenAxis] : [requestAxis, percentAxis]
+  const globalTrendSeries: LineSeries<DailyTrendItem>[] = [
+    {
+      key: 'inputTokens',
+      label: t('statistics.inputTokens'),
+      color: usageChartColors.input,
+      axisKey: 'tokens',
+      value: (item) => item.inputTokens,
+      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
+    },
+    {
+      key: 'outputTokens',
+      label: t('statistics.outputTokens'),
+      color: usageChartColors.output,
+      axisKey: 'tokens',
+      value: (item) => item.outputTokens,
+      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
+    },
+    {
+      key: 'cacheReadTokens',
+      label: t('statistics.cacheReadTokens'),
+      color: usageChartColors.cacheRead,
+      axisKey: 'tokens',
+      value: (item) => item.cacheReadTokens,
+      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
+    },
+    {
+      key: 'cacheCreationTokens',
+      label: t('statistics.cacheCreationTokens'),
+      color: usageChartColors.cacheCreation,
+      axisKey: 'tokens',
+      value: (item) => item.cacheCreationTokens,
+      format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
+    },
+    {
+      key: 'cacheHitRate',
+      label: t('statistics.cacheHitRate'),
+      color: usageChartColors.cacheRate,
+      axisKey: 'percent',
+      value: dailyCacheHitRate,
+      format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+    },
+  ]
+  const globalTooltipMetrics: TooltipMetric<DailyTrendItem>[] = [
+    {
+      key: 'requests',
+      label: t('statistics.requests'),
+      color: token.colorTextTertiary,
+      value: (item) => item.requests,
+      format: (value) => (value == null ? '-' : Math.round(value).toLocaleString()),
+    },
+  ]
 
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
     setRecentPage(pagination.current || 1)
@@ -604,25 +583,18 @@ export default function Statistics() {
                       <span>{t('statistics.dailyUsageTrend')}</span>
                     </Space>
                   }
-                  extra={
-                    <Segmented<GlobalTrendView>
-                      size='small'
-                      value={trendView}
-                      onChange={setTrendView}
-                      options={[
-                        { value: 'tokens', label: t('statistics.tokenTrend') },
-                        { value: 'requests', label: t('statistics.requestCacheTrend') },
-                      ]}
-                    />
-                  }
                 >
                   <MultiMetricLineChart
                     data={stats.dailyTrend}
                     series={globalTrendSeries}
-                    axes={globalTrendAxes}
+                    tooltipMetrics={globalTooltipMetrics}
+                    axes={[tokenAxis, percentAxis]}
                     getDate={(item) => item.date}
                     ariaLabel={t('statistics.dailyUsageTrend')}
                     legendHint={t('statistics.legendToggleHint')}
+                    sampledHint={(shown, total) =>
+                      t('statistics.chartSampledHint', { shown, total })
+                    }
                   />
                   <Text type='secondary' className={styles.trendHint}>
                     {t('statistics.multiLineHint')}

@@ -538,6 +538,10 @@ pub struct ResourceUsageSummary {
 pub struct ResourceUsageTrendItem {
     pub date: String,
     pub tokens: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
     pub requests: i64,
     pub failed_requests: i64,
     pub success_rate: f64,

@@ -4,6 +4,8 @@ import { ConfigProvider } from 'antd'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import MultiMetricLineChart, {
+  MAX_RENDERED_POINTS,
+  sampleEvenly,
   type LineAxisDefinition,
   type LineSeries,
 } from './MultiMetricLineChart'
@@ -113,6 +115,7 @@ describe('MultiMetricLineChart', () => {
             getDate={(item) => item.date}
             ariaLabel='多指标趋势'
             legendHint='点击图例显示 / 隐藏'
+            sampledHint={(shown, total) => `展示 ${shown} / ${total}`}
           />
         </ConfigProvider>,
       )
@@ -131,5 +134,14 @@ describe('MultiMetricLineChart', () => {
     expect(container.textContent?.match(/Token/g)).toHaveLength(1)
 
     act(() => root.unmount())
+  })
+
+  it('caps rendered points while preserving both ends of a large range', () => {
+    const largeRange = Array.from({ length: 2_000 }, (_, index) => index)
+    const sampled = sampleEvenly(largeRange)
+
+    expect(sampled).toHaveLength(MAX_RENDERED_POINTS)
+    expect(sampled[0]).toBe(0)
+    expect(sampled.at(-1)).toBe(1_999)
   })
 })
