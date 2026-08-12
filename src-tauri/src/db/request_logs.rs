@@ -381,6 +381,8 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?;
 
         let created_date = Self::local_date_expr("created_at");
+        let trend_granularity = Self::trend_granularity(time_range);
+        let trend_bucket = Self::trend_bucket_expr(&created_date, trend_granularity);
         let mut model_stmt = self.conn.prepare(&format!(
             "SELECT {} AS d,
                     COALESCE(NULLIF(TRIM(model), ''), NULLIF(TRIM(request_model), ''), ''),
@@ -388,7 +390,7 @@ impl Database {
              FROM request_logs {}
              GROUP BY d, 2
              ORDER BY d DESC, 3 DESC, 2 ASC",
-            created_date, TOKEN_SUM, where_clause
+            trend_bucket, TOKEN_SUM, where_clause
         ))?;
         let daily_model_usage = model_stmt
             .query_map([], |row| {
@@ -405,6 +407,7 @@ impl Database {
             daily_model_usage,
             key_usage,
             project_usage,
+            trend_granularity: trend_granularity.to_string(),
         })
     }
 

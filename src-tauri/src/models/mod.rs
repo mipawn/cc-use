@@ -511,6 +511,7 @@ pub struct UsageStatistics {
     pub daily_model_usage: Vec<DailyModelUsageItem>,
     pub key_usage: Vec<UsageDimensionItem>,
     pub project_usage: Vec<UsageDimensionItem>,
+    pub trend_granularity: String,
 }
 
 /// Provider/key-level observability. Unlike the global statistics summary,

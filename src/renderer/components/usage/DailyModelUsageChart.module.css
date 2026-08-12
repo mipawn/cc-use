@@ -1,0 +1,122 @@
+.root {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.legendItems {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 999px;
+  background: var(--ant-color-bg-container);
+  color: var(--ant-color-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    opacity 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.legendItem:hover {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-fill-tertiary);
+}
+
+.legendItem:focus-visible {
+  outline: 2px solid var(--ant-color-primary-border);
+  outline-offset: 2px;
+}
+
+.legendItemHidden {
+  opacity: 0.42;
+  background: transparent;
+}
+
+.legendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legendHint {
+  flex: 0 0 auto;
+  padding-top: 4px;
+  color: var(--ant-color-text-tertiary);
+  font-size: 11px;
+}
+
+.chartWrap {
+  min-width: 0;
+  height: 286px;
+}
+
+.tooltip {
+  display: flex;
+  min-width: 196px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 10px;
+  background: var(--ant-color-bg-elevated);
+  color: var(--ant-color-text);
+  box-shadow: var(--ant-box-shadow-secondary);
+  font-size: 12px;
+}
+
+.tooltipDate {
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+  font-family: var(--font-mono);
+}
+
+.tooltipRow {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.tooltipDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.tooltipLabel {
+  color: var(--ant-color-text-secondary);
+}
+
+.tooltipRow strong {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .legend {
+    flex-direction: column;
+    gap: 4px;
+  }
+}

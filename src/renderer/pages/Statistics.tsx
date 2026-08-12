@@ -23,12 +23,11 @@ import type {
   PaginatedRecentRequests,
   StatsTimeRange,
   RequestOutcome,
-  DailyModelUsageItem,
   UsageDimensionItem,
 } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import UsageTimeRangePicker from '../components/usage/UsageTimeRangePicker'
-import usageChartColors from '../components/usage/usageChartColors'
+import DailyModelUsageChart from '../components/usage/DailyModelUsageChart'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
@@ -260,65 +259,11 @@ export default function Statistics() {
     },
   ]
 
-  const dailyModelColumns = [
-    {
-      title: t('statistics.date'),
-      dataIndex: 'date',
-      key: 'date',
-      width: 120,
-    },
-    {
-      title: t('statistics.model'),
-      dataIndex: 'model',
-      key: 'model',
-      ellipsis: true,
-      render: (value: string) => displayName(value, t('statistics.unknownModel')),
-    },
-    {
-      title: t('statistics.tokens'),
-      dataIndex: 'tokens',
-      key: 'tokens',
-      width: 120,
-      align: 'right' as const,
-      render: (value: number) => renderTokens(value),
-    },
-  ]
-
   const hasData = stats
     ? stats.summary.totalRequests > 0 || stats.summary.failedRequests > 0
     : false
   const summary = stats?.summary
 
-  // Token 构成条：input / output / cache_read / cache_creation
-  const compositionParts = summary
-    ? [
-        {
-          key: 'input',
-          label: t('statistics.inputTokens'),
-          value: summary.totalInputTokens,
-          color: usageChartColors.input,
-        },
-        {
-          key: 'output',
-          label: t('statistics.outputTokens'),
-          value: summary.totalOutputTokens,
-          color: usageChartColors.output,
-        },
-        {
-          key: 'cacheRead',
-          label: t('statistics.cacheReadTokens'),
-          value: summary.totalCacheReadTokens,
-          color: usageChartColors.cacheRead,
-        },
-        {
-          key: 'cacheCreation',
-          label: t('statistics.cacheCreationTokens'),
-          value: summary.totalCacheCreationTokens,
-          color: usageChartColors.cacheCreation,
-        },
-      ]
-    : []
-  const compositionTotal = compositionParts.reduce((sum, part) => sum + part.value, 0)
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
     setRecentPage(pagination.current || 1)
     setRecentPageSize(pagination.pageSize || 10)
@@ -407,79 +352,7 @@ export default function Statistics() {
                 </Card>
               </div>
 
-              {/* Token Composition */}
-              <Card
-                className={styles.trendCard}
-                variant='outlined'
-                title={
-                  <Space>
-                    <DatabaseOutlined style={{ color: token.colorPrimary }} />
-                    <span>{t('statistics.tokenComposition')}</span>
-                  </Space>
-                }
-              >
-                {compositionTotal > 0 ? (
-                  <div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        height: 12,
-                        borderRadius: 6,
-                        overflow: 'hidden',
-                        marginBottom: 12,
-                      }}
-                    >
-                      {compositionParts
-                        .filter((part) => part.value > 0)
-                        .map((part) => (
-                          <Tooltip
-                            key={part.key}
-                            title={`${part.label} · ${formatExactTokenCount(part.value, language)} (${((part.value / compositionTotal) * 100).toFixed(1)}%)`}
-                          >
-                            <div
-                              style={{
-                                width: `${(part.value / compositionTotal) * 100}%`,
-                                background: part.color,
-                                minWidth: 3,
-                              }}
-                            />
-                          </Tooltip>
-                        ))}
-                    </div>
-                    <Space size='large' wrap>
-                      {compositionParts.map((part) => (
-                        <Space key={part.key} size={6}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              width: 8,
-                              height: 8,
-                              borderRadius: 2,
-                              background: part.color,
-                            }}
-                          />
-                          <Text type='secondary' style={{ fontSize: 12 }}>
-                            {part.label}
-                          </Text>
-                          <Text strong style={{ fontSize: 12 }}>
-                            {formatTokenCount(part.value, language)}
-                          </Text>
-                          <Text type='secondary' style={{ fontSize: 12 }}>
-                            {compositionTotal > 0
-                              ? `${((part.value / compositionTotal) * 100).toFixed(1)}%`
-                              : '0%'}
-                          </Text>
-                        </Space>
-                      ))}
-                    </Space>
-                  </div>
-                ) : (
-                  <div className={styles.trendEmpty}>
-                    <Text type='secondary'>{t('statistics.noData')}</Text>
-                  </div>
-                )}
-              </Card>
-
+              {/* Model usage per time bucket */}
               <Card
                 className={styles.tableCard}
                 variant='outlined'
@@ -491,18 +364,19 @@ export default function Statistics() {
                 }
                 extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
               >
-                <Table<DailyModelUsageItem>
-                  dataSource={stats.dailyModelUsage}
-                  columns={dailyModelColumns}
-                  rowKey={(record) => `${record.date}-${record.model}`}
-                  size='small'
-                  pagination={
-                    stats.dailyModelUsage.length > 12
-                      ? { pageSize: 12, showSizeChanger: false, size: 'small' }
-                      : false
-                  }
-                  locale={{ emptyText: t('statistics.noData') }}
-                />
+                {stats.dailyModelUsage.length > 0 ? (
+                  <DailyModelUsageChart
+                    data={stats.dailyModelUsage}
+                    granularity={stats.trendGranularity}
+                    legendHint={t('statistics.legendToggleHint')}
+                    ariaLabel={t('statistics.dailyModelUsage')}
+                    unknownModelLabel={t('statistics.unknownModel')}
+                  />
+                ) : (
+                  <div className={styles.trendEmpty}>
+                    <Text type='secondary'>{t('statistics.noData')}</Text>
+                  </div>
+                )}
               </Card>
 
               {/* Key / project dimensions for the selected range */}

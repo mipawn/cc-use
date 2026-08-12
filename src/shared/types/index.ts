@@ -704,6 +704,7 @@ export interface UsageStatistics {
   dailyModelUsage: DailyModelUsageItem[]
   keyUsage: UsageDimensionItem[]
   projectUsage: UsageDimensionItem[]
+  trendGranularity: TrendGranularity
 }
 
 export interface ResourceUsageSummary {
