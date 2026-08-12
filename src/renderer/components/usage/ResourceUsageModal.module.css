@@ -46,17 +46,6 @@
   border-radius: var(--radius-ant-lg) !important;
 }
 
-.chartScroller {
-  overflow-x: auto;
-}
-
-.chart {
-  display: block;
-  width: 100%;
-  min-width: 620px;
-  height: 230px;
-}
-
 .chartHint {
   display: block;
   margin-top: 4px;

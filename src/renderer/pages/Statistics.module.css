@@ -41,28 +41,6 @@
   min-width: 250px;
 }
 
-.metricControl {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.metricLabel {
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.metricSegmented {
-  background: var(--surface-sunken) !important;
-  padding: 4px !important;
-  border-radius: var(--radius-ant) !important;
-}
-
-.metricSegmented :global(.ant-segmented-item) {
-  border-radius: var(--radius-sm) !important;
-}
-
 /* Content - Scrollable */
 .content {
   flex: 1;
@@ -108,10 +86,6 @@
     flex-direction: column;
   }
 
-  .metricControl {
-    justify-content: space-between;
-  }
-
   .summaryRow {
     grid-template-columns: 1fr;
   }
@@ -124,17 +98,6 @@
 /* Trend Chart */
 .trendCard {
   border-radius: var(--radius-ant-lg) !important;
-}
-
-.trendChartScroller {
-  overflow-x: auto;
-}
-
-.trendChart {
-  display: block;
-  width: 100%;
-  min-width: 680px;
-  height: 240px;
 }
 
 .trendHint {

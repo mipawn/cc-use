@@ -39,23 +39,17 @@ import type {
   DailyTrendItem,
 } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
+import MultiMetricLineChart, { type LineSeries } from '../components/usage/MultiMetricLineChart'
 import styles from './Statistics.module.css'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
 
 type TimeRangeMode = 'today' | 'yesterday' | 'week' | 'month' | 'lastMonth' | 'all' | 'custom'
-type TrendMetric = 'tokens' | 'requests' | 'cacheHitRate'
 
 function dailyCacheHitRate(day: DailyTrendItem): number {
   const inputSide = day.inputTokens + day.cacheReadTokens + day.cacheCreationTokens
   return inputSide > 0 ? day.cacheReadTokens / inputSide : 0
-}
-
-function trendMetricValue(day: DailyTrendItem, metric: TrendMetric): number {
-  if (metric === 'requests') return day.requests
-  if (metric === 'cacheHitRate') return dailyCacheHitRate(day)
-  return day.tokens
 }
 
 function displayName(value: string | null | undefined, fallback: string): string {
@@ -89,7 +83,6 @@ export default function Statistics() {
   const [recentLoading, setRecentLoading] = useState(true)
   const [recentPage, setRecentPage] = useState(1)
   const [recentPageSize, setRecentPageSize] = useState(10)
-  const [trendMetric, setTrendMetric] = useState<TrendMetric>('tokens')
   useEffect(() => {
     let cancelled = false
 
@@ -163,47 +156,6 @@ export default function Statistics() {
     { value: 'all', label: t('statistics.all') },
     { value: 'custom', label: t('statistics.custom') },
   ]
-
-  const trend = stats?.dailyTrend ?? []
-  const trendValues = trend.map((day) => trendMetricValue(day, trendMetric))
-  const maxTrendValue =
-    trendMetric === 'cacheHitRate' ? 1 : Math.max(...trendValues.map((value) => value * 1.1), 1)
-  const chartWidth = 920
-  const chartHeight = 240
-  const chartPadding = { top: 18, right: 18, bottom: 34, left: 56 }
-  const plotWidth = chartWidth - chartPadding.left - chartPadding.right
-  const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom
-  const trendPoints = trendValues.map((value, index) => ({
-    x:
-      trendValues.length === 1
-        ? chartPadding.left + plotWidth / 2
-        : chartPadding.left + (index / Math.max(trendValues.length - 1, 1)) * plotWidth,
-    y: chartPadding.top + plotHeight - (value / maxTrendValue) * plotHeight,
-    value,
-    item: trend[index],
-  }))
-  const trendPointString = trendPoints.map((point) => `${point.x},${point.y}`).join(' ')
-  const trendAreaPoints = trendPoints.length
-    ? `${trendPoints[0].x},${chartPadding.top + plotHeight} ${trendPointString} ${trendPoints[trendPoints.length - 1].x},${chartPadding.top + plotHeight}`
-    : ''
-  const trendLabelStep = Math.max(1, Math.ceil(trendPoints.length / 7))
-  const trendColor =
-    trendMetric === 'cacheHitRate'
-      ? token.colorSuccess
-      : trendMetric === 'requests'
-        ? token.colorInfo
-        : token.colorPrimary
-
-  const formatTrendMetric = (value: number) => {
-    if (trendMetric === 'tokens') return formatTokenCount(value, language)
-    if (trendMetric === 'requests') return Math.round(value).toLocaleString()
-    return `${(value * 100).toFixed(1)}%`
-  }
-
-  const formatTrendDate = (date: string) => {
-    const value = new Date(`${date}T00:00:00`)
-    return `${value.getMonth() + 1}/${value.getDate()}`
-  }
 
   const recentColumns = [
     {
@@ -413,6 +365,30 @@ export default function Statistics() {
       ]
     : []
   const compositionTotal = compositionParts.reduce((sum, part) => sum + part.value, 0)
+  const globalTrendSeries: LineSeries<DailyTrendItem>[] = [
+    {
+      key: 'tokens',
+      label: t('statistics.tokens'),
+      color: token.colorPrimary,
+      value: (item) => item.tokens,
+      format: (value) => (value == null ? '-' : formatTokenCount(value, language)),
+    },
+    {
+      key: 'requests',
+      label: t('statistics.requests'),
+      color: token.colorWarning,
+      value: (item) => item.requests,
+      format: (value) => (value == null ? '-' : Math.round(value).toLocaleString()),
+    },
+    {
+      key: 'cacheHitRate',
+      label: t('statistics.cacheHitRate'),
+      color: '#9254de',
+      value: dailyCacheHitRate,
+      format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+      domainMax: 1,
+    },
+  ]
 
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
     setRecentPage(pagination.current || 1)
@@ -604,104 +580,20 @@ export default function Statistics() {
                   variant='outlined'
                   title={
                     <Space>
-                      <LineChartOutlined style={{ color: trendColor }} />
+                      <LineChartOutlined style={{ color: token.colorPrimary }} />
                       <span>{t('statistics.dailyUsageTrend')}</span>
                     </Space>
                   }
-                  extra={
-                    <div className={styles.metricControl}>
-                      <Text type='secondary' className={styles.metricLabel}>
-                        {t('statistics.trendMetric')}
-                      </Text>
-                      <Segmented<TrendMetric>
-                        size='small'
-                        value={trendMetric}
-                        onChange={setTrendMetric}
-                        options={[
-                          { value: 'tokens', label: t('statistics.tokens') },
-                          { value: 'requests', label: t('statistics.requests') },
-                          { value: 'cacheHitRate', label: t('statistics.cacheHitRate') },
-                        ]}
-                        className={styles.metricSegmented}
-                      />
-                    </div>
-                  }
                 >
-                  <div className={styles.trendChartScroller}>
-                    <svg
-                      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                      className={styles.trendChart}
-                      role='img'
-                      aria-label={t('statistics.dailyUsageTrend')}
-                    >
-                      <defs>
-                        <linearGradient id='statistics-trend-area' x1='0' x2='0' y1='0' y2='1'>
-                          <stop offset='0%' stopColor={trendColor} stopOpacity='0.2' />
-                          <stop offset='100%' stopColor={trendColor} stopOpacity='0' />
-                        </linearGradient>
-                      </defs>
-                      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                        const y = chartPadding.top + plotHeight - ratio * plotHeight
-                        return (
-                          <g key={ratio}>
-                            <line
-                              x1={chartPadding.left}
-                              x2={chartWidth - chartPadding.right}
-                              y1={y}
-                              y2={y}
-                              stroke={token.colorBorderSecondary}
-                              strokeDasharray='3 4'
-                            />
-                            <text
-                              x={chartPadding.left - 10}
-                              y={y + 4}
-                              textAnchor='end'
-                              fill={token.colorTextSecondary}
-                              fontSize='10'
-                            >
-                              {formatTrendMetric(maxTrendValue * ratio)}
-                            </text>
-                          </g>
-                        )
-                      })}
-                      <polygon points={trendAreaPoints} fill='url(#statistics-trend-area)' />
-                      <polyline
-                        points={trendPointString}
-                        fill='none'
-                        stroke={trendColor}
-                        strokeWidth='2.5'
-                        strokeLinejoin='round'
-                        strokeLinecap='round'
-                      />
-                      {trendPoints.map((point, index) => (
-                        <g key={point.item.date}>
-                          <circle
-                            cx={point.x}
-                            cy={point.y}
-                            r='4'
-                            fill={token.colorBgContainer}
-                            stroke={trendColor}
-                            strokeWidth='2'
-                          >
-                            <title>{`${point.item.date} · ${t('statistics.tokens')} ${formatTokenCount(point.item.tokens, language)} · ${t('statistics.requests')} ${point.item.requests.toLocaleString()} · ${t('statistics.cacheHitRate')} ${(dailyCacheHitRate(point.item) * 100).toFixed(1)}%`}</title>
-                          </circle>
-                          {(index % trendLabelStep === 0 || index === trendPoints.length - 1) && (
-                            <text
-                              x={point.x}
-                              y={chartHeight - 10}
-                              textAnchor='middle'
-                              fill={token.colorTextSecondary}
-                              fontSize='10'
-                            >
-                              {formatTrendDate(point.item.date)}
-                            </text>
-                          )}
-                        </g>
-                      ))}
-                    </svg>
-                  </div>
+                  <MultiMetricLineChart
+                    data={stats.dailyTrend}
+                    series={globalTrendSeries}
+                    getDate={(item) => item.date}
+                    ariaLabel={t('statistics.dailyUsageTrend')}
+                    relativeScaleLabel={t('statistics.relativeScale')}
+                  />
                   <Text type='secondary' className={styles.trendHint}>
-                    {t('statistics.trendHint')}
+                    {t('statistics.multiLineHint')}
                   </Text>
                 </Card>
               )}

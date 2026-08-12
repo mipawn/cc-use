@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, Empty, Modal, Segmented, Spin, Statistic, Typography, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { ResourceUsageStatistics, ResourceUsageTrendItem, StatsTimeRange } from '@shared/types'
 import { getApi } from '../../api'
 import { formatTokenCount } from '../../utils/formatTokens'
+import MultiMetricLineChart, { type LineSeries } from './MultiMetricLineChart'
 import styles from './ResourceUsageModal.module.css'
 
 const { Text } = Typography
@@ -12,34 +13,16 @@ type ResourceScope =
   | { type: 'provider'; providerId: string; name: string }
   | { type: 'key'; providerId: string; apiKeyId: string; name: string; providerName: string }
 
-type TrendMetric = 'tokens' | 'requests' | 'successRate' | 'cacheHitRate' | 'latency'
-
 interface ResourceUsageModalProps {
   open: boolean
   scope: ResourceScope | null
   onClose: () => void
 }
 
-function metricValue(item: ResourceUsageTrendItem, metric: TrendMetric): number {
-  switch (metric) {
-    case 'tokens':
-      return item.tokens
-    case 'requests':
-      return item.requests
-    case 'successRate':
-      return item.successRate
-    case 'cacheHitRate':
-      return item.cacheHitRate
-    case 'latency':
-      return item.avgLatencyMs ?? 0
-  }
-}
-
 export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsageModalProps) {
   const { t, i18n } = useTranslation()
   const { token } = theme.useToken()
   const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
-  const [metric, setMetric] = useState<TrendMetric>('tokens')
   const [stats, setStats] = useState<ResourceUsageStatistics | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -68,35 +51,6 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
     }
   }, [open, scope, timeRange])
 
-  const trend = useMemo(() => stats?.dailyTrend ?? [], [stats])
-  const values = useMemo(() => trend.map((item) => metricValue(item, metric)), [trend, metric])
-  const maxValue = Math.max(...values, 1)
-  const chartWidth = 760
-  const chartHeight = 230
-  const padding = { top: 18, right: 18, bottom: 34, left: 46 }
-  const plotWidth = chartWidth - padding.left - padding.right
-  const plotHeight = chartHeight - padding.top - padding.bottom
-  const points = values.map((value, index) => {
-    const x =
-      values.length === 1
-        ? padding.left + plotWidth / 2
-        : padding.left + (index / Math.max(values.length - 1, 1)) * plotWidth
-    const y = padding.top + plotHeight - (value / maxValue) * plotHeight
-    return { x, y, value, item: trend[index] }
-  })
-  const pointString = points.map((point) => `${point.x},${point.y}`).join(' ')
-
-  const formatMetric = (value: number) => {
-    if (metric === 'tokens') return formatTokenCount(value, i18n.language)
-    if (metric === 'requests') return Math.round(value).toLocaleString()
-    if (metric === 'successRate' || metric === 'cacheHitRate') return `${Math.round(value * 100)}%`
-    return `${Math.round(value)}ms`
-  }
-
-  const formatDate = (date: string) =>
-    new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })
-
-  const labelStep = Math.max(1, Math.ceil(points.length / 7))
   const summary = stats?.summary
   const successColor = summary
     ? summary.successRate >= 0.99
@@ -105,6 +59,45 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
         ? token.colorWarning
         : token.colorError
     : token.colorText
+  const lineSeries: LineSeries<ResourceUsageTrendItem>[] = [
+    {
+      key: 'tokens',
+      label: t('usageDetail.tokens'),
+      color: token.colorPrimary,
+      value: (item) => item.tokens,
+      format: (value) => (value == null ? '-' : formatTokenCount(value, i18n.language)),
+    },
+    {
+      key: 'requests',
+      label: t('usageDetail.requests'),
+      color: token.colorWarning,
+      value: (item) => item.requests,
+      format: (value) => (value == null ? '-' : Math.round(value).toLocaleString()),
+    },
+    {
+      key: 'successRate',
+      label: t('usageDetail.successRate'),
+      color: token.colorSuccess,
+      value: (item) => item.successRate,
+      format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+      domainMax: 1,
+    },
+    {
+      key: 'cacheHitRate',
+      label: t('usageDetail.cacheHitRate'),
+      color: '#9254de',
+      value: (item) => item.cacheHitRate,
+      format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+      domainMax: 1,
+    },
+    {
+      key: 'latency',
+      label: t('usageDetail.latency'),
+      color: token.colorError,
+      value: (item) => item.avgLatencyMs,
+      format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
+    },
+  ]
 
   return (
     <Modal
@@ -135,17 +128,6 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
             { value: 'week', label: t('statistics.week') },
             { value: 'month', label: t('statistics.month') },
             { value: 'all', label: t('statistics.all') },
-          ]}
-        />
-        <Segmented<TrendMetric>
-          value={metric}
-          onChange={setMetric}
-          options={[
-            { value: 'tokens', label: t('usageDetail.tokens') },
-            { value: 'requests', label: t('usageDetail.requests') },
-            { value: 'successRate', label: t('usageDetail.successRate') },
-            { value: 'cacheHitRate', label: t('usageDetail.cacheHitRate') },
-            { value: 'latency', label: t('usageDetail.latency') },
           ]}
         />
       </div>
@@ -203,74 +185,16 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
           </div>
 
           <Card size='small' title={t('usageDetail.trend')} className={styles.chartCard}>
-            <div className={styles.chartScroller}>
-              <svg
-                viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                className={styles.chart}
-                role='img'
-                aria-label={t('usageDetail.trend')}
-              >
-                {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-                  const y = padding.top + plotHeight - ratio * plotHeight
-                  return (
-                    <g key={ratio}>
-                      <line
-                        x1={padding.left}
-                        x2={chartWidth - padding.right}
-                        y1={y}
-                        y2={y}
-                        stroke={token.colorBorderSecondary}
-                        strokeDasharray='3 4'
-                      />
-                      <text
-                        x={padding.left - 8}
-                        y={y + 4}
-                        textAnchor='end'
-                        fill={token.colorTextSecondary}
-                        fontSize='10'
-                      >
-                        {formatMetric(maxValue * ratio)}
-                      </text>
-                    </g>
-                  )
-                })}
-                <polyline
-                  points={pointString}
-                  fill='none'
-                  stroke={token.colorPrimary}
-                  strokeWidth='2.5'
-                  strokeLinejoin='round'
-                  strokeLinecap='round'
-                />
-                {points.map((point, index) => (
-                  <g key={point.item.date}>
-                    <circle
-                      cx={point.x}
-                      cy={point.y}
-                      r='3.5'
-                      fill={token.colorBgContainer}
-                      stroke={token.colorPrimary}
-                      strokeWidth='2'
-                    >
-                      <title>{`${point.item.date}: ${formatMetric(point.value)}`}</title>
-                    </circle>
-                    {(index % labelStep === 0 || index === points.length - 1) && (
-                      <text
-                        x={point.x}
-                        y={chartHeight - 10}
-                        textAnchor='middle'
-                        fill={token.colorTextSecondary}
-                        fontSize='10'
-                      >
-                        {formatDate(point.item.date)}
-                      </text>
-                    )}
-                  </g>
-                ))}
-              </svg>
-            </div>
+            <MultiMetricLineChart
+              data={stats.dailyTrend}
+              series={lineSeries}
+              getDate={(item) => item.date}
+              ariaLabel={t('usageDetail.trend')}
+              relativeScaleLabel={t('statistics.relativeScale')}
+            />
             <Text type='secondary' className={styles.chartHint}>
-              {t('usageDetail.chartHint', { failed: summary.failedRequests })}
+              {t('usageDetail.chartHint', { failed: summary.failedRequests })}{' '}
+              {t('statistics.multiLineHint')}
             </Text>
           </Card>
         </div>
