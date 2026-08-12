@@ -5,11 +5,12 @@ import zh from './zh'
 describe('usage chart locales', () => {
   it('defines every chart control in both supported languages', () => {
     for (const locale of [zh, en]) {
-      expect(locale.statistics.chartSampledHint).toBeTruthy()
       expect(locale.statistics.legendToggleHint).toBeTruthy()
       expect(locale.statistics.lastYear).toBeTruthy()
       expect(locale.statistics.year).toBeTruthy()
-      expect(locale.statistics.today).toBeTruthy()
+      expect(locale.statistics.dailyModelUsage).toBeTruthy()
+      expect(locale.statistics.granularity.week).toBeTruthy()
+      expect(locale.usageDetail.granularityHint).toBeTruthy()
       expect(locale.usageDetail.firstTokenLatency).toBeTruthy()
       expect(locale.usageDetail.usageTrend).toBeTruthy()
       expect(locale.usageDetail.qualityTrend).toBeTruthy()
@@ -22,6 +23,7 @@ describe('usage chart locales', () => {
     expect(zh.usageDetail.qualityTrend).toBe('线路质量')
     expect(zh.statistics.lastYear).toBe('近一年')
     expect(zh.statistics.year).toBe('本年')
-    expect(zh.statistics.today).toBe('今日')
+    expect(zh.statistics.week).toBe('近一周')
+    expect(zh.statistics.last30Days).toBe('近一月')
   })
 })

@@ -470,6 +470,14 @@ pub struct UsageDimensionItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DailyModelUsageItem {
+    pub date: String,
+    pub model: String,
+    pub tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecentRequestLogDisplay {
     pub id: String,
     pub model: Option<String>,
@@ -500,6 +508,7 @@ pub struct PaginatedRecentRequests {
 #[serde(rename_all = "camelCase")]
 pub struct UsageStatistics {
     pub summary: UsageStatsSummary,
+    pub daily_model_usage: Vec<DailyModelUsageItem>,
     pub key_usage: Vec<UsageDimensionItem>,
     pub project_usage: Vec<UsageDimensionItem>,
 }
@@ -542,6 +551,7 @@ pub struct ResourceUsageTrendItem {
 pub struct ResourceUsageStatistics {
     pub summary: ResourceUsageSummary,
     pub daily_trend: Vec<ResourceUsageTrendItem>,
+    pub trend_granularity: String,
 }
 
 /// Dashboard overview: a compact view of today's activity.

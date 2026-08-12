@@ -14,6 +14,7 @@ import {
   WarningOutlined,
   KeyOutlined,
   FolderOpenOutlined,
+  RobotOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -22,6 +23,7 @@ import type {
   PaginatedRecentRequests,
   StatsTimeRange,
   RequestOutcome,
+  DailyModelUsageItem,
   UsageDimensionItem,
 } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
@@ -258,6 +260,30 @@ export default function Statistics() {
     },
   ]
 
+  const dailyModelColumns = [
+    {
+      title: t('statistics.date'),
+      dataIndex: 'date',
+      key: 'date',
+      width: 120,
+    },
+    {
+      title: t('statistics.model'),
+      dataIndex: 'model',
+      key: 'model',
+      ellipsis: true,
+      render: (value: string) => displayName(value, t('statistics.unknownModel')),
+    },
+    {
+      title: t('statistics.tokens'),
+      dataIndex: 'tokens',
+      key: 'tokens',
+      width: 120,
+      align: 'right' as const,
+      render: (value: number) => renderTokens(value),
+    },
+  ]
+
   const hasData = stats
     ? stats.summary.totalRequests > 0 || stats.summary.failedRequests > 0
     : false
@@ -452,6 +478,31 @@ export default function Statistics() {
                     <Text type='secondary'>{t('statistics.noData')}</Text>
                   </div>
                 )}
+              </Card>
+
+              <Card
+                className={styles.tableCard}
+                variant='outlined'
+                title={
+                  <Space>
+                    <RobotOutlined style={{ color: token.colorPrimary }} />
+                    <span>{t('statistics.dailyModelUsage')}</span>
+                  </Space>
+                }
+                extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
+              >
+                <Table<DailyModelUsageItem>
+                  dataSource={stats.dailyModelUsage}
+                  columns={dailyModelColumns}
+                  rowKey={(record) => `${record.date}-${record.model}`}
+                  size='small'
+                  pagination={
+                    stats.dailyModelUsage.length > 12
+                      ? { pageSize: 12, showSizeChanger: false, size: 'small' }
+                      : false
+                  }
+                  locale={{ emptyText: t('statistics.noData') }}
+                />
               </Card>
 
               {/* Key / project dimensions for the selected range */}

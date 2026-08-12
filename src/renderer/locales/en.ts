@@ -660,8 +660,16 @@ export default {
     axisPercent: 'Percent',
     axisLatency: 'Latency (ms)',
     legendToggleHint: 'Click legend to show / hide',
-    multiLineHint: 'Hover for actual daily values; click a legend item to show or hide its line.',
-    chartSampledHint: 'Large range: showing {{shown}} / {{total}} sampled days',
+    multiLineHint:
+      'Hover for actual values in the current period; click a legend item to toggle it.',
+    granularity: {
+      day: 'day',
+      week: 'week',
+      month: 'month',
+    },
+    dailyModelUsage: 'Daily Model Usage',
+    date: 'Date',
+    unknownModel: 'Unknown model',
     keyUsage: 'Usage by Key',
     projectUsage: 'Usage by Project',
     currentRange: 'Selected range',
@@ -701,7 +709,8 @@ export default {
     totalRequests: 'Total Requests',
     avgLatency: 'Avg Total Latency',
     avgFirstToken: 'Avg Time to First Token',
-    trend: 'Daily Trend',
+    trend: 'Usage Trend',
+    granularityHint: 'Aggregated by {{granularity}}.',
     chartHint:
       'Success rate uses all recorded requests; {{failed}} failed in this range. Direct requests are not tracked.',
     noData: 'No proxied requests in this range',

@@ -1,8 +1,8 @@
 use crate::db::Database;
 use crate::models::{
-    DailyTrendItem, PaginatedRecentRequests, RecentRequestLogDisplay, RequestLog,
-    ResourceUsageStatistics, ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem,
-    UsageOverview, UsageStatistics, UsageStatsSummary,
+    DailyModelUsageItem, DailyTrendItem, PaginatedRecentRequests, RecentRequestLogDisplay,
+    RequestLog, ResourceUsageStatistics, ResourceUsageSummary, ResourceUsageTrendItem,
+    UsageDimensionItem, UsageOverview, UsageStatistics, UsageStatsSummary,
 };
 
 /// input + output + cache_read + cache_creation — the v3.7.0 token definition.
@@ -11,6 +11,40 @@ use crate::models::{
 const TOKEN_SUM: &str = "input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens";
 
 impl Database {
+    fn trend_granularity(time_range: &str) -> &'static str {
+        match time_range {
+            "lastYear" | "year" => "week",
+            "all" => "month",
+            custom if custom.starts_with("custom:") => {
+                let parts = custom.split(':').collect::<Vec<_>>();
+                let span_days = match parts.as_slice() {
+                    ["custom", start, end] => chrono::NaiveDate::parse_from_str(start, "%Y-%m-%d")
+                        .ok()
+                        .zip(chrono::NaiveDate::parse_from_str(end, "%Y-%m-%d").ok())
+                        .map(|(start, end)| (end - start).num_days() + 1),
+                    _ => None,
+                };
+                match span_days {
+                    Some(days) if days <= 92 => "day",
+                    Some(days) if days <= 730 => "week",
+                    _ => "month",
+                }
+            }
+            _ => "day",
+        }
+    }
+
+    fn trend_bucket_expr(date_expr: &str, granularity: &str) -> String {
+        match granularity {
+            "week" => format!(
+                "DATE({0}, printf('-%d days', (CAST(strftime('%w', {0}) AS INTEGER) + 6) % 7))",
+                date_expr
+            ),
+            "month" => format!("DATE({}, 'start of month')", date_expr),
+            _ => date_expr.to_string(),
+        }
+    }
+
     /// Billable scope: rows that carried usage. Failure rows (tokens all zero)
     /// are excluded here and surfaced through the failure queries instead.
     fn billable_request_logs_where(&self, col: &str, time_range: &str) -> String {
@@ -346,8 +380,29 @@ impl Database {
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
+        let created_date = Self::local_date_expr("created_at");
+        let mut model_stmt = self.conn.prepare(&format!(
+            "SELECT {} AS d,
+                    COALESCE(NULLIF(TRIM(model), ''), NULLIF(TRIM(request_model), ''), ''),
+                    COALESCE(SUM({}), 0)
+             FROM request_logs {}
+             GROUP BY d, 2
+             ORDER BY d DESC, 3 DESC, 2 ASC",
+            created_date, TOKEN_SUM, where_clause
+        ))?;
+        let daily_model_usage = model_stmt
+            .query_map([], |row| {
+                Ok(DailyModelUsageItem {
+                    date: row.get(0)?,
+                    model: row.get(1)?,
+                    tokens: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(UsageStatistics {
             summary,
+            daily_model_usage,
             key_usage,
             project_usage,
         })
@@ -432,6 +487,8 @@ impl Database {
         };
 
         let created_date = Self::local_date_expr("created_at");
+        let trend_granularity = Self::trend_granularity(time_range);
+        let trend_bucket = Self::trend_bucket_expr(&created_date, trend_granularity);
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {} AS d, COALESCE(SUM({}), 0), COUNT(*),
                     COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
@@ -439,7 +496,7 @@ impl Database {
                     COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
                     AVG(latency_ms), AVG(first_token_ms)
              FROM request_logs {} GROUP BY d ORDER BY d ASC",
-            created_date, TOKEN_SUM, scoped_where
+            trend_bucket, TOKEN_SUM, scoped_where
         ))?;
         let daily_trend = stmt
             .query_map(rusqlite::params![provider_id, api_key_id], |row| {
@@ -478,6 +535,7 @@ impl Database {
         Ok(ResourceUsageStatistics {
             summary,
             daily_trend,
+            trend_granularity: trend_granularity.to_string(),
         })
     }
 
@@ -758,6 +816,9 @@ mod tests {
         assert_eq!(stats.project_usage.len(), 1);
         assert_eq!(stats.project_usage[0].name, "Codex Desktop");
         assert_eq!(stats.project_usage[0].requests, 1);
+        assert_eq!(stats.daily_model_usage.len(), 1);
+        assert_eq!(stats.daily_model_usage[0].model, "gpt-5.5");
+        assert_eq!(stats.daily_model_usage[0].tokens, 1_500);
     }
 
     #[test]
@@ -960,11 +1021,54 @@ mod tests {
         assert_eq!(key_stats.daily_trend[0].output_tokens, 50);
         assert_eq!(key_stats.daily_trend[0].cache_read_tokens, 300);
         assert_eq!(key_stats.daily_trend[0].cache_creation_tokens, 0);
+        assert_eq!(key_stats.trend_granularity, "month");
 
         let provider_stats = db
             .request_log_get_resource_statistics("all", Some("provider-1"), None)
             .unwrap();
         assert_eq!(provider_stats.summary.total_requests, 3);
         assert_eq!(provider_stats.summary.total_tokens, 480);
+    }
+
+    #[test]
+    fn resource_trend_granularity_follows_the_selected_span() {
+        assert_eq!(Database::trend_granularity("week"), "day");
+        assert_eq!(Database::trend_granularity("last30Days"), "day");
+        assert_eq!(Database::trend_granularity("year"), "week");
+        assert_eq!(Database::trend_granularity("lastYear"), "week");
+        assert_eq!(
+            Database::trend_granularity("custom:2026-01-01:2026-06-30"),
+            "week"
+        );
+        assert_eq!(
+            Database::trend_granularity("custom:2020-01-01:2026-06-30"),
+            "month"
+        );
+        assert_eq!(Database::trend_granularity("all"), "month");
+    }
+
+    #[test]
+    fn resource_trend_aggregates_longer_ranges_before_returning_chart_points() {
+        let db = Database::new_in_memory().unwrap();
+        db.request_log_create(&mk_billable_log(
+            "monday",
+            "2026-01-05T12:00:00Z".to_string(),
+        ))
+        .unwrap();
+        db.request_log_create(&mk_billable_log(
+            "tuesday",
+            "2026-01-06T12:00:00Z".to_string(),
+        ))
+        .unwrap();
+
+        let stats = db
+            .request_log_get_resource_statistics("custom:2026-01-01:2026-06-30", None, None)
+            .unwrap();
+
+        assert_eq!(stats.trend_granularity, "week");
+        assert_eq!(stats.daily_trend.len(), 1);
+        assert_eq!(stats.daily_trend[0].date, "2026-01-05");
+        assert_eq!(stats.daily_trend[0].tokens, 60);
+        assert_eq!(stats.daily_trend[0].requests, 2);
     }
 }

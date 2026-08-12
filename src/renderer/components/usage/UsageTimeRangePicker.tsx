@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { DatePicker, Segmented } from 'antd'
-import dayjs from 'dayjs'
 import { useTranslation } from 'react-i18next'
 import type { StatsTimeRange } from '@shared/types'
 import styles from './UsageTimeRangePicker.module.css'
@@ -12,7 +11,6 @@ type TimeRangeMode = 'week' | 'last30Days' | 'lastYear' | 'month' | 'lastMonth' 
 interface UsageTimeRangePickerProps {
   value: StatsTimeRange
   onChange: (value: StatsTimeRange) => void
-  compact?: boolean
 }
 
 function modeFromValue(value: StatsTimeRange): TimeRangeMode {
@@ -29,11 +27,7 @@ function modeFromValue(value: StatsTimeRange): TimeRangeMode {
   return 'week'
 }
 
-export default function UsageTimeRangePicker({
-  value,
-  onChange,
-  compact = false,
-}: UsageTimeRangePickerProps) {
+export default function UsageTimeRangePicker({ value, onChange }: UsageTimeRangePickerProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<TimeRangeMode>(() => modeFromValue(value))
 
@@ -52,9 +46,8 @@ export default function UsageTimeRangePicker({
   ]
 
   return (
-    <div className={`${styles.root} ${compact ? styles.compact : ''}`}>
+    <div className={styles.root}>
       <Segmented<TimeRangeMode>
-        size={compact ? 'small' : 'middle'}
         value={mode}
         options={options}
         onChange={(next) => {
@@ -66,18 +59,11 @@ export default function UsageTimeRangePicker({
       />
       {mode === 'custom' && (
         <RangePicker
-          size={compact ? 'small' : 'middle'}
           className={styles.rangePicker}
           allowClear={false}
           format='YYYY-MM-DD'
           placeholder={[t('statistics.startDate'), t('statistics.endDate')]}
           separator={t('statistics.rangeSeparator')}
-          presets={[
-            {
-              label: t('statistics.today'),
-              value: [dayjs().startOf('day'), dayjs().startOf('day')],
-            },
-          ]}
           disabledDate={(current) => current.valueOf() > Date.now()}
           onChange={(dates, dateStrings) => {
             if (dates?.[0] && dates[1] && dateStrings[0] && dateStrings[1]) {

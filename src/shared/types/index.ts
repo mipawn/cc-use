@@ -693,8 +693,15 @@ export interface UsageDimensionItem {
   requests: number
 }
 
+export interface DailyModelUsageItem {
+  date: string
+  model: string
+  tokens: number
+}
+
 export interface UsageStatistics {
   summary: UsageStatsSummary
+  dailyModelUsage: DailyModelUsageItem[]
   keyUsage: UsageDimensionItem[]
   projectUsage: UsageDimensionItem[]
 }
@@ -729,7 +736,10 @@ export interface ResourceUsageTrendItem {
 export interface ResourceUsageStatistics {
   summary: ResourceUsageSummary
   dailyTrend: ResourceUsageTrendItem[]
+  trendGranularity: TrendGranularity
 }
+
+export type TrendGranularity = 'day' | 'week' | 'month'
 
 // v3.7.0 CLI tool + statusline setup
 export interface CliToolStatus {

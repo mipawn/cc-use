@@ -192,7 +192,7 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
       destroyOnHidden
     >
       <div className={styles.toolbar}>
-        <UsageTimeRangePicker value={timeRange} onChange={setTimeRange} compact />
+        <UsageTimeRangePicker value={timeRange} onChange={setTimeRange} />
       </div>
 
       {loading ? (
@@ -271,9 +271,12 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
               getDate={(item) => item.date}
               ariaLabel={t('usageDetail.trend')}
               legendHint={t('statistics.legendToggleHint')}
-              sampledHint={(shown, total) => t('statistics.chartSampledHint', { shown, total })}
+              granularity={stats.trendGranularity}
             />
             <Text type='secondary' className={styles.chartHint}>
+              {t('usageDetail.granularityHint', {
+                granularity: t(`statistics.granularity.${stats.trendGranularity}`),
+              })}{' '}
               {t('usageDetail.chartHint', { failed: summary.failedRequests })}{' '}
               {t('statistics.multiLineHint')}
             </Text>
