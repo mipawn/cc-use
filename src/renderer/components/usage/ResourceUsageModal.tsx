@@ -4,7 +4,11 @@ import { useTranslation } from 'react-i18next'
 import type { ResourceUsageStatistics, ResourceUsageTrendItem, StatsTimeRange } from '@shared/types'
 import { getApi } from '../../api'
 import { formatTokenCount } from '../../utils/formatTokens'
-import MultiMetricLineChart, { type LineSeries } from './MultiMetricLineChart'
+import MultiMetricLineChart, {
+  type LineAxisDefinition,
+  type LineSeries,
+} from './MultiMetricLineChart'
+import UsageTimeRangePicker from './UsageTimeRangePicker'
 import styles from './ResourceUsageModal.module.css'
 
 const { Text } = Typography
@@ -19,10 +23,13 @@ interface ResourceUsageModalProps {
   onClose: () => void
 }
 
+type ResourceTrendView = 'usage' | 'quality'
+
 export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsageModalProps) {
   const { t, i18n } = useTranslation()
   const { token } = theme.useToken()
   const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
+  const [trendView, setTrendView] = useState<ResourceTrendView>('usage')
   const [stats, setStats] = useState<ResourceUsageStatistics | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -59,45 +66,88 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
         ? token.colorWarning
         : token.colorError
     : token.colorText
-  const lineSeries: LineSeries<ResourceUsageTrendItem>[] = [
-    {
-      key: 'tokens',
-      label: t('usageDetail.tokens'),
-      color: token.colorPrimary,
-      value: (item) => item.tokens,
-      format: (value) => (value == null ? '-' : formatTokenCount(value, i18n.language)),
-    },
-    {
-      key: 'requests',
-      label: t('usageDetail.requests'),
-      color: token.colorWarning,
-      value: (item) => item.requests,
-      format: (value) => (value == null ? '-' : Math.round(value).toLocaleString()),
-    },
-    {
-      key: 'successRate',
-      label: t('usageDetail.successRate'),
-      color: token.colorSuccess,
-      value: (item) => item.successRate,
-      format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
-      domainMax: 1,
-    },
-    {
-      key: 'cacheHitRate',
-      label: t('usageDetail.cacheHitRate'),
-      color: '#9254de',
-      value: (item) => item.cacheHitRate,
-      format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
-      domainMax: 1,
-    },
-    {
-      key: 'latency',
-      label: t('usageDetail.latency'),
-      color: token.colorError,
-      value: (item) => item.avgLatencyMs,
-      format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
-    },
-  ]
+  const tokenAxis: LineAxisDefinition = {
+    key: 'tokens',
+    label: t('statistics.axisTokens'),
+    orientation: 'left',
+    formatTick: (value) => formatTokenCount(value, i18n.resolvedLanguage || i18n.language),
+  }
+  const requestAxis: LineAxisDefinition = {
+    key: 'requests',
+    label: t('statistics.axisRequests'),
+    orientation: 'right',
+    formatTick: (value) => Math.round(value).toLocaleString(),
+  }
+  const percentAxis: LineAxisDefinition = {
+    key: 'percent',
+    label: t('statistics.axisPercent'),
+    orientation: 'left',
+    formatTick: (value) => `${Math.round(value * 100)}%`,
+    domain: [0, 1],
+    allowDecimals: true,
+  }
+  const latencyAxis: LineAxisDefinition = {
+    key: 'latency',
+    label: t('statistics.axisLatency'),
+    orientation: 'right',
+    formatTick: (value) => `${Math.round(value)}ms`,
+  }
+  const lineSeries: LineSeries<ResourceUsageTrendItem>[] =
+    trendView === 'usage'
+      ? [
+          {
+            key: 'tokens',
+            label: t('usageDetail.tokens'),
+            color: token.colorPrimary,
+            axisKey: 'tokens',
+            value: (item) => item.tokens,
+            format: (value) =>
+              value == null ? '-' : formatTokenCount(value, i18n.resolvedLanguage || i18n.language),
+          },
+          {
+            key: 'requests',
+            label: t('usageDetail.requests'),
+            color: token.colorWarning,
+            axisKey: 'requests',
+            value: (item) => item.requests,
+            format: (value) => (value == null ? '-' : Math.round(value).toLocaleString()),
+          },
+        ]
+      : [
+          {
+            key: 'successRate',
+            label: t('usageDetail.successRate'),
+            color: token.colorSuccess,
+            axisKey: 'percent',
+            value: (item) => item.successRate,
+            format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+          },
+          {
+            key: 'cacheHitRate',
+            label: t('usageDetail.cacheHitRate'),
+            color: '#9254de',
+            axisKey: 'percent',
+            value: (item) => item.cacheHitRate,
+            format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+          },
+          {
+            key: 'latency',
+            label: t('usageDetail.latency'),
+            color: token.colorError,
+            axisKey: 'latency',
+            value: (item) => item.avgLatencyMs,
+            format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
+          },
+          {
+            key: 'firstTokenLatency',
+            label: t('usageDetail.firstTokenLatency'),
+            color: token.colorInfo,
+            axisKey: 'latency',
+            value: (item) => item.avgFirstTokenMs,
+            format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
+          },
+        ]
+  const lineAxes = trendView === 'usage' ? [tokenAxis, requestAxis] : [percentAxis, latencyAxis]
 
   return (
     <Modal
@@ -121,15 +171,7 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
       destroyOnHidden
     >
       <div className={styles.toolbar}>
-        <Segmented<StatsTimeRange>
-          value={timeRange}
-          onChange={setTimeRange}
-          options={[
-            { value: 'week', label: t('statistics.week') },
-            { value: 'month', label: t('statistics.month') },
-            { value: 'all', label: t('statistics.all') },
-          ]}
-        />
+        <UsageTimeRangePicker value={timeRange} onChange={setTimeRange} />
       </div>
 
       {loading ? (
@@ -184,13 +226,29 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
             </Card>
           </div>
 
-          <Card size='small' title={t('usageDetail.trend')} className={styles.chartCard}>
+          <Card
+            size='small'
+            title={t('usageDetail.trend')}
+            className={styles.chartCard}
+            extra={
+              <Segmented<ResourceTrendView>
+                size='small'
+                value={trendView}
+                onChange={setTrendView}
+                options={[
+                  { value: 'usage', label: t('usageDetail.usageTrend') },
+                  { value: 'quality', label: t('usageDetail.qualityTrend') },
+                ]}
+              />
+            }
+          >
             <MultiMetricLineChart
               data={stats.dailyTrend}
               series={lineSeries}
+              axes={lineAxes}
               getDate={(item) => item.date}
               ariaLabel={t('usageDetail.trend')}
-              relativeScaleLabel={t('statistics.relativeScale')}
+              legendHint={t('statistics.legendToggleHint')}
             />
             <Text type='secondary' className={styles.chartHint}>
               {t('usageDetail.chartHint', { failed: summary.failedRequests })}{' '}

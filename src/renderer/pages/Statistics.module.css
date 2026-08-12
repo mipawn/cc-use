@@ -27,20 +27,6 @@
   flex-wrap: wrap;
 }
 
-.filterSegmented {
-  background: var(--surface-sunken) !important;
-  padding: 4px !important;
-  border-radius: var(--radius-ant) !important;
-}
-
-.filterSegmented :global(.ant-segmented-item) {
-  border-radius: var(--radius-sm) !important;
-}
-
-.customRangePicker {
-  min-width: 250px;
-}
-
 /* Content - Scrollable */
 .content {
   flex: 1;

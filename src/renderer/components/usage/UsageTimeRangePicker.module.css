@@ -1,0 +1,22 @@
+.root {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.presetSelect {
+  width: 136px;
+}
+
+.rangePicker {
+  width: 250px;
+}
+
+@media (max-width: 560px) {
+  .presetSelect,
+  .rangePicker {
+    width: 100%;
+  }
+}

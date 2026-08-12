@@ -313,6 +313,18 @@ impl Database {
                 "WHERE {} >= DATE('now', 'localtime', '-6 days')",
                 local_date
             ),
+            "last30Days" => format!(
+                "WHERE {} >= DATE('now', 'localtime', '-29 days')",
+                local_date
+            ),
+            "thisWeek" => format!(
+                "WHERE {} >= DATE('now', 'localtime', '-' || ((CAST(strftime('%w', 'now', 'localtime') AS INTEGER) + 6) % 7) || ' days')",
+                local_date
+            ),
+            "lastWeek" => format!(
+                "WHERE {} >= DATE('now', 'localtime', '-' || (((CAST(strftime('%w', 'now', 'localtime') AS INTEGER) + 6) % 7) + 7) || ' days') AND {} < DATE('now', 'localtime', '-' || ((CAST(strftime('%w', 'now', 'localtime') AS INTEGER) + 6) % 7) || ' days')",
+                local_date, local_date
+            ),
             "month" => format!(
                 "WHERE {} >= DATE('now', 'localtime', 'start of month')",
                 local_date
@@ -605,6 +617,22 @@ mod tests {
                 .cloned()
                 .ok_or_else(|| LegacySecretReadError::Backend("access denied".to_string()))
         }
+    }
+
+    #[test]
+    fn time_ranges_include_rolling_and_calendar_periods() {
+        let db = Database::new_in_memory().unwrap();
+
+        let rolling_week = db.time_range_where("created_at", "week");
+        let rolling_month = db.time_range_where("created_at", "last30Days");
+        let this_week = db.time_range_where("created_at", "thisWeek");
+        let last_week = db.time_range_where("created_at", "lastWeek");
+
+        assert!(rolling_week.contains("'-6 days'"));
+        assert!(rolling_month.contains("'-29 days'"));
+        assert!(this_week.contains("strftime('%w'"));
+        assert!(last_week.contains("+ 7"));
+        assert!(last_week.contains(" AND "));
     }
 
     fn seed_legacy_keychain_references(db: &Database) {
