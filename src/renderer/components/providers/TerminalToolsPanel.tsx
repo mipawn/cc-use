@@ -22,33 +22,45 @@ export default function TerminalToolsPanel() {
   const [statusline, setStatusline] = useState<StatuslineState | null>(null)
   const [statuslineBusy, setStatuslineBusy] = useState(false)
 
-  const refresh = useCallback(() => {
-    getApi()
-      .cliTool.statuslineStatus()
-      .then(setStatusline)
-      .catch(() => setStatusline(null))
+  const refresh = useCallback(async () => {
+    try {
+      const next = await getApi().cliTool.statuslineStatus()
+      setStatusline(next)
+      return next
+    } catch (error) {
+      setStatusline(null)
+      throw error
+    }
   }, [])
 
   useEffect(() => {
-    refresh()
+    void refresh().catch(() => undefined)
   }, [refresh])
+
+  const confirmThirdPartyOverwrite = (command: string) => {
+    Modal.confirm({
+      title: t('terminalTools.statuslineConflictTitle'),
+      content: t('terminalTools.statuslineConflictBody', { command }),
+      okText: t('terminalTools.statuslineOverwrite'),
+      cancelText: t('terminalTools.statuslineKeepExisting'),
+      autoFocusButton: 'cancel',
+      onOk: () => enableStatusline(true),
+    })
+  }
 
   const enableStatusline = async (force: boolean) => {
     setStatuslineBusy(true)
     try {
       const result = await getApi().cliTool.statuslineEnable(force)
       if (result.enabled) {
-        message.success(t('terminalTools.statuslineEnabled'))
-        refresh()
+        const verified = await refresh()
+        if (verified.state === 'enabled' && verified.current) {
+          message.success(t('terminalTools.statuslineEnabled'))
+        } else {
+          message.error(t('terminalTools.statuslineEnableNotApplied'))
+        }
       } else if (result.blockedBy) {
-        Modal.confirm({
-          title: t('terminalTools.statuslineConflictTitle'),
-          content: t('terminalTools.statuslineConflictBody', { command: result.blockedBy }),
-          okText: t('terminalTools.statuslineOverwrite'),
-          cancelText: t('terminalTools.statuslineKeepExisting'),
-          autoFocusButton: 'cancel',
-          onOk: () => enableStatusline(true),
-        })
+        confirmThirdPartyOverwrite(result.blockedBy)
       }
     } catch (error) {
       message.error(String(error))
@@ -61,8 +73,8 @@ export default function TerminalToolsPanel() {
     setStatuslineBusy(true)
     try {
       await getApi().cliTool.statuslineRestore()
+      await refresh()
       message.success(t('terminalTools.statuslineRestored'))
-      refresh()
     } catch (error) {
       message.error(String(error))
     } finally {
@@ -87,6 +99,13 @@ export default function TerminalToolsPanel() {
   })()
 
   const statuslineEnabled = statusline?.state === 'enabled'
+  const requestEnableStatusline = () => {
+    if (statusline?.state === 'thirdParty') {
+      confirmThirdPartyOverwrite(statusline.command)
+      return
+    }
+    void enableStatusline(false)
+  }
 
   return (
     <div style={{ padding: 16, maxWidth: 860 }}>
@@ -128,9 +147,11 @@ export default function TerminalToolsPanel() {
                 size='small'
                 type='primary'
                 loading={statuslineBusy}
-                onClick={() => void enableStatusline(false)}
+                onClick={requestEnableStatusline}
               >
-                {t('terminalTools.statuslineEnable')}
+                {statusline?.state === 'thirdParty'
+                  ? t('terminalTools.statuslineOverwriteAndEnable')
+                  : t('terminalTools.statuslineEnable')}
               </Button>
             )}
           </Space>

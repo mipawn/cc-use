@@ -652,6 +652,9 @@ export default {
       week: 'Last 7 days',
     },
     dailyTokenTrend: 'Daily Token Trend',
+    dailyUsageTrend: 'Daily Usage Trend',
+    trendMetric: 'Metric',
+    trendHint: 'Hover a point to see daily tokens, requests, and cache hit rate together.',
     keyUsage: 'Usage by Key',
     projectUsage: 'Usage by Project',
     currentRange: 'Selected range',
@@ -721,11 +724,14 @@ export default {
     statuslineDisable: 'Restore',
     statuslineUpdate: 'Update path',
     statuslineEnabled: 'Status line enabled — Claude Code will refresh it on the next interaction',
+    statuslineEnableNotApplied:
+      'The status line did not pass verification after writing. On a managed work device, run /status in Claude Code to check the effective settings source.',
     statuslineRestored: 'Previous status line configuration restored',
     statuslineConflictTitle: 'A third-party status line exists',
     statuslineConflictBody:
       'Current statusLine: {{command}}. The original file will be backed up before overwriting.',
     statuslineOverwrite: 'Back up & overwrite',
+    statuslineOverwriteAndEnable: 'Overwrite & enable',
     statuslineKeepExisting: 'Keep existing',
     statuslineThirdPartyHint: 'Current: {{command}}',
     statuslineApplyHint:

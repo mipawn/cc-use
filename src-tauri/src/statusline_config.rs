@@ -61,15 +61,35 @@ fn statusline_command(map: &serde_json::Map<String, serde_json::Value>) -> Optio
         .map(str::to_string)
 }
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn expected_command(exe: &Path) -> String {
+    format!("{} statusline", shell_quote(&exe.to_string_lossy()))
+}
+
 fn is_cc_use_command(command: &str) -> bool {
     // Match only commands cc-use itself writes. A third-party wrapper may
     // mention cc-use-cli as one of its arguments and must still be treated as
     // third-party configuration.
     let command = command.trim();
-    matches!(command, "cc-use statusline" | "cc-use-cli statusline")
-        || command.strip_suffix(" statusline").is_some_and(|exe| {
-            !exe.chars().any(char::is_whitespace) && exe.ends_with("/cc-use-cli")
-        })
+    if matches!(command, "cc-use statusline" | "cc-use-cli statusline") {
+        return true;
+    }
+    let Some(exe) = command.strip_suffix(" statusline") else {
+        return false;
+    };
+    let unquoted = if exe.starts_with('\'') && exe.ends_with('\'') && exe.len() >= 2 {
+        exe[1..exe.len() - 1].replace("'\\''", "'")
+    } else if exe.starts_with('"') && exe.ends_with('"') && exe.len() >= 2 {
+        exe[1..exe.len() - 1].to_string()
+    } else if !exe.chars().any(char::is_whitespace) {
+        exe.to_string()
+    } else {
+        return false;
+    };
+    unquoted.ends_with("/cc-use-cli")
 }
 
 /// Inspect the current statusLine setup, comparing against `exe` to detect a
@@ -80,7 +100,7 @@ pub fn inspect(exe: &Path) -> Result<StatuslineState, String> {
     match statusline_command(&map) {
         None => Ok(StatuslineState::NotConfigured),
         Some(command) if is_cc_use_command(&command) => {
-            let expected = format!("{} statusline", exe.display());
+            let expected = expected_command(exe);
             Ok(StatuslineState::Enabled {
                 current: command == expected,
                 command,
@@ -114,7 +134,7 @@ pub fn enable(exe: &Path, force: bool) -> Result<EnableOutcome, String> {
 
 fn enable_at(path: &Path, exe: &Path, force: bool) -> Result<EnableOutcome, String> {
     let mut map = read_settings(&path)?;
-    let expected = format!("{} statusline", exe.display());
+    let expected = expected_command(exe);
 
     let existing = statusline_command(&map);
     match existing.as_deref() {
@@ -157,6 +177,10 @@ fn enable_at(path: &Path, exe: &Path, force: bool) -> Result<EnableOutcome, Stri
         }),
     );
     write_settings(&path, &map)?;
+    let written = read_settings(path)?;
+    if statusline_command(&written).as_deref() != Some(expected.as_str()) {
+        return Err(format!("写入 {} 后校验失败", path.display()));
+    }
     Ok(EnableOutcome::Enabled { backup_path })
 }
 
@@ -212,11 +236,26 @@ mod tests {
             "/Applications/cc-use.app/Contents/MacOS/cc-use-cli statusline"
         ));
         assert!(is_cc_use_command("cc-use statusline"));
+        assert!(is_cc_use_command(
+            "'/Applications/CC Use.app/Contents/MacOS/cc-use-cli' statusline"
+        ));
+        assert!(is_cc_use_command(
+            "\"/Applications/CC Use.app/Contents/MacOS/cc-use-cli\" statusline"
+        ));
         assert!(!is_cc_use_command(
             "claude-hud --extra-cmd /Applications/cc-use.app/Contents/MacOS/cc-use-cli statusline"
         ));
         assert!(!is_cc_use_command("bun /Users/x/.claude/hud.js"));
         assert!(!is_cc_use_command("~/.claude/statusline.sh"));
+    }
+
+    #[test]
+    fn quotes_the_bundled_app_path_for_the_shell() {
+        let exe = Path::new("/Applications/CC Use.app/Contents/MacOS/cc-use-cli");
+        assert_eq!(
+            expected_command(exe),
+            "'/Applications/CC Use.app/Contents/MacOS/cc-use-cli' statusline"
+        );
     }
 
     #[test]
