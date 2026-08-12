@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "node scripts/prepare-daemon.mjs && pnpm vite --clearScreen false",
+    "beforeDevCommand": "exec node scripts/dev-server.mjs",
     "beforeBuildCommand": "node scripts/prepare-daemon.mjs && pnpm vite build"
   },
   "app": {
