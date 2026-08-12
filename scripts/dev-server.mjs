@@ -7,18 +7,11 @@
  * Tauri exits unexpectedly, the parent PID changes to 1 and the watchdog closes
  * Vite instead of leaving port 5173 occupied by an orphan process.
  */
-import { spawn } from 'node:child_process'
-import { dirname, join } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 
-const scriptDir = dirname(fileURLToPath(import.meta.url))
-const workspaceRoot = dirname(scriptDir)
-const prepareScript = join(scriptDir, 'prepare-daemon.mjs')
 const tauriPid = process.ppid
 
-let prepareProcess = null
 let viteServer = null
 let shuttingDown = false
 
@@ -37,9 +30,6 @@ async function shutdown(exitCode = 0) {
   shuttingDown = true
   clearInterval(parentWatchdog)
 
-  if (prepareProcess && prepareProcess.exitCode == null) {
-    prepareProcess.kill('SIGTERM')
-  }
   if (viteServer) {
     await viteServer.close()
   }
@@ -59,38 +49,7 @@ const parentWatchdog = setInterval(() => {
   }
 }, 1_000)
 
-function prepareBinaries() {
-  return new Promise((resolve, reject) => {
-    prepareProcess = spawn(process.execPath, [prepareScript], {
-      cwd: workspaceRoot,
-      env: process.env,
-      stdio: 'inherit',
-    })
-    prepareProcess.once('error', reject)
-    prepareProcess.once('exit', (code, signal) => {
-      prepareProcess = null
-      if (code === 0) {
-        resolve()
-      } else {
-        reject(
-          new Error(
-            signal
-              ? `prepare-daemon was terminated by ${signal}`
-              : `prepare-daemon exited with status ${code ?? 'unknown'}`,
-          ),
-        )
-      }
-    })
-  })
-}
-
 async function main() {
-  await prepareBinaries()
-  if (!isTauriAlive()) {
-    await shutdown(0)
-    return
-  }
-
   viteServer = await createServer({
     clearScreen: false,
   })

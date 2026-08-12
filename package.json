@@ -4,7 +4,7 @@
   "description": "Desktop configuration manager for Claude Code, Grok Build, Codex Desktop, and Claude Desktop",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "dev": "node scripts/dev.mjs",
     "build": "tauri build",
     "build:dev": "tauri build --debug --config src-tauri/tauri.dev.conf.json",
     "prepare:daemon": "node scripts/prepare-daemon.mjs",
