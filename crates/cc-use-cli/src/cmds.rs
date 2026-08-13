@@ -6,7 +6,7 @@
 
 use crate::format;
 use cc_use_lib::db::Database;
-use cc_use_lib::models::{ApiKey, Project, Provider};
+use cc_use_lib::models::{ApiKey, ManagedInstance, Project, Provider};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -596,6 +596,22 @@ fn instance_short_code(value: &str) -> String {
     value.chars().skip(length.saturating_sub(8)).collect()
 }
 
+/// Resolve the friendly project name for a managed instance. Prefers the bound
+/// project id, then falls back to matching the project path. Returns `None` for
+/// unmanaged sessions or projects deleted after launch.
+fn resolve_project_name(db: &Database, instance: &ManagedInstance) -> Option<String> {
+    let project = instance
+        .project_id
+        .as_deref()
+        .and_then(|id| db.project_get(id).ok().flatten())
+        .or_else(|| {
+            db.project_get_by_path(&instance.project_path)
+                .ok()
+                .flatten()
+        })?;
+    Some(safe_status_text(&project.name, 24))
+}
+
 /// Claude Code executes this on every status bar refresh and reads its JSON
 /// payload from stdin. Multiple stdout lines and ANSI colors are supported.
 /// Every error path degrades gracefully so statusline failures never interrupt
@@ -643,10 +659,17 @@ pub fn statusline() -> CmdResult {
         .project_dir
         .as_deref()
         .or_else(|| instance.as_ref().map(|item| Path::new(&item.project_path)));
+    let project_name = db
+        .as_ref()
+        .zip(instance.as_ref())
+        .and_then(|(db, instance)| resolve_project_name(db, instance));
+    // Lead with the project name so multiple windows are distinguishable at a
+    // glance; fall back to the brand label when there is no bound project.
+    let heading = project_name.as_deref().unwrap_or("CC USE");
     let line_one = if let Some((provider, key, short_code)) = route {
         format!(
             "{} {} {} {} {} {} {}",
-            ansi(STATUS_CYAN, "CC USE"),
+            ansi(STATUS_CYAN, heading),
             ansi(STATUS_BLUE, "│"),
             ansi(STATUS_YELLOW, &provider),
             ansi(STATUS_BLUE, "/"),
@@ -657,7 +680,7 @@ pub fn statusline() -> CmdResult {
     } else {
         format!(
             "{} {} {}",
-            ansi(STATUS_CYAN, "CC USE"),
+            ansi(STATUS_CYAN, heading),
             ansi(STATUS_BLUE, "│"),
             ansi(STATUS_YELLOW, "unmanaged")
         )
@@ -849,5 +872,54 @@ mod tests {
     fn instance_short_code_keeps_the_tail_of_the_instance_id() {
         assert_eq!(instance_short_code("instance-8f32ac91"), "8f32ac91");
         assert_eq!(instance_short_code("short"), "short");
+    }
+
+    #[test]
+    fn statusline_resolves_project_name_from_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::open_at(&dir.path().join("test.db")).unwrap();
+        let project = db
+            .project_create(&cc_use_lib::models::CreateProjectInput {
+                name: "Demo Project".to_string(),
+                path: "/tmp/demo".to_string(),
+                group_name: None,
+                remark: None,
+                provider_id: None,
+                api_key_id: None,
+                cli_type: Some("claude_code".to_string()),
+                terminal_type: Some("iterm2".to_string()),
+                prelaunch_command: None,
+            })
+            .unwrap();
+
+        let instance = |project_id: Option<String>| ManagedInstance {
+            id: "inst-1".to_string(),
+            session_token: "token-1".to_string(),
+            project_id,
+            provider_id: None,
+            api_key_id: None,
+            cli_type: "claude_code".to_string(),
+            terminal_type: "iterm2".to_string(),
+            project_path: "/tmp/demo".to_string(),
+            shell_pid: None,
+            process_pid: None,
+            status: "running".to_string(),
+            assignment_source: None,
+            last_seen_at: "".to_string(),
+            launched_at: "".to_string(),
+            stopped_at: None,
+            stop_reason: None,
+            exit_code: None,
+        };
+
+        assert_eq!(
+            resolve_project_name(&db, &instance(Some(project.id.clone()))),
+            Some("Demo Project".to_string())
+        );
+        // Fall back to project path when the bound id is absent.
+        assert_eq!(
+            resolve_project_name(&db, &instance(None)),
+            Some("Demo Project".to_string())
+        );
     }
 }
