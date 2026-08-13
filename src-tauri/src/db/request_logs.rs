@@ -187,26 +187,6 @@ impl Database {
         rows.collect()
     }
 
-    fn request_log_get_daily_trend_for_range(
-        &self,
-        time_range: &str,
-    ) -> Result<Vec<DailyTrendItem>, rusqlite::Error> {
-        let created_date = Self::local_date_expr("created_at");
-        let where_clause = self.billable_request_logs_where("created_at", time_range);
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d,
-                    COALESCE(SUM({}), 0), COUNT(*),
-                    COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
-                    COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
-                 FROM request_logs
-                 {} GROUP BY d ORDER BY d ASC",
-            created_date, TOKEN_SUM, where_clause
-        ))?;
-
-        let rows = stmt.query_map([], Self::map_daily_trend_row)?;
-        rows.collect()
-    }
-
     pub fn request_log_get_monthly_trend(
         &self,
         year: i64,
@@ -938,7 +918,7 @@ mod tests {
     }
 
     #[test]
-    fn daily_trend_totals_include_cache_buckets() {
+    fn cache_only_traffic_is_billable_and_counted() {
         let db = Database::new_in_memory().unwrap();
         let mut cache_only = mk_billable_log("cache-only", chrono::Utc::now().to_rfc3339());
         cache_only.input_tokens = 0;
@@ -948,11 +928,8 @@ mod tests {
 
         let stats = db.request_log_get_statistics("all").unwrap();
         assert_eq!(stats.summary.total_requests, 1);
-        // v3.7.0: cache traffic is part of the headline token number.
-        let trend = db.request_log_get_daily_trend_for_range("all").unwrap();
-        assert_eq!(trend[0].tokens, 1_000);
-        assert_eq!(trend[0].cache_read_tokens, 1_000);
 
+        // v3.7.0: cache traffic is part of the headline token number.
         let overview = db.request_log_get_overview().unwrap();
         assert_eq!(overview.today_tokens, 1_000);
     }
