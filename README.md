@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.7.0 更新**：新增 `cc-use claude` / `cc-use grok` 终端入口和可选 Claude Code 双行状态栏；用量统计收敛为真实 Token、失败、Key/项目维度与自定义日期；Codex Desktop 接管可展示供应商真实模型及 DeepSeek 思考强度。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.8.0 更新**：用量统计推进到供应商和密钥级线路质量判断——供应商/密钥卡新增多折线用量趋势与单行摘要卡片，全局统计新增模型用量堆叠柱状图，趋势数据按所选跨度在数据库中动态聚合；并修复托盘跨日刷新与 Claude Code 状态栏启用问题。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >
