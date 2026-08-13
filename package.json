@@ -1,6 +1,6 @@
 {
   "name": "cc-use",
-  "version": "3.8.0",
+  "version": "3.8.1",
   "description": "Desktop configuration manager for Claude Code, Grok Build, Codex Desktop, and Claude Desktop",
   "type": "module",
   "scripts": {

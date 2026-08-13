@@ -5,6 +5,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.8.1] - 2026-08-13
+
+### Fixed
+
+- Claude Code 状态栏第一行以项目名称替换 `CC USE` 标识，多项目窗口一眼可辨；无绑定项目时回退 `CC USE`
+- 用量统计请求记录表「模型」列加宽，超长模型名悬停可查看完整内容
+
 ## [3.8.0] - 2026-08-12
 
 ### Added

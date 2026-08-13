@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.8.0 Update**: Usage analytics now reach provider- and key-level line-quality judgment — multi-line trend charts and single-row summary cards on provider/key cards, a stacked model-usage bar chart in global stats, and dynamic aggregation of trend data by selected span; plus fixes for the tray midnight refresh and Claude Code statusline enablement. See [CHANGELOG](./CHANGELOG.md).
+> **3.8.1 Update**: The Claude Code statusline now leads with the project name instead of the `CC USE` label, so multiple project windows are distinguishable at a glance; the usage statistics "Model" column is wider and shows the full model name on hover. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
