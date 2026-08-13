@@ -131,9 +131,15 @@ export default function Statistics() {
       title: t('statistics.model'),
       dataIndex: 'model',
       key: 'model',
-      width: 160,
-      ellipsis: true,
-      render: (v: string | null) => v || '-',
+      width: 240,
+      render: (v: string | null) =>
+        v ? (
+          <Text ellipsis={{ tooltip: v }} style={{ display: 'block', maxWidth: '100%' }}>
+            {v}
+          </Text>
+        ) : (
+          '-'
+        ),
     },
     {
       title: t('statistics.key'),
@@ -457,7 +463,7 @@ export default function Statistics() {
                     pageSizeOptions: ['10', '20', '50', '100'],
                     showTotal: (total) => t('statistics.totalItems', { total }),
                   }}
-                  scroll={{ x: 1250 }}
+                  scroll={{ x: 1330 }}
                 />
               </Card>
             </div>
