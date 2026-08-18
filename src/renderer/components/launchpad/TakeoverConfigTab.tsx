@@ -12,7 +12,7 @@ import {
 import type { ApiKey, ClientKind, Provider } from '@shared/types'
 import { getClientKindLabel } from '@shared/types'
 import RoutePickerModal, { getRouteModelLabel } from '../common/RoutePickerModal'
-import { isBuiltinDeepSeekProvider } from '../../utils/builtinProviders'
+import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
 import claudeIcon from '../../assets/provider-icons/claude.svg'
 import openaiIcon from '../../assets/provider-icons/openai.svg'
 import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
@@ -123,9 +123,9 @@ export default function TakeoverConfigTab({
               <span className={styles.nodeBody}>
                 <span className={styles.nodeTitleLine}>
                   <Text type='secondary'>供应商</Text>
-                  {isBuiltinDeepSeekProvider(activeProvider) && (
+                  {isOfficialDeepSeekProvider(activeProvider) && (
                     <Tag color='blue' variant='filled'>
-                      内置
+                      官方
                     </Tag>
                   )}
                 </span>

@@ -5,7 +5,7 @@
  */
 import type { Provider, ApiKey, ClientKind } from '@shared/types'
 import { normalizeClientKind } from '@shared/types'
-import { isBuiltinDeepSeekProvider } from './builtinProviders'
+import { isOfficialDeepSeekProvider } from './officialProviders'
 
 export function getKeyClientTypes(apiKey: ApiKey): ClientKind[] {
   const normalized = (apiKey.types?.length ? apiKey.types : ['claude_code']).map((type) =>
@@ -16,7 +16,7 @@ export function getKeyClientTypes(apiKey: ApiKey): ClientKind[] {
 
 export function getEffectiveKeyClients(provider: Provider, apiKey: ApiKey): ClientKind[] {
   const clientKinds = getKeyClientTypes(apiKey)
-  return isBuiltinDeepSeekProvider(provider)
+  return isOfficialDeepSeekProvider(provider)
     ? clientKinds.filter((clientKind) => clientKind !== 'grok')
     : clientKinds
 }

@@ -6,7 +6,6 @@ import { UploadOutlined, LinkOutlined, SettingOutlined, WalletOutlined } from '@
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { Provider, CreateProviderInput } from '@shared/types'
-import { isBuiltinDeepSeekProvider } from '../../utils/builtinProviders'
 import styles from './ProviderModal.module.css'
 
 import claudeIcon from '../../assets/provider-icons/claude.svg'
@@ -43,14 +42,12 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const [selectedIcon, setSelectedIcon] = useState<string>('claude')
   const [customIconPath, setCustomIconPath] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [providerPreset, setProviderPreset] = useState<'custom' | 'deepseek'>('custom')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const message = useAppMessage()
 
   useEffect(() => {
     if (open) {
       if (provider) {
-        setProviderPreset(isBuiltinDeepSeekProvider(provider) ? 'deepseek' : 'custom')
         form.setFieldsValue({
           name: provider.name,
           baseUrl: provider.baseUrl,
@@ -90,7 +87,6 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setSelectedIcon('claude')
         setCustomIconPath(null)
         setShowAdvanced(false)
-        setProviderPreset('custom')
       }
     }
   }, [open, provider, form])
@@ -140,34 +136,6 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
     }
   }
 
-  const applyPreset = (preset: 'custom' | 'deepseek') => {
-    const previousPreset = providerPreset
-    setProviderPreset(preset)
-    if (preset === 'deepseek') {
-      form.setFieldsValue({
-        name: 'DeepSeek',
-        baseUrl: 'https://api.deepseek.com',
-        website: 'https://platform.deepseek.com',
-        walletBalanceType: 'deepseek',
-        remark: '',
-      })
-      setBalanceType('deepseek')
-      setSelectedIcon('deepseek')
-      setCustomIconPath(null)
-    } else if (previousPreset === 'deepseek') {
-      form.setFieldsValue({
-        name: '',
-        baseUrl: '',
-        website: '',
-        walletBalanceType: 'none',
-        remark: '',
-      })
-      setBalanceType('none')
-      setSelectedIcon('claude')
-      setCustomIconPath(null)
-    }
-  }
-
   return (
     <Modal
       title={provider ? t('providers.editProvider') : t('providers.newProvider')}
@@ -191,42 +159,6 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
               walletBalanceType: 'none',
             }}
           >
-            {!provider && (
-              <div className={styles.presetSection}>
-                <Text type='secondary' className={styles.presetLabel}>
-                  接入方式
-                </Text>
-                <div className={styles.presetGrid}>
-                  <button
-                    type='button'
-                    className={`${styles.presetCard} ${
-                      providerPreset === 'deepseek' ? styles.presetCardActive : ''
-                    }`}
-                    onClick={() => applyPreset('deepseek')}
-                  >
-                    <img src={deepseekIcon} alt='' className={styles.presetIcon} />
-                    <span className={styles.presetBody}>
-                      <Text strong>DeepSeek 官方</Text>
-                      <Text type='secondary'>内置配置 · Codex / Claude</Text>
-                    </span>
-                  </button>
-                  <button
-                    type='button'
-                    className={`${styles.presetCard} ${
-                      providerPreset === 'custom' ? styles.presetCardActive : ''
-                    }`}
-                    onClick={() => applyPreset('custom')}
-                  >
-                    <SettingOutlined className={styles.presetCustomIcon} />
-                    <span className={styles.presetBody}>
-                      <Text strong>自定义供应商</Text>
-                      <Text type='secondary'>保留全部手动配置能力</Text>
-                    </span>
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Main Form Grid */}
             <div className={styles.formGrid}>
               {/* Left Column - Basic Info */}

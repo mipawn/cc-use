@@ -48,7 +48,7 @@ import {
   parseModelMapping,
   type ExactModelMapping,
 } from '../../utils/modelMapping'
-import { isBuiltinDeepSeekProvider } from '../../utils/builtinProviders'
+import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
 import styles from './KeyEditModal.module.css'
 
 const { Text } = Typography
@@ -110,7 +110,7 @@ export default function KeyEditModal({
     const pid = defaultProviderId || apiKey?.providerId
     return pid ? providers.find((p) => p.id === pid) : null
   }, [defaultProviderId, apiKey, providers])
-  const isDeepSeekPreset = isBuiltinDeepSeekProvider(currentProvider)
+  const isOfficialDeepSeek = isOfficialDeepSeekProvider(currentProvider)
 
   const getDefaultAuthSchemeLabel = (clientKind: ClientKind) =>
     clientKind === 'codex' || clientKind === 'grok' ? 'Authorization: Bearer' : 'x-api-key'
@@ -156,7 +156,7 @@ export default function KeyEditModal({
       const nextTypes = (apiKey.types?.length ? apiKey.types : ['claude_code']).map((type) =>
         type === 'claude' ? 'claude_code' : type,
       ) as ClientKind[]
-      setSelectedTypes(isDeepSeekPreset ? nextTypes.filter((type) => type !== 'grok') : nextTypes)
+      setSelectedTypes(isOfficialDeepSeek ? nextTypes.filter((type) => type !== 'grok') : nextTypes)
       const config = { ...(apiKey.config || {}) }
       delete config.prelaunchCommand
       setClaudeConfigJson(JSON.stringify(config, null, 2))
@@ -164,7 +164,7 @@ export default function KeyEditModal({
       form.resetFields()
       form.setFieldsValue({ alias: '', value: '' })
       setSelectedTypes(
-        isDeepSeekPreset ? ['claude_code', 'codex', 'claude_desktop'] : ['claude_code'],
+        isOfficialDeepSeek ? ['claude_code', 'codex', 'claude_desktop'] : ['claude_code'],
       )
       setClaudeConfigJson('{}')
     }
@@ -196,16 +196,16 @@ export default function KeyEditModal({
       setUsageUrl('')
       setUsagePath('')
       setUsageHeaders('')
-      setHaikuModel(isDeepSeekPreset ? 'deepseek-v4-flash' : '')
-      setSonnetModel(isDeepSeekPreset ? 'deepseek-v4-pro[1m]' : '')
-      setOpusModel(isDeepSeekPreset ? 'deepseek-v4-pro[1m]' : '')
+      setHaikuModel(isOfficialDeepSeek ? 'deepseek-v4-flash' : '')
+      setSonnetModel(isOfficialDeepSeek ? 'deepseek-v4-pro[1m]' : '')
+      setOpusModel(isOfficialDeepSeek ? 'deepseek-v4-pro[1m]' : '')
       setModelOverrides([])
       // Keep Codex model selection truthful by default. This optional field is
       // only for gateways whose wire model name differs from the picker entry.
       setCodexModel('')
       setGrokModel('')
       setClientConfigs(
-        isDeepSeekPreset
+        isOfficialDeepSeek
           ? {
               claude_code: {
                 baseUrl: 'https://api.deepseek.com/anthropic',
@@ -225,7 +225,7 @@ export default function KeyEditModal({
     }
 
     setJsonError(null)
-  }, [open, apiKey, form, isDeepSeekPreset])
+  }, [open, apiKey, form, isOfficialDeepSeek])
 
   useEffect(() => {
     if (!open || !apiKey?.id || !selectedTypes.includes('claude_code')) {
@@ -397,7 +397,7 @@ export default function KeyEditModal({
               value={selectedTypes}
               onChange={(values) => handleTypesChange(values as ClientKind[])}
               options={CLIENT_KIND_CONFIGS.filter(
-                (client) => !isDeepSeekPreset || client.kind !== 'grok',
+                (client) => !isOfficialDeepSeek || client.kind !== 'grok',
               ).map((client) => ({
                 value: client.kind,
                 label: client.label,

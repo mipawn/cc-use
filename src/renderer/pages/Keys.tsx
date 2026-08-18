@@ -63,7 +63,7 @@ import {
 } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
-import { isBuiltinDeepSeekProvider } from '../utils/builtinProviders'
+import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
 import {
   toCreateApiKeyInput,
   toUpdateApiKeyInput,
@@ -643,9 +643,9 @@ export default function Keys() {
                       <Text strong className={styles.groupName}>
                         {provider.name}
                       </Text>
-                      {isBuiltinDeepSeekProvider(provider) && (
+                      {isOfficialDeepSeekProvider(provider) && (
                         <Tag color='blue' variant='filled'>
-                          内置
+                          官方
                         </Tag>
                       )}
                       {balance !== undefined && (
@@ -696,6 +696,15 @@ export default function Keys() {
                       )}
                     </div>
                     <Space size={8}>
+                      <Tooltip
+                        title={provider.isActive ? t('common.active') : t('common.inactive')}
+                      >
+                        <Switch
+                          size='small'
+                          checked={provider.isActive}
+                          onChange={(checked) => handleToggleProvider(provider, checked)}
+                        />
+                      </Tooltip>
                       <Tooltip title={t('usageDetail.openProvider')}>
                         <Button
                           type='text'
@@ -708,15 +717,6 @@ export default function Keys() {
                               name: provider.name,
                             })
                           }
-                        />
-                      </Tooltip>
-                      <Tooltip
-                        title={provider.isActive ? t('common.active') : t('common.inactive')}
-                      >
-                        <Switch
-                          size='small'
-                          checked={provider.isActive}
-                          onChange={(checked) => handleToggleProvider(provider, checked)}
                         />
                       </Tooltip>
                       {provider.walletBalanceType !== 'none' && (

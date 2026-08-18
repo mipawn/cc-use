@@ -11,7 +11,7 @@ import {
 import type { ApiKey, ClientKind, Provider } from '@shared/types'
 import { getClientKindLabel } from '@shared/types'
 import { supportsKeyClient } from '../../utils/clientSupport'
-import { isBuiltinDeepSeekProvider } from '../../utils/builtinProviders'
+import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
 import { parseModelMapping } from '../../utils/modelMapping'
 import { computeVisibleReorder } from '../launchpad/reorder'
 import claudeIcon from '../../assets/provider-icons/claude.svg'
@@ -87,7 +87,7 @@ export default function RoutePickerModal({
   onReorderApiKeys,
 }: RoutePickerModalProps) {
   const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<'all' | 'builtin'>('all')
+  const [scope, setScope] = useState<'all' | 'official'>('all')
   const [providerId, setProviderId] = useState('')
   const [selectedKeyId, setSelectedKeyId] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -108,7 +108,7 @@ export default function RoutePickerModal({
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase()
     return compatibleGroups
-      .filter(({ provider }) => scope === 'all' || isBuiltinDeepSeekProvider(provider))
+      .filter(({ provider }) => scope === 'all' || isOfficialDeepSeekProvider(provider))
       .map((group) => ({
         ...group,
         keys: group.keys.filter((key) => {
@@ -221,10 +221,10 @@ export default function RoutePickerModal({
         />
         <Segmented
           value={scope}
-          onChange={(value) => setScope(value as 'all' | 'builtin')}
+          onChange={(value) => setScope(value as 'all' | 'official')}
           options={[
             { label: '全部', value: 'all' },
-            { label: '内置供应商', value: 'builtin' },
+            { label: 'DeepSeek 官方', value: 'official' },
           ]}
         />
       </div>
@@ -233,7 +233,7 @@ export default function RoutePickerModal({
         <Empty
           className={styles.empty}
           description={
-            query || scope === 'builtin'
+            query || scope === 'official'
               ? '没有匹配的线路'
               : `暂无支持 ${getClientKindLabel(clientKind)} 的密钥`
           }
@@ -260,9 +260,9 @@ export default function RoutePickerModal({
                       <Text strong ellipsis>
                         {provider.name}
                       </Text>
-                      {isBuiltinDeepSeekProvider(provider) && (
+                      {isOfficialDeepSeekProvider(provider) && (
                         <Tag color='blue' variant='filled'>
-                          内置
+                          官方
                         </Tag>
                       )}
                     </span>

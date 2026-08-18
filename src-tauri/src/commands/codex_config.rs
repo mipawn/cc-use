@@ -52,15 +52,15 @@ const DEEPSEEK_CODEX_MODEL: &str = "deepseek-v4-flash";
 const DEEPSEEK_CODEX_CATALOG: &str = include_str!("../../resources/deepseek-codex-models.json");
 const DEEPSEEK_FALLBACK_MODEL_IDS: [&str; 2] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 
-fn is_builtin_deepseek_provider(provider: &crate::models::Provider) -> bool {
-    if provider.icon.as_deref() != Some("deepseek") {
-        return false;
-    }
-
-    url::Url::parse(&provider.base_url)
+fn is_official_deepseek_base_url(base_url: &str) -> bool {
+    url::Url::parse(base_url)
         .ok()
         .and_then(|url| url.host_str().map(ToOwned::to_owned))
         .is_some_and(|host| host.eq_ignore_ascii_case("api.deepseek.com"))
+}
+
+fn is_official_deepseek_provider(provider: &crate::models::Provider) -> bool {
+    is_official_deepseek_base_url(&provider.base_url)
 }
 
 fn deepseek_fallback_model_ids() -> Vec<String> {
@@ -831,7 +831,7 @@ pub async fn codex_config_takeover_inner(
         .await
         {
             Ok(model_ids) => (model_ids, false),
-            Err(error) if is_builtin_deepseek_provider(&provider) => {
+            Err(error) if is_official_deepseek_provider(&provider) => {
                 log::warn!(
                     "DeepSeek model discovery failed; using the built-in Codex model catalog: {}",
                     error
@@ -1029,6 +1029,18 @@ mod tests {
                 "deepseek-v4-pro".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn official_deepseek_detection_uses_only_the_api_host() {
+        assert!(is_official_deepseek_base_url(
+            "https://api.deepseek.com/anthropic"
+        ));
+        assert!(is_official_deepseek_base_url("https://API.DEEPSEEK.COM/v1"));
+        assert!(!is_official_deepseek_base_url(
+            "https://gateway.example.com/v1"
+        ));
+        assert!(!is_official_deepseek_base_url("not-a-url"));
     }
 
     fn create_test_manager() -> (CodexConfigManager, TempDir) {

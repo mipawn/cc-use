@@ -721,14 +721,11 @@ fn apply_tray_badge(app: &AppHandle) {
 }
 
 fn apply_tray_badge_text(app: &AppHandle, badge_text: &str) {
-    let title = if badge_text.is_empty() {
-        None
-    } else {
-        Some(badge_text)
-    };
-
     if let Some(tray) = app.tray_by_id("main") {
-        if let Err(error) = tray.set_title(title) {
+        // tray-icon 0.24's macOS implementation treats `None` as a no-op,
+        // so it leaves yesterday's title visible when today's usage is zero.
+        // An explicit empty string updates NSStatusItem and reliably clears it.
+        if let Err(error) = tray.set_title(tray_title_for_badge(badge_text)) {
             log::warn!("Failed to update tray badge: {}", error);
         }
     }
@@ -737,6 +734,10 @@ fn apply_tray_badge_text(app: &AppHandle, badge_text: &str) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_badge_label(None);
     }
+}
+
+fn tray_title_for_badge(badge_text: &str) -> Option<&str> {
+    Some(badge_text)
 }
 
 fn calculate_tray_badge_text(app: &AppHandle) -> String {
@@ -773,6 +774,7 @@ pub fn should_close_to_tray(app: &AppHandle) -> bool {
 mod tests {
     use super::{
         did_local_day_roll_over, key_available_for_client, mask_key_value, normalize_client_kind,
+        tray_title_for_badge,
     };
     use crate::models::ApiKey;
 
@@ -804,6 +806,12 @@ mod tests {
         let day_two = chrono::NaiveDate::from_ymd_opt(2026, 8, 10).unwrap();
         assert!(!did_local_day_roll_over(day_one, day_one));
         assert!(did_local_day_roll_over(day_one, day_two));
+    }
+
+    #[test]
+    fn empty_badge_uses_an_explicit_title_to_clear_macos_status_item() {
+        assert_eq!(tray_title_for_badge(""), Some(""));
+        assert_eq!(tray_title_for_badge("8.4M"), Some("8.4M"));
     }
 
     #[test]

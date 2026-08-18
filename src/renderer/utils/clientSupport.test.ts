@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiKey, Provider } from '@shared/types'
-import { isBuiltinDeepSeekProvider } from './builtinProviders'
+import { isOfficialDeepSeekProvider } from './officialProviders'
 import { supportsKeyClient } from './clientSupport'
 
 const deepseekProvider = {
@@ -16,15 +16,23 @@ const multiClientKey = {
   types: ['claude_code', 'grok', 'codex', 'claude_desktop'],
 } as ApiKey
 
-describe('built-in provider compatibility', () => {
-  it('recognizes only the official DeepSeek host with the DeepSeek preset', () => {
-    expect(isBuiltinDeepSeekProvider(deepseekProvider)).toBe(true)
+describe('official provider compatibility', () => {
+  it('recognizes the official DeepSeek host independently of its display icon', () => {
+    expect(isOfficialDeepSeekProvider(deepseekProvider)).toBe(true)
     expect(
-      isBuiltinDeepSeekProvider({
+      isOfficialDeepSeekProvider({
+        ...deepseekProvider,
+        icon: 'claude',
+        baseUrl: 'https://API.DEEPSEEK.COM/anthropic',
+      }),
+    ).toBe(true)
+    expect(
+      isOfficialDeepSeekProvider({
         ...deepseekProvider,
         baseUrl: 'https://gateway.example.com',
       }),
     ).toBe(false)
+    expect(isOfficialDeepSeekProvider({ ...deepseekProvider, baseUrl: 'not-a-url' })).toBe(false)
   })
 
   it('keeps DeepSeek on Codex and Claude but excludes Grok', () => {
