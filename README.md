@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.8.1 更新**：Claude Code 状态栏第一行以项目名称替换 `CC USE` 标识，多项目窗口一眼可辨；用量统计「模型」列加宽并支持悬停查看完整模型名。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.8.2 更新**：新增供应商恢复为直接填写通用表单，DeepSeek 官方能力改为仅按 `api.deepseek.com` 域名识别；供应商操作区顺序统一，并修复 macOS 托盘跨日后仍保留昨日 Token 的问题。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >

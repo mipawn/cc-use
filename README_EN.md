@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.8.1 Update**: The Claude Code statusline now leads with the project name instead of the `CC USE` label, so multiple project windows are distinguishable at a glance; the usage statistics "Model" column is wider and shows the full model name on hover. See [CHANGELOG](./CHANGELOG.md).
+> **3.8.2 Update**: Adding a provider now opens the standard form directly, while official DeepSeek behavior is detected solely from the `api.deepseek.com` host. Provider actions are consistently ordered, and the macOS tray now clears yesterday's token count after a day rollover. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
