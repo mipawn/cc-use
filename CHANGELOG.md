@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.8.3] - 2026-08-19
+
+### Fixed
+
+- `cc-use claude` 与 `cc-use grok` 始终从命令调用目录启动；命中桌面项目时只复用项目名称、默认线路和预启动配置，不再把当前子目录重置为项目根目录
+- CLI 在确认 `$PWD` 与进程工作目录指向同一位置后保留终端逻辑路径，避免 `/tmp`、符号链接目录被替换为 `/private/tmp` 等物理路径
+- 未绑定桌面项目的 managed instance 在 Claude Code 状态栏第一行展示调用目录名，不再固定显示 `CC USE`
+
 ## [3.8.2] - 2026-08-18
 
 ### Changed

@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.8.2 更新**：新增供应商恢复为直接填写通用表单，DeepSeek 官方能力改为仅按 `api.deepseek.com` 域名识别；供应商操作区顺序统一，并修复 macOS 托盘跨日后仍保留昨日 Token 的问题。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.8.3 更新**：修复从终端执行 `cc-use claude` 时工作目录被桌面项目根目录或物理路径替换的问题；未建立桌面项目时，状态栏会显示实际调用目录。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >

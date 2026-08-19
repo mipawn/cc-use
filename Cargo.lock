@@ -580,7 +580,7 @@ dependencies = [
 
 [[package]]
 name = "cc-use"
-version = "3.8.2"
+version = "3.8.3"
 dependencies = [
  "auto-launch",
  "axum",
