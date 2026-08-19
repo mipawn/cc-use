@@ -770,6 +770,7 @@ mod tests {
         .unwrap();
 
         let script = std::fs::read_to_string(&path).unwrap();
+        assert!(script.starts_with("#!/bin/sh\nset -u\n\ncd '/tmp/project'\n"));
         assert!(script.contains("CC_USE_FOREGROUND=0"));
         assert!(script.contains("eval \"$CC_USE_LAUNCH_COMMAND\" &\n  CC_USE_CHILD_PID=$!"));
         assert!(script.contains("CC_USE_INSTANCE_PHASE=launching"));

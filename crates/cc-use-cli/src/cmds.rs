@@ -65,7 +65,7 @@ impl Ctx {
             .map_err(|e| CliError::Failed(format!("无法打开 cc-use 数据库: {}", e)))?;
         Ok(Self {
             db,
-            cwd: std::env::current_dir().ok(),
+            cwd: invocation_dir(),
             interactive: std::io::stdin().is_terminal(),
             verify_daemon: true,
         })
@@ -80,6 +80,31 @@ impl Ctx {
             interactive: false,
             verify_daemon: false,
         }
+    }
+}
+
+/// Preserve the path spelling the user's shell exposes through `$PWD` (for
+/// example `/tmp/project` or a symlinked workspace) while rejecting a stale or
+/// forged value that does not point at the process' actual working directory.
+fn invocation_dir() -> Option<PathBuf> {
+    let physical = std::env::current_dir().ok()?;
+    let logical = std::env::var_os("PWD").map(PathBuf::from);
+    Some(prefer_logical_dir(physical, logical.as_deref()))
+}
+
+fn prefer_logical_dir(physical: PathBuf, logical: Option<&Path>) -> PathBuf {
+    let Some(logical) = logical.filter(|path| path.is_absolute()) else {
+        return physical;
+    };
+    let same_directory = logical
+        .canonicalize()
+        .ok()
+        .zip(physical.canonicalize().ok())
+        .is_some_and(|(logical, physical)| logical == physical);
+    if same_directory {
+        logical.to_path_buf()
+    } else {
+        physical
     }
 }
 
@@ -400,6 +425,40 @@ fn pick_key(
 
 // ── launch (cc-use claude / cc-use grok) ──
 
+struct CliLaunchContext {
+    project_id: Option<String>,
+    project_name: String,
+    working_dir: String,
+    prelaunch_command: Option<String>,
+}
+
+fn cli_launch_context(project: Option<&Project>, cwd: &Path, client: &str) -> CliLaunchContext {
+    let (project_id, project_name, prelaunch_command) = match project {
+        Some(project) => (
+            Some(project.id.clone()),
+            project.name.clone(),
+            project
+                .bindings
+                .get(client)
+                .and_then(|binding| binding.prelaunch_command.clone())
+                .filter(|value| !value.trim().is_empty()),
+        ),
+        None => (
+            None,
+            cwd.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| "terminal".to_string()),
+            None,
+        ),
+    };
+    CliLaunchContext {
+        project_id,
+        project_name,
+        working_dir: cwd.to_string_lossy().to_string(),
+        prelaunch_command,
+    }
+}
+
 /// Launch a terminal CLI in the terminal we were invoked from.
 ///
 /// Every launch shows the compatible route list. The project's GUI-configured
@@ -428,36 +487,17 @@ pub fn launch(ctx: &Ctx, client: &str) -> CmdResult {
     let index = pick_key(ctx.interactive, &keys, default_key_id)?;
     let (provider, key) = keys.into_iter().nth(index).expect("index validated");
 
-    let (project_id, project_name, project_path, prelaunch_command) = match &project {
-        Some(project) => (
-            Some(project.id.as_str()),
-            project.name.clone(),
-            project.path.clone(),
-            project
-                .bindings
-                .get(client)
-                .and_then(|b| b.prelaunch_command.clone())
-                .filter(|v| !v.trim().is_empty()),
-        ),
-        None => (
-            None,
-            cwd.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "terminal".to_string()),
-            cwd.to_string_lossy().to_string(),
-            None,
-        ),
-    };
+    let launch_context = cli_launch_context(project.as_ref(), &cwd, client);
 
     let prepared = cc_use_lib::terminal::prepare_cli_terminal_launch(
         &ctx.db,
         client,
         &provider.id,
         &key.id,
-        project_id,
-        &project_name,
-        &project_path,
-        prelaunch_command,
+        launch_context.project_id.as_deref(),
+        &launch_context.project_name,
+        &launch_context.working_dir,
+        launch_context.prelaunch_command,
     )
     .map_err(CliError::Failed)?;
 
@@ -612,6 +652,27 @@ fn resolve_project_name(db: &Database, instance: &ManagedInstance) -> Option<Str
     Some(safe_status_text(&project.name, 24))
 }
 
+fn directory_name(path: &Path) -> Option<String> {
+    path.file_name()
+        .map(|name| safe_status_text(&name.to_string_lossy(), 24))
+        .filter(|name| !name.is_empty())
+        .or_else(|| (path == Path::new("/")).then(|| safe_status_text(&path.to_string_lossy(), 24)))
+}
+
+fn statusline_heading(
+    db: Option<&Database>,
+    instance: Option<&ManagedInstance>,
+    input_dir: Option<&Path>,
+) -> String {
+    db.zip(instance)
+        .and_then(|(db, instance)| resolve_project_name(db, instance))
+        // The managed instance retains the shell's logical invocation path;
+        // Claude's payload may contain its canonical/physical spelling.
+        .or_else(|| instance.and_then(|item| directory_name(Path::new(&item.project_path))))
+        .or_else(|| input_dir.and_then(directory_name))
+        .unwrap_or_else(|| "CC USE".to_string())
+}
+
 /// Claude Code executes this on every status bar refresh and reads its JSON
 /// payload from stdin. Multiple stdout lines and ANSI colors are supported.
 /// Every error path degrades gracefully so statusline failures never interrupt
@@ -659,17 +720,13 @@ pub fn statusline() -> CmdResult {
         .project_dir
         .as_deref()
         .or_else(|| instance.as_ref().map(|item| Path::new(&item.project_path)));
-    let project_name = db
-        .as_ref()
-        .zip(instance.as_ref())
-        .and_then(|(db, instance)| resolve_project_name(db, instance));
     // Lead with the project name so multiple windows are distinguishable at a
-    // glance; fall back to the brand label when there is no bound project.
-    let heading = project_name.as_deref().unwrap_or("CC USE");
+    // glance; an unbound launch uses its actual invocation directory instead.
+    let heading = statusline_heading(db.as_ref(), instance.as_ref(), input.project_dir.as_deref());
     let line_one = if let Some((provider, key, short_code)) = route {
         format!(
             "{} {} {} {} {} {} {}",
-            ansi(STATUS_CYAN, heading),
+            ansi(STATUS_CYAN, &heading),
             ansi(STATUS_BLUE, "│"),
             ansi(STATUS_YELLOW, &provider),
             ansi(STATUS_BLUE, "/"),
@@ -680,7 +737,7 @@ pub fn statusline() -> CmdResult {
     } else {
         format!(
             "{} {} {}",
-            ansi(STATUS_CYAN, heading),
+            ansi(STATUS_CYAN, &heading),
             ansi(STATUS_BLUE, "│"),
             ansi(STATUS_YELLOW, "unmanaged")
         )
@@ -795,6 +852,47 @@ pub fn restore_statusline() -> CmdResult {
 mod tests {
     use super::*;
 
+    fn managed_instance(project_id: Option<String>, project_path: &str) -> ManagedInstance {
+        ManagedInstance {
+            id: "inst-1".to_string(),
+            session_token: "token-1".to_string(),
+            project_id,
+            provider_id: None,
+            api_key_id: None,
+            cli_type: "claude_code".to_string(),
+            terminal_type: "cli".to_string(),
+            project_path: project_path.to_string(),
+            shell_pid: None,
+            process_pid: None,
+            status: "running".to_string(),
+            assignment_source: None,
+            last_seen_at: "".to_string(),
+            launched_at: "".to_string(),
+            stopped_at: None,
+            stop_reason: None,
+            exit_code: None,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invocation_dir_preserves_a_verified_logical_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let physical = dir.path().join("physical");
+        let logical = dir.path().join("logical");
+        std::fs::create_dir(&physical).unwrap();
+        std::os::unix::fs::symlink(&physical, &logical).unwrap();
+
+        assert_eq!(
+            prefer_logical_dir(physical.clone(), Some(&logical)),
+            logical
+        );
+        assert_eq!(
+            prefer_logical_dir(physical.clone(), Some(&dir.path().join("missing"))),
+            physical
+        );
+    }
+
     #[test]
     fn raw_terminal_uses_controlling_tty_when_available() {
         use std::io::IsTerminal;
@@ -892,34 +990,60 @@ mod tests {
             })
             .unwrap();
 
-        let instance = |project_id: Option<String>| ManagedInstance {
-            id: "inst-1".to_string(),
-            session_token: "token-1".to_string(),
-            project_id,
-            provider_id: None,
-            api_key_id: None,
-            cli_type: "claude_code".to_string(),
-            terminal_type: "iterm2".to_string(),
-            project_path: "/tmp/demo".to_string(),
-            shell_pid: None,
-            process_pid: None,
-            status: "running".to_string(),
-            assignment_source: None,
-            last_seen_at: "".to_string(),
-            launched_at: "".to_string(),
-            stopped_at: None,
-            stop_reason: None,
-            exit_code: None,
-        };
-
         assert_eq!(
-            resolve_project_name(&db, &instance(Some(project.id.clone()))),
+            resolve_project_name(
+                &db,
+                &managed_instance(Some(project.id.clone()), "/tmp/demo")
+            ),
             Some("Demo Project".to_string())
         );
         // Fall back to project path when the bound id is absent.
         assert_eq!(
-            resolve_project_name(&db, &instance(None)),
+            resolve_project_name(&db, &managed_instance(None, "/tmp/demo")),
             Some("Demo Project".to_string())
+        );
+    }
+
+    #[test]
+    fn cli_project_context_keeps_the_invocation_subdirectory() {
+        let project = Project {
+            id: "project-1".to_string(),
+            name: "Demo Project".to_string(),
+            path: "/tmp/demo".to_string(),
+            group_name: None,
+            remark: None,
+            provider_id: None,
+            api_key_id: None,
+            cli_type: "claude_code".to_string(),
+            terminal_type: "cli".to_string(),
+            prelaunch_command: None,
+            last_opened_at: None,
+            bindings: Default::default(),
+        };
+        let launch = cli_launch_context(
+            Some(&project),
+            Path::new("/tmp/demo/packages/web"),
+            "claude_code",
+        );
+        assert_eq!(launch.project_id.as_deref(), Some(project.id.as_str()));
+        assert_eq!(launch.project_name, "Demo Project");
+        assert_eq!(launch.working_dir, "/tmp/demo/packages/web");
+    }
+
+    #[test]
+    fn statusline_uses_the_invocation_directory_without_a_bound_project() {
+        let instance = managed_instance(None, "/tmp/logical-workspace");
+        assert_eq!(
+            statusline_heading(
+                None,
+                Some(&instance),
+                Some(Path::new("/private/tmp/elsewhere"))
+            ),
+            "logical-workspace"
+        );
+        assert_eq!(
+            statusline_heading(None, None, Some(Path::new("/tmp/plain-workspace"))),
+            "plain-workspace"
         );
     }
 }
