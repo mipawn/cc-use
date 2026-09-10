@@ -78,7 +78,7 @@ impl Database {
                     cache_read_tokens, cache_creation_tokens,
                     latency_ms, first_token_ms, status_code, error_message,
                     is_streaming, created_at,
-                    key_alias, provider_name, project_name, outcome, request_kind
+                    key_alias, provider_name, project_name, outcome, request_kind, request_id
              FROM request_logs ORDER BY created_at ASC",
         )?;
 
@@ -107,6 +107,7 @@ impl Database {
                 project_name: row.get(19)?,
                 outcome: row.get(20)?,
                 request_kind: row.get(21)?,
+                request_id: row.get(22)?,
             })
         })?;
 
@@ -118,8 +119,9 @@ impl Database {
             "INSERT INTO request_logs (id, provider_id, api_key_id, project_id, session_id,
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
                 cache_creation_tokens, latency_ms, first_token_ms, status_code, error_message,
-                is_streaming, created_at, key_alias, provider_name, project_name, outcome, request_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                is_streaming, created_at, key_alias, provider_name, project_name, outcome, request_kind,
+                request_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             rusqlite::params![
                 log.id, log.provider_id, log.api_key_id, log.project_id, log.session_id,
                 log.model, log.request_model, log.input_tokens, log.output_tokens,
@@ -127,6 +129,7 @@ impl Database {
                 log.latency_ms, log.first_token_ms, log.status_code, log.error_message,
                 if log.is_streaming { 1i32 } else { 0i32 }, log.created_at,
                 log.key_alias, log.provider_name, log.project_name, log.outcome, log.request_kind,
+                log.request_id,
             ],
         )?;
         Ok(())
@@ -137,8 +140,9 @@ impl Database {
             "INSERT OR REPLACE INTO request_logs (id, provider_id, api_key_id, project_id, session_id,
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
                 cache_creation_tokens, latency_ms, first_token_ms, status_code, error_message,
-                is_streaming, created_at, key_alias, provider_name, project_name, outcome, request_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                is_streaming, created_at, key_alias, provider_name, project_name, outcome, request_kind,
+                request_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             rusqlite::params![
                 log.id,
                 log.provider_id,
@@ -162,6 +166,7 @@ impl Database {
                 log.project_name,
                 log.outcome,
                 log.request_kind,
+                log.request_id,
             ],
         )?;
         Ok(())
@@ -556,7 +561,8 @@ impl Database {
                         ),
                         r.input_tokens, r.output_tokens,
                         r.cache_read_tokens, r.cache_creation_tokens,
-                        r.latency_ms, r.status_code, r.outcome, r.error_message, r.created_at, r.request_kind
+                        r.latency_ms, r.status_code, r.outcome, r.error_message, r.created_at, r.request_kind,
+                        r.request_id
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
@@ -583,6 +589,7 @@ impl Database {
                     error_message: row.get(12)?,
                     created_at: row.get(13)?,
                     request_kind: row.get(14)?,
+                    request_id: row.get(15)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -685,6 +692,7 @@ mod tests {
             model: Some("gpt-5.5".into()),
             request_model: Some("gpt-5.5".into()),
             request_kind: None,
+            request_id: Some(format!("req-{id}")),
             input_tokens: 10,
             output_tokens: 20,
             cache_read_tokens: 0,
@@ -1102,5 +1110,49 @@ mod tests {
         assert_eq!(stats.daily_trend[0].date, "2026-01-05");
         assert_eq!(stats.daily_trend[0].tokens, 60);
         assert_eq!(stats.daily_trend[0].requests, 2);
+    }
+
+    /// v3.10.0: a database created before the column existed must gain both the
+    /// column and its index, so upgraded installs can join rows to console
+    /// events and audit summaries exactly like fresh ones.
+    #[test]
+    fn request_id_column_and_index_are_added_to_a_legacy_database() {
+        let db = Database::new_in_memory().unwrap();
+        // The index has to go first: SQLite refuses to drop a column an index
+        // still references.
+        db.conn
+            .execute("DROP INDEX IF EXISTS idx_request_logs_request_id", [])
+            .unwrap();
+        db.conn
+            .execute("ALTER TABLE request_logs DROP COLUMN request_id", [])
+            .unwrap();
+
+        db.run_alter_migrations();
+
+        let column_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('request_logs') WHERE name = 'request_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_count, 1, "request_id column restored");
+        let index_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'index' AND name = 'idx_request_logs_request_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(index_count, 1, "request_id index restored");
+
+        // Rows written before the column keep a NULL id rather than a guess.
+        let legacy = mk_billable_log("legacy", chrono::Utc::now().to_rfc3339());
+        db.request_log_create(&legacy).unwrap();
+        let stored = db.request_log_list_all().unwrap();
+        assert_eq!(stored[0].request_id.as_deref(), Some("req-legacy"));
     }
 }

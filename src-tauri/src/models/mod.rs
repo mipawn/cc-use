@@ -373,6 +373,11 @@ pub struct RequestLog {
     /// Recognized request purpose; absent on historical/unclassified requests.
     #[serde(default)]
     pub request_kind: Option<String>,
+    /// v3.10.0: the proxy request id shared by this row, its console events and
+    /// any audit summary. `None` on rows recorded before the column existed —
+    /// nothing guesses an association for those.
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub cache_read_tokens: i64,
@@ -484,6 +489,10 @@ pub struct DailyModelUsageItem {
 pub struct RecentRequestLogDisplay {
     pub id: String,
     pub request_kind: Option<String>,
+    /// v3.10.0: proxy request id, used to reach the console events and audit
+    /// summary for this request. `None` on rows recorded before the column.
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub model: Option<String>,
     pub key_alias: Option<String>,
     pub provider_name: Option<String>,

@@ -256,3 +256,75 @@ async fn auth_scheme_none_skips_auth_headers() {
     }
     // pending/upstream_error 都是正常的（因为上游是假地址）
 }
+
+/// v3.10.0: one proxied request has to be reachable from three places — its
+/// console events, its `request_logs` row, and its audit summary — so all three
+/// carry the same proxy request id. This covers the first two: the handler
+/// generates the id once and persists it with the usage row.
+#[tokio::test]
+async fn recorded_request_row_shares_the_console_request_id() {
+    use cc_use_lib::models::CreateProviderInput;
+
+    let state = fresh_state();
+    let mut rx = state.console_tx.subscribe();
+
+    {
+        let db = state.db.lock().unwrap();
+        // Port 1 refuses connections, so the handler records a transport
+        // failure without reaching any real upstream.
+        let provider = db
+            .provider_create(&CreateProviderInput {
+                name: "id-link".to_string(),
+                base_url: "http://127.0.0.1:1".to_string(),
+                http_proxy: None,
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+            })
+            .expect("create provider");
+        let key = support::create_api_key(&db, &provider.id, "claude_code");
+        support::create_proxy_session(&db, "session-id-link", &provider.id, &key.id, None);
+    }
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("authorization", "Bearer session-id-link")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"claude-3-5-sonnet","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}"#,
+        ))
+        .unwrap();
+
+    let _ = proxy_handler(AxumState(state.clone()), request).await;
+
+    let event = tokio::time::timeout(Duration::from_millis(500), rx.recv())
+        .await
+        .expect("console event should be broadcast")
+        .expect("channel should deliver event");
+    let console_request_id = match event {
+        ConsoleEvent::Request { request_id, .. } => {
+            request_id.expect("handler-emitted events carry a request id")
+        }
+        other => panic!("expected Request variant, got {:?}", other),
+    };
+
+    let db = state.db.lock().unwrap();
+    let rows = db.request_log_list_all().expect("list request logs");
+    assert_eq!(rows.len(), 1, "the failed request is still recorded");
+    assert_eq!(
+        rows[0].request_id.as_deref(),
+        Some(console_request_id.as_str()),
+        "the persisted row must be joinable with its console events"
+    );
+}

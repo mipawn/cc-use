@@ -182,6 +182,7 @@ impl Database {
                 model TEXT,
                 request_model TEXT,
                 request_kind TEXT,
+                request_id TEXT,
                 input_tokens INTEGER DEFAULT 0,
                 output_tokens INTEGER DEFAULT 0,
                 cache_read_tokens INTEGER DEFAULT 0,
@@ -411,11 +412,20 @@ impl Database {
             // v3.7.0: failed requests are recorded too, so every row states its outcome.
             "ALTER TABLE request_logs ADD COLUMN outcome TEXT",
             "ALTER TABLE request_logs ADD COLUMN request_kind TEXT",
+            // v3.10.0: ties one request's row to its console events and audit summary.
+            "ALTER TABLE request_logs ADD COLUMN request_id TEXT",
         ];
 
         for stmt in &alter_statements {
             let _ = self.conn.execute(stmt, []);
         }
+
+        // Created after the ALTERs so the column exists on upgraded databases too.
+        // Pre-v3.10.0 rows keep a NULL request_id; nothing guesses an association.
+        let _ = self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_request_id ON request_logs(request_id)",
+            [],
+        );
 
         // Pre-v3.7.0 rows only existed when usage parsed, i.e. the request had
         // succeeded. Backfilling keeps the new outcome filters meaningful over

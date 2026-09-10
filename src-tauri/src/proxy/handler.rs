@@ -546,6 +546,7 @@ pub async fn proxy_handler(
         project_id: ctx.project_id.clone(),
         request_model: request_model.clone(),
         request_kind: request_kind.clone(),
+        request_id: request_id.clone(),
         status_code: None,
         start_time,
         path: req_path.clone(),
@@ -1767,6 +1768,9 @@ struct LogContext {
     project_id: Option<String>,
     request_model: Option<String>,
     request_kind: Option<String>,
+    /// The proxy request id, shared with this request's console events and any
+    /// audit summary so the three can be joined later.
+    request_id: String,
     status_code: Option<u16>,
     start_time: std::time::Instant,
     path: String,
@@ -1892,6 +1896,7 @@ fn record_usage(
         model: Some(model_name.to_string()),
         request_model: ctx.request_model.clone(),
         request_kind: ctx.request_kind.clone(),
+        request_id: Some(ctx.request_id.clone()),
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         cache_read_tokens: usage.cache_read_tokens,
@@ -3121,6 +3126,7 @@ mod tests {
             project_id: None,
             request_model: Some("gpt-5.5".to_string()),
             request_kind: None,
+            request_id: "test-request-id".to_string(),
             status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/responses".to_string(),
@@ -3144,6 +3150,9 @@ mod tests {
         assert_eq!(rows[0].request_model.as_deref(), Some("gpt-5.5"));
         assert_eq!(rows[0].input_tokens, 1_000_000);
         assert_eq!(rows[0].output_tokens, 1_000_000);
+        // The row carries the proxy request id so it can be joined with the
+        // console events and audit summary for the same request.
+        assert_eq!(rows[0].request_id.as_deref(), Some("test-request-id"));
 
         let mut transport_ctx = ctx.clone();
         transport_ctx.status_code = None;
@@ -3235,6 +3244,7 @@ mod tests {
             project_id: None,
             request_model: Some("claude-3-5-sonnet".to_string()),
             request_kind: None,
+            request_id: "test-request-id".to_string(),
             status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/messages".to_string(),
