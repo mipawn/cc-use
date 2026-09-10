@@ -573,6 +573,8 @@ export default {
     usagePathHint: '提取额度值的 JSON 路径，例如 data.total_available',
     usageHeaders: '自定义 Headers',
     usageHeadersHint: 'JSON 格式，例如 {"Authorization": "Bearer xxx"}',
+    advancedSettings: '高级设置',
+    defaultsSummary: '默认配置来自供应商，可展开高级设置修改',
     usageHeadersVarHint: '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址',
     advancedConfig: '额度查询',
     usagePathMapHint: '支持单路径（如 data.balance）或 JSON 映射表',

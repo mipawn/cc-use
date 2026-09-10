@@ -29,6 +29,8 @@ import {
   CodeOutlined,
   DeleteOutlined,
   PlusOutlined,
+  DownOutlined,
+  RightOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -43,7 +45,7 @@ import type {
 } from '@shared/types'
 import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
-import type { ApiKeyEditorInput, KeyEditMode } from '../../utils/apiKeyEditor'
+import { newKeyDefaults, type ApiKeyEditorInput, type KeyEditMode } from '../../utils/apiKeyEditor'
 import {
   modelMappingValueForSave,
   parseModelMapping,
@@ -118,7 +120,10 @@ export default function KeyEditModal({
   const [codexModel, setCodexModel] = useState('')
   const [grokModel, setGrokModel] = useState('')
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
-  const [activeTab, setActiveTab] = useState('basic')
+  const [activeTab, setActiveTab] = useState('usage')
+  // A copy is opened to be re-pointed at another model mapping, so it starts
+  // with the advanced section expanded; a plain create starts minimal.
+  const [advancedOpen, setAdvancedOpen] = useState(mode === 'duplicate')
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -180,12 +185,28 @@ export default function KeyEditModal({
       delete config.prelaunchCommand
       setClaudeConfigJson(JSON.stringify(config, null, 2))
     } else {
+      // A new key inherits its provider's saved defaults, so filling in only
+      // the key value still stores the endpoints, mapping and quota settings
+      // the provider was configured with.
+      const defaults = newKeyDefaults(currentProvider?.defaultKeyConfig, isOfficialDeepSeek)
       form.resetFields()
       form.setFieldsValue({ alias: '', value: '' })
       setSelectedTypes(
-        isOfficialDeepSeek ? ['claude_code', 'codex', 'claude_desktop'] : ['claude_code'],
+        isOfficialDeepSeek ? defaults.types.filter((type) => type !== 'grok') : defaults.types,
       )
-      setClaudeConfigJson('{}')
+      setClaudeConfigJson(defaults.claudeConfigJson)
+      setUsageType(defaults.usageType)
+      setUsageUrl(defaults.usageUrl)
+      setUsagePath(defaults.usagePath)
+      setUsageHeaders(defaults.usageHeaders)
+      setHaikuModel(defaults.mapping.haiku)
+      setSonnetModel(defaults.mapping.sonnet)
+      setOpusModel(defaults.mapping.opus)
+      setAutoMode(defaults.mapping.autoMode)
+      setModelOverrides(defaults.mapping.modelOverrides.map(createModelOverrideRow))
+      setCodexModel(defaults.mapping.codex)
+      setGrokModel(defaults.mapping.grok)
+      setClientConfigs(defaults.clientConfigs)
     }
     setConfigMode('preview')
 
@@ -211,44 +232,14 @@ export default function KeyEditModal({
         setUsageHeaders('')
       }
       setClientConfigs(source.clientConfigs || {})
-    } else {
-      setUsageType('none')
-      setUsageUrl('')
-      setUsagePath('')
-      setUsageHeaders('')
-      setHaikuModel(isOfficialDeepSeek ? 'deepseek-v4-flash' : '')
-      setSonnetModel(isOfficialDeepSeek ? 'deepseek-v4-pro[1m]' : '')
-      setOpusModel(isOfficialDeepSeek ? 'deepseek-v4-pro[1m]' : '')
-      setAutoMode({ enabled: false, model: '', thinking: 'low' })
-      setModelOverrides([])
-      // Keep Codex model selection truthful by default. This optional field is
-      // only for gateways whose wire model name differs from the picker entry.
-      setCodexModel('')
-      setGrokModel('')
-      setClientConfigs(
-        isOfficialDeepSeek
-          ? {
-              claude_code: {
-                baseUrl: 'https://api.deepseek.com/anthropic',
-                authScheme: 'bearer',
-              },
-              codex: {
-                baseUrl: 'https://api.deepseek.com',
-                authScheme: 'bearer',
-              },
-              claude_desktop: {
-                baseUrl: 'https://api.deepseek.com/anthropic',
-                authScheme: 'bearer',
-              },
-            }
-          : {},
-      )
     }
 
     // A copy exists to be re-pointed at another model mapping, so start there.
-    setActiveTab(mode === 'duplicate' ? 'modelMapping' : 'basic')
+    setActiveTab(mode === 'duplicate' ? 'modelMapping' : 'usage')
     setJsonError(null)
-  }, [open, mode, apiKey, form, isOfficialDeepSeek])
+    // `currentProvider` carries the saved key defaults a create inherits, so a
+    // provider swap has to re-seed the draft.
+  }, [open, mode, apiKey, form, isOfficialDeepSeek, currentProvider])
 
   useEffect(() => {
     if (!open || !apiKey?.id || !selectedTypes.includes('claude_code')) {
@@ -454,492 +445,524 @@ export default function KeyEditModal({
             />
           </Form.Item>
 
-          <Tabs
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            destroyOnHidden={false}
-            className={styles.tabs}
-            items={[
-              {
-                key: 'basic',
-                label: '基础',
-                children: (
-                  <div className={styles.tabPane}>
-                    <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
-                      <Input
-                        placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'}
-                        size='large'
-                      />
-                    </Form.Item>
+          {/* The everyday form is the key value and its alias; everything
+              else is reachable in one click without a second dialog. */}
+          <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
+            <Input
+              placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'}
+              size='large'
+            />
+          </Form.Item>
 
-                    <Form.Item
-                      name='value'
-                      label={t('apiKeys.apiKey') || 'API 密钥'}
-                      rules={[
-                        { required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' },
-                      ]}
-                    >
-                      <Input.Password
-                        placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
-                        size='large'
-                      />
-                    </Form.Item>
+          <Form.Item
+            name='value'
+            label={t('apiKeys.apiKey') || 'API 密钥'}
+            rules={[{ required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' }]}
+          >
+            <Input.Password
+              placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
+              size='large'
+            />
+          </Form.Item>
 
-                    <Form.Item label={t('keys.usageConfig') || '额度查询配置'}>
-                      <Select
-                        value={usageType}
-                        onChange={(value) => {
-                          setUsageType(value)
-                          if (value === 'custom') {
-                            if (!usageUrl) setUsageUrl('{baseUrl}/api/usage/token/')
-                            if (!usagePath) setUsagePath('data.total_available')
-                            if (!usageHeaders)
-                              setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
-                          }
-                        }}
-                        options={[
-                          { value: 'none', label: t('keys.usageTypeNone') || '不查询' },
-                          { value: 'newapi', label: t('keys.usageTypeNewapi') || 'NewAPI' },
-                          { value: 'custom', label: t('keys.usageTypeCustom') || '自定义' },
-                        ]}
-                        style={{ width: '100%' }}
-                      />
-                    </Form.Item>
+          <div className={styles.defaultsSummary}>
+            <Text type='secondary' style={{ fontSize: 12 }}>
+              {t('keys.defaultsSummary', {
+                clients: selectedTypes.length,
+                models: haikuModel || sonnetModel || opusModel ? 1 : 0,
+              }) || '默认配置来自供应商，可展开高级设置修改'}
+            </Text>
+          </div>
 
-                    {usageType === 'custom' && (
-                      <>
-                        <Form.Item
-                          label={t('keys.usageUrl') || '查询 URL'}
-                          extra={
-                            t('keys.usageUrlVarHint') ||
-                            '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'
-                          }
-                        >
-                          <Input
-                            value={usageUrl}
-                            onChange={(e) => setUsageUrl(e.target.value)}
-                            placeholder='{baseUrl}/api/usage/token/'
-                          />
-                        </Form.Item>
-                        <Form.Item
-                          label={
-                            <Space>
-                              <span>{t('keys.usagePath') || 'JSON 路径'}</span>
-                              <Button
-                                type='link'
-                                size='small'
-                                className={styles.templateBtn}
-                                onClick={() => {
-                                  setUsagePath(
-                                    JSON.stringify(
-                                      {
-                                        remaining: 'data.total_available',
-                                        total: 'data.total_granted',
-                                        isUnlimited: 'data.unlimited_quota',
-                                      },
-                                      null,
-                                      2,
-                                    ),
-                                  )
-                                }}
-                              >
-                                {t('keys.usagePathMapTemplate') || '映射表模板'}
-                              </Button>
-                            </Space>
-                          }
-                          extra={
-                            t('keys.usagePathMapHint') ||
-                            '支持单路径（如 data.balance）或 JSON 映射表'
-                          }
-                        >
-                          <TextArea
-                            value={usagePath}
-                            onChange={(e) => setUsagePath(e.target.value)}
-                            placeholder='data.total_available'
-                            autoSize={{ minRows: 1, maxRows: 8 }}
-                            className={styles.jsonEditor}
-                          />
-                        </Form.Item>
-                        <Form.Item
-                          label={t('keys.usageHeaders') || '自定义 Headers'}
-                          extra={
-                            t('keys.usageHeadersVarHint') ||
-                            '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'
-                          }
-                        >
-                          <Input.TextArea
-                            value={usageHeaders}
-                            onChange={(e) => setUsageHeaders(e.target.value)}
-                            placeholder={'{\n  "Authorization": "Bearer {key}"\n}'}
-                            autoSize={{ minRows: 3, maxRows: 6 }}
-                            style={{ fontFamily: 'monospace', fontSize: 12 }}
-                          />
-                        </Form.Item>
-                      </>
-                    )}
-                  </div>
-                ),
-              },
-              {
-                key: 'modelMapping',
-                label: '模型映射',
-                children: (
-                  <div className={styles.tabPane}>
-                    <Text
-                      type='secondary'
-                      style={{ marginBottom: 12, display: 'block', fontSize: 12 }}
-                    >
-                      {t('keys.modelMappingHint') || '只改写实际发送给上游的模型名称'}
-                    </Text>
-                    {selectedTypes.some(
-                      (type) => type === 'claude_code' || type === 'claude_desktop',
-                    ) && (
-                      <>
-                        <Text strong style={{ marginBottom: 12, display: 'block' }}>
-                          Claude
-                        </Text>
-                        <div className={styles.familyMappingGrid}>
-                          <Form.Item
-                            label='Haiku'
-                            extra={t('keys.modelMapHaikuExtra') || '包含 haiku 的模型 →'}
-                          >
-                            <Input
-                              value={haikuModel}
-                              onChange={(e) => setHaikuModel(e.target.value)}
-                              placeholder='claude-haiku-4-5'
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            label='Sonnet'
-                            extra={t('keys.modelMapSonnetExtra') || '包含 sonnet 的模型 →'}
-                          >
-                            <Input
-                              value={sonnetModel}
-                              onChange={(e) => setSonnetModel(e.target.value)}
-                              placeholder='claude-sonnet-4-5'
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            label='Opus'
-                            extra={t('keys.modelMapOpusExtra') || '包含 opus 的模型 →'}
-                          >
-                            <Input
-                              value={opusModel}
-                              onChange={(e) => setOpusModel(e.target.value)}
-                              placeholder='claude-opus-4-7'
-                            />
-                          </Form.Item>
-                        </div>
-                        <Form.Item label={t('keys.autoMode')} extra={t('keys.autoModeHint')}>
-                          <Switch
-                            checked={autoMode.enabled}
-                            onChange={(enabled) =>
-                              setAutoMode((current) => ({ ...current, enabled }))
+          <Button
+            type='link'
+            size='small'
+            className={styles.advancedToggle}
+            onClick={() => setAdvancedOpen((open) => !open)}
+            icon={advancedOpen ? <DownOutlined /> : <RightOutlined />}
+          >
+            {t('keys.advancedSettings') || '高级设置'}
+          </Button>
+
+          {/* Kept mounted while collapsed: their values live in component
+              state, and an unmounted pane would still save correctly but could
+              not report a field error in place. */}
+          <div style={{ display: advancedOpen ? undefined : 'none' }}>
+            <Tabs
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              destroyOnHidden={false}
+              className={styles.tabs}
+              items={[
+                {
+                  key: 'usage',
+                  label: t('keys.usageConfig') || '额度查询配置',
+                  children: (
+                    <div className={styles.tabPane}>
+                      <Form.Item label={t('keys.usageConfig') || '额度查询配置'}>
+                        <Select
+                          value={usageType}
+                          onChange={(value) => {
+                            setUsageType(value)
+                            if (value === 'custom') {
+                              if (!usageUrl) setUsageUrl('{baseUrl}/api/usage/token/')
+                              if (!usagePath) setUsagePath('data.total_available')
+                              if (!usageHeaders)
+                                setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
                             }
-                            aria-label={t('keys.autoMode')}
-                          />
-                        </Form.Item>
-                        {autoMode.enabled && (
-                          <>
+                          }}
+                          options={[
+                            { value: 'none', label: t('keys.usageTypeNone') || '不查询' },
+                            { value: 'newapi', label: t('keys.usageTypeNewapi') || 'NewAPI' },
+                            { value: 'custom', label: t('keys.usageTypeCustom') || '自定义' },
+                          ]}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+
+                      {usageType === 'custom' && (
+                        <>
+                          <Form.Item
+                            label={t('keys.usageUrl') || '查询 URL'}
+                            extra={
+                              t('keys.usageUrlVarHint') ||
+                              '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'
+                            }
+                          >
+                            <Input
+                              value={usageUrl}
+                              onChange={(e) => setUsageUrl(e.target.value)}
+                              placeholder='{baseUrl}/api/usage/token/'
+                            />
+                          </Form.Item>
+                          <Form.Item
+                            label={
+                              <Space>
+                                <span>{t('keys.usagePath') || 'JSON 路径'}</span>
+                                <Button
+                                  type='link'
+                                  size='small'
+                                  className={styles.templateBtn}
+                                  onClick={() => {
+                                    setUsagePath(
+                                      JSON.stringify(
+                                        {
+                                          remaining: 'data.total_available',
+                                          total: 'data.total_granted',
+                                          isUnlimited: 'data.unlimited_quota',
+                                        },
+                                        null,
+                                        2,
+                                      ),
+                                    )
+                                  }}
+                                >
+                                  {t('keys.usagePathMapTemplate') || '映射表模板'}
+                                </Button>
+                              </Space>
+                            }
+                            extra={
+                              t('keys.usagePathMapHint') ||
+                              '支持单路径（如 data.balance）或 JSON 映射表'
+                            }
+                          >
+                            <TextArea
+                              value={usagePath}
+                              onChange={(e) => setUsagePath(e.target.value)}
+                              placeholder='data.total_available'
+                              autoSize={{ minRows: 1, maxRows: 8 }}
+                              className={styles.jsonEditor}
+                            />
+                          </Form.Item>
+                          <Form.Item
+                            label={t('keys.usageHeaders') || '自定义 Headers'}
+                            extra={
+                              t('keys.usageHeadersVarHint') ||
+                              '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'
+                            }
+                          >
+                            <Input.TextArea
+                              value={usageHeaders}
+                              onChange={(e) => setUsageHeaders(e.target.value)}
+                              placeholder={'{\n  "Authorization": "Bearer {key}"\n}'}
+                              autoSize={{ minRows: 3, maxRows: 6 }}
+                              style={{ fontFamily: 'monospace', fontSize: 12 }}
+                            />
+                          </Form.Item>
+                        </>
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  key: 'modelMapping',
+                  label: '模型映射',
+                  children: (
+                    <div className={styles.tabPane}>
+                      <Text
+                        type='secondary'
+                        style={{ marginBottom: 12, display: 'block', fontSize: 12 }}
+                      >
+                        {t('keys.modelMappingHint') || '只改写实际发送给上游的模型名称'}
+                      </Text>
+                      {selectedTypes.some(
+                        (type) => type === 'claude_code' || type === 'claude_desktop',
+                      ) && (
+                        <>
+                          <Text strong style={{ marginBottom: 12, display: 'block' }}>
+                            Claude
+                          </Text>
+                          <div className={styles.familyMappingGrid}>
                             <Form.Item
-                              label={t('keys.autoModeModel')}
-                              extra={t('keys.autoModeModelHint')}
+                              label='Haiku'
+                              extra={t('keys.modelMapHaikuExtra') || '包含 haiku 的模型 →'}
                             >
                               <Input
-                                value={autoMode.model}
-                                onChange={(event) =>
-                                  setAutoMode((current) => ({
-                                    ...current,
-                                    model: event.target.value,
-                                  }))
-                                }
-                                placeholder={t('keys.autoModeModelPlaceholder')}
-                                aria-label={t('keys.autoModeModel')}
+                                value={haikuModel}
+                                onChange={(e) => setHaikuModel(e.target.value)}
+                                placeholder='claude-haiku-4-5'
                               />
                             </Form.Item>
                             <Form.Item
-                              label={t('keys.autoModeThinking')}
-                              extra={t('keys.autoModeThinkingHint')}
+                              label='Sonnet'
+                              extra={t('keys.modelMapSonnetExtra') || '包含 sonnet 的模型 →'}
                             >
-                              <Select
-                                value={autoMode.thinking}
-                                onChange={(thinking: ModelMappingFields['autoMode']['thinking']) =>
-                                  setAutoMode((current) => ({ ...current, thinking }))
-                                }
-                                aria-label={t('keys.autoModeThinking')}
-                                options={[
-                                  { value: 'low', label: t('keys.autoModeThinkingLow') },
-                                  { value: 'disabled', label: t('keys.autoModeThinkingDisabled') },
-                                  { value: 'preserve', label: t('keys.autoModeThinkingPreserve') },
-                                ]}
+                              <Input
+                                value={sonnetModel}
+                                onChange={(e) => setSonnetModel(e.target.value)}
+                                placeholder='claude-sonnet-4-5'
                               />
                             </Form.Item>
-                          </>
-                        )}
-                        <div className={styles.exactMappingSection}>
-                          <div className={styles.exactMappingHeader}>
-                            <div>
-                              <Text strong>{t('keys.modelOverrides') || '精确映射（高级）'}</Text>
-                              <Text type='secondary' className={styles.exactMappingHint}>
-                                {t('keys.modelOverridesHint') ||
-                                  '具体模型优先于上方家族映射；全部未命中时保持原模型'}
-                              </Text>
-                            </div>
-                            <Button
-                              type='dashed'
-                              size='small'
-                              icon={<PlusOutlined />}
-                              onClick={() =>
-                                setModelOverrides((current) => [
-                                  ...current,
-                                  createModelOverrideRow(),
-                                ])
-                              }
+                            <Form.Item
+                              label='Opus'
+                              extra={t('keys.modelMapOpusExtra') || '包含 opus 的模型 →'}
                             >
-                              {t('keys.modelOverrideAdd') || '添加'}
-                            </Button>
+                              <Input
+                                value={opusModel}
+                                onChange={(e) => setOpusModel(e.target.value)}
+                                placeholder='claude-opus-4-7'
+                              />
+                            </Form.Item>
                           </div>
-                          {modelOverrides.length === 0 ? (
-                            <Text type='secondary' className={styles.exactMappingEmpty}>
-                              {t('keys.modelOverridesEmpty') || '暂无精确映射'}
-                            </Text>
-                          ) : (
-                            <div className={styles.exactMappingList}>
-                              {modelOverrides.map((entry) => (
-                                <div className={styles.exactMappingRow} key={entry.id}>
-                                  <Input
-                                    value={entry.source}
-                                    onChange={(event) =>
-                                      setModelOverrides((current) =>
-                                        current.map((item) =>
-                                          item.id === entry.id
-                                            ? { ...item, source: event.target.value }
-                                            : item,
-                                        ),
-                                      )
-                                    }
-                                    placeholder={
-                                      t('keys.modelOverrideSourcePlaceholder') ||
-                                      '原模型，如 claude-opus-4-8'
-                                    }
-                                    aria-label={t('keys.modelOverrideSource') || '原模型'}
-                                  />
-                                  <span className={styles.mappingArrow}>→</span>
-                                  <Input
-                                    value={entry.target}
-                                    onChange={(event) =>
-                                      setModelOverrides((current) =>
-                                        current.map((item) =>
-                                          item.id === entry.id
-                                            ? { ...item, target: event.target.value }
-                                            : item,
-                                        ),
-                                      )
-                                    }
-                                    placeholder={
-                                      t('keys.modelOverrideTargetPlaceholder') ||
-                                      '上游模型，如 claude-opus-4-6'
-                                    }
-                                    aria-label={t('keys.modelOverrideTarget') || '上游模型'}
-                                  />
-                                  <Button
-                                    type='text'
-                                    danger
-                                    icon={<DeleteOutlined />}
-                                    aria-label={t('common.delete') || '删除'}
-                                    onClick={() =>
-                                      setModelOverrides((current) =>
-                                        current.filter((item) => item.id !== entry.id),
-                                      )
-                                    }
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
-                    {selectedTypes.includes('codex') && (
-                      <div>
-                        <Text strong style={{ marginBottom: 12, display: 'block' }}>
-                          Codex Desktop
-                        </Text>
-                        <Form.Item
-                          label={t('keys.modelMapCodex') || '上游模型'}
-                          extra={
-                            t('keys.modelMapCodexExtra') ||
-                            '留空时使用 Codex 里选择的模型；填写后只替换请求中的模型名称，不转换 Responses 协议'
-                          }
-                        >
-                          <Input
-                            value={codexModel}
-                            onChange={(e) => setCodexModel(e.target.value)}
-                            placeholder={
-                              t('keys.modelMapCodexPlaceholder') || '例如：deepseek-v4-pro'
-                            }
-                          />
-                        </Form.Item>
-                      </div>
-                    )}
-                    {selectedTypes.includes('grok') && (
-                      <div>
-                        <Text strong style={{ marginBottom: 12, display: 'block' }}>
-                          Grok Build
-                        </Text>
-                        <Form.Item label='上游模型' extra='仅改写 Grok Build 发给中转站的 model'>
-                          <Input
-                            value={grokModel}
-                            onChange={(e) => setGrokModel(e.target.value)}
-                            placeholder='例如：grok-build-0.1'
-                          />
-                        </Form.Item>
-                      </div>
-                    )}
-                  </div>
-                ),
-              },
-              ...(selectedTypes.includes('claude_code')
-                ? [
-                    {
-                      key: 'claudeConfig',
-                      label: '局部配置',
-                      children: (
-                        <div className={styles.tabPane}>
-                          <div className={styles.configSection}>
-                            <div className={styles.configHeader}>
-                              <Space>
-                                <SettingOutlined style={{ color: token.colorPrimary }} />
-                                <Text strong>Claude Code 局部配置</Text>
-                              </Space>
-                              <Tooltip title={configCopied ? t('common.copied') : t('common.copy')}>
-                                <button
-                                  type='button'
-                                  className={styles.copyButton}
-                                  onClick={handleCopyConfig}
-                                >
-                                  {configCopied ? (
-                                    <CheckOutlined style={{ color: token.colorSuccess }} />
-                                  ) : (
-                                    <CopyOutlined />
-                                  )}
-                                </button>
-                              </Tooltip>
-                            </div>
-
-                            <Segmented
-                              value={configMode}
-                              onChange={(value) => setConfigMode(value as 'preview' | 'edit')}
-                              options={[
-                                { value: 'preview', label: '预览' },
-                                { value: 'edit', label: '编辑局部' },
-                              ]}
-                              block
-                              className={styles.configTabs}
+                          <Form.Item label={t('keys.autoMode')} extra={t('keys.autoModeHint')}>
+                            <Switch
+                              checked={autoMode.enabled}
+                              onChange={(enabled) =>
+                                setAutoMode((current) => ({ ...current, enabled }))
+                              }
+                              aria-label={t('keys.autoMode')}
                             />
-
-                            <TextArea
-                              value={configMode === 'preview' ? previewJson : claudeConfigJson}
-                              readOnly={configMode === 'preview'}
-                              onChange={(e) => {
-                                setClaudeConfigJson(e.target.value)
-                                if (jsonError) setJsonError(null)
-                              }}
-                              className={`${styles.jsonEditor} ${jsonError ? styles.jsonEditorError : ''}`}
-                              autoSize={{ minRows: 8, maxRows: 16 }}
-                              placeholder='{}'
-                            />
-
-                            <Text type='secondary' className={styles.errorText}>
-                              {configMode === 'preview'
-                                ? '预览态展示 Claude Code 全局配置、局部配置和启动注入环境合并后的结果。'
-                                : '这里只编辑这把密钥自己的局部配置；全局配置在 Claude Code 页面维护。'}
-                            </Text>
-
-                            {jsonError && (
-                              <Text type='danger' className={styles.errorText}>
-                                {jsonError}
-                              </Text>
-                            )}
-                          </div>
-                        </div>
-                      ),
-                    },
-                  ]
-                : []),
-              {
-                key: 'clientConfigs',
-                label: '客户端配置',
-                children: (
-                  <div className={styles.tabPane}>
-                    <Text
-                      type='secondary'
-                      style={{ marginBottom: 16, display: 'block', fontSize: 12 }}
-                    >
-                      为不同客户端指定专用 URL 和上游认证方式,留空则使用默认配置
-                    </Text>
-                    <Space direction='vertical' style={{ width: '100%' }} size={16}>
-                      {selectedTypes.map((clientKind) => {
-                        const config = getClientKindConfig(clientKind)
-                        const currentValue = clientConfigs[clientKind]?.baseUrl || ''
-                        const currentAuthScheme = clientConfigs[clientKind]?.authScheme
-                        const isOverridden = !!currentValue || !!currentAuthScheme
-                        return (
-                          <div key={clientKind}>
-                            <Space style={{ marginBottom: 8 }}>
-                              <Text strong>{config.label}</Text>
-                              {isOverridden && <Badge status='processing' text='已覆盖' />}
-                            </Space>
-                            <Space direction='vertical' style={{ width: '100%' }} size={8}>
+                          </Form.Item>
+                          {autoMode.enabled && (
+                            <>
                               <Form.Item
-                                label='Base URL'
-                                extra={`默认: ${currentProvider?.baseUrl || '(未设置)'}`}
-                                style={{ marginBottom: 0 }}
+                                label={t('keys.autoModeModel')}
+                                extra={t('keys.autoModeModelHint')}
                               >
                                 <Input
-                                  value={currentValue}
-                                  onChange={(e) =>
-                                    updateClientConfig(clientKind, {
-                                      baseUrl: e.target.value.trim(),
-                                    })
+                                  value={autoMode.model}
+                                  onChange={(event) =>
+                                    setAutoMode((current) => ({
+                                      ...current,
+                                      model: event.target.value,
+                                    }))
                                   }
-                                  placeholder={
-                                    currentProvider?.baseUrl || 'https://api.example.com/v1'
-                                  }
-                                  size='large'
+                                  placeholder={t('keys.autoModeModelPlaceholder')}
+                                  aria-label={t('keys.autoModeModel')}
                                 />
                               </Form.Item>
                               <Form.Item
-                                label='上游认证方式'
-                                extra={`默认: ${getDefaultAuthSchemeLabel(clientKind)}`}
-                                style={{ marginBottom: 0 }}
+                                label={t('keys.autoModeThinking')}
+                                extra={t('keys.autoModeThinkingHint')}
                               >
                                 <Select
-                                  value={currentAuthScheme || 'default'}
-                                  onChange={(value: 'default' | UpstreamAuthScheme) => {
-                                    updateClientConfig(clientKind, {
-                                      authScheme: value === 'default' ? undefined : value,
-                                    })
-                                  }}
+                                  value={autoMode.thinking}
+                                  onChange={(
+                                    thinking: ModelMappingFields['autoMode']['thinking'],
+                                  ) => setAutoMode((current) => ({ ...current, thinking }))}
+                                  aria-label={t('keys.autoModeThinking')}
                                   options={[
-                                    { label: '默认', value: 'default' },
-                                    { label: 'x-api-key', value: 'x-api-key' },
-                                    { label: 'Authorization: Bearer', value: 'bearer' },
-                                    { label: '不发认证头', value: 'none' },
+                                    { value: 'low', label: t('keys.autoModeThinkingLow') },
+                                    {
+                                      value: 'disabled',
+                                      label: t('keys.autoModeThinkingDisabled'),
+                                    },
+                                    {
+                                      value: 'preserve',
+                                      label: t('keys.autoModeThinkingPreserve'),
+                                    },
                                   ]}
-                                  size='large'
                                 />
                               </Form.Item>
-                            </Space>
+                            </>
+                          )}
+                          <div className={styles.exactMappingSection}>
+                            <div className={styles.exactMappingHeader}>
+                              <div>
+                                <Text strong>{t('keys.modelOverrides') || '精确映射（高级）'}</Text>
+                                <Text type='secondary' className={styles.exactMappingHint}>
+                                  {t('keys.modelOverridesHint') ||
+                                    '具体模型优先于上方家族映射；全部未命中时保持原模型'}
+                                </Text>
+                              </div>
+                              <Button
+                                type='dashed'
+                                size='small'
+                                icon={<PlusOutlined />}
+                                onClick={() =>
+                                  setModelOverrides((current) => [
+                                    ...current,
+                                    createModelOverrideRow(),
+                                  ])
+                                }
+                              >
+                                {t('keys.modelOverrideAdd') || '添加'}
+                              </Button>
+                            </div>
+                            {modelOverrides.length === 0 ? (
+                              <Text type='secondary' className={styles.exactMappingEmpty}>
+                                {t('keys.modelOverridesEmpty') || '暂无精确映射'}
+                              </Text>
+                            ) : (
+                              <div className={styles.exactMappingList}>
+                                {modelOverrides.map((entry) => (
+                                  <div className={styles.exactMappingRow} key={entry.id}>
+                                    <Input
+                                      value={entry.source}
+                                      onChange={(event) =>
+                                        setModelOverrides((current) =>
+                                          current.map((item) =>
+                                            item.id === entry.id
+                                              ? { ...item, source: event.target.value }
+                                              : item,
+                                          ),
+                                        )
+                                      }
+                                      placeholder={
+                                        t('keys.modelOverrideSourcePlaceholder') ||
+                                        '原模型，如 claude-opus-4-8'
+                                      }
+                                      aria-label={t('keys.modelOverrideSource') || '原模型'}
+                                    />
+                                    <span className={styles.mappingArrow}>→</span>
+                                    <Input
+                                      value={entry.target}
+                                      onChange={(event) =>
+                                        setModelOverrides((current) =>
+                                          current.map((item) =>
+                                            item.id === entry.id
+                                              ? { ...item, target: event.target.value }
+                                              : item,
+                                          ),
+                                        )
+                                      }
+                                      placeholder={
+                                        t('keys.modelOverrideTargetPlaceholder') ||
+                                        '上游模型，如 claude-opus-4-6'
+                                      }
+                                      aria-label={t('keys.modelOverrideTarget') || '上游模型'}
+                                    />
+                                    <Button
+                                      type='text'
+                                      danger
+                                      icon={<DeleteOutlined />}
+                                      aria-label={t('common.delete') || '删除'}
+                                      onClick={() =>
+                                        setModelOverrides((current) =>
+                                          current.filter((item) => item.id !== entry.id),
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )
-                      })}
-                    </Space>
-                  </div>
-                ),
-              },
-            ]}
-          />
+                        </>
+                      )}
+                      {selectedTypes.includes('codex') && (
+                        <div>
+                          <Text strong style={{ marginBottom: 12, display: 'block' }}>
+                            Codex Desktop
+                          </Text>
+                          <Form.Item
+                            label={t('keys.modelMapCodex') || '上游模型'}
+                            extra={
+                              t('keys.modelMapCodexExtra') ||
+                              '留空时使用 Codex 里选择的模型；填写后只替换请求中的模型名称，不转换 Responses 协议'
+                            }
+                          >
+                            <Input
+                              value={codexModel}
+                              onChange={(e) => setCodexModel(e.target.value)}
+                              placeholder={
+                                t('keys.modelMapCodexPlaceholder') || '例如：deepseek-v4-pro'
+                              }
+                            />
+                          </Form.Item>
+                        </div>
+                      )}
+                      {selectedTypes.includes('grok') && (
+                        <div>
+                          <Text strong style={{ marginBottom: 12, display: 'block' }}>
+                            Grok Build
+                          </Text>
+                          <Form.Item label='上游模型' extra='仅改写 Grok Build 发给中转站的 model'>
+                            <Input
+                              value={grokModel}
+                              onChange={(e) => setGrokModel(e.target.value)}
+                              placeholder='例如：grok-build-0.1'
+                            />
+                          </Form.Item>
+                        </div>
+                      )}
+                    </div>
+                  ),
+                },
+                ...(selectedTypes.includes('claude_code')
+                  ? [
+                      {
+                        key: 'claudeConfig',
+                        label: '局部配置',
+                        children: (
+                          <div className={styles.tabPane}>
+                            <div className={styles.configSection}>
+                              <div className={styles.configHeader}>
+                                <Space>
+                                  <SettingOutlined style={{ color: token.colorPrimary }} />
+                                  <Text strong>Claude Code 局部配置</Text>
+                                </Space>
+                                <Tooltip
+                                  title={configCopied ? t('common.copied') : t('common.copy')}
+                                >
+                                  <button
+                                    type='button'
+                                    className={styles.copyButton}
+                                    onClick={handleCopyConfig}
+                                  >
+                                    {configCopied ? (
+                                      <CheckOutlined style={{ color: token.colorSuccess }} />
+                                    ) : (
+                                      <CopyOutlined />
+                                    )}
+                                  </button>
+                                </Tooltip>
+                              </div>
+
+                              <Segmented
+                                value={configMode}
+                                onChange={(value) => setConfigMode(value as 'preview' | 'edit')}
+                                options={[
+                                  { value: 'preview', label: '预览' },
+                                  { value: 'edit', label: '编辑局部' },
+                                ]}
+                                block
+                                className={styles.configTabs}
+                              />
+
+                              <TextArea
+                                value={configMode === 'preview' ? previewJson : claudeConfigJson}
+                                readOnly={configMode === 'preview'}
+                                onChange={(e) => {
+                                  setClaudeConfigJson(e.target.value)
+                                  if (jsonError) setJsonError(null)
+                                }}
+                                className={`${styles.jsonEditor} ${jsonError ? styles.jsonEditorError : ''}`}
+                                autoSize={{ minRows: 8, maxRows: 16 }}
+                                placeholder='{}'
+                              />
+
+                              <Text type='secondary' className={styles.errorText}>
+                                {configMode === 'preview'
+                                  ? '预览态展示 Claude Code 全局配置、局部配置和启动注入环境合并后的结果。'
+                                  : '这里只编辑这把密钥自己的局部配置；全局配置在 Claude Code 页面维护。'}
+                              </Text>
+
+                              {jsonError && (
+                                <Text type='danger' className={styles.errorText}>
+                                  {jsonError}
+                                </Text>
+                              )}
+                            </div>
+                          </div>
+                        ),
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'clientConfigs',
+                  label: '客户端配置',
+                  children: (
+                    <div className={styles.tabPane}>
+                      <Text
+                        type='secondary'
+                        style={{ marginBottom: 16, display: 'block', fontSize: 12 }}
+                      >
+                        为不同客户端指定专用 URL 和上游认证方式,留空则使用默认配置
+                      </Text>
+                      <Space direction='vertical' style={{ width: '100%' }} size={16}>
+                        {selectedTypes.map((clientKind) => {
+                          const config = getClientKindConfig(clientKind)
+                          const currentValue = clientConfigs[clientKind]?.baseUrl || ''
+                          const currentAuthScheme = clientConfigs[clientKind]?.authScheme
+                          const isOverridden = !!currentValue || !!currentAuthScheme
+                          return (
+                            <div key={clientKind}>
+                              <Space style={{ marginBottom: 8 }}>
+                                <Text strong>{config.label}</Text>
+                                {isOverridden && <Badge status='processing' text='已覆盖' />}
+                              </Space>
+                              <Space direction='vertical' style={{ width: '100%' }} size={8}>
+                                <Form.Item
+                                  label='Base URL'
+                                  extra={`默认: ${currentProvider?.baseUrl || '(未设置)'}`}
+                                  style={{ marginBottom: 0 }}
+                                >
+                                  <Input
+                                    value={currentValue}
+                                    onChange={(e) =>
+                                      updateClientConfig(clientKind, {
+                                        baseUrl: e.target.value.trim(),
+                                      })
+                                    }
+                                    placeholder={
+                                      currentProvider?.baseUrl || 'https://api.example.com/v1'
+                                    }
+                                    size='large'
+                                  />
+                                </Form.Item>
+                                <Form.Item
+                                  label='上游认证方式'
+                                  extra={`默认: ${getDefaultAuthSchemeLabel(clientKind)}`}
+                                  style={{ marginBottom: 0 }}
+                                >
+                                  <Select
+                                    value={currentAuthScheme || 'default'}
+                                    onChange={(value: 'default' | UpstreamAuthScheme) => {
+                                      updateClientConfig(clientKind, {
+                                        authScheme: value === 'default' ? undefined : value,
+                                      })
+                                    }}
+                                    options={[
+                                      { label: '默认', value: 'default' },
+                                      { label: 'x-api-key', value: 'x-api-key' },
+                                      { label: 'Authorization: Bearer', value: 'bearer' },
+                                      { label: '不发认证头', value: 'none' },
+                                    ]}
+                                    size='large'
+                                  />
+                                </Form.Item>
+                              </Space>
+                            </div>
+                          )
+                        })}
+                      </Space>
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </div>
         </Form>
       </SimpleBar>
     </Modal>

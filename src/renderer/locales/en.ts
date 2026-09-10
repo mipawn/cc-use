@@ -585,6 +585,8 @@ export default {
     usagePathHint: 'JSON path to extract quota value, e.g. data.total_available',
     usageHeaders: 'Custom Headers',
     usageHeadersHint: 'JSON format, e.g. {"Authorization": "Bearer xxx"}',
+    advancedSettings: 'Advanced settings',
+    defaultsSummary: 'Defaults come from the provider. Expand advanced settings to change them.',
     usageHeadersVarHint: 'Variables: {key} = API key, {baseUrl} = provider URL',
     advancedConfig: 'Quota Query',
     usagePathMapHint: 'Single path (e.g. data.balance) or JSON path map',

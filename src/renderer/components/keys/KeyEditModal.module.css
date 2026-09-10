@@ -148,3 +148,14 @@
   margin-top: 8px;
   font-size: 12px;
 }
+
+/* One line saying where the pre-filled configuration came from, so a user who
+   never opens the advanced section still knows what will be saved. */
+.defaultsSummary {
+  margin: -4px 0 4px;
+}
+
+.advancedToggle {
+  padding-left: 0;
+  margin-bottom: 4px;
+}

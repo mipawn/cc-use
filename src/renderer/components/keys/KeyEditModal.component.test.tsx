@@ -55,6 +55,45 @@ afterEach(async () => {
   vi.clearAllMocks()
 })
 
+const presetProvider: Provider = {
+  ...({
+    id: 'provider-1',
+    name: 'preset provider',
+    baseUrl: 'https://opencode.ai/zen/go',
+    httpProxy: null,
+    website: null,
+    remark: null,
+    token: null,
+    icon: 'claude',
+    walletBalanceType: 'none',
+    walletBalanceUrl: null,
+    walletBalancePath: null,
+    walletBalanceHeaders: null,
+    walletBalanceUserId: null,
+    cachedWalletBalance: null,
+    lastBalanceCheckedAt: null,
+    usageType: 'none',
+    usageUrl: null,
+    usagePath: null,
+    usageHeaders: null,
+    cachedUsage: null,
+    lastUsageCheckedAt: null,
+    isActive: true,
+    sortOrder: 0,
+    presetId: 'opencode-go',
+  } as Provider),
+  defaultKeyConfig: {
+    types: ['claude_code', 'codex'],
+    clientConfigs: {
+      claude_code: { baseUrl: 'https://preset.example.com/anthropic', authScheme: 'bearer' },
+    },
+    modelMapping: JSON.stringify({ haiku: 'preset-haiku', sonnet: 'preset-sonnet' }),
+    usageType: 'custom',
+    usageUrl: 'https://preset.example.com/quota',
+    usagePath: 'data.remaining',
+  },
+}
+
 const deepseekProvider: Provider = {
   id: 'provider-1',
   name: 'deepseek',
@@ -110,7 +149,12 @@ function sourceKey(): ApiKey {
   }
 }
 
-async function render(mode: KeyEditMode, apiKey: ApiKey | null, onSave = vi.fn()) {
+async function render(
+  mode: KeyEditMode,
+  apiKey: ApiKey | null,
+  onSave = vi.fn(),
+  provider: Provider = deepseekProvider,
+) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -123,7 +167,7 @@ async function render(mode: KeyEditMode, apiKey: ApiKey | null, onSave = vi.fn()
             open
             mode={mode}
             apiKey={apiKey}
-            providers={[deepseekProvider]}
+            providers={[provider]}
             defaultProviderId='provider-1'
             onClose={() => {}}
             onSave={onSave}
@@ -182,7 +226,9 @@ it('still starts a plain create from provider defaults', async () => {
   await render('create', null)
 
   expect(query('input[type="password"]')?.value).toBe('')
-  expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain('基础')
+  expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain(
+    'keys.usageConfig',
+  )
 
   await openTab('模型映射')
   expect(query('input[placeholder="claude-haiku-4-5"]')?.value).toBe('deepseek-v4-flash')
@@ -223,4 +269,32 @@ it('saves an edit against the existing id', async () => {
   })
 
   expect(onSave.mock.calls[0][0]).toMatchObject({ mode: 'edit', id: 'key-1' })
+})
+
+it('seeds a new key from the provider defaults instead of a hardcoded template', async () => {
+  const onSave = await render('create', null, vi.fn(), presetProvider)
+
+  // The provider's own defaults show up without opening any advanced tab.
+  expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain(
+    'keys.usageConfig',
+  )
+  const seeded = Array.from(document.body.querySelectorAll('input, textarea')).map(
+    (field) => (field as HTMLInputElement | HTMLTextAreaElement).value,
+  )
+  expect(seeded).toContain('https://preset.example.com/quota')
+  expect(seeded).toContain('data.remaining')
+
+  await openTab('模型映射')
+  expect(query('input[placeholder="claude-haiku-4-5"]')?.value).toBe('preset-haiku')
+  expect(query('input[placeholder="claude-sonnet-4-5"]')?.value).toBe('preset-sonnet')
+
+  // What was seeded is what gets saved.
+  const saveButton = Array.from(document.body.querySelectorAll('button')).find(
+    (button) => button.textContent === 'common.confirm',
+  )
+  await act(async () => {
+    saveButton!.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(onSave).not.toHaveBeenCalled() // value is required and still empty
 })
