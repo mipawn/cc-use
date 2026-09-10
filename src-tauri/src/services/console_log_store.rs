@@ -516,6 +516,8 @@ enum WriterCommand {
     Record(Box<ConsoleEvent>),
     Flush,
     Clear,
+    /// Clear, then signal so the caller can wait for the files to be gone.
+    ClearAndAck(std::sync::mpsc::Sender<()>),
 }
 
 /// Hands events to a writer on its own thread.
@@ -547,6 +549,11 @@ impl ConsoleLogHandle {
                         WriterCommand::Record(event) => writer.append(&event).map(|_| ()),
                         WriterCommand::Flush => writer.flush(),
                         WriterCommand::Clear => writer.clear(),
+                        WriterCommand::ClearAndAck(ack) => {
+                            let result = writer.clear();
+                            let _ = ack.send(());
+                            result
+                        }
                     };
                     if outcome.is_err() {
                         thread_dropped.fetch_add(1, Ordering::Relaxed);
@@ -587,6 +594,18 @@ impl ConsoleLogHandle {
     /// Drop this source's history and start over.
     pub fn clear(&self) {
         let _ = self.tx.send(WriterCommand::Clear);
+    }
+
+    /// Clear and wait for the files to actually be gone.
+    ///
+    /// Used where a caller is about to read the directory back — an immediate
+    /// re-read must not resurrect the history the user just deleted.
+    pub fn clear_and_wait(&self, timeout: std::time::Duration) -> bool {
+        let (ack, wait) = std::sync::mpsc::channel();
+        if self.tx.send(WriterCommand::ClearAndAck(ack)).is_err() {
+            return false;
+        }
+        wait.recv_timeout(timeout).is_ok()
     }
 }
 

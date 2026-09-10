@@ -5,7 +5,12 @@ use axum::{
     response::Response,
     Router,
 };
-use cc_use_lib::{db::Database, proxy::build_proxy_state, proxy::handler::proxy_handler};
+use cc_use_lib::{
+    db::Database,
+    proxy::build_proxy_state_with_console_log,
+    proxy::handler::proxy_handler,
+    services::console_log_store::{console_log_dir, ConsoleLogHandle, ConsoleLogSource},
+};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -16,10 +21,12 @@ const MANAGED_INSTANCE_SWEEP_INTERVAL_SECS: u64 = 10;
 pub fn build_daemon_state(
     db: Arc<Mutex<Database>>,
     proxy_state: Arc<cc_use_lib::proxy::ProxyState>,
+    console_log: Arc<ConsoleLogHandle>,
 ) -> Result<DaemonState, String> {
     Ok(DaemonState {
         db,
         proxy_state,
+        console_log,
         management_token: resolve_management_token()?,
     })
 }
@@ -47,14 +54,22 @@ pub async fn run_foreground() -> Result<(), String> {
         db.settings_get()
             .map_err(|e| format!("Failed to load settings: {}", e))?
     };
-    let proxy_state = build_proxy_state(db.clone())?;
+    // The daemon keeps its own history on disk so requests stay visible after
+    // the GUI is closed and can be replayed into a reloaded console window.
+    let console_log = match console_log_dir() {
+        Some(dir) => ConsoleLogHandle::spawn(dir, ConsoleLogSource::Daemon)
+            .map(Arc::new)
+            .map_err(|e| format!("Failed to open the console log store: {}", e))?,
+        None => return Err("Cannot locate a home directory for console logs".to_string()),
+    };
+    let proxy_state = build_proxy_state_with_console_log(db.clone(), Arc::clone(&console_log))?;
     // Install the logger AFTER proxy_state exists so it has a live Sender
     // to broadcast into. Any `log::info!` from here on is observable by the
     // Console page once a subscriber connects.
-    crate::console_logger::install(proxy_state.console_tx.clone());
+    crate::console_logger::install(proxy_state.console_tx.clone(), Arc::clone(&console_log));
     log::info!("daemon booted; binding 127.0.0.1:{}", settings.proxy_port);
 
-    let state = build_daemon_state(db.clone(), proxy_state)?;
+    let state = build_daemon_state(db.clone(), proxy_state, console_log)?;
     spawn_managed_instance_sweeper(db);
 
     let app = build_daemon_router(state);

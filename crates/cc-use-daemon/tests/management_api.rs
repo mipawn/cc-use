@@ -6,6 +6,7 @@ use cc_use_lib::{
     db::Database,
     models::{CreateApiKeyInput, CreateProviderInput, ManagedInstance, ProxySession},
     proxy::build_proxy_state,
+    services::console_log_store::{ConsoleLogHandle, ConsoleLogSource},
 };
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
@@ -16,9 +17,14 @@ fn app_with_db() -> (axum::Router, Arc<Mutex<Database>>) {
         Database::open_at(&path).expect("create temp db"),
     ));
     let proxy_state = build_proxy_state(db.clone()).expect("build proxy state");
+    let log_dir = std::env::temp_dir().join(format!("cc-use-daemon-logs-{}", nanoid::nanoid!(8)));
+    let console_log = Arc::new(
+        ConsoleLogHandle::spawn(log_dir, ConsoleLogSource::Daemon).expect("console log store"),
+    );
     let app = build_daemon_router(DaemonState {
         db: db.clone(),
         proxy_state,
+        console_log,
         management_token: "mgmt-test".to_string(),
     });
     (app, db)
@@ -26,6 +32,28 @@ fn app_with_db() -> (axum::Router, Arc<Mutex<Database>>) {
 
 fn app() -> axum::Router {
     app_with_db().0
+}
+
+/// Same router, but the caller keeps the console log store so it can assert on
+/// what the daemon has written and cleared.
+fn app_with_console_log() -> (axum::Router, Arc<ConsoleLogHandle>, std::path::PathBuf) {
+    let path = std::env::temp_dir().join(format!("cc-use-daemon-test-{}.db", nanoid::nanoid!(8)));
+    let db = Arc::new(Mutex::new(
+        Database::open_at(&path).expect("create temp db"),
+    ));
+    let proxy_state = build_proxy_state(db.clone()).expect("build proxy state");
+    let log_dir = std::env::temp_dir().join(format!("cc-use-daemon-logs-{}", nanoid::nanoid!(8)));
+    let console_log = Arc::new(
+        ConsoleLogHandle::spawn(log_dir.clone(), ConsoleLogSource::Daemon)
+            .expect("console log store"),
+    );
+    let app = build_daemon_router(DaemonState {
+        db,
+        proxy_state,
+        console_log: Arc::clone(&console_log),
+        management_token: "mgmt-test".to_string(),
+    });
+    (app, console_log, log_dir)
 }
 
 fn seed_managed_instance(db: &Database) -> String {
@@ -406,5 +434,68 @@ async fn console_stream_accepts_with_token_and_returns_sse_content_type() {
         content_type.starts_with("text/event-stream"),
         "expected text/event-stream content-type, got {:?}",
         content_type
+    );
+}
+
+/// Clearing the console must authenticate like every other management route.
+#[tokio::test]
+async fn console_clear_requires_the_management_token() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/_management/console/clear")
+                .header("x-cc-use-management-token", "wrong-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// The GUI clears its own files and asks the daemon to clear its own; only the
+/// owning process may remove a file that is still being appended to.
+#[tokio::test]
+async fn console_clear_drops_the_daemons_own_history() {
+    use cc_use_lib::services::console_log_store::read_recent;
+
+    let (app, console_log, log_dir) = app_with_console_log();
+    console_log.record(cc_use_lib::proxy::console::ConsoleEvent::log(
+        "info",
+        "daemon",
+        Some("cc_use_daemon::runtime"),
+        "before clear",
+    ));
+    console_log.flush();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(
+        read_recent(&log_dir, &[ConsoleLogSource::Daemon], 10)
+            .records
+            .len(),
+        1,
+        "the daemon records its own history"
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/_management/console/clear")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // The clear is queued behind whatever the writer is already doing.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let after = read_recent(&log_dir, &[ConsoleLogSource::Daemon], 10);
+    assert!(
+        after.records.is_empty(),
+        "cleared history does not come back"
     );
 }

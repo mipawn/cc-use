@@ -3,6 +3,7 @@ pub mod balance;
 pub mod claude_desktop_config;
 pub mod cli_tool;
 pub mod codex_config;
+pub mod console;
 pub mod import_export;
 pub mod managed_instances;
 pub mod projects;

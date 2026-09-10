@@ -108,6 +108,29 @@ export interface Api {
     /// daemon/app Rust log records, and renderer `console.*` calls through a
     /// single channel. Returns an unlisten fn.
     onEvent: (callback: (event: ConsoleEvent) => void) => () => void
+    /// Bounded on-disk history, oldest record first. Used to restore the
+    /// console after a reload or restart; `truncated` says the size budget has
+    /// already evicted older records.
+    readRecent: (
+      sources: string[],
+      limit?: number,
+    ) => Promise<{
+      generation: string
+      truncated: boolean
+      records: Array<{
+        source: string
+        epoch: string
+        seq: number
+        at: string
+        id: string
+        event: ConsoleEvent
+      }>
+    }>
+    /// Records this process failed to persist (queue overflow or write error).
+    logStatus: () => Promise<{ dropped: number }>
+    /// Delete console history on disk for both processes. Statistics and Auto
+    /// mode audit rows live in the database and are not affected.
+    clearHistory: () => Promise<void>
   }
   balance: {
     refresh: (providerId: string) => Promise<{

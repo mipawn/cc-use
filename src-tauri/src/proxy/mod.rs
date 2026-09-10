@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::models::GatewayRequestEvent;
+use crate::services::console_log_store::ConsoleLogHandle;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{mpsc, Arc, Mutex};
@@ -35,6 +36,10 @@ pub struct ProxyState {
     /// Fan-out channel for realtime console events. Always present; if
     /// no subscriber is listening, `send` is a cheap no-op (Err dropped).
     pub console_tx: broadcast::Sender<ConsoleEvent>,
+    /// Bounded on-disk history for console events. Present in the daemon, which
+    /// is the only process that sees proxy requests; `None` in tests and
+    /// anywhere the handler is not mounted.
+    pub console_log: Option<Arc<ConsoleLogHandle>>,
     /// Whether the console detail mode is enabled. When true, the handler
     /// captures request/response body + headers (desensitised) and attaches
     /// them to ConsoleEvent::Request. Toggled via the management endpoint.
@@ -90,6 +95,11 @@ impl ProxyState {
                 }
             }
         }
+        // Persist before broadcasting: a subscriber that is still connected when
+        // the GUI reloads must not be the only copy of this request.
+        if let Some(store) = &self.console_log {
+            store.record(event.clone());
+        }
         let _ = self.console_tx.send(event);
     }
 
@@ -134,6 +144,21 @@ impl ProxyState {
 }
 
 pub fn build_proxy_state(db: Arc<Mutex<Database>>) -> Result<Arc<ProxyState>, String> {
+    build_proxy_state_inner(db, None)
+}
+
+/// Same as [`build_proxy_state`], with on-disk console history attached.
+pub fn build_proxy_state_with_console_log(
+    db: Arc<Mutex<Database>>,
+    console_log: Arc<ConsoleLogHandle>,
+) -> Result<Arc<ProxyState>, String> {
+    build_proxy_state_inner(db, Some(console_log))
+}
+
+fn build_proxy_state_inner(
+    db: Arc<Mutex<Database>>,
+    console_log: Option<Arc<ConsoleLogHandle>>,
+) -> Result<Arc<ProxyState>, String> {
     let (console_tx, _rx) = broadcast::channel(CONSOLE_CHANNEL_CAPACITY);
     let (metrics_tx, metrics_rx) = mpsc::sync_channel::<GatewayRequestEvent>(1024);
     let metrics_db = db.clone();
@@ -174,6 +199,7 @@ pub fn build_proxy_state(db: Arc<Mutex<Database>>) -> Result<Arc<ProxyState>, St
         last_error: Arc::new(Mutex::new(None)),
         metrics_tx,
         console_tx,
+        console_log,
         detail_mode: Arc::new(AtomicBool::new(false)),
         global_concurrency: Arc::new(Semaphore::new(GLOBAL_CONCURRENCY_LIMIT)),
         session_concurrency: Arc::new(Mutex::new(HashMap::new())),

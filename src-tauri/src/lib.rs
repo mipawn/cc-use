@@ -98,6 +98,10 @@ pub fn run() {
             commands::proxy::proxy_start,
             commands::proxy::proxy_stop,
             commands::proxy::console_detail_mode_set,
+            // Console history (v3.10.0)
+            commands::console::console_log_read_recent,
+            commands::console::console_log_status,
+            commands::console::console_log_clear,
             commands::proxy::session_create,
             commands::proxy::session_get,
             commands::proxy::session_update_key,
@@ -186,11 +190,29 @@ pub fn run() {
 
             let handle = app.handle().clone();
 
+            // The app keeps its own console history on disk. Daemon events
+            // arrive over SSE and are deliberately not written here — the
+            // daemon already recorded them under its own budget.
+            let console_log = services::console_log_store::console_log_dir()
+                .map(|dir| {
+                    services::console_log_store::ConsoleLogHandle::spawn(
+                        dir,
+                        services::console_log_store::ConsoleLogSource::App,
+                    )
+                })
+                .transpose()
+                .ok()
+                .flatten()
+                .map(std::sync::Arc::new);
+
             // Install the app-side log adapter as early as possible in setup
             // so every `log::*` from subsequent bootstrap work (bridge spawn,
             // daemon start, tray setup) is already observable on the Console
             // page once the user opens it.
-            services::app_logger::install(handle.clone());
+            if let Some(store) = console_log.clone() {
+                handle.manage(store);
+            }
+            services::app_logger::install(handle.clone(), console_log);
             log::info!(
                 "app booted; version {}, mode {}",
                 env!("CARGO_PKG_VERSION"),

@@ -9,7 +9,9 @@
 //! broadcast to the UI.
 
 use crate::proxy::console::ConsoleEvent;
+use crate::services::console_log_store::ConsoleLogHandle;
 use log::{Log, Metadata, Record};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 /// Tauri event name — same channel as the SSE bridge, so the renderer can
@@ -18,11 +20,18 @@ pub const CONSOLE_EVENT_NAME: &str = "proxy:consoleEvent";
 
 pub struct AppLogger {
     handle: AppHandle,
+    /// This process's own console history. Daemon events forwarded over SSE are
+    /// deliberately not written here: the daemon already recorded them, and
+    /// duplicating them would double both the rows and the disk budget.
+    ///
+    /// `None` when the log directory could not be opened; logging then keeps
+    /// working live and on stderr, it just does not survive a reload.
+    store: Option<Arc<ConsoleLogHandle>>,
 }
 
 impl AppLogger {
-    pub fn new(handle: AppHandle) -> Self {
-        Self { handle }
+    pub fn new(handle: AppHandle, store: Option<Arc<ConsoleLogHandle>>) -> Self {
+        Self { handle, store }
     }
 }
 
@@ -53,6 +62,9 @@ impl Log for AppLogger {
             Some(target),
             &record.args().to_string(),
         );
+        if let Some(store) = &self.store {
+            store.record(event.clone());
+        }
         let _ = self.handle.emit(CONSOLE_EVENT_NAME, event);
     }
 
@@ -77,8 +89,8 @@ fn level_to_str(level: log::Level) -> String {
 /// Attempt to install the logger. Called from `setup()` once the AppHandle
 /// is available. If another logger was already set (shouldn't happen — we
 /// don't use any tauri-plugin-log) we silently fall back to stderr only.
-pub fn install(handle: AppHandle) {
-    if log::set_boxed_logger(Box::new(AppLogger::new(handle))).is_ok() {
+pub fn install(handle: AppHandle, store: Option<Arc<ConsoleLogHandle>>) {
+    if log::set_boxed_logger(Box::new(AppLogger::new(handle, store))).is_ok() {
         log::set_max_level(log::LevelFilter::Info);
     }
 }

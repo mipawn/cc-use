@@ -1,24 +1,29 @@
 //! Daemon-side log::Log adapter. Every `log::info!` / `warn!` / `error!`
 //! fired by code running inside the daemon process gets:
 //!   - written to stderr (preserved for launchd logs / foreground dev runs)
+//!   - appended to this process's console history on disk, so the record is
+//!     still there after the GUI reloads or restarts
 //!   - optionally broadcast to the realtime console as a `ConsoleEvent::Log`,
 //!     so the UI's Console page surfaces daemon logs alongside request events.
 //!
-//! The broadcast is filtered to our own crates (`cc_use*`) to avoid flooding
-//! the UI with transitive dependency noise (rusqlite, hyper, rustls, ...).
-//! Third-party logs still hit stderr unchanged.
+//! Both sinks are filtered to our own crates (`cc_use*`) to avoid flooding the
+//! UI and the disk budget with transitive dependency noise (rusqlite, hyper,
+//! rustls, ...). Third-party logs still hit stderr unchanged.
 
 use cc_use_lib::proxy::console::ConsoleEvent;
+use cc_use_lib::services::console_log_store::ConsoleLogHandle;
 use log::{Log, Metadata, Record};
+use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 
 pub struct ConsoleLogger {
     sender: Sender<ConsoleEvent>,
+    store: Arc<ConsoleLogHandle>,
 }
 
 impl ConsoleLogger {
-    pub fn new(sender: Sender<ConsoleEvent>) -> Self {
-        Self { sender }
+    pub fn new(sender: Sender<ConsoleEvent>, store: Arc<ConsoleLogHandle>) -> Self {
+        Self { sender, store }
     }
 }
 
@@ -53,6 +58,7 @@ impl Log for ConsoleLogger {
             Some(target),
             &record.args().to_string(),
         );
+        self.store.record(event.clone());
         let _ = self.sender.send(event);
     }
 
@@ -77,8 +83,8 @@ fn level_to_str(level: log::Level) -> String {
 /// Attempt to become the process-global logger. If another logger was
 /// already installed (shouldn't happen in our daemon, but library code
 /// could theoretically do it) we silently fall back to stderr-only.
-pub fn install(sender: Sender<ConsoleEvent>) {
-    let logger = ConsoleLogger::new(sender);
+pub fn install(sender: Sender<ConsoleEvent>, store: Arc<ConsoleLogHandle>) {
+    let logger = ConsoleLogger::new(sender, store);
     if log::set_boxed_logger(Box::new(logger)).is_ok() {
         log::set_max_level(log::LevelFilter::Info);
     }
@@ -87,6 +93,16 @@ pub fn install(sender: Sender<ConsoleEvent>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cc_use_lib::services::console_log_store::ConsoleLogSource;
+
+    /// The logger always has a store attached; tests give it a throwaway one
+    /// so a log call never depends on the real log directory.
+    fn test_logger(sender: Sender<ConsoleEvent>) -> (ConsoleLogger, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let store = ConsoleLogHandle::spawn(dir.path().to_path_buf(), ConsoleLogSource::Daemon)
+            .expect("console log store");
+        (ConsoleLogger::new(sender, Arc::new(store)), dir)
+    }
 
     #[test]
     fn own_crate_filter_accepts_cc_use_targets() {
@@ -106,7 +122,7 @@ mod tests {
     #[test]
     fn log_event_carries_level_target_and_message() {
         let (tx, mut rx) = tokio::sync::broadcast::channel(16);
-        let logger = ConsoleLogger::new(tx);
+        let (logger, _dir) = test_logger(tx);
         logger.log(
             &Record::builder()
                 .args(format_args!("ready on port 22345"))
@@ -136,7 +152,7 @@ mod tests {
     #[test]
     fn third_party_target_is_not_broadcast() {
         let (tx, mut rx) = tokio::sync::broadcast::channel(16);
-        let logger = ConsoleLogger::new(tx);
+        let (logger, _dir) = test_logger(tx);
         logger.log(
             &Record::builder()
                 .args(format_args!("some hyper noise"))

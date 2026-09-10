@@ -17,6 +17,10 @@ use std::sync::{Arc, Mutex};
 pub struct DaemonState {
     pub db: Arc<Mutex<Database>>,
     pub proxy_state: Arc<cc_use_lib::proxy::ProxyState>,
+    /// This process's console history. Only the owning process may delete it,
+    /// so the GUI asks the daemon to clear its own files instead of removing
+    /// a file that is still being written to.
+    pub console_log: Arc<cc_use_lib::services::console_log_store::ConsoleLogHandle>,
     pub management_token: String,
 }
 
@@ -63,6 +67,36 @@ pub fn management_routes() -> Router<DaemonState> {
             "/_management/console/stream",
             get(crate::console_stream::console_stream),
         )
+        .route("/_management/console/clear", post(management_console_clear))
+        .route(
+            "/_management/console/log-status",
+            get(management_console_log_status),
+        )
+}
+
+/// Drop the daemon's own console history. The GUI clears its files itself and
+/// calls this so both sides move to the same generation.
+async fn management_console_clear(
+    State(state): State<DaemonState>,
+    headers: HeaderMap,
+) -> Result<Json<ManagementHealthResponse>, Response> {
+    require_management_token(&state, &headers)?;
+    state.console_log.clear();
+    // The clear is queued behind whatever is already being written; the caller
+    // only needs to know it was accepted.
+    Ok(Json(ManagementHealthResponse { ok: true }))
+}
+
+/// How many records the daemon failed to persist, for the console's write-status
+/// line.
+async fn management_console_log_status(
+    State(state): State<DaemonState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Response> {
+    require_management_token(&state, &headers)?;
+    Ok(Json(serde_json::json!({
+        "dropped": state.console_log.dropped(),
+    })))
 }
 
 #[derive(Debug, Clone, Deserialize)]

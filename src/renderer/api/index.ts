@@ -83,6 +83,9 @@ function buildApi(): Api {
           unlisten?.()
         }
       },
+      readRecent: (sources, limit) => invoke('console_log_read_recent', { sources, limit }),
+      logStatus: () => invoke('console_log_status'),
+      clearHistory: () => invoke('console_log_clear'),
     },
     balance: {
       refresh: (providerId) => invoke('balance_refresh', { providerId }),
