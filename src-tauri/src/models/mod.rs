@@ -413,6 +413,51 @@ pub struct UsageGroup {
     pub windows: Vec<UsageWindow>,
 }
 
+// ── Auto mode audit ──
+
+/// What a recognized Auto mode classifier request was asked to review, what it
+/// answered, and how far the request got.
+///
+/// These are separate fields on purpose: an HTTP 200, a model verdict and the
+/// client actually running the tool are three different facts, and collapsing
+/// them into one "allowed" would claim more than the proxy can see.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoModeAudit {
+    /// The proxy request id, shared with the request log and console events.
+    pub request_id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    /// Reference to the conversation, derived so it is not a credential.
+    pub session_ref: Option<String>,
+    /// `native` when the client sent a real conversation id, `cc_use_session`
+    /// when it was derived from the CC Use session.
+    pub session_source: Option<String>,
+    pub client_kind: Option<String>,
+    /// Tool awaiting review, e.g. `Bash`.
+    pub tool_name: Option<String>,
+    pub tool_use_id: Option<String>,
+    /// Redacted, truncated summary of the action, e.g. `Bash · git status`.
+    pub action_summary: Option<String>,
+    pub action_truncated: bool,
+    pub request_model: Option<String>,
+    pub forwarded_model: Option<String>,
+    pub thinking: Option<String>,
+    pub classifier_stage: Option<String>,
+    /// `block` | `no_block` | `unknown`.
+    pub verdict: Option<String>,
+    pub verdict_reason: Option<String>,
+    pub parse_ok: bool,
+    pub stop_reason: Option<String>,
+    /// `pending` | `completed` | `interrupted` | `transport_error` | `http_error`.
+    pub request_state: String,
+    pub status_code: Option<i32>,
+    pub error_message: Option<String>,
+    /// Only ever set from a reliable client receipt; otherwise unobserved.
+    pub client_outcome: Option<String>,
+    pub completed_at: Option<String>,
+}
+
 // ── Usage Log ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -11,6 +11,7 @@ macro_rules! add_field {
 }
 
 pub mod api_keys;
+pub mod auto_mode_audits;
 pub mod gateway_metrics;
 mod keychain_migration;
 pub mod managed_instances;
@@ -205,6 +206,44 @@ impl Database {
                 is_streaming INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL
             );
+
+            -- v3.10.0: what each recognized Auto mode classifier request was
+            -- asked to review and what it answered. Structured, bounded and
+            -- queryable; the full transcript is never stored.
+            CREATE TABLE IF NOT EXISTS auto_mode_audits (
+                request_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                -- Non-credential session reference; never the route token.
+                session_ref TEXT,
+                session_source TEXT,
+                client_kind TEXT,
+                -- The action awaiting review.
+                tool_name TEXT,
+                tool_use_id TEXT,
+                action_summary TEXT,
+                action_truncated INTEGER NOT NULL DEFAULT 0,
+                -- Classifier input configuration.
+                request_model TEXT,
+                forwarded_model TEXT,
+                thinking TEXT,
+                classifier_stage TEXT,
+                -- What came back.
+                verdict TEXT,
+                verdict_reason TEXT,
+                parse_ok INTEGER NOT NULL DEFAULT 0,
+                stop_reason TEXT,
+                -- Request state, tracked separately from the verdict.
+                request_state TEXT NOT NULL,
+                status_code INTEGER,
+                error_message TEXT,
+                -- Only filled from a reliable client receipt.
+                client_outcome TEXT,
+                completed_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_auto_mode_audits_created
+            ON auto_mode_audits(created_at DESC);
 
             CREATE TABLE IF NOT EXISTS proxy_sessions (
                 session_token TEXT PRIMARY KEY,

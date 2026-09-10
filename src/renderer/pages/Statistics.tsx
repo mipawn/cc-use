@@ -5,7 +5,7 @@ import { getApi } from '../api'
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
-import { Typography, Card, Table, Tag, Spin, theme, Space, Statistic, Tooltip } from 'antd'
+import { Typography, Button, Card, Table, Tag, Spin, theme, Space, Statistic, Tooltip } from 'antd'
 import {
   ThunderboltOutlined,
   DatabaseOutlined,
@@ -15,10 +15,12 @@ import {
   KeyOutlined,
   FolderOpenOutlined,
   RobotOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { usePageRefresh } from '../hooks/usePageRefresh'
+import AutoModeAuditDrawer from '../components/usage/AutoModeAuditDrawer'
 import type {
   UsageStatistics,
   PaginatedRecentRequests,
@@ -65,6 +67,7 @@ export default function Statistics() {
   const [recentPage, setRecentPage] = useState(1)
   const [recentPageSize, setRecentPageSize] = useState(10)
   const refreshToken = useRef(0)
+  const [auditOpen, setAuditOpen] = useState(false)
   useEffect(() => {
     let cancelled = false
 
@@ -324,6 +327,9 @@ export default function Statistics() {
           </Title>
           <Text type='secondary'>{t('statistics.subtitle')}</Text>
         </div>
+        <Button icon={<SafetyOutlined />} onClick={() => setAuditOpen(true)}>
+          {t('statistics.autoAuditEntry') || 'Auto 记录'}
+        </Button>
       </div>
 
       {/* Time Range Filter */}
@@ -522,6 +528,12 @@ export default function Statistics() {
           )}
         </SimpleBar>
       </div>
+
+      <AutoModeAuditDrawer
+        open={auditOpen}
+        timeRange={timeRange}
+        onClose={() => setAuditOpen(false)}
+      />
     </div>
   )
 }

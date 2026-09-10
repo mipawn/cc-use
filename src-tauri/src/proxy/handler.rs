@@ -554,6 +554,11 @@ pub async fn proxy_handler(
         request_model: request_model.clone(),
         request_kind: request_kind.clone(),
         request_id: request_id.clone(),
+        auto_mode_audit: auto_mode_audit_context(
+            request_kind.as_deref(),
+            request_json.as_ref(),
+            &route_execution,
+        ),
         status_code: None,
         start_time,
         path: req_path.clone(),
@@ -562,6 +567,10 @@ pub async fn proxy_handler(
         provider_name: ctx.provider_name.clone(),
         project_name: ctx.project_name.clone(),
     });
+
+    if let Some(ctx) = base_log_ctx.as_ref() {
+        start_auto_mode_audit(ctx);
+    }
 
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
@@ -764,6 +773,20 @@ pub async fn proxy_handler(
     } else {
         resp_bytes
     };
+    // The classifier's answer is read from this decoded body, before any header
+    // rewriting, so the audit records what the upstream actually returned.
+    if request_kind.as_deref() == Some("auto_mode") {
+        if let Some(ctx) = base_log_ctx.as_ref() {
+            if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&decoded) {
+                finish_auto_mode_audit_verdict(ctx, &parsed);
+            } else {
+                // The upstream answered with something that is not a Messages
+                // JSON; record that no verdict could be read.
+                finish_auto_mode_audit_verdict(ctx, &serde_json::json!({}));
+            }
+        }
+    }
+
     let mut outgoing_resp_headers = resp_headers.clone();
     let content_type = if request_kind.as_deref() == Some("auto_mode")
         && status.is_success()
@@ -1595,6 +1618,130 @@ fn apply_upstream_auth_headers(
     Ok(())
 }
 
+/// Open an audit record for a recognized classifier request.
+///
+/// Written before the upstream call so an interrupted request is still visible
+/// as "we asked and never found out" rather than disappearing.
+fn start_auto_mode_audit(ctx: &LogContext) {
+    let Some(audit) = ctx.auto_mode_audit.as_ref() else {
+        return;
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let row = crate::models::AutoModeAudit {
+        request_id: ctx.request_id.clone(),
+        created_at: now.clone(),
+        updated_at: now.clone(),
+        session_ref: audit.session_ref.clone(),
+        session_source: audit.session_source.clone(),
+        client_kind: audit.client_kind.clone(),
+        tool_name: audit.tool_name.clone(),
+        tool_use_id: audit.tool_use_id.clone(),
+        action_summary: audit.action_summary.clone(),
+        action_truncated: audit.action_truncated,
+        request_model: audit.request_model.clone(),
+        forwarded_model: ctx.request_model.clone(),
+        thinking: audit.thinking.clone(),
+        classifier_stage: None,
+        verdict: None,
+        verdict_reason: None,
+        parse_ok: false,
+        stop_reason: None,
+        request_state: "pending".to_string(),
+        status_code: None,
+        error_message: None,
+        client_outcome: None,
+        completed_at: None,
+    };
+
+    let Ok(db) = ctx.db.lock() else {
+        log::warn!("Could not lock the database to open an Auto mode audit");
+        return;
+    };
+    if let Err(error) = db.auto_mode_audit_upsert(&row) {
+        // Never fatal: the audit is an observation, not part of the request.
+        log::warn!("Failed to open an Auto mode audit: {}", error);
+    }
+}
+
+/// Record what the classifier answered.
+fn finish_auto_mode_audit_verdict(ctx: &LogContext, response: &serde_json::Value) {
+    if ctx.auto_mode_audit.is_none() {
+        return;
+    }
+    let (verdict, text, parse_ok) = super::auto_mode_audit::parse_verdict(response);
+    let stop_reason = response.get("stop_reason").and_then(|value| value.as_str());
+    let reason = text
+        .as_deref()
+        .map(super::auto_mode_audit::clamp_reason)
+        .map(|(clamped, _)| clamped);
+
+    let Ok(db) = ctx.db.lock() else {
+        log::warn!("Could not lock the database to record an Auto mode verdict");
+        return;
+    };
+    if let Err(error) = db.auto_mode_audit_set_verdict(
+        &ctx.request_id,
+        None,
+        ctx.request_model.as_deref(),
+        Some(verdict.as_str()),
+        reason.as_deref(),
+        parse_ok,
+        stop_reason,
+        &chrono::Utc::now().to_rfc3339(),
+    ) {
+        log::warn!("Failed to record an Auto mode verdict: {}", error);
+    }
+}
+
+/// Collect what a recognized classifier request is about.
+///
+/// Returns `None` for anything that is not a classifier request, so the audit
+/// table only ever holds requests that were actually identified as one.
+fn auto_mode_audit_context(
+    request_kind: Option<&str>,
+    request_json: Option<&serde_json::Value>,
+    route: &RouteExecution,
+) -> Option<AutoModeAuditContext> {
+    if request_kind != Some("auto_mode") {
+        return None;
+    }
+    let body = request_json?;
+    let session_token = route.log_ctx.as_ref().map(|ctx| ctx.session_token.as_str());
+    let session = session_token.map(crate::shared_runtime::session_reference);
+    let action = super::auto_mode_audit::parse_pending_action(body);
+    let thinking = route.model_mapping.as_deref().and_then(auto_mode_thinking);
+
+    Some(AutoModeAuditContext {
+        session_ref: session,
+        // No native conversation id is read here: this record names the CC Use
+        // session it belongs to, and says so rather than implying a finer
+        // granularity than the proxy can prove.
+        session_source: session_token.map(|_| "cc_use_session".to_string()),
+        client_kind: route.cli_type.clone(),
+        tool_name: action.as_ref().map(|action| action.tool_name.clone()),
+        tool_use_id: action
+            .as_ref()
+            .and_then(|action| action.tool_use_id.clone()),
+        action_summary: action.as_ref().map(|action| action.summary.clone()),
+        action_truncated: action.as_ref().is_some_and(|action| action.truncated),
+        request_model: body
+            .get("model")
+            .and_then(|model| model.as_str())
+            .map(str::to_string),
+        thinking,
+    })
+}
+
+/// The configured thinking mode from a key's model mapping, when set.
+fn auto_mode_thinking(mapping: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(mapping).ok()?;
+    parsed
+        .get("autoMode")?
+        .get("thinking")?
+        .as_str()
+        .map(str::to_string)
+}
+
 /// Let the provider's adapter shape the outgoing request.
 ///
 /// Adapters are saved configuration, not a label: a provider whose adapter is
@@ -1847,6 +1994,24 @@ fn decode_deflate_limited(data: &[u8], limit: usize) -> Result<Vec<u8>, String> 
         .or_else(|_| read_decoded_limited(flate2::read::DeflateDecoder::new(data), limit))
 }
 
+/// What a recognized Auto mode classifier request was asked to review.
+///
+/// Collected when the request is recognized so the terminal paths can record
+/// the outcome without re-parsing the body, and so the record survives a
+/// failure that never produced a response.
+#[derive(Clone)]
+struct AutoModeAuditContext {
+    session_ref: Option<String>,
+    session_source: Option<String>,
+    client_kind: Option<String>,
+    tool_name: Option<String>,
+    tool_use_id: Option<String>,
+    action_summary: Option<String>,
+    action_truncated: bool,
+    request_model: Option<String>,
+    thinking: Option<String>,
+}
+
 #[derive(Clone)]
 struct LogContext {
     db: Arc<Mutex<crate::db::Database>>,
@@ -1859,6 +2024,8 @@ struct LogContext {
     /// The proxy request id, shared with this request's console events and any
     /// audit summary so the three can be joined later.
     request_id: String,
+    /// Present only for a recognized Auto mode classifier request.
+    auto_mode_audit: Option<AutoModeAuditContext>,
     status_code: Option<u16>,
     start_time: std::time::Instant,
     path: String,
@@ -1974,6 +2141,25 @@ fn record_usage(
 ) {
     let latency_ms = ctx.start_time.elapsed().as_millis() as i64;
     let model_name = model.or(ctx.request_model.as_deref()).unwrap_or("unknown");
+
+    if ctx.auto_mode_audit.is_some() {
+        let state = match outcome {
+            RequestOutcome::Success => "completed",
+            RequestOutcome::ClientError | RequestOutcome::UpstreamError => "http_error",
+            RequestOutcome::TransportError => "transport_error",
+        };
+        if let Ok(db) = ctx.db.lock() {
+            if let Err(error) = db.auto_mode_audit_set_state(
+                &ctx.request_id,
+                state,
+                ctx.status_code.map(i32::from),
+                error_message.as_deref(),
+                &chrono::Utc::now().to_rfc3339(),
+            ) {
+                log::warn!("Failed to record an Auto mode request state: {}", error);
+            }
+        }
+    }
 
     let log = RequestLog {
         id: nanoid::nanoid!(),
@@ -3222,6 +3408,7 @@ mod tests {
             request_model: Some("gpt-5.5".to_string()),
             request_kind: None,
             request_id: "test-request-id".to_string(),
+            auto_mode_audit: None,
             status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/responses".to_string(),
@@ -3340,6 +3527,7 @@ mod tests {
             request_model: Some("claude-3-5-sonnet".to_string()),
             request_kind: None,
             request_id: "test-request-id".to_string(),
+            auto_mode_audit: None,
             status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/messages".to_string(),

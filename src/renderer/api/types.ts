@@ -16,6 +16,7 @@ import type {
   GlobalSettings,
   PresetIcon,
   ProviderPreset,
+  AutoModeAudit,
   UsageData,
   ExportData,
   ExportOptions,
@@ -211,6 +212,20 @@ export interface Api {
     getGatewayMetrics: () => Promise<RecentGatewayMetrics>
     getProviderGatewayMetrics: () => Promise<ProviderGatewayMetrics[]>
     getMonthlyTrend: (year: number, month: number) => Promise<DailyTrendItem[]>
+  }
+  autoModeAudit: {
+    /// Newest first, filtered by the fields the audit page investigates by.
+    list: (params: {
+      timeRange: StatsTimeRange
+      tool?: string
+      verdict?: string
+      limit?: number
+    }) => Promise<AutoModeAudit[]>
+    /// The audit for one proxy request, so the console can follow the id it
+    /// already shows.
+    get: (requestId: string) => Promise<AutoModeAudit | null>
+    /// Tools seen in range, so the filter offers real values.
+    tools: (timeRange: StatsTimeRange) => Promise<string[]>
   }
   cliTool: {
     status: () => Promise<CliToolStatus>

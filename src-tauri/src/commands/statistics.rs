@@ -128,3 +128,45 @@ pub fn gateway_metrics_get_by_provider(
     let db = db.lock().map_err(|e| e.to_string())?;
     db.gateway_metrics_by_provider().map_err(|e| e.to_string())
 }
+
+/// Auto mode audit records for the current time range.
+#[tauri::command]
+pub fn auto_mode_audit_list(
+    db: State<'_, Arc<Mutex<Database>>>,
+    time_range: String,
+    tool: Option<String>,
+    verdict: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<crate::models::AutoModeAudit>, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.auto_mode_audit_list(
+        &time_range,
+        tool.as_deref(),
+        verdict.as_deref(),
+        limit.unwrap_or(200),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// One audit by the proxy request id, so the console can reach the record for
+/// the request it is showing.
+#[tauri::command]
+pub fn auto_mode_audit_get(
+    db: State<'_, Arc<Mutex<Database>>>,
+    request_id: String,
+) -> Result<Option<crate::models::AutoModeAudit>, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.auto_mode_audit_get(&request_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Tools seen in range, for the filter to offer real values.
+#[tauri::command]
+pub fn auto_mode_audit_tools(
+    db: State<'_, Arc<Mutex<Database>>>,
+    time_range: String,
+) -> Result<Vec<String>, String> {
+    let db = db.lock().map_err(|e| e.to_string())?;
+    db.auto_mode_audit_tool_names(&time_range)
+        .map_err(|e| e.to_string())
+}

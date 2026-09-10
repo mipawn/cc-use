@@ -586,6 +586,44 @@ export interface ExportApiKey {
   priority: number
 }
 
+/**
+ * One Auto mode classifier request: what it was asked to review and what came
+ * back. Transport success, the model's verdict and the client actually running
+ * the tool are separate fields on purpose — the proxy only sees the first two.
+ */
+export interface AutoModeAudit {
+  /** Proxy request id, shared with the request log and console events. */
+  requestId: string
+  createdAt: string
+  updatedAt: string
+  /** Non-credential reference to the conversation. */
+  sessionRef: string | null
+  /** `native` when the client sent a conversation id, `cc_use_session` otherwise. */
+  sessionSource: string | null
+  clientKind: string | null
+  toolName: string | null
+  toolUseId: string | null
+  /** Redacted, truncated description of the pending action. */
+  actionSummary: string | null
+  actionTruncated: boolean
+  requestModel: string | null
+  forwardedModel: string | null
+  thinking: string | null
+  classifierStage: string | null
+  /** `block` | `no_block` | `unknown`. */
+  verdict: string | null
+  verdictReason: string | null
+  parseOk: boolean
+  stopReason: string | null
+  /** `pending` | `completed` | `interrupted` | `transport_error` | `http_error`. */
+  requestState: string
+  statusCode: number | null
+  errorMessage: string | null
+  /** Only set from a reliable client receipt; otherwise unobserved. */
+  clientOutcome: string | null
+  completedAt: string | null
+}
+
 /** v3.7.0: request outcome recorded on every logged request. */
 export type RequestOutcome = 'success' | 'client_error' | 'upstream_error' | 'transport_error'
 

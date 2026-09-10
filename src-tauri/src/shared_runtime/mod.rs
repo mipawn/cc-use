@@ -28,7 +28,8 @@ pub use session_token::{
 };
 pub use upstream_routing::{infer_upstream_family_from_path, UpstreamFamily};
 pub use upstream_session::{
-    resolve_upstream_session, SessionSource, UpstreamSession, OPENCODE_SESSION_HEADER,
+    resolve_upstream_session, session_reference, SessionSource, UpstreamSession,
+    OPENCODE_SESSION_HEADER,
 };
 
 /// Adapter ids. `none` means the request crosses unchanged beyond routing.

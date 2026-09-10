@@ -152,6 +152,12 @@ function buildApi(): Api {
       getMonthlyTrend: (year: number, month: number) =>
         invoke('request_log_get_monthly_trend', { year, month }),
     },
+    autoModeAudit: {
+      list: ({ timeRange, tool, verdict, limit }) =>
+        invoke('auto_mode_audit_list', { timeRange, tool, verdict, limit }),
+      get: (requestId) => invoke('auto_mode_audit_get', { requestId }),
+      tools: (timeRange) => invoke('auto_mode_audit_tools', { timeRange }),
+    },
     cliTool: {
       status: () => invoke('cli_tool_status'),
       install: () => invoke('cli_tool_install'),

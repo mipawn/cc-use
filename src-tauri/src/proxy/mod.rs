@@ -7,6 +7,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 
 mod auto_mode;
+pub mod auto_mode_audit;
 pub mod console;
 pub mod handler;
 pub mod key_selector;

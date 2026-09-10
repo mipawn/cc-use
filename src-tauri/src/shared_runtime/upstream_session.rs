@@ -102,6 +102,12 @@ fn derive_session_id(proxy_session_token: &str, provider_id: &str, client_kind: 
     format!("{}{}", DERIVED_SESSION_PREFIX, &hex[..DIGEST_CHARS])
 }
 
+/// A stable, non-credential reference to a CC Use session, for records that
+/// must name the session without storing the route token.
+pub fn session_reference(proxy_session_token: &str) -> String {
+    derive_session_id(proxy_session_token, "", "")
+}
+
 /// The header upstreams like OpenCode Go route on.
 pub const OPENCODE_SESSION_HEADER: &str = "x-opencode-session";
 
@@ -178,6 +184,20 @@ mod tests {
                 resolve_upstream_session(None, None, token, provider, client).expect("resolved");
             assert_ne!(base.id, other.id, "{} / {} / {}", token, provider, client);
         }
+    }
+
+    #[test]
+    fn a_session_reference_names_the_session_without_being_the_credential() {
+        let reference = session_reference(TOKEN);
+
+        assert!(reference.starts_with(DERIVED_SESSION_PREFIX));
+        assert!(!reference.contains(TOKEN));
+        assert_ne!(reference, session_reference("session-zzzzzzzzzzzzzzzz"));
+        assert_eq!(
+            reference,
+            session_reference(TOKEN),
+            "stable for one session"
+        );
     }
 
     #[test]
