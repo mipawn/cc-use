@@ -205,7 +205,8 @@ export default {
   },
   console: {
     title: 'Console',
-    subtitle: 'Proxy requests and runtime logs in real time. Kept until the app reloads.',
+    subtitle:
+      'Proxy requests and runtime logs in real time, restored from local rolling logs after a reload or restart.',
     bufferInfo: '{{count}} / {{max}} entries',
     emptyHint: 'Waiting for events… trigger a CLI request, or fire any daemon/app/renderer log',
     errorsOnly: 'Errors only',

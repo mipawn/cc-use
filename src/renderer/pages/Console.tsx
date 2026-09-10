@@ -5,11 +5,23 @@ import { useTranslation } from 'react-i18next'
 import type { ConsoleEvent, ConsoleLogEvent, ConsoleRequestEvent } from '../../shared/types'
 import {
   CONSOLE_BUFFER_LIMIT,
-  clearConsoleEvents,
+  clearConsoleHistory,
   getConsoleEvents,
+  hydrateConsoleHistory,
   subscribeConsoleStore,
 } from '../api/consoleStore'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import { getApi } from '../api'
+
+/**
+ * Row identity for expansion state. Requests keep one row for their whole
+ * lifecycle; log records carry an id. Only an event with no identity at all
+ * falls back to its position.
+ */
+function eventRowKey(event: ConsoleEvent, index: number): string {
+  if (event.category === 'request') return event.requestId ?? `request-${index}`
+  return event.id ?? `log-${index}`
+}
 
 /// Terminal palette (VS Code Dark+ inspired). Intentionally not tied to
 /// AntD tokens — the console should read like a real terminal regardless
@@ -355,20 +367,27 @@ export default function Console() {
   const events = useSyncExternalStore(subscribeConsoleStore, getConsoleEvents)
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [detailMode, setDetailMode] = useState(false)
-  const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set())
+  // Expanded rows are tracked by their stable identity, not by position: the
+  // buffer is capped and trimmed, so an index would point at a different record
+  // as soon as anything is evicted or filtered.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
   const visibleEvents = useMemo(
     () => (errorsOnly ? events.filter(isErrorEvent) : events),
     [events, errorsOnly],
   )
 
-  const toggleExpanded = (idx: number) => {
-    setExpandedIdx((prev) => {
+  const toggleExpanded = (key: string) => {
+    setExpandedKeys((prev) => {
       const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx)
-      else next.add(idx)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
+
+  // Picking up history written while this page was not mounted costs one
+  // directory scan and never reloads the WebView.
+  usePageRefresh(hydrateConsoleHistory)
 
   const handleDetailMode = (checked: boolean) => {
     setDetailMode(checked)
@@ -425,7 +444,16 @@ export default function Console() {
           <Typography.Text type='secondary' style={{ fontSize: 12 }}>
             {t('console.bufferInfo', { count: events.length, max: CONSOLE_BUFFER_LIMIT })}
           </Typography.Text>
-          <Button icon={<ClearOutlined />} onClick={clearConsoleEvents} disabled={!events.length}>
+          <Button
+            icon={<ClearOutlined />}
+            onClick={() => {
+              // Clears the on-disk history of both processes too, so a reload
+              // cannot bring back what the user just deleted.
+              void clearConsoleHistory()
+              setExpandedKeys(new Set())
+            }}
+            disabled={!events.length}
+          >
             {t('console.clear')}
           </Button>
         </Space>
@@ -458,14 +486,17 @@ export default function Console() {
             <span style={{ color: PALETTE.prompt }}>▸</span> {t('console.noErrors')}
           </div>
         ) : (
-          visibleEvents.map((e, i) => (
-            <EventLine
-              key={e.category === 'request' && e.requestId ? e.requestId : i}
-              event={e}
-              expanded={expandedIdx.has(i)}
-              onToggle={() => toggleExpanded(i)}
-            />
-          ))
+          visibleEvents.map((e, i) => {
+            const key = eventRowKey(e, i)
+            return (
+              <EventLine
+                key={key}
+                event={e}
+                expanded={expandedKeys.has(key)}
+                onToggle={() => toggleExpanded(key)}
+              />
+            )
+          })
         )}
       </div>
     </div>

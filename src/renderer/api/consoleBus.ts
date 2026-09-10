@@ -25,9 +25,7 @@ let installed = false
 let dispatching = false
 
 /// Subscribe to renderer console events. Returns an unsubscribe fn.
-export function subscribeRendererConsole(
-  callback: (event: ConsoleLogEvent) => void,
-): () => void {
+export function subscribeRendererConsole(callback: (event: ConsoleLogEvent) => void): () => void {
   const handler = (evt: Event) => {
     callback((evt as CustomEvent<ConsoleLogEvent>).detail)
   }
@@ -48,27 +46,33 @@ export function installRendererConsoleTap(): void {
     debug: console.debug.bind(console),
   }
 
-  const patch = (level: Level) => (...args: unknown[]) => {
-    original[level](...args)
-    if (dispatching) return
-    dispatching = true
-    try {
-      bus.dispatchEvent(
-        new CustomEvent<ConsoleLogEvent>(EVENT_NAME, {
-          detail: {
-            category: 'log',
-            timestamp: nowTimestamp(),
-            level,
-            source: 'renderer',
-            target: null,
-            message: args.map(formatArg).join(' '),
-          },
-        }),
-      )
-    } finally {
-      dispatching = false
+  const patch =
+    (level: Level) =>
+    (...args: unknown[]) => {
+      original[level](...args)
+      if (dispatching) return
+      dispatching = true
+      try {
+        bus.dispatchEvent(
+          new CustomEvent<ConsoleLogEvent>(EVENT_NAME, {
+            detail: {
+              category: 'log',
+              // Renderer records never reach the Rust log store, so this id only
+              // has to be unique within the page: it is what keeps the expanded
+              // state attached to the same row as the buffer shifts.
+              id: `renderer-${nextRendererSeq()}`,
+              timestamp: nowTimestamp(),
+              level,
+              source: 'renderer',
+              target: null,
+              message: args.map(formatArg).join(' '),
+            },
+          }),
+        )
+      } finally {
+        dispatching = false
+      }
     }
-  }
 
   console.error = patch('error')
   console.warn = patch('warn')
@@ -89,6 +93,13 @@ function formatArg(arg: unknown): string {
   } catch {
     return String(arg)
   }
+}
+
+let rendererSeq = 0
+
+function nextRendererSeq(): number {
+  rendererSeq += 1
+  return rendererSeq
 }
 
 function nowTimestamp(): string {
