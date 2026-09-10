@@ -473,6 +473,8 @@ export default {
     title: 'API Keys',
     addKey: 'Add Key',
     editKey: 'Edit Key',
+    duplicateKey: 'Copy Key',
+    copyAliasSuffix: ' (copy)',
     keyName: 'Key Alias',
     apiKey: 'API Key',
     noKeys: 'No API keys yet',

@@ -65,9 +65,11 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
 import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
 import {
+  buildDuplicatedKeyDraft,
   toCreateApiKeyInput,
   toUpdateApiKeyInput,
   type ApiKeyEditorInput,
+  type KeyEditMode,
 } from '../utils/apiKeyEditor'
 import styles from './Keys.module.css'
 
@@ -191,6 +193,7 @@ export default function Keys() {
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
   const [keyEditOpen, setKeyEditOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null)
+  const [keyEditMode, setKeyEditMode] = useState<KeyEditMode>('create')
   const [defaultProviderId, setDefaultProviderId] = useState<string | undefined>(undefined)
   const [usageScope, setUsageScope] = useState<ResourceScope | null>(null)
 
@@ -389,16 +392,13 @@ export default function Keys() {
     }
   }
 
+  // Copy a key record to reuse the same credential under a different model
+  // mapping. The credential and copyable configuration carry over; identity,
+  // cached quota, exhaustion, failover and request history do not.
   const handleDuplicateKey = (key: ApiKey) => {
-    // Create a copy without id, clear value so user must enter a new key
-    const duplicated = {
-      ...key,
-      id: '',
-      alias: key.alias ? `${key.alias} (copy)` : '',
-      value: '',
-    } as ApiKey
-    setEditingKey(duplicated)
+    setEditingKey(buildDuplicatedKeyDraft(key, t('apiKeys.copyAliasSuffix') || ' (copy)'))
     setDefaultProviderId(key.providerId)
+    setKeyEditMode('duplicate')
     setKeyEditOpen(true)
   }
 
@@ -522,6 +522,7 @@ export default function Keys() {
   const handleEditKey = (key: ApiKey) => {
     setEditingKey(key)
     setDefaultProviderId(key.providerId)
+    setKeyEditMode('edit')
     setKeyEditOpen(true)
   }
 
@@ -529,12 +530,14 @@ export default function Keys() {
   const handleAddKey = (providerId?: string) => {
     setEditingKey(null)
     setDefaultProviderId(providerId)
+    setKeyEditMode('create')
     setKeyEditOpen(true)
   }
 
-  // Handle key save
+  // Handle key save. Create and duplicate both insert a new record; only edit
+  // writes back to an existing one.
   const handleSaveKey = async (input: ApiKeyEditorInput) => {
-    if (input.id) {
+    if (input.mode === 'edit') {
       await updateApiKey(toUpdateApiKeyInput(input))
     } else {
       await createApiKey(toCreateApiKeyInput(input))
@@ -1009,6 +1012,7 @@ export default function Keys() {
       {/* Key Edit Modal */}
       <KeyEditModal
         open={keyEditOpen}
+        mode={keyEditMode}
         apiKey={editingKey}
         providers={providers}
         defaultProviderId={defaultProviderId}

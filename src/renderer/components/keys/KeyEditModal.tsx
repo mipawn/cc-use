@@ -43,7 +43,7 @@ import type {
 } from '@shared/types'
 import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
-import type { ApiKeyEditorInput } from '../../utils/apiKeyEditor'
+import type { ApiKeyEditorInput, KeyEditMode } from '../../utils/apiKeyEditor'
 import {
   modelMappingValueForSave,
   parseModelMapping,
@@ -58,6 +58,11 @@ const { TextArea } = Input
 
 interface KeyEditModalProps {
   open: boolean
+  /**
+   * Explicit operation mode. `duplicate` reuses `apiKey` as the source draft
+   * but saves a new record, so it must not be inferred from an empty id.
+   */
+  mode: KeyEditMode
   apiKey: ApiKey | null
   providers: Provider[]
   defaultProviderId?: string
@@ -76,6 +81,7 @@ const createModelOverrideRow = (entry: ExactModelMapping = { source: '', target:
 
 export default function KeyEditModal({
   open,
+  mode,
   apiKey,
   providers,
   defaultProviderId,
@@ -112,6 +118,7 @@ export default function KeyEditModal({
   const [codexModel, setCodexModel] = useState('')
   const [grokModel, setGrokModel] = useState('')
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
+  const [activeTab, setActiveTab] = useState('basic')
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -155,16 +162,21 @@ export default function KeyEditModal({
   useEffect(() => {
     if (!open) return
 
-    if (apiKey) {
+    // A copy starts from the source key's full configuration so the credential,
+    // client overrides, model mapping and quota settings all carry over. Only a
+    // plain create falls back to provider defaults; both save as a new record.
+    const source = mode === 'create' ? null : apiKey
+
+    if (source) {
       form.setFieldsValue({
-        alias: apiKey.alias || '',
-        value: apiKey.value,
+        alias: source.alias || '',
+        value: source.value,
       })
-      const nextTypes = (apiKey.types?.length ? apiKey.types : ['claude_code']).map((type) =>
+      const nextTypes = (source.types?.length ? source.types : ['claude_code']).map((type) =>
         type === 'claude' ? 'claude_code' : type,
       ) as ClientKind[]
       setSelectedTypes(isOfficialDeepSeek ? nextTypes.filter((type) => type !== 'grok') : nextTypes)
-      const config = { ...(apiKey.config || {}) }
+      const config = { ...(source.config || {}) }
       delete config.prelaunchCommand
       setClaudeConfigJson(JSON.stringify(config, null, 2))
     } else {
@@ -177,11 +189,11 @@ export default function KeyEditModal({
     }
     setConfigMode('preview')
 
-    if (apiKey) {
-      setUsageType(apiKey.usageType || 'none')
-      setUsageUrl(apiKey.usageUrl || '')
-      setUsagePath(apiKey.usagePath || '')
-      const mapping = parseModelMapping(apiKey.modelMapping)
+    if (source) {
+      setUsageType(source.usageType || 'none')
+      setUsageUrl(source.usageUrl || '')
+      setUsagePath(source.usagePath || '')
+      const mapping = parseModelMapping(source.modelMapping)
       setHaikuModel(mapping.haiku)
       setSonnetModel(mapping.sonnet)
       setOpusModel(mapping.opus)
@@ -189,16 +201,16 @@ export default function KeyEditModal({
       setModelOverrides(mapping.modelOverrides.map(createModelOverrideRow))
       setCodexModel(mapping.codex)
       setGrokModel(mapping.grok)
-      if (apiKey.usageHeaders) {
+      if (source.usageHeaders) {
         try {
-          setUsageHeaders(JSON.stringify(JSON.parse(apiKey.usageHeaders), null, 2))
+          setUsageHeaders(JSON.stringify(JSON.parse(source.usageHeaders), null, 2))
         } catch {
-          setUsageHeaders(apiKey.usageHeaders)
+          setUsageHeaders(source.usageHeaders)
         }
       } else {
         setUsageHeaders('')
       }
-      setClientConfigs(apiKey.clientConfigs || {})
+      setClientConfigs(source.clientConfigs || {})
     } else {
       setUsageType('none')
       setUsageUrl('')
@@ -233,8 +245,10 @@ export default function KeyEditModal({
       )
     }
 
+    // A copy exists to be re-pointed at another model mapping, so start there.
+    setActiveTab(mode === 'duplicate' ? 'modelMapping' : 'basic')
     setJsonError(null)
-  }, [open, apiKey, form, isOfficialDeepSeek])
+  }, [open, mode, apiKey, form, isOfficialDeepSeek])
 
   useEffect(() => {
     if (!open || !apiKey?.id || !selectedTypes.includes('claude_code')) {
@@ -272,7 +286,7 @@ export default function KeyEditModal({
         codex: codexModel,
         grok: grokModel,
       },
-      Boolean(apiKey),
+      mode !== 'create',
     )
   }
 
@@ -315,7 +329,8 @@ export default function KeyEditModal({
       }
       const serializedModelMapping = buildModelMappingJson()
       await onSave({
-        id: apiKey?.id,
+        id: mode === 'edit' ? apiKey?.id : undefined,
+        mode,
         providerId,
         alias: values.alias?.trim() || undefined,
         value: values.value?.trim(),
@@ -330,7 +345,7 @@ export default function KeyEditModal({
       })
 
       message.success(
-        apiKey?.id
+        mode === 'edit'
           ? t('apiKeys.keyUpdated') || '密钥已更新'
           : t('apiKeys.keyAdded') || '密钥已添加',
       )
@@ -345,11 +360,14 @@ export default function KeyEditModal({
   }
 
   const modalTitle = useMemo(() => {
-    const baseTitle = apiKey?.id
-      ? t('apiKeys.editKey') || '编辑密钥'
-      : t('apiKeys.addKey') || '添加密钥'
+    const baseTitle =
+      mode === 'edit'
+        ? t('apiKeys.editKey') || '编辑密钥'
+        : mode === 'duplicate'
+          ? t('apiKeys.duplicateKey') || '复制密钥'
+          : t('apiKeys.addKey') || '添加密钥'
     return currentProvider ? `${baseTitle} - ${currentProvider.name}` : baseTitle
-  }, [apiKey, currentProvider, t])
+  }, [mode, currentProvider, t])
 
   const mergedConfigJson = useMemo(
     () => JSON.stringify({ ...claudeGlobalConfig, ...parseConfig(claudeConfigJson) }, null, 2),
@@ -437,7 +455,8 @@ export default function KeyEditModal({
           </Form.Item>
 
           <Tabs
-            defaultActiveKey='basic'
+            activeKey={activeTab}
+            onChange={setActiveTab}
             destroyOnHidden={false}
             className={styles.tabs}
             items={[

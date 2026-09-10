@@ -467,6 +467,8 @@ export default {
     title: 'API 密钥',
     addKey: '添加密钥',
     editKey: '编辑密钥',
+    duplicateKey: '复制密钥',
+    copyAliasSuffix: '（副本）',
     keyName: '密钥别名',
     apiKey: 'API 密钥',
     noKeys: '暂无 API 密钥',
