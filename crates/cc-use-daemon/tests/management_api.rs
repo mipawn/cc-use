@@ -499,3 +499,56 @@ async fn console_clear_drops_the_daemons_own_history() {
         "cleared history does not come back"
     );
 }
+
+/// The GUI reads this back after a reload: the flag lives in the daemon, so
+/// assuming it is off would show the wrong switch position.
+#[tokio::test]
+async fn console_detail_mode_can_be_read_back() {
+    let (app, _console_log, _dir) = app_with_console_log();
+
+    let read = |app: axum::Router| async move {
+        app.oneshot(
+            Request::builder()
+                .uri("/_management/console/detail-mode")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    };
+
+    let response = read(app.clone()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["enabled"],
+        serde_json::json!(false)
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/_management/console/detail-mode")
+                .header("x-cc-use-management-token", "mgmt-test")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"enabled":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = read(app).await;
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["enabled"],
+        serde_json::json!(true)
+    );
+}

@@ -51,9 +51,11 @@ pub struct ManagementInstanceStopInput {
 pub fn management_routes() -> Router<DaemonState> {
     Router::new()
         .route("/_management/health", get(management_health))
+        // Read and write share the path: the GUI must be able to show the
+        // daemon's real state after a reload rather than assuming it is off.
         .route(
             "/_management/console/detail-mode",
-            post(management_console_detail_mode),
+            get(management_console_detail_mode_get).post(management_console_detail_mode),
         )
         .route(
             "/_management/instances/heartbeat",
@@ -116,6 +118,18 @@ async fn management_console_detail_mode(
         .detail_mode
         .store(input.enabled, Ordering::Relaxed);
     Ok(Json(ManagementHealthResponse { ok: true }))
+}
+
+/// Whether the daemon is currently capturing request/response detail. The flag
+/// lives in the daemon, so a reloaded renderer has to ask rather than guess.
+async fn management_console_detail_mode_get(
+    State(state): State<DaemonState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Response> {
+    require_management_token(&state, &headers)?;
+    Ok(Json(serde_json::json!({
+        "enabled": state.proxy_state.detail_mode.load(Ordering::Relaxed),
+    })))
 }
 
 pub fn resolve_management_token() -> Result<String, String> {

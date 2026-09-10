@@ -94,6 +94,9 @@ export interface Api {
     start: () => Promise<void>
     stop: () => Promise<void>
     setDetailMode: (enabled: boolean) => Promise<void>
+    /// The daemon owns this flag; read it back after a reload instead of
+    /// assuming the switch is off.
+    getDetailMode: () => Promise<boolean>
     onStatusChanged: (
       callback: (data: {
         isRunning: boolean

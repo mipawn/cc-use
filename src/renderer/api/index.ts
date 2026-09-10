@@ -58,6 +58,7 @@ function buildApi(): Api {
       start: () => invoke('proxy_start'),
       stop: () => invoke('proxy_stop'),
       setDetailMode: (enabled: boolean) => invoke('console_detail_mode_set', { enabled }),
+      getDetailMode: () => invoke('console_detail_mode_get'),
       onStatusChanged: (callback) => {
         let unlisten: UnlistenFn | null = null
         listen<{ isRunning: boolean; port: number; lastError?: string | null; source?: string }>(

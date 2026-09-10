@@ -113,6 +113,48 @@ pub async fn console_detail_mode_set(
     Ok(())
 }
 
+/// Read the daemon's real detail-mode flag. The switch lives in the daemon, so
+/// a reloaded Console page has to ask instead of defaulting to off.
+#[tauri::command]
+pub async fn console_detail_mode_get(db: State<'_, Arc<Mutex<Database>>>) -> Result<bool, String> {
+    let (port, token) = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let settings = db.settings_get().map_err(|e| e.to_string())?;
+        let token = crate::shared_runtime::read_management_token(
+            &crate::shared_runtime::ManagementTokenPaths::from_home(
+                &dirs::home_dir().ok_or("no home dir")?,
+            ),
+        )
+        .map_err(|e| format!("read management token: {}", e))?
+        .ok_or("no management token")?;
+        (settings.proxy_port, token)
+    };
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://127.0.0.1:{}/_management/console/detail-mode",
+            port
+        ))
+        .header("x-cc-use-management-token", &token)
+        .send()
+        .await
+        .map_err(|e| format!("detail-mode read failed: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "detail-mode read failed: HTTP {}",
+            response.status()
+        ));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("detail-mode read failed: {}", e))?;
+    Ok(body
+        .get("enabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false))
+}
+
 /// Also used internally (e.g. tray refresh, health check)
 pub async fn proxy_restart_inner(db: &Arc<Mutex<Database>>) -> Result<(), String> {
     let port = read_proxy_port(db)?;

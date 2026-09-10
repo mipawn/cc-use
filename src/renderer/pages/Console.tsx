@@ -1,4 +1,12 @@
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { Button, Space, Switch, Typography, theme } from 'antd'
 import { ClearOutlined, DownOutlined, RightOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -385,9 +393,26 @@ export default function Console() {
     })
   }
 
+  // The capture flag lives in the daemon, so the switch reflects what the
+  // daemon is actually doing rather than what this page last asked for.
+  const syncDetailMode = useCallback(async () => {
+    try {
+      setDetailMode(await getApi().proxy.getDetailMode())
+    } catch {
+      // The daemon may not be up yet; leave the switch as-is rather than
+      // showing a state we could not confirm.
+    }
+  }, [])
+
+  useEffect(() => {
+    void syncDetailMode()
+  }, [syncDetailMode])
+
   // Picking up history written while this page was not mounted costs one
   // directory scan and never reloads the WebView.
-  usePageRefresh(hydrateConsoleHistory)
+  usePageRefresh(async () => {
+    await Promise.all([hydrateConsoleHistory(), syncDetailMode()])
+  })
 
   const handleDetailMode = (checked: boolean) => {
     setDetailMode(checked)

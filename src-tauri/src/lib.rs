@@ -98,6 +98,7 @@ pub fn run() {
             commands::proxy::proxy_start,
             commands::proxy::proxy_stop,
             commands::proxy::console_detail_mode_set,
+            commands::proxy::console_detail_mode_get,
             // Console history (v3.10.0)
             commands::console::console_log_read_recent,
             commands::console::console_log_status,
