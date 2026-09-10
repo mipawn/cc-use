@@ -267,6 +267,111 @@ mod tests {
         assert_eq!(addressless, vec![PRESET_CUSTOM, PRESET_NEWAPI]);
     }
 
+    fn blank_input(preset_id: Option<&str>) -> crate::models::CreateProviderInput {
+        crate::models::CreateProviderInput {
+            name: String::new(),
+            base_url: String::new(),
+            http_proxy: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            preset_id: preset_id.map(str::to_string),
+            default_key_config: None,
+        }
+    }
+
+    #[test]
+    fn a_preset_fills_every_field_the_form_never_showed() {
+        let merged = apply_preset_defaults(blank_input(Some(PRESET_DEEPSEEK)));
+
+        assert_eq!(merged.base_url, "https://api.deepseek.com");
+        assert_eq!(merged.name, "deepseek");
+        assert_eq!(merged.icon.as_deref(), Some("deepseek"));
+        assert_eq!(merged.wallet_balance_type.as_deref(), Some("deepseek"));
+        assert_eq!(
+            merged.wallet_balance_url.as_deref(),
+            Some("https://api.deepseek.com/user/balance")
+        );
+        let defaults = merged.default_key_config.expect("defaults filled in");
+        assert_eq!(defaults.types.len(), 3);
+        assert!(defaults.model_mapping.is_some());
+    }
+
+    #[test]
+    fn an_explicit_choice_always_beats_the_template() {
+        let mut input = blank_input(Some(PRESET_DEEPSEEK));
+        input.name = "my deepseek".to_string();
+        input.base_url = "https://relay.example.com".to_string();
+        input.wallet_balance_type = Some("none".to_string());
+        input.usage_type = Some("custom".to_string());
+        input.usage_url = Some("https://quota.example.com".to_string());
+        // An explicit empty defaults object means the user cleared it.
+        input.default_key_config = Some(DefaultKeyConfig::default());
+
+        let merged = apply_preset_defaults(input);
+
+        assert_eq!(merged.name, "my deepseek");
+        assert_eq!(merged.base_url, "https://relay.example.com");
+        assert_eq!(merged.wallet_balance_type.as_deref(), Some("none"));
+        assert_eq!(merged.usage_type.as_deref(), Some("custom"));
+        assert_eq!(
+            merged.usage_url.as_deref(),
+            Some("https://quota.example.com")
+        );
+        assert_eq!(merged.default_key_config, Some(DefaultKeyConfig::default()));
+        // A field the user left alone still comes from the template.
+        assert_eq!(merged.icon.as_deref(), Some("deepseek"));
+    }
+
+    #[test]
+    fn an_unknown_origin_is_preserved_and_changes_nothing() {
+        let merged = apply_preset_defaults(blank_input(Some("from-a-newer-build")));
+
+        assert_eq!(merged.preset_id.as_deref(), Some("from-a-newer-build"));
+        assert!(merged.base_url.is_empty(), "no template is invented");
+        assert!(merged.default_key_config.is_none());
+        assert!(merged.wallet_balance_type.is_none());
+    }
+
+    /// The blank template invents no address, name or vendor capability; the
+    /// only thing it supplies is the baseline client set a key already
+    /// defaulted to before presets existed.
+    #[test]
+    fn the_blank_template_records_its_origin_and_nothing_vendor_specific() {
+        let merged = apply_preset_defaults(blank_input(None));
+
+        assert_eq!(merged.preset_id.as_deref(), Some(PRESET_CUSTOM));
+        assert!(merged.base_url.is_empty());
+        assert!(merged.name.is_empty());
+        // Neutral, not vendor-specific: no endpoint and no query capability.
+        assert_eq!(merged.icon.as_deref(), Some("custom"));
+        assert_eq!(merged.wallet_balance_type.as_deref(), Some("none"));
+        assert_eq!(merged.usage_type.as_deref(), Some("none"));
+        assert!(merged.wallet_balance_url.is_none());
+        assert_eq!(
+            merged.default_key_config.expect("baseline clients").types,
+            vec!["claude_code".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_whitespace_name_is_treated_as_not_provided() {
+        let mut input = blank_input(Some(PRESET_OPENCODE_GO));
+        input.name = "   ".to_string();
+
+        assert_eq!(apply_preset_defaults(input).name, "opencode go");
+    }
+
     #[test]
     fn deepseek_carries_the_documented_endpoints_and_balance_query() {
         let preset = provider_preset(PRESET_DEEPSEEK).expect("deepseek preset");
@@ -332,4 +437,52 @@ mod tests {
         assert_eq!(parse_default_key_config(Some("  ")), None);
         assert_eq!(parse_default_key_config(None), None);
     }
+}
+
+/// Fill a create input from its preset, keeping every value the caller set.
+///
+/// Only gaps are filled — `None` means "not provided", so an explicit choice
+/// wins over the template even when it is `none` or an empty object. A hidden
+/// or unopened form section therefore cannot leave the stored configuration
+/// incomplete, and an edited provider is never quietly pushed back to a
+/// template default.
+pub fn apply_preset_defaults(
+    input: crate::models::CreateProviderInput,
+) -> crate::models::CreateProviderInput {
+    let preset_id = input
+        .preset_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(PRESET_CUSTOM)
+        .to_string();
+
+    // Unknown origin: keep the label, change nothing else. Guessing a template
+    // for someone else's id would silently rewrite their configuration.
+    let Some(preset) = provider_preset(&preset_id) else {
+        return crate::models::CreateProviderInput {
+            preset_id: Some(preset_id),
+            ..input
+        };
+    };
+
+    crate::models::CreateProviderInput {
+        name: non_empty(input.name).unwrap_or(preset.default_name),
+        base_url: non_empty(input.base_url).unwrap_or(preset.base_url),
+        icon: input.icon.or_else(|| Some(preset.icon)),
+        wallet_balance_type: input
+            .wallet_balance_type
+            .or_else(|| Some(preset.wallet_balance_type)),
+        wallet_balance_url: input.wallet_balance_url.or(preset.wallet_balance_url),
+        usage_type: input.usage_type.or_else(|| Some(preset.usage_type)),
+        usage_url: input.usage_url.or(preset.usage_url),
+        default_key_config: input.default_key_config.or(Some(preset.default_key_config)),
+        preset_id: Some(preset_id),
+        ..input
+    }
+}
+
+fn non_empty(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }

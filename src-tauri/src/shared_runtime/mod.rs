@@ -15,8 +15,8 @@ pub use project_session::{
     ProjectSessionOverrides, ProjectSessionPlan,
 };
 pub use provider_presets::{
-    default_preset_id, parse_default_key_config, provider_preset, provider_presets,
-    serialize_default_key_config, DefaultKeyConfig, ProviderPreset, ADAPTER_NONE,
+    apply_preset_defaults, default_preset_id, parse_default_key_config, provider_preset,
+    provider_presets, serialize_default_key_config, DefaultKeyConfig, ProviderPreset, ADAPTER_NONE,
     ADAPTER_OPENCODE_GO, PRESET_CUSTOM, PRESET_DEEPSEEK, PRESET_NEWAPI, PRESET_OPENCODE_GO,
 };
 pub use route_plan::{classify_request_auth, decide_route_plan, RequestAuth, RoutePlan};

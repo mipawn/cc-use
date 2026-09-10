@@ -24,6 +24,9 @@ pub fn provider_create(
     input: CreateProviderInput,
 ) -> Result<Provider, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
+    // Merge the preset template with whatever the caller supplied, so a create
+    // that skipped the advanced sections still stores a complete configuration.
+    let input = crate::shared_runtime::apply_preset_defaults(input);
     db.provider_create(&input).map_err(|e| e.to_string())
 }
 
