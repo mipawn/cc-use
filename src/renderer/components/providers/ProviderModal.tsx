@@ -5,7 +5,7 @@ import { useAppMessage } from '../../hooks/useAppMessage'
 import { UploadOutlined, LinkOutlined, SettingOutlined, WalletOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
-import type { Provider, CreateProviderInput } from '@shared/types'
+import type { Provider, CreateProviderInput, ProviderPreset } from '@shared/types'
 import styles from './ProviderModal.module.css'
 
 import claudeIcon from '../../assets/provider-icons/claude.svg'
@@ -27,6 +27,12 @@ const PRESET_ICON_MAP: Record<string, string> = Object.fromEntries(
   PRESET_ICONS.map((i) => [i.key, i.icon]),
 )
 
+const BALANCE_TYPES = ['none', 'newapi', 'custom', 'deepseek'] as const
+type BalanceType = (typeof BALANCE_TYPES)[number]
+
+const USAGE_TYPES = ['none', 'newapi', 'custom'] as const
+type UsageType = (typeof USAGE_TYPES)[number]
+
 interface ProviderModalProps {
   open: boolean
   provider: Provider | null
@@ -38,12 +44,24 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const { t } = useTranslation()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
-  const [balanceType, setBalanceType] = useState<'none' | 'newapi' | 'custom' | 'deepseek'>('none')
+  const [balanceType, setBalanceType] = useState<BalanceType>('none')
+  const [usageType, setUsageType] = useState<UsageType>('none')
   const [selectedIcon, setSelectedIcon] = useState<string>('claude')
   const [customIconPath, setCustomIconPath] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [presets, setPresets] = useState<ProviderPreset[]>([])
+  const [preset, setPreset] = useState<ProviderPreset | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const message = useAppMessage()
+
+  // The catalogue is code, not user data; it only seeds a new provider.
+  useEffect(() => {
+    if (!open) return
+    getApi()
+      .provider.presets()
+      .then(setPresets)
+      .catch(() => setPresets([]))
+  }, [open])
 
   useEffect(() => {
     if (open) {
@@ -52,7 +70,6 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           name: provider.name,
           baseUrl: provider.baseUrl,
           httpProxy: provider.httpProxy,
-          type: 'custom',
           website: provider.website,
           remark: provider.remark,
           token: provider.token,
@@ -61,8 +78,14 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           walletBalancePath: provider.walletBalancePath,
           walletBalanceHeaders: provider.walletBalanceHeaders,
           walletBalanceUserId: provider.walletBalanceUserId,
+          usageType: provider.usageType,
+          usageUrl: provider.usageUrl,
+          usagePath: provider.usagePath,
+          usageHeaders: provider.usageHeaders,
         })
         setBalanceType(provider.walletBalanceType)
+        setUsageType(normalizeUsageType(provider.usageType))
+        setPreset(null)
         if (provider.icon) {
           if (PRESET_ICON_MAP[provider.icon]) {
             setSelectedIcon(provider.icon)
@@ -79,17 +102,43 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setShowAdvanced(provider.walletBalanceType !== 'none')
       } else {
         form.resetFields()
-        form.setFieldsValue({
-          type: 'claude',
-          walletBalanceType: 'none',
-        })
+        form.setFieldsValue({ walletBalanceType: 'none', usageType: 'none' })
         setBalanceType('none')
+        setUsageType('none')
         setSelectedIcon('claude')
         setCustomIconPath(null)
         setShowAdvanced(false)
+        setPreset(null)
       }
     }
   }, [open, provider, form])
+
+  /**
+   * Fill the form from a template. Everything the template supplies is written
+   * into the form, so the user sees exactly what will be saved and can edit any
+   * of it — nothing is applied behind the form's back.
+   */
+  const applyPreset = (next: ProviderPreset) => {
+    setPreset(next)
+    const balance = BALANCE_TYPES.includes(next.walletBalanceType as BalanceType)
+      ? (next.walletBalanceType as BalanceType)
+      : 'none'
+    const usage = normalizeUsageType(next.usageType)
+    form.setFieldsValue({
+      name: next.defaultName || form.getFieldValue('name') || '',
+      baseUrl: next.baseUrl || form.getFieldValue('baseUrl') || '',
+      walletBalanceType: balance,
+      walletBalanceUrl: next.walletBalanceUrl ?? undefined,
+      usageType: usage,
+      usageUrl: next.usageUrl ?? undefined,
+    })
+    setBalanceType(balance)
+    setUsageType(usage)
+    if (PRESET_ICON_MAP[next.icon]) {
+      setSelectedIcon(next.icon)
+      setCustomIconPath(null)
+    }
+  }
 
   const handleSubmit = async () => {
     try {
@@ -111,6 +160,16 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         walletBalancePath: values.walletBalancePath?.trim(),
         walletBalanceHeaders: values.walletBalanceHeaders?.trim(),
         walletBalanceUserId: values.walletBalanceUserId?.trim(),
+        usageType: values.usageType,
+        usageUrl: values.usageUrl?.trim(),
+        usagePath: values.usagePath?.trim(),
+        usageHeaders: values.usageHeaders?.trim(),
+        // The template's request adapter and key defaults travel with the
+        // provider. Editing the address or the icon never silently drops them.
+        presetId: provider ? provider.presetId : preset?.id,
+        defaultKeyConfig: provider
+          ? (provider.defaultKeyConfig ?? undefined)
+          : preset?.defaultKeyConfig,
         isActive: provider?.isActive ?? true,
       })
 
@@ -155,10 +214,46 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
             form={form}
             layout='vertical'
             className={styles.form}
-            initialValues={{
-              walletBalanceType: 'none',
-            }}
+            initialValues={{ walletBalanceType: 'none', usageType: 'none' }}
           >
+            {/* The template is a starting point, not a lock: it only pre-fills
+                the fields below, all of which stay editable. */}
+            {!provider && presets.length > 0 && (
+              <div className={styles.sectionHeader}>
+                <SettingOutlined className={styles.sectionIcon} />
+                <Text strong>{t('providers.preset') || '预设'}</Text>
+              </div>
+            )}
+            {!provider && presets.length > 0 && (
+              <div className={styles.iconGrid}>
+                {presets.map((item) => (
+                  <Tooltip key={item.id} title={presetLabel(item.id, t)}>
+                    <div
+                      className={`${styles.iconItem} ${preset?.id === item.id ? styles.iconItemActive : ''}`}
+                      onClick={() => applyPreset(item)}
+                    >
+                      <img
+                        src={PRESET_ICON_MAP[item.icon] || claudeIcon}
+                        alt={item.id}
+                        className={styles.iconImg}
+                      />
+                    </div>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+            {!provider && preset && (
+              <div className={styles.hint}>
+                <Text type='secondary'>
+                  {preset.requiresSiteAddress
+                    ? t('providers.presetNeedsSite') ||
+                      '该预设需要你填写自己的站点地址，已填入的参数仍可修改'
+                    : t('providers.presetHint') ||
+                      '已填入该预设的地址、查询配置与请求适配选项，全部可以修改'}
+                </Text>
+              </div>
+            )}
+
             {/* Main Form Grid */}
             <div className={styles.formGrid}>
               {/* Left Column - Basic Info */}
@@ -167,10 +262,6 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                   <SettingOutlined className={styles.sectionIcon} />
                   <Text strong>{t('providers.basicConfig')}</Text>
                 </div>
-
-                <Form.Item name='type' hidden>
-                  <Input />
-                </Form.Item>
 
                 <Form.Item
                   name='name'
@@ -200,20 +291,15 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                 </Form.Item>
 
                 <Form.Item
-                  name='httpProxy'
-                  label={t('providers.httpProxy')}
-                  rules={[{ type: 'url', message: t('providers.invalidUrl') }]}
-                  extra={t('providers.httpProxyHint')}
+                  name='token'
+                  label={t('providers.token')}
+                  extra={
+                    preset?.needsAccountCredential
+                      ? t('providers.accountCredentialHint') ||
+                        '账户访问凭据，只用于余额查询，不会进入推理请求'
+                      : undefined
+                  }
                 >
-                  <Input
-                    allowClear
-                    placeholder={t('providers.httpProxyPlaceholder')}
-                    size='large'
-                    className={styles.input}
-                  />
-                </Form.Item>
-
-                <Form.Item name='token' label={t('providers.token')}>
                   <Input.Password
                     placeholder={t('providers.tokenPlaceholder')}
                     size='large'
@@ -302,14 +388,33 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
               items={[
                 {
                   key: 'advanced',
+                  // Mount the panel even while collapsed. Otherwise its
+                  // Form.Items never register, and a save that never opened
+                  // the section would drop the preset's query settings instead
+                  // of storing them.
+                  forceRender: true,
                   label: (
                     <Space>
                       <WalletOutlined />
-                      <span>{t('providers.balanceConfig')}</span>
+                      <span>{t('providers.advancedSettings') || '高级设置'}</span>
                     </Space>
                   ),
                   children: (
                     <div className={styles.advancedContent}>
+                      <Form.Item
+                        name='httpProxy'
+                        label={t('providers.httpProxy')}
+                        rules={[{ type: 'url', message: t('providers.invalidUrl') }]}
+                        extra={t('providers.httpProxyHint')}
+                      >
+                        <Input
+                          allowClear
+                          placeholder={t('providers.httpProxyPlaceholder')}
+                          size='large'
+                          className={styles.input}
+                        />
+                      </Form.Item>
+
                       <Form.Item name='walletBalanceType' label={t('providers.balanceType')}>
                         <Select
                           onChange={(value) => setBalanceType(value)}
@@ -345,7 +450,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                         </>
                       )}
 
-                      {balanceType === 'custom' && (
+                      {(balanceType === 'custom' || balanceType === 'deepseek') && (
                         <>
                           <Form.Item
                             name='walletBalanceUrl'
@@ -356,28 +461,84 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                                 message: t('providers.enterBalanceUrl'),
                               },
                             ]}
-                            extra={t('providers.balanceUrlHint')}
+                            extra={
+                              balanceType === 'deepseek'
+                                ? t('providers.deepseekBalanceUrlHint') ||
+                                  '留空则使用 DeepSeek 官方余额地址；改为第三方地址时以这里保存的为准'
+                                : t('providers.balanceUrlHint')
+                            }
                           >
                             <Input placeholder='{baseUrl}/api/user/balance' />
                           </Form.Item>
 
-                          <Form.Item
-                            name='walletBalancePath'
-                            label={t('providers.balancePath')}
-                            rules={[
-                              {
-                                required: balanceType === 'custom',
-                                message: t('providers.enterBalancePath'),
-                              },
-                            ]}
-                            extra={t('providers.balancePathHint')}
-                          >
-                            <Input placeholder='data.balance' className={styles.monoInput} />
-                          </Form.Item>
+                          {/* Path and headers only apply to a custom shape;
+                              DeepSeek's response is parsed by its own branch. */}
+                          {balanceType === 'custom' && (
+                            <>
+                              <Form.Item
+                                name='walletBalancePath'
+                                label={t('providers.balancePath')}
+                                rules={[
+                                  {
+                                    required: balanceType === 'custom',
+                                    message: t('providers.enterBalancePath'),
+                                  },
+                                ]}
+                                extra={t('providers.balancePathHint')}
+                              >
+                                <Input placeholder='data.balance' className={styles.monoInput} />
+                              </Form.Item>
 
+                              <Form.Item
+                                name='walletBalanceHeaders'
+                                label={t('providers.customHeaders')}
+                                extra={t('providers.curlHint')}
+                              >
+                                <TextArea
+                                  rows={3}
+                                  placeholder='{"Authorization": "Bearer YOUR_TOKEN"}'
+                                  className={styles.monoInput}
+                                />
+                              </Form.Item>
+                            </>
+                          )}
+                        </>
+                      )}
+
+                      <Form.Item name='usageType' label={t('providers.usageType')}>
+                        <Select
+                          onChange={(value) => setUsageType(value)}
+                          options={[
+                            { value: 'none', label: t('providers.usageTypeNone') },
+                            { value: 'newapi', label: t('providers.usageTypeNewapi') },
+                            { value: 'custom', label: t('providers.usageTypeCustom') },
+                          ]}
+                        />
+                      </Form.Item>
+
+                      {usageType === 'custom' && (
+                        <>
                           <Form.Item
-                            name='walletBalanceHeaders'
-                            label={t('providers.customHeaders')}
+                            name='usageUrl'
+                            label={t('providers.usageUrl')}
+                            extra={t('providers.usageUrlHint')}
+                          >
+                            <Input placeholder='{baseUrl}/api/usage/token' />
+                          </Form.Item>
+                          <Form.Item
+                            name='usagePath'
+                            label={t('providers.usagePath')}
+                            extra={t('providers.usagePathHint')}
+                          >
+                            <TextArea
+                              rows={2}
+                              placeholder='data.total_available'
+                              className={styles.monoInput}
+                            />
+                          </Form.Item>
+                          <Form.Item
+                            name='usageHeaders'
+                            label={t('providers.usageHeaders')}
                             extra={t('providers.curlHint')}
                           >
                             <TextArea
@@ -398,4 +559,15 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
       </SimpleBar>
     </Modal>
   )
+}
+
+/** `opencode-go` and the like are service types this build may not name yet. */
+function presetLabel(id: string, t: (key: string) => string): string {
+  const key = `providers.presetNames.${id}`
+  const translated = t(key)
+  return translated === key ? id : translated
+}
+
+function normalizeUsageType(value: string | null | undefined): UsageType {
+  return USAGE_TYPES.includes(value as UsageType) ? (value as UsageType) : 'none'
 }

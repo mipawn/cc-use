@@ -333,6 +333,25 @@ export default {
     balanceTypeNewapi: 'NewAPI',
     balanceTypeCustom: 'Custom',
     balanceTypeDeepseek: 'DeepSeek',
+    preset: 'Preset',
+    presetHint:
+      'Filled with this preset\u2019s address, query settings and request adapter. Everything stays editable.',
+    presetNeedsSite:
+      'This preset needs your own site address. The values it filled in remain editable.',
+    presetNames: {
+      custom: 'Custom',
+      deepseek: 'DeepSeek',
+      newapi: 'New API',
+      'opencode-go': 'OpenCode Go',
+    },
+    deepseekBalanceUrlHint:
+      'Leave empty to use the official DeepSeek balance endpoint; a third-party address here takes precedence.',
+    accountCredentialHint:
+      'Account credential. Used for balance queries only and never sent with inference requests.',
+    advancedSettings: 'Advanced settings',
+    usageUrlHint: 'Variables: {baseUrl} = provider address, {key} = API key',
+    usagePathHint: 'A single path (data.balance) or a JSON mapping table',
+    usageHeaders: 'Custom headers',
     balanceUrl: 'Balance URL',
     enterBalanceUrl: 'Please enter balance URL',
     balanceUrlHint: 'Supports {baseUrl} placeholder, auto-replaced with provider Base URL',
