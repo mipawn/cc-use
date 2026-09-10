@@ -5,6 +5,7 @@ pub mod provider_presets;
 pub mod route_plan;
 pub mod session_token;
 pub mod upstream_routing;
+pub mod upstream_session;
 
 pub use launch_preview::{resolve_launch_preview_from_configs, EnvObject, TerminalLaunchPreview};
 pub use management_token::{
@@ -15,9 +16,10 @@ pub use project_session::{
     ProjectSessionOverrides, ProjectSessionPlan,
 };
 pub use provider_presets::{
-    apply_preset_defaults, default_preset_id, parse_default_key_config, provider_preset,
-    provider_presets, serialize_default_key_config, DefaultKeyConfig, ProviderPreset, ADAPTER_NONE,
-    ADAPTER_OPENCODE_GO, PRESET_CUSTOM, PRESET_DEEPSEEK, PRESET_NEWAPI, PRESET_OPENCODE_GO,
+    apply_preset_defaults, default_preset_id, is_supported_request_adapter,
+    parse_default_key_config, provider_preset, provider_presets, serialize_default_key_config,
+    DefaultKeyConfig, ProviderPreset, ADAPTER_NONE, ADAPTER_OPENCODE_GO, PRESET_CUSTOM,
+    PRESET_DEEPSEEK, PRESET_NEWAPI, PRESET_OPENCODE_GO,
 };
 pub use route_plan::{classify_request_auth, decide_route_plan, RequestAuth, RoutePlan};
 pub use session_token::{
@@ -25,3 +27,19 @@ pub use session_token::{
     SESSION_TOKEN_PREFIX,
 };
 pub use upstream_routing::{infer_upstream_family_from_path, UpstreamFamily};
+pub use upstream_session::{
+    resolve_upstream_session, SessionSource, UpstreamSession, OPENCODE_SESSION_HEADER,
+};
+
+/// Adapter ids. `none` means the request crosses unchanged beyond routing.
+pub const ADAPTER_NONE_ID: &str = "none";
+
+/// Adapter every provider starts with, and what an empty value means.
+pub fn default_request_adapter() -> &'static str {
+    ADAPTER_NONE_ID
+}
+
+/// Same value, owned, for `#[serde(default = ...)]` on a `String` field.
+pub fn default_request_adapter_string() -> String {
+    ADAPTER_NONE_ID.to_string()
+}

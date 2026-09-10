@@ -111,6 +111,9 @@ impl Database {
                 -- full configuration a new key for it inherits.
                 preset_id TEXT NOT NULL DEFAULT 'custom',
                 default_key_config TEXT,
+                -- v3.10.0: request-shaping adapter. Saved config, not a label
+                -- derived from the preset.
+                request_adapter TEXT NOT NULL DEFAULT 'none',
                 is_active INTEGER DEFAULT 1,
                 sort_order INTEGER DEFAULT 0
             );
@@ -398,6 +401,7 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'custom'",
             "ALTER TABLE providers ADD COLUMN default_key_config TEXT",
             "ALTER TABLE providers ADD COLUMN cached_wallet_balance_currency TEXT",
+            "ALTER TABLE providers ADD COLUMN request_adapter TEXT NOT NULL DEFAULT 'none'",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
             "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\\\"claude_code\\\"]'",
@@ -836,6 +840,7 @@ mod tests {
                 usage_headers: None,
                 preset_id: None,
                 default_key_config: None,
+                request_adapter: None,
             })
             .unwrap();
         assert_eq!(provider.preset_id, "custom");

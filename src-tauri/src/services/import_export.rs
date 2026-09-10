@@ -70,6 +70,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 },
                 preset_id: Some(provider.preset_id),
                 default_key_config: provider.default_key_config,
+                request_adapter: Some(provider.request_adapter),
                 api_keys: export_keys,
             });
         }
@@ -148,8 +149,8 @@ pub fn import_all(
                 "INSERT OR REPLACE INTO providers (id, name, base_url, http_proxy, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                     wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                    preset_id, default_key_config)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17)",
+                    preset_id, default_key_config, request_adapter)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18)",
                 rusqlite::params![
                     ep.id,
                     ep.name,
@@ -168,6 +169,7 @@ pub fn import_all(
                     ep.usage_headers,
                     preset_id,
                     default_key_config,
+                    ep.request_adapter.as_deref().unwrap_or("none"),
                 ],
             ) {
                 errors.push(format!("Failed to import {}: {}", ep.name, e));
@@ -223,6 +225,7 @@ pub fn import_all(
                 usage_headers: ep.usage_headers.clone(),
                 preset_id: ep.preset_id.clone(),
                 default_key_config: ep.default_key_config.clone(),
+                request_adapter: ep.request_adapter.clone(),
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {

@@ -466,6 +466,13 @@ pub async fn proxy_handler(
     } else {
         body_bytes
     };
+    // The provider's adapter shapes the request last, once the body is final.
+    apply_request_adapter(
+        &mut headers,
+        &route_execution,
+        request_json.as_ref(),
+        emit.request_id,
+    );
     let forwarded_request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
         .and_then(|value| {
@@ -1588,6 +1595,87 @@ fn apply_upstream_auth_headers(
     Ok(())
 }
 
+/// Let the provider's adapter shape the outgoing request.
+///
+/// Adapters are saved configuration, not a label: a provider whose adapter is
+/// `none` crosses untouched, and an id this build does not implement is
+/// reported rather than silently treated as `none`.
+///
+/// OpenCode Go routes on `x-opencode-session` and rejects a request without it,
+/// so the Go adapter supplies one when the client did not. Its own id is
+/// preferred and never rewritten; otherwise a native conversation id is used,
+/// and only then a value derived from the CC Use session. The local route token
+/// is an input to that digest and never appears in the result.
+fn apply_request_adapter(
+    headers: &mut HeaderMap,
+    route: &RouteExecution,
+    request_json: Option<&serde_json::Value>,
+    request_id: &str,
+) {
+    let Some(provider) = route.provider.as_ref() else {
+        return;
+    };
+    let adapter = provider.request_adapter.trim();
+    if adapter.is_empty() || adapter == crate::shared_runtime::ADAPTER_NONE_ID {
+        return;
+    }
+    if adapter != crate::shared_runtime::ADAPTER_OPENCODE_GO {
+        log::warn!(
+            "provider {} uses unknown request adapter {:?}; forwarding unchanged",
+            provider.id,
+            adapter
+        );
+        return;
+    }
+
+    let existing = headers
+        .get(crate::shared_runtime::OPENCODE_SESSION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let native = request_json.and_then(super::auto_mode::claude_session_id);
+    let Some(session_token) = route.log_ctx.as_ref().map(|ctx| ctx.session_token.clone()) else {
+        return;
+    };
+
+    let Some(resolved) = crate::shared_runtime::resolve_upstream_session(
+        existing.as_deref(),
+        native.as_deref(),
+        &session_token,
+        &provider.id,
+        route.cli_type.as_deref().unwrap_or("claude_code"),
+    ) else {
+        return;
+    };
+
+    // A value the client already sent stays exactly as sent.
+    if existing.is_none() {
+        match HeaderValue::from_str(&resolved.id) {
+            Ok(value) => {
+                headers.insert(
+                    axum::http::header::HeaderName::from_static(
+                        crate::shared_runtime::OPENCODE_SESSION_HEADER,
+                    ),
+                    value,
+                );
+            }
+            Err(_) => {
+                log::warn!(
+                    "request {}: derived upstream session id was not a valid header value",
+                    request_id
+                );
+                return;
+            }
+        }
+    }
+
+    // Recorded so a diagnosis can tell a real conversation id from a fallback.
+    log::debug!(
+        "request {}: upstream session source={:?}",
+        request_id,
+        resolved.source
+    );
+}
+
 fn strip_hop_by_hop_headers(headers: &mut HeaderMap) {
     let connection_headers = headers
         .get_all("connection")
@@ -2551,19 +2639,20 @@ fn extract_host(url: &str) -> Option<String> {
 mod tests {
     use super::{
         api_key_supports_session_client, append_bounded_tail, apply_model_mapping,
-        build_upstream_ws_request, collect_response_body_limited, decompress_limited,
-        effective_session_cli_type, extract_error_message, has_billable_usage,
+        apply_request_adapter, build_upstream_ws_request, collect_response_body_limited,
+        decompress_limited, effective_session_cli_type, extract_error_message, has_billable_usage,
         is_codex_responses_request_path, record_usage, route_plan_with_codex_takeover_fallback,
         route_uses_bearer_auth, session_client_config_key, should_forward_response_header,
         strip_hop_by_hop_headers, LogContext, RequestCancellationGuard, RequestOutcome,
-        RouteExecution, SseModelNormalizingStream, StreamConsoleCtx, UpstreamAuthScheme,
-        UsageTrackingStream, MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
+        ResolvedSessionContext, RouteExecution, SseModelNormalizingStream, StreamConsoleCtx,
+        UpstreamAuthScheme, UsageTrackingStream, MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
     use crate::proxy::console::ConsoleEvent;
     use crate::proxy::usage_parser;
     use crate::shared_runtime::{RequestAuth, RoutePlan, CODEX_SESSION_TOKEN_SETTING_KEY};
+    use axum::http::{HeaderMap, HeaderValue};
 
     #[test]
     fn response_header_filter_drops_hop_by_hop_headers() {
@@ -2836,6 +2925,7 @@ mod tests {
                 usage_headers: None,
                 preset_id: None,
                 default_key_config: None,
+                request_adapter: None,
             })
             .unwrap();
         let grok_key = db
@@ -3102,6 +3192,7 @@ mod tests {
                 usage_headers: None,
                 preset_id: None,
                 default_key_config: None,
+                request_adapter: None,
             })
             .unwrap();
         let api_key = raw_db
@@ -3351,6 +3442,7 @@ mod tests {
                 usage_headers: None,
                 preset_id: None,
                 default_key_config: None,
+                request_adapter: None,
             })
             .unwrap();
         let api_key = raw_db
@@ -3524,5 +3616,147 @@ mod tests {
             }
             _ => panic!("expected request event"),
         }
+    }
+    // ---- Request adapters (v3.10.0) ----
+
+    /// A provider as the adapter would find it, saved and read back so the test
+    /// covers the persisted value rather than a hand-built struct.
+    fn provider_with_adapter(db: &Database, adapter: &str) -> crate::models::Provider {
+        db.provider_create(&CreateProviderInput {
+            name: "go".to_string(),
+            base_url: "https://opencode.ai/zen/go".to_string(),
+            http_proxy: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            preset_id: Some("opencode-go".to_string()),
+            default_key_config: None,
+            request_adapter: Some(adapter.to_string()),
+        })
+        .unwrap()
+    }
+
+    fn adapter_route(provider: crate::models::Provider, cli_type: &str) -> RouteExecution {
+        RouteExecution {
+            upstream_url: "https://opencode.ai/zen/go/v1/messages".to_string(),
+            real_api_key: Some("sk-test".to_string()),
+            model_mapping: None,
+            auth_scheme: None,
+            log_ctx: Some(ResolvedSessionContext {
+                session_token: "session-abcdefghijklmnop".to_string(),
+                provider_id: provider.id.clone(),
+                api_key_id: "key-go".to_string(),
+                project_id: None,
+                key_alias: None,
+                provider_name: None,
+                project_name: None,
+            }),
+            provider: Some(provider),
+            cli_type: Some(cli_type.to_string()),
+        }
+    }
+
+    #[test]
+    fn the_go_adapter_supplies_the_session_header_it_requires() {
+        let db = Database::new_in_memory().unwrap();
+        let provider = provider_with_adapter(&db, "opencode-go");
+        let route = adapter_route(provider, "claude_code");
+        let mut headers = HeaderMap::new();
+
+        apply_request_adapter(&mut headers, &route, None, "req-1");
+
+        let value = headers
+            .get("x-opencode-session")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert!(
+            value.starts_with("cc-use-"),
+            "a derived id is labelled as one, got {:?}",
+            value
+        );
+        // The local route token authenticates the proxy; it is an input to the
+        // digest and must not appear in the header.
+        assert!(!value.contains("session-abcdefghijklmnop"));
+        assert!(!value.contains("abcdefghijklmnop"));
+    }
+
+    #[test]
+    fn the_go_adapter_never_rewrites_a_session_the_client_already_sent() {
+        let db = Database::new_in_memory().unwrap();
+        let provider = provider_with_adapter(&db, "opencode-go");
+        let route = adapter_route(provider, "claude_code");
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-opencode-session",
+            HeaderValue::from_static("client-conv-9"),
+        );
+
+        apply_request_adapter(&mut headers, &route, None, "req-1");
+
+        assert_eq!(
+            headers.get("x-opencode-session").unwrap().to_str().unwrap(),
+            "client-conv-9"
+        );
+    }
+
+    #[test]
+    fn the_go_adapter_prefers_a_native_conversation_id_over_its_fallback() {
+        let db = Database::new_in_memory().unwrap();
+        let provider = provider_with_adapter(&db, "opencode-go");
+        let route = adapter_route(provider, "claude_code");
+        let mut headers = HeaderMap::new();
+        let body = serde_json::json!({
+            "metadata": { "user_id": "{\"session_id\":\"conv-native-7\"}" }
+        });
+
+        apply_request_adapter(&mut headers, &route, Some(&body), "req-1");
+
+        assert_eq!(
+            headers.get("x-opencode-session").unwrap().to_str().unwrap(),
+            "conv-native-7"
+        );
+    }
+
+    #[test]
+    fn providers_without_the_go_adapter_cross_untouched() {
+        let db = Database::new_in_memory().unwrap();
+        for adapter in ["none", ""] {
+            let provider = provider_with_adapter(&db, adapter);
+            let route = adapter_route(provider, "claude_code");
+            let mut headers = HeaderMap::new();
+
+            apply_request_adapter(&mut headers, &route, None, "req-1");
+
+            assert!(
+                headers.get("x-opencode-session").is_none(),
+                "adapter {:?} must not add a session header",
+                adapter
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_adapter_is_reported_and_changes_nothing() {
+        let db = Database::new_in_memory().unwrap();
+        let provider = provider_with_adapter(&db, "from-a-newer-build");
+        let route = adapter_route(provider, "claude_code");
+        let mut headers = HeaderMap::new();
+
+        apply_request_adapter(&mut headers, &route, None, "req-1");
+
+        assert!(headers.get("x-opencode-session").is_none());
+        assert!(!crate::shared_runtime::is_supported_request_adapter(
+            "from-a-newer-build"
+        ));
     }
 }

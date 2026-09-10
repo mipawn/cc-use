@@ -800,6 +800,7 @@ mod tests {
                 usage_headers: None,
                 preset_id: None,
                 default_key_config: None,
+                request_adapter: None,
             })
             .unwrap();
         let api_key = db

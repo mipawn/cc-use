@@ -28,6 +28,7 @@ fn export_excludes_api_key_secrets_by_default() {
             usage_headers: Some(r#"{"Authorization":"Bearer usage-secret"}"#.to_string()),
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
     create_api_key(&fixture.db, &provider.id, "claude_code");

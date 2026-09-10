@@ -36,6 +36,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 tokio-native-tls = "0.3"
 base64 = "0.22"
+sha2 = "0.10"
 flate2 = "1"
 brotli = "7"
 toml = "0.8"

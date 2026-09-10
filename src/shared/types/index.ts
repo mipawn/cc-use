@@ -241,6 +241,11 @@ export interface Provider {
   presetId: string
   /** Defaults a new key for this provider inherits. */
   defaultKeyConfig: ProviderDefaultKeyConfig | null
+  /**
+   * Request-shaping adapter id. Saved configuration, never re-derived from the
+   * preset label; an id this build does not implement is reported.
+   */
+  requestAdapter: string
 }
 
 /**
@@ -303,6 +308,7 @@ export interface CreateProviderInput {
   presetId?: string
   /** Defaults a new key for this provider inherits. */
   defaultKeyConfig?: ProviderDefaultKeyConfig
+  requestAdapter?: string
 }
 
 export interface UpdateProviderInput extends Partial<CreateProviderInput> {

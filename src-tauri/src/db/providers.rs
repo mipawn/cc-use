@@ -40,6 +40,10 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         default_key_config: crate::shared_runtime::parse_default_key_config(
             row.get::<_, Option<String>>(24)?.as_deref(),
         ),
+        request_adapter: row
+            .get::<_, Option<String>>(26)?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(crate::shared_runtime::default_request_adapter_string),
     })
 }
 
@@ -50,7 +54,8 @@ const PROVIDER_COLUMNS: &str = "id, name, base_url, http_proxy, website, remark,
         cached_wallet_balance, last_balance_checked_at,
         usage_type, usage_url, usage_path, usage_headers,
         cached_usage, last_usage_checked_at,
-        is_active, sort_order, preset_id, default_key_config, cached_wallet_balance_currency";
+        is_active, sort_order, preset_id, default_key_config, cached_wallet_balance_currency,
+        request_adapter";
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
@@ -116,8 +121,8 @@ impl Database {
             "INSERT INTO providers (id, name, base_url, http_proxy, website, remark, token, token_secret_ref, icon,
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                sort_order, preset_id, default_key_config)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20)",
+                sort_order, preset_id, default_key_config, request_adapter)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21)",
             rusqlite::params![
                 id,
                 input.name,
@@ -139,6 +144,13 @@ impl Database {
                 next_sort,
                 preset_id,
                 default_key_config,
+                input
+                    .request_adapter
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(crate::shared_runtime::default_request_adapter_string),
             ],
         )?;
 
@@ -230,6 +242,19 @@ impl Database {
         if let Some(ref val) = input.cached_usage {
             sets.push("cached_usage = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
+        }
+
+        if input.request_adapter.is_some() {
+            sets.push("request_adapter = ?".to_string());
+            params.push(Box::new(
+                input
+                    .request_adapter
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(crate::shared_runtime::default_request_adapter_string),
+            ));
         }
 
         if input.preset_id.is_some() {

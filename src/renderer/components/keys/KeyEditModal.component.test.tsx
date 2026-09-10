@@ -122,6 +122,7 @@ const deepseekProvider: Provider = {
   sortOrder: 0,
   presetId: 'deepseek',
   defaultKeyConfig: null,
+  requestAdapter: 'none',
 }
 
 function sourceKey(): ApiKey {

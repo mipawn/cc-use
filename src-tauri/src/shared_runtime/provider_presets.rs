@@ -20,7 +20,7 @@ pub const PRESET_NEWAPI: &str = "newapi";
 /// Request adapter ids. An adapter is saved configuration, not something the
 /// preset label forces: editing the provider keeps whichever one is stored.
 pub const ADAPTER_OPENCODE_GO: &str = "opencode-go";
-pub const ADAPTER_NONE: &str = "none";
+pub const ADAPTER_NONE: &str = crate::shared_runtime::ADAPTER_NONE_ID;
 
 /// Defaults a newly created key for this provider starts from.
 ///
@@ -167,8 +167,11 @@ fn opencode_go_preset() -> ProviderPreset {
             // Models are chosen per protocol after real verification, so no
             // model mapping is preset here; guessing one would promise
             // compatibility that has not been checked.
+            // Verified against the live endpoint: `/v1/messages` authenticates
+            // with `x-api-key` and rejects a Bearer token, while the
+            // OpenAI-shaped routes take Bearer.
             client_configs: serde_json::json!({
-                "claude_code": { "baseUrl": "https://opencode.ai/zen/go", "authScheme": "bearer" },
+                "claude_code": { "baseUrl": "https://opencode.ai/zen/go", "authScheme": "x-api-key" },
                 "codex": { "baseUrl": "https://opencode.ai/zen/go", "authScheme": "bearer" },
             }),
             ..DefaultKeyConfig::default()
@@ -210,6 +213,14 @@ pub fn provider_preset(id: &str) -> Option<ProviderPreset> {
     provider_presets()
         .into_iter()
         .find(|preset| preset.id == id)
+}
+
+/// Adapter ids this build implements. Anything else is rejected on save rather
+/// than silently treated as `none`, so a provider imported from a newer build
+/// reports the problem instead of quietly losing its request shaping.
+pub fn is_supported_request_adapter(id: &str) -> bool {
+    let id = id.trim();
+    id.is_empty() || id == ADAPTER_NONE || id == ADAPTER_OPENCODE_GO
 }
 
 /// Preset id to record for a provider whose origin we do not know.
@@ -287,6 +298,7 @@ mod tests {
             usage_headers: None,
             preset_id: preset_id.map(str::to_string),
             default_key_config: None,
+            request_adapter: None,
         }
     }
 
@@ -422,6 +434,26 @@ mod tests {
         assert!(preset.default_key_config.model_mapping.is_none());
     }
 
+    /// Verified against the live endpoint: `/v1/messages` authenticates with
+    /// `x-api-key` and rejects a Bearer token; the OpenAI-shaped routes take
+    /// Bearer. Getting this wrong makes every Claude Code request 401.
+    #[test]
+    fn opencode_go_uses_the_auth_scheme_each_protocol_actually_accepts() {
+        let preset = provider_preset(PRESET_OPENCODE_GO).expect("go preset");
+        let clients = &preset.default_key_config.client_configs;
+
+        assert_eq!(clients["claude_code"]["authScheme"], "x-api-key");
+        assert_eq!(clients["codex"]["authScheme"], "bearer");
+    }
+
+    #[test]
+    fn only_implemented_adapter_ids_are_accepted() {
+        assert!(is_supported_request_adapter(""));
+        assert!(is_supported_request_adapter("none"));
+        assert!(is_supported_request_adapter("opencode-go"));
+        assert!(!is_supported_request_adapter("from-a-newer-build"));
+    }
+
     #[test]
     fn an_unknown_preset_id_resolves_to_nothing_rather_than_a_guess() {
         assert!(provider_preset("from-a-newer-build").is_none());
@@ -476,6 +508,9 @@ pub fn apply_preset_defaults(
         wallet_balance_url: input.wallet_balance_url.or(preset.wallet_balance_url),
         usage_type: input.usage_type.or_else(|| Some(preset.usage_type)),
         usage_url: input.usage_url.or(preset.usage_url),
+        request_adapter: input
+            .request_adapter
+            .or_else(|| Some(preset.request_adapter.clone())),
         default_key_config: input.default_key_config.or(Some(preset.default_key_config)),
         preset_id: Some(preset_id),
         ..input

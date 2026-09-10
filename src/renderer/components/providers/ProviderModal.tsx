@@ -82,6 +82,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           usageUrl: provider.usageUrl,
           usagePath: provider.usagePath,
           usageHeaders: provider.usageHeaders,
+          requestAdapter: provider.requestAdapter,
         })
         setBalanceType(provider.walletBalanceType)
         setUsageType(normalizeUsageType(provider.usageType))
@@ -102,7 +103,11 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setShowAdvanced(provider.walletBalanceType !== 'none')
       } else {
         form.resetFields()
-        form.setFieldsValue({ walletBalanceType: 'none', usageType: 'none' })
+        form.setFieldsValue({
+          walletBalanceType: 'none',
+          usageType: 'none',
+          requestAdapter: 'none',
+        })
         setBalanceType('none')
         setUsageType('none')
         setSelectedIcon('claude')
@@ -131,6 +136,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
       walletBalanceUrl: next.walletBalanceUrl ?? undefined,
       usageType: usage,
       usageUrl: next.usageUrl ?? undefined,
+      requestAdapter: next.requestAdapter || 'none',
     })
     setBalanceType(balance)
     setUsageType(usage)
@@ -164,6 +170,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         usageUrl: values.usageUrl?.trim(),
         usagePath: values.usagePath?.trim(),
         usageHeaders: values.usageHeaders?.trim(),
+        requestAdapter: values.requestAdapter,
         // The template's request adapter and key defaults travel with the
         // provider. Editing the address or the icon never silently drops them.
         presetId: provider ? provider.presetId : preset?.id,
@@ -504,6 +511,19 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                           )}
                         </>
                       )}
+
+                      <Form.Item
+                        name='requestAdapter'
+                        label={t('providers.requestAdapter')}
+                        extra={t('providers.requestAdapterHint')}
+                      >
+                        <Select
+                          options={[
+                            { value: 'none', label: t('providers.requestAdapterNone') },
+                            { value: 'opencode-go', label: 'OpenCode Go' },
+                          ]}
+                        />
+                      </Form.Item>
 
                       <Form.Item name='usageType' label={t('providers.usageType')}>
                         <Select

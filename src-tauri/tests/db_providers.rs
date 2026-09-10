@@ -28,6 +28,7 @@ fn provider_crud() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
 
@@ -83,12 +84,14 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
 
     let update_token = |token: &str| UpdateProviderInput {
         preset_id: None,
         default_key_config: None,
+        request_adapter: None,
         id: provider.id.clone(),
         name: None,
         base_url: None,
@@ -158,6 +161,7 @@ fn provider_create_returns_proper_result() {
         usage_headers: None,
         preset_id: None,
         default_key_config: None,
+        request_adapter: None,
     });
     assert!(result.is_ok());
 }
@@ -194,6 +198,7 @@ fn provider_get_direct_query() {
                 usage_headers: None,
                 preset_id: None,
                 default_key_config: None,
+                request_adapter: None,
             })
             .unwrap();
     }
@@ -231,12 +236,14 @@ fn provider_update_no_changes() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
 
     let result = fixture.db.provider_update(&UpdateProviderInput {
         preset_id: None,
         default_key_config: None,
+        request_adapter: None,
         id: provider.id.clone(),
         name: None,
         base_url: None,
@@ -290,6 +297,7 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
 
@@ -303,6 +311,7 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
         .provider_update(&UpdateProviderInput {
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
             id: provider.id.clone(),
             name: None,
             base_url: None,
@@ -357,6 +366,7 @@ fn provider_reorder_sequence() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
 
@@ -381,6 +391,7 @@ fn provider_reorder_sequence() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
 
@@ -405,6 +416,7 @@ fn provider_reorder_sequence() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
 

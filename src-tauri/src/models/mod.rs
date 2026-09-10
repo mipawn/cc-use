@@ -43,6 +43,10 @@ pub struct Provider {
     /// v3.10.0: the configuration a new key for this provider inherits.
     #[serde(default)]
     pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
+    /// v3.10.0: request-shaping adapter id. An unknown value is reported as
+    /// unsupported rather than silently ignored.
+    #[serde(default = "crate::shared_runtime::default_request_adapter_string")]
+    pub request_adapter: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +74,9 @@ pub struct CreateProviderInput {
     /// Defaults a new key for this provider starts from.
     #[serde(default)]
     pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
+    /// Request-shaping adapter for this provider's traffic.
+    #[serde(default)]
+    pub request_adapter: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +112,8 @@ pub struct UpdateProviderInput {
     /// absent leaves them as they are.
     #[serde(default)]
     pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
+    #[serde(default)]
+    pub request_adapter: Option<String>,
 }
 
 // ── API Key ──
@@ -692,6 +701,9 @@ pub struct ExportProvider {
     /// v3.10.0: defaults a new key inherits. Never contains an inference key.
     #[serde(default)]
     pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
+    /// v3.10.0: request-shaping adapter for this provider.
+    #[serde(default)]
+    pub request_adapter: Option<String>,
     /// Absent in the oldest exports, which listed providers without keys.
     #[serde(default)]
     pub api_keys: Vec<ExportApiKey>,

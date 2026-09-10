@@ -73,6 +73,7 @@ fn setup_proxy(
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .unwrap();
     let key = db

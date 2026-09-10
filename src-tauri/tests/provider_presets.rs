@@ -40,6 +40,7 @@ fn provider_patch(id: &str) -> UpdateProviderInput {
         last_usage_checked_at: None,
         preset_id: None,
         default_key_config: None,
+        request_adapter: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn provider_input(name: &str) -> CreateProviderInput {
         usage_headers: None,
         preset_id: None,
         default_key_config: None,
+        request_adapter: None,
     }
 }
 

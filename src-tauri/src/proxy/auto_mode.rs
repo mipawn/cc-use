@@ -30,6 +30,20 @@ struct Config {
     thinking: Option<String>,
 }
 
+/// Claude Code sends `metadata.user_id` as a JSON *string*, with the
+/// conversation id inside it. Shared so the Go adapter and the Auto mode cache
+/// agree on what a native conversation id is.
+pub(super) fn claude_session_id(body: &Value) -> Option<String> {
+    let metadata = body["metadata"]["user_id"]
+        .as_str()
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())?;
+    metadata["session_id"]
+        .as_str()
+        .map(str::trim)
+        .filter(|session| !session.is_empty())
+        .map(str::to_string)
+}
+
 fn text_blocks(value: &Value) -> Vec<&str> {
     if let Some(text) = value.as_str() {
         return vec![text];
@@ -104,13 +118,8 @@ impl AutoModeState {
         };
         // A proxy token can serve multiple Claude conversations. Use Claude's
         // own session ID as well; never reuse another conversation's model.
-        let metadata = body["metadata"]["user_id"]
-            .as_str()
-            .and_then(|value| serde_json::from_str::<Value>(value).ok());
-        let session_id = metadata
-            .as_ref()
-            .and_then(|value| value["session_id"].as_str())
-            .filter(|session| !session.is_empty());
+        let session_id = claude_session_id(&body);
+        let session_id = session_id.as_deref();
         let scope = session_id.map(|session| (route_scope.to_string(), session.to_string()));
         self.models
             .retain(|_, (_, seen)| seen.elapsed() < SESSION_TTL);

@@ -83,6 +83,7 @@ fn seed(db: &Database, cli_type: &str) -> Fixture {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 

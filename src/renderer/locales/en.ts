@@ -348,6 +348,10 @@ export default {
       'Leave empty to use the official DeepSeek balance endpoint; a third-party address here takes precedence.',
     accountCredentialHint:
       'Account credential. Used for balance queries only and never sent with inference requests.',
+    requestAdapter: 'Request adapter',
+    requestAdapterHint:
+      'A preset enables its adapter by default. An unknown adapter is rejected on save.',
+    requestAdapterNone: 'None',
     advancedSettings: 'Advanced settings',
     usageUrlHint: 'Variables: {baseUrl} = provider address, {key} = API key',
     usagePathHint: 'A single path (data.balance) or a JSON mapping table',

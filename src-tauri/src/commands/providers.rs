@@ -23,6 +23,11 @@ pub fn provider_create(
     db: State<'_, Arc<Mutex<Database>>>,
     input: CreateProviderInput,
 ) -> Result<Provider, String> {
+    if let Some(adapter) = input.request_adapter.as_deref() {
+        if !crate::shared_runtime::is_supported_request_adapter(adapter) {
+            return Err(format!("Unsupported request adapter: {}", adapter));
+        }
+    }
     let db = db.lock().map_err(|e| e.to_string())?;
     // Merge the preset template with whatever the caller supplied, so a create
     // that skipped the advanced sections still stores a complete configuration.
@@ -35,6 +40,11 @@ pub fn provider_update(
     db: State<'_, Arc<Mutex<Database>>>,
     input: UpdateProviderInput,
 ) -> Result<Provider, String> {
+    if let Some(adapter) = input.request_adapter.as_deref() {
+        if !crate::shared_runtime::is_supported_request_adapter(adapter) {
+            return Err(format!("Unsupported request adapter: {}", adapter));
+        }
+    }
     let db = db.lock().map_err(|e| e.to_string())?;
     db.provider_update(&input).map_err(|e| e.to_string())
 }
@@ -238,6 +248,7 @@ mod tests {
             sort_order: 0,
             preset_id: "custom".to_string(),
             default_key_config: None,
+            request_adapter: "none".to_string(),
         }
     }
 

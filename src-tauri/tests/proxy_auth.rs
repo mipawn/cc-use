@@ -192,6 +192,7 @@ fn setup_session_with_type(
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 
@@ -430,6 +431,7 @@ async fn provider_type_none_defaults_to_x_api_key() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 
@@ -491,6 +493,7 @@ async fn codex_app_responses_request_uses_session_and_passes_responses_through()
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 
@@ -570,6 +573,7 @@ async fn codex_responses_request_with_legacy_session_type_passes_responses_throu
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 
@@ -644,6 +648,7 @@ async fn codex_responses_request_with_non_session_auth_uses_takeover_session() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 
@@ -729,6 +734,7 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 
@@ -823,6 +829,7 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
             usage_headers: None,
             preset_id: None,
             default_key_config: None,
+            request_adapter: None,
         })
         .expect("create provider");
 

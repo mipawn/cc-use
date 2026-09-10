@@ -217,6 +217,7 @@ it('keeps the stored origin when editing, without re-applying a template', async
     sortOrder: 0,
     presetId: 'newapi',
     defaultKeyConfig: { types: ['claude_code'] },
+    requestAdapter: 'none',
   }
 
   const onSave = await render(provider)
