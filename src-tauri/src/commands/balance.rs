@@ -22,11 +22,17 @@ pub async fn balance_refresh(
     // Update cached balance in DB
     if let Ok(ref res) = result {
         if let Some(balance) = res.get("balance").and_then(|v| v.as_f64()) {
+            // The currency is cached with the amount so the card can render a
+            // CNY balance as CNY instead of defaulting to a dollar sign.
+            let currency = res
+                .get("currency")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             let db = db.lock().map_err(|e| e.to_string())?;
             let now = chrono::Utc::now().to_rfc3339();
             let _ = db.conn.execute(
-                "UPDATE providers SET cached_wallet_balance = ?1, last_balance_checked_at = ?2 WHERE id = ?3",
-                rusqlite::params![balance, now, provider_id],
+                "UPDATE providers SET cached_wallet_balance = ?1, cached_wallet_balance_currency = ?2, last_balance_checked_at = ?3 WHERE id = ?4",
+                rusqlite::params![balance, currency, now, provider_id],
             );
         }
     }

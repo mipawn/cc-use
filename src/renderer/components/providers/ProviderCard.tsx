@@ -78,9 +78,17 @@ export default function ProviderCard({
     return 'blue'
   }
 
-  const formatBalance = (balance: number | null) => {
+  /**
+   * Render the amount in the currency the endpoint actually reported. An
+   * unknown currency shows the bare number rather than claiming dollars.
+   */
+  const formatBalance = (balance: number | null, currency: string | null) => {
     if (balance === null) return '-'
-    return `$${balance.toFixed(2)}`
+    const amount = balance.toFixed(2)
+    if (!currency) return amount
+    if (currency === 'USD') return `$${amount}`
+    if (currency === 'CNY') return `¥${amount}`
+    return `${amount} ${currency}`
   }
 
   const formatLastChecked = (timestamp: string | null) => {
@@ -200,7 +208,7 @@ export default function ProviderCard({
               <Space className='justify-between w-full'>
                 <Text type='secondary'>{t('providers.balance')}</Text>
                 <Text strong className={styles.balanceAmount} style={{ color: token.colorPrimary }}>
-                  {formatBalance(provider.cachedWalletBalance)}
+                  {formatBalance(provider.cachedWalletBalance, provider.cachedWalletBalanceCurrency)}
                 </Text>
               </Space>
               <Text type='secondary' className={styles.lastChecked}>

@@ -70,9 +70,25 @@ fn parse_deepseek_not_available() {
         "balance_infos": []
     });
 
+    // "Not available" is not "zero": reporting 0 would claim the account is
+    // empty, which is a different fact the user cannot act on.
+    let error = parse_deepseek_balance_response(&body).unwrap_err();
+    assert!(error.contains("not available"), "got: {}", error);
+}
+
+#[test]
+fn parse_deepseek_reports_the_currency_it_was_quoted_in() {
+    let body = json!({
+        "is_available": true,
+        "balance_infos": [
+            { "currency": "CNY", "total_balance": "110.00", "granted_balance": "10.00", "topped_up_balance": "100.00" }
+        ]
+    });
+
     let result = parse_deepseek_balance_response(&body).unwrap();
-    assert_eq!(result["balance"], json!(0.0));
-    assert_ne!(result["error"], json!(null));
+    assert_eq!(result["balance"], json!(110.0));
+    // The renderer must not have to assume dollars for a CNY balance.
+    assert_eq!(result["currency"], json!("CNY"));
 }
 
 #[test]

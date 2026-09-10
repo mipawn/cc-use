@@ -144,6 +144,8 @@ export interface Api {
       total: number | null
       used: number | null
       unlimited: boolean
+      /// Currency the endpoint quoted, when it said.
+      currency: string | null
       error: string | null
     }>
   }

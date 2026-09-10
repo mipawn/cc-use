@@ -21,6 +21,10 @@ pub struct Provider {
     pub wallet_balance_headers: Option<String>,
     pub wallet_balance_user_id: Option<String>,
     pub cached_wallet_balance: Option<f64>,
+    /// Currency the cached balance was quoted in; `None` when unknown, which
+    /// the UI shows without a symbol rather than assuming dollars.
+    #[serde(default)]
+    pub cached_wallet_balance_currency: Option<String>,
     pub last_balance_checked_at: Option<String>,
     // Usage
     pub usage_type: String,
@@ -90,6 +94,7 @@ pub struct UpdateProviderInput {
     pub usage_headers: Option<String>,
     pub is_active: Option<bool>,
     pub cached_wallet_balance: Option<f64>,
+    pub cached_wallet_balance_currency: Option<String>,
     pub last_balance_checked_at: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,

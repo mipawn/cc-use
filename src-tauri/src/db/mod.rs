@@ -97,6 +97,9 @@ impl Database {
                 wallet_balance_headers TEXT,
                 wallet_balance_user_id TEXT,
                 cached_wallet_balance REAL,
+                -- v3.10.0: the currency the balance was quoted in, so a CNY
+                -- balance is never rendered with a dollar sign.
+                cached_wallet_balance_currency TEXT,
                 last_balance_checked_at TEXT,
                 usage_type TEXT DEFAULT 'none',
                 usage_url TEXT,
@@ -394,6 +397,7 @@ impl Database {
             // v3.10.0: template origin and the per-provider key defaults.
             "ALTER TABLE providers ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'custom'",
             "ALTER TABLE providers ADD COLUMN default_key_config TEXT",
+            "ALTER TABLE providers ADD COLUMN cached_wallet_balance_currency TEXT",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
             "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\\\"claude_code\\\"]'",

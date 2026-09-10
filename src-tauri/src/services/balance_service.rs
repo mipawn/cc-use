@@ -2,6 +2,9 @@ use crate::models::{ApiKey, Provider};
 use serde_json::Value;
 
 const QUOTA_PER_UNIT: f64 = 500000.0;
+/// Documented DeepSeek balance endpoint, used only when the saved address is
+/// empty.
+const DEEPSEEK_BALANCE_URL: &str = "https://api.deepseek.com/user/balance";
 const UNLIMITED_THRESHOLD: f64 = 99_999_999.0;
 
 pub async fn refresh_balance(
@@ -14,6 +17,7 @@ pub async fn refresh_balance(
             "total": null,
             "used": null,
             "unlimited": false,
+            "currency": null,
             "error": "Balance checking not configured",
         })),
         "newapi" => fetch_newapi_balance(provider, fallback_api_keys).await,
@@ -90,6 +94,10 @@ async fn fetch_newapi_balance_via_user_api(
         "total": round2(total),
         "used": round2(used),
         "unlimited": false,
+        // New API quotes quota in dollars; QUOTA_PER_UNIT is the conversion
+        // this branch applies, so the unit is known here rather than assumed
+        // by the renderer.
+        "currency": "USD",
         "error": null,
     })))
 }
@@ -159,6 +167,8 @@ async fn fetch_newapi_balance_via_billing_api(
         "total": total.map(round2),
         "used": round2(total_usage),
         "unlimited": unlimited,
+        // Same dollar-based quota as the account endpoints above.
+        "currency": "USD",
         "error": null,
     }))
 }
@@ -204,6 +214,9 @@ async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, 
         "total": null,
         "used": null,
         "unlimited": false,
+        // A user-supplied endpoint gives no unit, so the UI shows the number
+        // without claiming one.
+        "currency": null,
         "error": null,
     }))
 }
@@ -216,7 +229,15 @@ async fn fetch_deepseek_balance(
         .ok_or_else(|| "No available API keys for DeepSeek balance check".to_string())?;
 
     let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
-    let url = "https://api.deepseek.com/user/balance";
+    // The saved address wins. It is a visible, editable field, so a provider
+    // pointed at a relay never has its key sent back to the vendor endpoint;
+    // an empty value means "this account uses the documented official one".
+    let url = provider
+        .wallet_balance_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEEPSEEK_BALANCE_URL);
     let resp = client
         .get(url)
         .header("Authorization", format!("Bearer {}", api_key))
@@ -241,13 +262,9 @@ pub fn parse_deepseek_balance_response(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     if !is_available {
-        return Ok(serde_json::json!({
-            "balance": 0.0,
-            "total": null,
-            "used": null,
-            "unlimited": false,
-            "error": "DeepSeek account balance is not available",
-        }));
+        // "Not available" is not the same fact as "zero": reporting 0 would
+        // claim the account is empty.
+        return Err("DeepSeek reports the account balance is not available".to_string());
     }
 
     let balance_infos = body.get("balance_infos").and_then(|v| v.as_array());
@@ -258,18 +275,25 @@ pub fn parse_deepseek_balance_response(
             .or_else(|| arr.first())
     });
 
-    let total_balance = to_number(balance_obj.and_then(|v| v.get("total_balance")));
+    let Some(entry) = balance_obj else {
+        return Err("DeepSeek response did not include any balance entry".to_string());
+    };
 
-    match total_balance {
-        Some(balance) => Ok(serde_json::json!({
-            "balance": round2(balance),
-            "total": null,
-            "used": null,
-            "unlimited": false,
-            "error": null,
-        })),
-        None => Err("Failed to parse DeepSeek balance".to_string()),
-    }
+    let total_balance = to_number(entry.get("total_balance"));
+    let Some(balance) = total_balance else {
+        return Err("DeepSeek balance entry had no total_balance".to_string());
+    };
+
+    Ok(serde_json::json!({
+        "balance": round2(balance),
+        // DeepSeek bills in CNY; the response states the currency and the UI
+        // renders that rather than assuming dollars.
+        "currency": entry.get("currency").and_then(|c| c.as_str()),
+        "total": null,
+        "used": null,
+        "unlimited": false,
+        "error": null,
+    }))
 }
 
 fn parse_headers(raw: &str) -> Result<Vec<(String, String)>, String> {

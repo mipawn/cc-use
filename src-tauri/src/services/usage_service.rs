@@ -72,7 +72,12 @@ async fn fetch_newapi_usage(
         "remaining": to_number(data.get("total_available"))
             .or_else(|| to_number(data.get("remaining")))
             .or_else(|| to_number(data.get("available"))),
-        "unit": data.get("unit").and_then(|v| v.as_str()).unwrap_or("USD"),
+        // New API quota is converted with the documented per-unit rate, so the
+        // unit is known here; an explicit `unit` in the response still wins.
+        "unit": data
+            .get("unit")
+            .and_then(|v| v.as_str())
+            .unwrap_or("USD"),
         "isUnlimited": to_bool(data.get("unlimited_quota"))
             .or(to_bool(data.get("is_unlimited")))
             .or(to_bool(data.get("isUnlimited")))
@@ -242,8 +247,10 @@ async fn fetch_custom_key_usage(
 fn resolve_custom_path(body: &Value, path: &str) -> Result<Value, String> {
     // Try parsing as JSON map first
     if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(path) {
+        // A user-supplied endpoint gives no unit; the mapping table can name
+        // one, and until it does the UI shows the number without a currency.
         let mut usage = serde_json::json!({
-            "unit": "USD",
+            "unit": null,
             "isUnlimited": false,
             "expireAt": null,
         });
@@ -302,7 +309,8 @@ fn resolve_custom_path(body: &Value, path: &str) -> Result<Value, String> {
             "remaining": to_number(obj.get("remaining"))
                 .or_else(|| to_number(obj.get("total_available")))
                 .or_else(|| to_number(obj.get("available"))),
-            "unit": obj.get("unit").and_then(|v| v.as_str()).unwrap_or("USD"),
+            // Reported unit only; absent means the UI must not claim one.
+            "unit": obj.get("unit").and_then(|v| v.as_str()),
             "isUnlimited": to_bool(obj.get("unlimited_quota"))
                 .or(to_bool(obj.get("is_unlimited")))
                 .or(to_bool(obj.get("isUnlimited")))
@@ -329,7 +337,8 @@ fn resolve_custom_path(body: &Value, path: &str) -> Result<Value, String> {
 
     Ok(serde_json::json!({
         "remaining": remaining,
-        "unit": "USD",
+        // No unit was reported, so none is asserted.
+        "unit": null,
     }))
 }
 

@@ -224,6 +224,8 @@ export interface Provider {
   walletBalanceHeaders: string | null
   walletBalanceUserId: string | null
   cachedWalletBalance: number | null
+  /** Currency of the cached balance; null when the endpoint did not say. */
+  cachedWalletBalanceCurrency: string | null
   lastBalanceCheckedAt: string | null
   // Usage configuration. `deepseek` and `opencode-go` are read by their own
   // service branches; the stored string is the source of truth.

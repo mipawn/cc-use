@@ -19,6 +19,7 @@ interface ProviderState {
     total: number | null
     used: number | null
     unlimited: boolean
+    currency: string | null
     error: string | null
   }>
 }

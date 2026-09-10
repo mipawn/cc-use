@@ -34,6 +34,7 @@ fn provider_patch(id: &str) -> UpdateProviderInput {
         usage_headers: None,
         is_active: None,
         cached_wallet_balance: None,
+        cached_wallet_balance_currency: None,
         last_balance_checked_at: None,
         cached_usage: None,
         last_usage_checked_at: None,

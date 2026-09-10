@@ -205,6 +205,7 @@ it('keeps the stored origin when editing, without re-applying a template', async
     walletBalanceHeaders: null,
     walletBalanceUserId: null,
     cachedWalletBalance: null,
+    cachedWalletBalanceCurrency: null,
     lastBalanceCheckedAt: null,
     usageType: 'none',
     usageUrl: null,

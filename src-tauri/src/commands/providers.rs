@@ -226,6 +226,7 @@ mod tests {
             wallet_balance_headers: None,
             wallet_balance_user_id: None,
             cached_wallet_balance: None,
+            cached_wallet_balance_currency: None,
             last_balance_checked_at: None,
             usage_type: "none".to_string(),
             usage_url: None,

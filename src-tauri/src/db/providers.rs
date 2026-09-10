@@ -19,6 +19,7 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         wallet_balance_headers: row.get(11)?,
         wallet_balance_user_id: row.get(12)?,
         cached_wallet_balance: row.get(13)?,
+        cached_wallet_balance_currency: row.get(25)?,
         last_balance_checked_at: row.get(14)?,
         usage_type: row
             .get::<_, Option<String>>(15)?
@@ -49,7 +50,7 @@ const PROVIDER_COLUMNS: &str = "id, name, base_url, http_proxy, website, remark,
         cached_wallet_balance, last_balance_checked_at,
         usage_type, usage_url, usage_path, usage_headers,
         cached_usage, last_usage_checked_at,
-        is_active, sort_order, preset_id, default_key_config";
+        is_active, sort_order, preset_id, default_key_config, cached_wallet_balance_currency";
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
@@ -204,6 +205,10 @@ impl Database {
             sets,
             params
         );
+        if input.cached_wallet_balance_currency.is_some() {
+            sets.push("cached_wallet_balance_currency = ?".to_string());
+            params.push(Box::new(input.cached_wallet_balance_currency.clone()));
+        }
         add_field!(
             input.last_balance_checked_at,
             "last_balance_checked_at",
