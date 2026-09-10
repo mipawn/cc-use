@@ -271,6 +271,14 @@ pub enum ConsoleEvent {
         latency_ms: Option<u64>,
         /// Final upstream URL we forwarded to.
         upstream: Option<String>,
+        /// Model actually forwarded upstream, when it is known. Never guessed
+        /// from the URL; absent means unknown and the UI shows no model.
+        #[serde(default)]
+        model: Option<String>,
+        /// Recognized purpose: "auto_mode" | null. Absent on ordinary and
+        /// historical requests rather than filled with a placeholder.
+        #[serde(default)]
+        request_kind: Option<String>,
         /// Provider display name.
         provider: Option<String>,
         /// API key alias.
@@ -334,6 +342,8 @@ impl ConsoleEvent {
             } else {
                 Some("pending".to_string())
             },
+            model: None,
+            request_kind: None,
             request_headers: None,
             request_body: None,
             response_headers: None,
@@ -369,6 +379,8 @@ impl ConsoleEvent {
             } else {
                 None
             },
+            model: None,
+            request_kind: None,
             request_headers: None,
             request_body: None,
             response_headers: None,
@@ -399,6 +411,8 @@ impl ConsoleEvent {
             provider: provider.map(String::from),
             key_alias: key_alias.map(String::from),
             message: Some(error.to_string()),
+            model: None,
+            request_kind: None,
             request_headers: None,
             request_body: None,
             response_headers: None,
@@ -429,6 +443,8 @@ impl ConsoleEvent {
             provider: provider.map(String::from),
             key_alias: key_alias.map(String::from),
             message: Some("client disconnected".to_string()),
+            model: None,
+            request_kind: None,
             request_headers: None,
             request_body: None,
             response_headers: None,
@@ -456,6 +472,8 @@ impl ConsoleEvent {
             provider: None,
             key_alias: None,
             message: Some(reason.to_string()),
+            model: None,
+            request_kind: None,
             request_headers: None,
             request_body: None,
             response_headers: None,
@@ -484,6 +502,8 @@ impl ConsoleEvent {
             provider: provider.map(String::from),
             key_alias: key_alias.map(String::from),
             message: Some("upgraded".to_string()),
+            model: None,
+            request_kind: None,
             request_headers: None,
             request_body: None,
             response_headers: None,
@@ -501,6 +521,22 @@ impl ConsoleEvent {
             target: target.map(String::from),
             message: message.to_string(),
         }
+    }
+
+    /// Attach the model actually forwarded upstream and the recognized request
+    /// kind. Called once they are known, so early events (a rejection, say)
+    /// simply carry `None` rather than a guess.
+    pub fn with_routing(mut self, model: Option<&str>, request_kind: Option<&str>) -> Self {
+        if let Self::Request {
+            model: ref mut target_model,
+            request_kind: ref mut target_kind,
+            ..
+        } = self
+        {
+            *target_model = model.map(String::from);
+            *target_kind = request_kind.map(String::from);
+        }
+        self
     }
 
     /// Identity of one event, shared by the live stream and the on-disk copy so

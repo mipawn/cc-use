@@ -491,6 +491,11 @@ export interface ConsoleRequestEvent {
   latencyMs: number | null
   /// Final upstream URL we forwarded to; null for rejection / passthrough miss.
   upstream: string | null
+  /// Model actually forwarded upstream; null when it was never determined.
+  /// The list shows this instead of the URL, and never guesses it.
+  model?: string | null
+  /// Recognized purpose; null on ordinary requests.
+  requestKind?: string | null
   /// Provider display name; null for passthrough or rejection.
   provider: string | null
   /// API key alias; null for passthrough or rejection.

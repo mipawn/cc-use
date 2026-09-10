@@ -73,6 +73,10 @@ struct EmitCtx<'a> {
     method: &'a str,
     path: &'a str,
     start_time: std::time::Instant,
+    /// Filled in once the request has been parsed. Events emitted before that
+    /// (a rejection, say) carry no model rather than a guess.
+    model: Option<String>,
+    request_kind: Option<String>,
 }
 
 impl<'a> EmitCtx<'a> {
@@ -81,13 +85,16 @@ impl<'a> EmitCtx<'a> {
     }
 
     fn reject(&self, reason: &str) {
-        self.state.emit_console(ConsoleEvent::rejected(
-            self.request_id,
-            self.method,
-            self.path,
-            self.elapsed_ms(),
-            reason,
-        ));
+        self.state.emit_console(
+            ConsoleEvent::rejected(
+                self.request_id,
+                self.method,
+                self.path,
+                self.elapsed_ms(),
+                reason,
+            )
+            .with_routing(self.model.as_deref(), self.request_kind.as_deref()),
+        );
     }
 
     fn upstream_error(
@@ -97,27 +104,33 @@ impl<'a> EmitCtx<'a> {
         key_alias: Option<&str>,
         error: &str,
     ) {
-        self.state.emit_console(ConsoleEvent::upstream_error(
-            self.request_id,
-            self.method,
-            self.path,
-            self.elapsed_ms(),
-            upstream,
-            provider,
-            key_alias,
-            error,
-        ));
+        self.state.emit_console(
+            ConsoleEvent::upstream_error(
+                self.request_id,
+                self.method,
+                self.path,
+                self.elapsed_ms(),
+                upstream,
+                provider,
+                key_alias,
+                error,
+            )
+            .with_routing(self.model.as_deref(), self.request_kind.as_deref()),
+        );
     }
 
     fn ws_upgraded(&self, upstream: &str, provider: Option<&str>, key_alias: Option<&str>) {
-        self.state.emit_console(ConsoleEvent::ws_upgraded(
-            self.request_id,
-            self.path,
-            self.elapsed_ms(),
-            upstream,
-            provider,
-            key_alias,
-        ));
+        self.state.emit_console(
+            ConsoleEvent::ws_upgraded(
+                self.request_id,
+                self.path,
+                self.elapsed_ms(),
+                upstream,
+                provider,
+                key_alias,
+            )
+            .with_routing(self.model.as_deref(), self.request_kind.as_deref()),
+        );
     }
 
     fn pending(
@@ -147,7 +160,8 @@ impl<'a> EmitCtx<'a> {
             *target_headers = request_headers;
             *target_body = request_body;
         }
-        self.state.emit_console(evt);
+        self.state
+            .emit_console(evt.with_routing(self.model.as_deref(), self.request_kind.as_deref()));
     }
 }
 
@@ -263,12 +277,14 @@ pub async fn proxy_handler(
         },
     );
 
-    let emit = EmitCtx {
+    let mut emit = EmitCtx {
         state: &state,
         request_id: &request_id,
         method: &method_str,
         path: &req_path,
         start_time,
+        model: None,
+        request_kind: None,
     };
 
     let request_permits = match state.try_acquire_request_permits(match &request_auth {
@@ -481,6 +497,13 @@ pub async fn proxy_handler(
                 .and_then(|model| model.as_str())
                 .map(str::to_string)
         });
+
+    // From here on every event for this request can name the model and kind,
+    // which is what the console list shows instead of the upstream URL.
+    emit.model = forwarded_request_model
+        .clone()
+        .or_else(|| request_model.clone());
+    emit.request_kind = request_kind.clone();
 
     let client = match crate::services::http_client::outbound_client_for_provider(
         route_execution.provider.as_ref(),
