@@ -104,7 +104,5 @@ function resetLabel(
         ? t('providers.usageCountdownHours', { hours, minutes: minutes % 60 }) ||
           `${hours}h ${minutes % 60}m`
         : t('providers.usageCountdownMinutes', { minutes }) || `${minutes}m`
-  return (
-    t('providers.usageWindowResetsIn', { countdown }) || `${countdown}${' 后重置'}`
-  )
+  return t('providers.usageWindowResetsIn', { countdown }) || `${countdown}${' 后重置'}`
 }
