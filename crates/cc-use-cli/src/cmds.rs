@@ -527,7 +527,12 @@ pub fn launch(ctx: &Ctx, client: &str) -> CmdResult {
 
 struct StatuslineInput {
     model: String,
-    project_dir: Option<PathBuf>,
+    /// `workspace.current_dir` — where the session is now.
+    current_dir: Option<PathBuf>,
+    /// Top-level `cwd`, sent by clients that omit the workspace block.
+    top_cwd: Option<PathBuf>,
+    /// `workspace.project_dir` — where the session was started.
+    workspace_project_dir: Option<PathBuf>,
     context_percentage: Option<f64>,
 }
 
@@ -535,7 +540,9 @@ impl Default for StatuslineInput {
     fn default() -> Self {
         Self {
             model: "Claude".to_string(),
-            project_dir: None,
+            current_dir: None,
+            top_cwd: None,
+            workspace_project_dir: None,
             context_percentage: None,
         }
     }
@@ -562,7 +569,9 @@ fn parse_statusline_input(raw: &str) -> StatuslineInput {
     };
     StatuslineInput {
         model: string_at("/model/display_name").unwrap_or_else(|| "Claude".to_string()),
-        project_dir: string_at("/workspace/current_dir").map(PathBuf::from),
+        current_dir: string_at("/workspace/current_dir").map(PathBuf::from),
+        top_cwd: string_at("/cwd").map(PathBuf::from),
+        workspace_project_dir: string_at("/workspace/project_dir").map(PathBuf::from),
         context_percentage: value
             .pointer("/context_window/used_percentage")
             .and_then(|v| v.as_f64()),
@@ -641,22 +650,6 @@ fn instance_short_code(value: &str) -> String {
     value.chars().skip(length.saturating_sub(8)).collect()
 }
 
-/// Resolve the friendly project name for a managed instance. Prefers the bound
-/// project id, then falls back to matching the project path. Returns `None` for
-/// unmanaged sessions or projects deleted after launch.
-fn resolve_project_name(db: &Database, instance: &ManagedInstance) -> Option<String> {
-    let project = instance
-        .project_id
-        .as_deref()
-        .and_then(|id| db.project_get(id).ok().flatten())
-        .or_else(|| {
-            db.project_get_by_path(&instance.project_path)
-                .ok()
-                .flatten()
-        })?;
-    Some(safe_status_text(&project.name, 24))
-}
-
 fn directory_name(path: &Path) -> Option<String> {
     path.file_name()
         .map(|name| safe_status_text(&name.to_string_lossy(), 24))
@@ -664,17 +657,45 @@ fn directory_name(path: &Path) -> Option<String> {
         .or_else(|| (path == Path::new("/")).then(|| safe_status_text(&path.to_string_lossy(), 24)))
 }
 
-fn statusline_heading(
-    db: Option<&Database>,
+fn same_directory(left: &Path, right: &Path) -> bool {
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
+}
+
+/// Directory whose last segment titles the statusline.
+///
+/// Order: Claude's `workspace.current_dir`, the payload's top-level `cwd`, the
+/// managed instance's saved launch directory, `workspace.project_dir`, then the
+/// directory this invocation ran in. A bound project never overrides the title:
+/// launching inside `work/smart/dsc/xxx` from a project bound to `work` reads
+/// `xxx`, while the project still supplies the default route and prelaunch
+/// command.
+fn resolve_statusline_dir(
     instance: Option<&ManagedInstance>,
-    input_dir: Option<&Path>,
-) -> String {
-    db.zip(instance)
-        .and_then(|(db, instance)| resolve_project_name(db, instance))
-        // The managed instance retains the shell's logical invocation path;
-        // Claude's payload may contain its canonical/physical spelling.
-        .or_else(|| instance.and_then(|item| directory_name(Path::new(&item.project_path))))
-        .or_else(|| input_dir.and_then(directory_name))
+    input: &StatuslineInput,
+    invocation_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let resolved = input
+        .current_dir
+        .clone()
+        .or_else(|| input.top_cwd.clone())
+        .or_else(|| instance.map(|item| PathBuf::from(&item.project_path)))
+        .or_else(|| input.workspace_project_dir.clone())
+        .or_else(|| invocation_dir.map(Path::to_path_buf))?;
+
+    // The instance keeps the shell's logical spelling while the payload may
+    // carry the canonical one for the same directory; show what the user typed.
+    let logical = instance
+        .map(|item| PathBuf::from(&item.project_path))
+        .filter(|path| same_directory(path, &resolved));
+    Some(logical.unwrap_or(resolved))
+}
+
+fn statusline_heading(display_dir: Option<&Path>) -> String {
+    display_dir
+        .and_then(directory_name)
         .unwrap_or_else(|| "CC USE".to_string())
 }
 
@@ -721,13 +742,11 @@ pub fn statusline() -> CmdResult {
         (provider, key, instance_short_code(&instance.id))
     });
 
-    let project_dir = input
-        .project_dir
-        .as_deref()
-        .or_else(|| instance.as_ref().map(|item| Path::new(&item.project_path)));
-    // Lead with the project name so multiple windows are distinguishable at a
-    // glance; an unbound launch uses its actual invocation directory instead.
-    let heading = statusline_heading(db.as_ref(), instance.as_ref(), input.project_dir.as_deref());
+    // The title, the Git probe and the context meter all describe the one
+    // directory this session is actually running in, so they share a source.
+    let display_dir =
+        resolve_statusline_dir(instance.as_ref(), &input, invocation_dir().as_deref());
+    let heading = statusline_heading(display_dir.as_deref());
     let line_one = if let Some((provider, key, short_code)) = route {
         format!(
             "{} {} {} {} {} {} {}",
@@ -752,7 +771,11 @@ pub fn statusline() -> CmdResult {
         STATUS_CYAN,
         &format!("[{}]", safe_status_text(&input.model, 20)),
     )];
-    if let Some((branch, dirty)) = project_dir.and_then(git_status) {
+    if let Some((branch, dirty)) = display_dir
+        .as_deref()
+        .filter(|dir| dir.is_dir())
+        .and_then(git_status)
+    {
         line_two.push(format!(
             "{}{}{}",
             ansi(STATUS_BLUE, "git:("),
@@ -925,12 +948,21 @@ mod tests {
         let input = parse_statusline_input(
             r#"{
                 "model": {"display_name": "Opus 4.1"},
-                "workspace": {"current_dir": "/tmp/cc-use"},
+                "cwd": "/tmp/from-cwd",
+                "workspace": {
+                    "current_dir": "/tmp/cc-use",
+                    "project_dir": "/tmp/cc-use-start"
+                },
                 "context_window": {"used_percentage": 42.4}
             }"#,
         );
         assert_eq!(input.model, "Opus 4.1");
-        assert_eq!(input.project_dir, Some(PathBuf::from("/tmp/cc-use")));
+        assert_eq!(input.current_dir, Some(PathBuf::from("/tmp/cc-use")));
+        assert_eq!(input.top_cwd, Some(PathBuf::from("/tmp/from-cwd")));
+        assert_eq!(
+            input.workspace_project_dir,
+            Some(PathBuf::from("/tmp/cc-use-start"))
+        );
         assert_eq!(input.context_percentage, Some(42.4));
     }
 
@@ -975,38 +1007,6 @@ mod tests {
     fn instance_short_code_keeps_the_tail_of_the_instance_id() {
         assert_eq!(instance_short_code("instance-8f32ac91"), "8f32ac91");
         assert_eq!(instance_short_code("short"), "short");
-    }
-
-    #[test]
-    fn statusline_resolves_project_name_from_instance() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = Database::open_at(&dir.path().join("test.db")).unwrap();
-        let project = db
-            .project_create(&cc_use_lib::models::CreateProjectInput {
-                name: "Demo Project".to_string(),
-                path: "/tmp/demo".to_string(),
-                group_name: None,
-                remark: None,
-                provider_id: None,
-                api_key_id: None,
-                cli_type: Some("claude_code".to_string()),
-                terminal_type: Some("iterm2".to_string()),
-                prelaunch_command: None,
-            })
-            .unwrap();
-
-        assert_eq!(
-            resolve_project_name(
-                &db,
-                &managed_instance(Some(project.id.clone()), "/tmp/demo")
-            ),
-            Some("Demo Project".to_string())
-        );
-        // Fall back to project path when the bound id is absent.
-        assert_eq!(
-            resolve_project_name(&db, &managed_instance(None, "/tmp/demo")),
-            Some("Demo Project".to_string())
-        );
     }
 
     #[test]
@@ -1115,17 +1115,200 @@ mod tests {
     #[test]
     fn statusline_uses_the_invocation_directory_without_a_bound_project() {
         let instance = managed_instance(None, "/tmp/logical-workspace");
+        let input = StatuslineInput::default();
         assert_eq!(
             statusline_heading(
-                None,
-                Some(&instance),
-                Some(Path::new("/private/tmp/elsewhere"))
+                resolve_statusline_dir(
+                    Some(&instance),
+                    &input,
+                    Some(Path::new("/private/tmp/elsewhere"))
+                )
+                .as_deref()
             ),
             "logical-workspace"
         );
         assert_eq!(
-            statusline_heading(None, None, Some(Path::new("/tmp/plain-workspace"))),
+            statusline_heading(
+                resolve_statusline_dir(None, &input, Some(Path::new("/tmp/plain-workspace")))
+                    .as_deref()
+            ),
             "plain-workspace"
         );
+        assert_eq!(statusline_heading(None), "CC USE");
+    }
+
+    #[test]
+    fn statusline_directory_follows_the_documented_precedence() {
+        let instance = managed_instance(None, "/tmp/launched-here");
+
+        let input = parse_statusline_input(
+            r#"{
+                "cwd": "/tmp/top-level",
+                "workspace": {
+                    "current_dir": "/tmp/current",
+                    "project_dir": "/tmp/started-here"
+                }
+            }"#,
+        );
+        assert_eq!(
+            statusline_heading(resolve_statusline_dir(Some(&instance), &input, None).as_deref()),
+            "current"
+        );
+
+        let input = parse_statusline_input(r#"{"cwd": "/tmp/top-level"}"#);
+        assert_eq!(
+            statusline_heading(resolve_statusline_dir(Some(&instance), &input, None).as_deref()),
+            "top-level"
+        );
+
+        let input = StatuslineInput::default();
+        assert_eq!(
+            statusline_heading(resolve_statusline_dir(Some(&instance), &input, None).as_deref()),
+            "launched-here"
+        );
+
+        // `workspace.project_dir` is the start directory, so it outranks only
+        // the directory this statusline invocation happened to run in.
+        let input =
+            parse_statusline_input(r#"{"workspace": {"project_dir": "/tmp/started-here"}}"#);
+        assert_eq!(
+            statusline_heading(
+                resolve_statusline_dir(None, &input, Some(Path::new("/tmp/invoked-here")))
+                    .as_deref()
+            ),
+            "started-here"
+        );
+    }
+
+    #[test]
+    fn statusline_heading_keeps_the_root_directory() {
+        assert_eq!(statusline_heading(Some(Path::new("/"))), "/");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn statusline_heading_keeps_the_logical_spelling_for_the_same_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let physical = temp.path().join("physical");
+        let logical = temp.path().join("logical");
+        std::fs::create_dir(&physical).unwrap();
+        std::os::unix::fs::symlink(&physical, &logical).unwrap();
+
+        let instance = managed_instance(None, &logical.to_string_lossy());
+        let input = parse_statusline_input(&format!(
+            r#"{{"workspace": {{"current_dir": "{}"}}}}"#,
+            physical.display()
+        ));
+        assert_eq!(
+            statusline_heading(resolve_statusline_dir(Some(&instance), &input, None).as_deref()),
+            "logical"
+        );
+    }
+
+    /// Regression for the reported case: only the ancestor `work` has a GUI
+    /// project, yet launching inside `work/smart/dsc/xxx` titles the statusline
+    /// `xxx` — while the matched project still supplies the default route and
+    /// the prelaunch command.
+    #[test]
+    fn statusline_heading_shows_the_actual_directory_under_an_ancestor_project() {
+        use cc_use_lib::models::{
+            CreateApiKeyInput, CreateProjectInput, CreateProviderInput, UpsertProjectBindingInput,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let db = Database::open_at(&temp.path().join("test.db")).unwrap();
+        let workspace = temp.path().join("work");
+        let session_dir = workspace.join("smart/dsc/xxx");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        let provider = db
+            .provider_create(&CreateProviderInput {
+                name: "Example".to_string(),
+                base_url: "https://api.example.com".to_string(),
+                http_proxy: None,
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+            })
+            .unwrap();
+        let key = db
+            .api_key_create(&CreateApiKeyInput {
+                provider_id: provider.id.clone(),
+                alias: Some("alpha".to_string()),
+                value: "test-value".to_string(),
+                types: Some(vec!["claude_code".to_string()]),
+                priority: None,
+                is_active: None,
+                config: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                model_mapping: None,
+                client_configs: None,
+            })
+            .unwrap();
+
+        let project = db
+            .project_create(&CreateProjectInput {
+                name: "工作区".to_string(),
+                path: workspace.to_string_lossy().to_string(),
+                group_name: None,
+                remark: None,
+                provider_id: None,
+                api_key_id: None,
+                cli_type: Some("claude_code".to_string()),
+                terminal_type: Some("iterm2".to_string()),
+                prelaunch_command: None,
+            })
+            .unwrap();
+        let project = db
+            .project_binding_upsert(
+                &project.id,
+                &UpsertProjectBindingInput {
+                    cli_type: "claude_code".to_string(),
+                    provider_id: Some(provider.id.clone()),
+                    api_key_id: Some(key.id.clone()),
+                    terminal_type: None,
+                    prelaunch_command: Some("export DEMO_READY=1".to_string()),
+                },
+            )
+            .unwrap();
+
+        let instance = managed_instance(Some(project.id.clone()), &session_dir.to_string_lossy());
+        let input = parse_statusline_input(&format!(
+            r#"{{"workspace": {{"current_dir": "{}"}}}}"#,
+            session_dir.display()
+        ));
+
+        assert_eq!(
+            statusline_heading(resolve_statusline_dir(Some(&instance), &input, None).as_deref()),
+            "xxx"
+        );
+
+        let ctx = Ctx::with_db(db, Some(session_dir.clone()));
+        let matched = resolve_project(&ctx).expect("the ancestor project matches");
+        assert_eq!(matched.id, project.id);
+        assert_eq!(
+            cli_launch_context(Some(&matched), &session_dir, "claude_code")
+                .prelaunch_command
+                .as_deref(),
+            Some("export DEMO_READY=1")
+        );
+        let (route_provider, route_key) = project_default_route(&ctx, &matched, "claude_code")
+            .unwrap_or_else(|error| panic!("{}", error.message()))
+            .expect("the project default route resolves");
+        assert_eq!(route_provider.id, provider.id);
+        assert_eq!(route_key.id, key.id);
     }
 }
