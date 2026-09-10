@@ -14,6 +14,7 @@ import clsx from 'clsx'
 import type { Provider } from '@shared/types'
 import { getProviderTypeConfig, generateTerminalCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
+import ProviderUsageWindows from './ProviderUsageWindows'
 import styles from './ProviderCard.module.css'
 
 import claudeIcon from '../../assets/provider-icons/claude.svg'
@@ -90,6 +91,9 @@ export default function ProviderCard({
     if (currency === 'CNY') return `¥${amount}`
     return `${amount} ${currency}`
   }
+
+  // Metering periods come from the usage endpoint, not the balance endpoint.
+  const windows = provider.cachedUsage?.windows ?? []
 
   const formatLastChecked = (timestamp: string | null) => {
     if (!timestamp) return t('common.never')
@@ -200,6 +204,24 @@ export default function ProviderCard({
           <Text type='secondary' className='text-xs line-clamp-2'>
             {provider.remark}
           </Text>
+        )}
+
+        {windows.length > 0 && (
+          <div className={styles.balanceBox}>
+            <Space direction='vertical' size={4} className='w-full'>
+              <Space className='justify-between w-full'>
+                <Text type='secondary'>{t('providers.usage')}</Text>
+                <Text type='secondary' style={{ fontSize: 12 }}>
+                  {provider.lastUsageCheckedAt
+                    ? `${t('providers.lastChecked')}: ${formatLastChecked(provider.lastUsageCheckedAt)}`
+                    : t('providers.usageNotChecked')}
+                </Text>
+              </Space>
+              {/* Every period the provider reports, visible without opening
+                  anything — these are not a single balance. */}
+              <ProviderUsageWindows windows={windows} groups={provider.cachedUsage?.groups ?? []} />
+            </Space>
+          </div>
         )}
 
         {provider.walletBalanceType !== 'none' && (

@@ -137,6 +137,28 @@ export interface UsageData {
   unit?: string // Unit (e.g., "USD", "tokens")
   isUnlimited?: boolean // Whether unlimited
   expireAt?: string // Expiration time
+  /** Rolling metering periods, for providers that meter by period. */
+  windows?: UsageWindow[]
+  /** Per-group breakdowns; groups are shown side by side, never averaged. */
+  groups?: UsageGroup[]
+}
+
+/** One metering period, e.g. OpenCode Go's 5h / weekly / monthly. */
+export interface UsageWindow {
+  /** Stable provider-supplied id. */
+  id: string
+  /** Display label; the raw id when this build has no name for the period. */
+  label: string
+  /** Percent used; null when the provider did not report one. */
+  usedPercent: number | null
+  resetsAt: string | null
+  status: string | null
+}
+
+export interface UsageGroup {
+  id: string
+  label: string
+  windows: UsageWindow[]
 }
 
 // CLI configuration for environment variable injection. Only Claude Code is a

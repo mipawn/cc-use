@@ -374,6 +374,43 @@ pub struct UsageData {
     pub unit: Option<String>,
     pub is_unlimited: Option<bool>,
     pub expire_at: Option<String>,
+    /// v3.10.0: rolling quota windows, for providers that meter by period
+    /// rather than by a single balance. Empty for the amount-shaped providers,
+    /// which keeps the shared model from being three hard-coded periods.
+    #[serde(default)]
+    pub windows: Vec<UsageWindow>,
+    /// v3.10.0: per-group breakdowns, when the provider reports them. A group
+    /// carries its own window set; groups are never averaged together.
+    #[serde(default)]
+    pub groups: Vec<UsageGroup>,
+}
+
+/// One metering period reported by a provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageWindow {
+    /// Stable id from the provider (`rolling`, `weekly`, `monthly`, ...), so a
+    /// label change never breaks a saved preference.
+    pub id: String,
+    /// Display label; falls back to the id for a period this build has not
+    /// been taught a name for.
+    pub label: String,
+    /// Percent used. `None` when the provider did not report one — never
+    /// coerced to 0, which would read as "nothing used".
+    pub used_percent: Option<f64>,
+    /// When this window resets, as reported by the provider.
+    pub resets_at: Option<String>,
+    /// Provider-reported status (`ok`, `exhausted`, ...).
+    pub status: Option<String>,
+}
+
+/// A named set of windows, for providers that meter per model or per plan.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageGroup {
+    pub id: String,
+    pub label: String,
+    pub windows: Vec<UsageWindow>,
 }
 
 // ── Usage Log ──

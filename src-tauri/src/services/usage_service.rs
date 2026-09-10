@@ -12,6 +12,7 @@ pub async fn refresh_usage(
         })),
         "newapi" => fetch_newapi_usage(provider, fallback_api_keys).await,
         "custom" => fetch_custom_usage(provider).await,
+        "opencode-go" => fetch_opencode_go_usage(provider, fallback_api_keys).await,
         _ => Err("Unknown usage type".to_string()),
     }
 }
@@ -481,4 +482,182 @@ fn parse_path(path: &str) -> Vec<PathToken> {
         out.push(PathToken::Key(key_buf));
     }
     out
+}
+
+/// Fetch the metering periods OpenCode Go reports for the account.
+///
+/// The endpoint is derived from the provider's saved address, so a relay is
+/// queried at the relay rather than at the vendor.
+async fn fetch_opencode_go_usage(
+    provider: &Provider,
+    fallback_api_keys: &[ApiKey],
+) -> Result<Value, String> {
+    let api_key = super::balance_service::pick_first_available_key(fallback_api_keys)
+        .ok_or_else(|| "No available API keys for the quota check".to_string())?;
+
+    let base = provider
+        .usage_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}/v1/usage", provider.base_url.trim_end_matches('/')));
+
+    let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
+    let resp = client
+        .get(&base)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status().as_u16()));
+    }
+
+    let body: Value = resp.json().await.map_err(|e| e.to_string())?;
+    parse_opencode_go_usage(&body)
+}
+
+/// Display labels for the periods this build knows. Anything else keeps its
+/// raw id, so a period added upstream shows up rather than disappearing.
+const WINDOW_LABELS: &[(&str, &str)] = &[
+    ("rolling", "5h"),
+    ("weekly", "Weekly"),
+    ("monthly", "Monthly"),
+];
+
+fn window_label(id: &str) -> String {
+    WINDOW_LABELS
+        .iter()
+        .find(|(key, _)| *key == id)
+        .map(|(_, label)| (*label).to_string())
+        .unwrap_or_else(|| id.to_string())
+}
+
+/// OpenCode Go reports metering periods rather than a balance.
+///
+/// The live response is `{ "usage": { "rolling": { "status", "percent",
+/// "resetsAt" }, ... } }`. Periods are read by name and kept in the order the
+/// provider sent them; nothing is summed into a single figure the provider
+/// never stated, and a missing `percent` stays missing.
+pub fn parse_opencode_go_usage(body: &Value) -> Result<Value, String> {
+    let usage = body
+        .get("usage")
+        .ok_or_else(|| "Response had no 'usage' object".to_string())?;
+
+    let periods = usage
+        .as_object()
+        .ok_or_else(|| "'usage' was not an object of periods".to_string())?;
+    if periods.is_empty() {
+        return Err("'usage' contained no periods".to_string());
+    }
+
+    let mut windows = Vec::new();
+    for (id, value) in periods {
+        // A period that is not an object is a shape this build cannot read;
+        // saying so beats rendering a blank window.
+        let Some(entry) = value.as_object() else {
+            return Err(format!("Usage period '{}' was not an object", id));
+        };
+        windows.push(serde_json::json!({
+            "id": id,
+            "label": window_label(id),
+            "usedPercent": entry.get("percent").and_then(Value::as_f64),
+            "resetsAt": entry.get("resetsAt").and_then(Value::as_str),
+            "status": entry.get("status").and_then(Value::as_str),
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "usage": {
+            "total": null,
+            "used": null,
+            "remaining": null,
+            // A percentage is not a currency; claiming one would be a lie.
+            "unit": null,
+            "isUnlimited": null,
+            "expireAt": null,
+            "windows": windows,
+            "groups": [],
+        },
+        "error": null,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Captured verbatim from `GET https://opencode.ai/zen/go/v1/usage` on
+    /// 2026-09-11, so the parser is tested against the real shape rather than a
+    /// guessed one.
+    fn live_response() -> Value {
+        json!({
+            "usage": {
+                "rolling": { "status": "ok", "percent": 0, "resetsAt": "2026-09-10T22:06:37.010Z" },
+                "weekly": { "status": "ok", "percent": 0, "resetsAt": "2026-09-14T00:00:00.010Z" },
+                "monthly": { "status": "ok", "percent": 0, "resetsAt": "2026-10-10T14:01:24.010Z" }
+            }
+        })
+    }
+
+    #[test]
+    fn go_usage_reports_every_period_the_provider_sent() {
+        let parsed = parse_opencode_go_usage(&live_response()).expect("parsed");
+        let windows = parsed["usage"]["windows"].as_array().expect("windows");
+
+        assert_eq!(windows.len(), 3);
+        // All three are returned at once; the UI never has to pick one.
+        let ids: Vec<&str> = windows.iter().filter_map(|w| w["id"].as_str()).collect();
+        for expected in ["rolling", "weekly", "monthly"] {
+            assert!(
+                ids.contains(&expected),
+                "{} missing from {:?}",
+                expected,
+                ids
+            );
+        }
+        let rolling = windows.iter().find(|w| w["id"] == "rolling").unwrap();
+        assert_eq!(rolling["label"], "5h");
+        assert_eq!(rolling["resetsAt"], "2026-09-10T22:06:37.010Z");
+        assert_eq!(rolling["status"], "ok");
+    }
+
+    #[test]
+    fn a_missing_percent_stays_missing_rather_than_becoming_zero() {
+        let body = json!({
+            "usage": { "rolling": { "status": "ok", "resetsAt": "2026-01-01T00:00:00Z" } }
+        });
+
+        let parsed = parse_opencode_go_usage(&body).expect("parsed");
+        let window = &parsed["usage"]["windows"][0];
+
+        assert!(window["usedPercent"].is_null());
+        // A percentage is not money, so no unit is claimed either.
+        assert!(parsed["usage"]["unit"].is_null());
+    }
+
+    #[test]
+    fn a_period_this_build_does_not_name_keeps_its_raw_id() {
+        let body = json!({
+            "usage": { "daily": { "status": "ok", "percent": 12.5, "resetsAt": "2026-01-02T00:00:00Z" } }
+        });
+
+        let parsed = parse_opencode_go_usage(&body).expect("parsed");
+        let window = &parsed["usage"]["windows"][0];
+
+        assert_eq!(window["id"], "daily");
+        assert_eq!(window["label"], "daily");
+        assert_eq!(window["usedPercent"], 12.5);
+    }
+
+    #[test]
+    fn a_shape_this_build_cannot_read_is_reported() {
+        assert!(parse_opencode_go_usage(&json!({})).is_err());
+        assert!(parse_opencode_go_usage(&json!({ "usage": {} })).is_err());
+        assert!(parse_opencode_go_usage(&json!({ "usage": { "rolling": 3 } })).is_err());
+    }
 }

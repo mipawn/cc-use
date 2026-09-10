@@ -314,7 +314,7 @@ fn parse_headers(raw: &str) -> Result<Vec<(String, String)>, String> {
         .collect())
 }
 
-fn pick_first_available_key(api_keys: &[ApiKey]) -> Option<String> {
+pub(super) fn pick_first_available_key(api_keys: &[ApiKey]) -> Option<String> {
     api_keys
         .iter()
         .filter(|k| k.is_active && !k.is_exhausted && !k.value.trim().is_empty())

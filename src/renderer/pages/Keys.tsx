@@ -341,6 +341,32 @@ export default function Keys() {
   const handleRefreshBalance = async (id: string) => {
     setRefreshingIds((prev) => new Set(prev).add(id))
     try {
+      // A provider that meters by period reports through the usage endpoint;
+      // the balance endpoint has nothing to say about it, and its dollar-shaped
+      // result would be meaningless here.
+      if (providers.find((item) => item.id === id)?.usageType === 'opencode-go') {
+        const usage = await getApi().usage.refresh(id)
+        if (usage.error) {
+          message.error(usage.error)
+        } else {
+          const windows = usage.usage?.windows ?? []
+          message.success(
+            windows.length > 0
+              ? windows
+                  .map(
+                    (window) =>
+                      `${window.label} ${
+                        window.usedPercent === null
+                          ? t('providers.usageWindowUnknown')
+                          : `${window.usedPercent.toFixed(0)}%`
+                      }`,
+                  )
+                  .join(' · ')
+              : t('providers.usageWindowUnknown'),
+          )
+        }
+        return
+      }
       const result = await refreshBalance(id)
       if (result.error) {
         message.error(result.error)

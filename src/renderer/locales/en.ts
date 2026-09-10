@@ -348,6 +348,16 @@ export default {
       'Leave empty to use the official DeepSeek balance endpoint; a third-party address here takes precedence.',
     accountCredentialHint:
       'Account credential. Used for balance queries only and never sent with inference requests.',
+    usageNotChecked: 'Not checked yet',
+    usageWindowUnknown: 'Not reported',
+    usageWindowUsed: '{{percent}}% used',
+    usageWindowResetsAt: 'Resets {{time}}',
+    usageWindowResetting: 'Resetting soon',
+    usageWindowResetsIn: 'resets in {{countdown}}',
+    usageCountdownDays: '{{days}}d {{hours}}h',
+    usageCountdownHours: '{{hours}}h {{minutes}}m',
+    usageCountdownMinutes: '{{minutes}}m',
+    usageWindowsHint: 'Each window resets on its own; they are never merged into one total',
     requestAdapter: 'Request adapter',
     requestAdapterHint:
       'A preset enables its adapter by default. An unknown adapter is rejected on save.',
