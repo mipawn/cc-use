@@ -146,6 +146,48 @@ fn newapi_preset() -> ProviderPreset {
     }
 }
 
+/// Models verified against the live Go endpoint on 2026-09-11, grouped by the
+/// protocol that actually answered.
+///
+/// The model list carries no protocol metadata, so this is a small,
+/// hand-maintained list rather than a derivation. It is deliberately narrow:
+/// a model is listed here only after a real request succeeded on that protocol,
+/// and anything absent is left to the user rather than guessed at.
+pub mod opencode_go_models {
+    /// Anthropic Messages (`POST /v1/messages`).
+    pub const MESSAGES: &[&str] = &[
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "kimi-k3",
+        "minimax-m3",
+        "qwen3.8-max",
+    ];
+    /// OpenAI Responses (`POST /v1/responses`).
+    pub const RESPONSES: &[&str] = &[
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "grok-4.6",
+        "gpt-5.6-luna",
+    ];
+    /// Chat Completions (`POST /v1/chat/completions`).
+    pub const CHAT: &[&str] = &[
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "glm-5.3",
+        "kimi-k3",
+        "minimax-m3",
+        "qwen3.8-max",
+    ];
+
+    /// Chosen for a new Claude Code key: verified on Messages, and the fastest
+    /// of the verified set for the small-model slot.
+    pub const DEFAULT_CLAUDE_HAIKU: &str = "deepseek-v4-flash";
+    pub const DEFAULT_CLAUDE_SONNET: &str = "deepseek-v4-pro";
+    pub const DEFAULT_CLAUDE_OPUS: &str = "deepseek-v4-pro";
+    /// Chosen for a new Codex key: verified on Responses.
+    pub const DEFAULT_CODEX: &str = "deepseek-v4-pro";
+}
+
 /// OpenCode Go: speaks the client's own protocols per model, and its session
 /// rule is an adapter rather than a URL rewrite.
 fn opencode_go_preset() -> ProviderPreset {
@@ -164,9 +206,18 @@ fn opencode_go_preset() -> ProviderPreset {
         request_adapter: ADAPTER_OPENCODE_GO.to_string(),
         default_key_config: DefaultKeyConfig {
             types: vec!["claude_code".to_string(), "codex".to_string()],
-            // Models are chosen per protocol after real verification, so no
-            // model mapping is preset here; guessing one would promise
-            // compatibility that has not been checked.
+            // Every default below comes from `opencode_go_models`, i.e. from a
+            // model that answered on that protocol. Nothing here is copied from
+            // another vendor's preset.
+            model_mapping: Some(
+                serde_json::json!({
+                    "haiku": opencode_go_models::DEFAULT_CLAUDE_HAIKU,
+                    "sonnet": opencode_go_models::DEFAULT_CLAUDE_SONNET,
+                    "opus": opencode_go_models::DEFAULT_CLAUDE_OPUS,
+                    "codex": opencode_go_models::DEFAULT_CODEX,
+                })
+                .to_string(),
+            ),
             // Verified against the live endpoint: `/v1/messages` authenticates
             // with `x-api-key` and rejects a Bearer token, while the
             // OpenAI-shaped routes take Bearer.
@@ -430,8 +481,17 @@ mod tests {
         assert_eq!(preset.base_url, "https://opencode.ai/zen/go");
         assert_eq!(preset.request_adapter, ADAPTER_OPENCODE_GO);
         assert_eq!(preset.usage_type, "opencode-go");
-        // No model mapping is promised before the protocols are verified.
-        assert!(preset.default_key_config.model_mapping.is_none());
+
+        // Every default is a model that answered on the protocol it is used
+        // for; the list is maintained by hand because the model list carries no
+        // protocol metadata.
+        let mapping: serde_json::Value =
+            serde_json::from_str(preset.default_key_config.model_mapping.as_deref().unwrap())
+                .unwrap();
+        assert!(opencode_go_models::MESSAGES.contains(&mapping["sonnet"].as_str().unwrap()));
+        assert!(opencode_go_models::MESSAGES.contains(&mapping["opus"].as_str().unwrap()));
+        assert!(opencode_go_models::MESSAGES.contains(&mapping["haiku"].as_str().unwrap()));
+        assert!(opencode_go_models::RESPONSES.contains(&mapping["codex"].as_str().unwrap()));
     }
 
     /// Verified against the live endpoint: `/v1/messages` authenticates with
