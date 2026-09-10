@@ -77,6 +77,7 @@ export default {
     edit: '编辑',
     add: '添加',
     confirm: '确认',
+    nothingToRefresh: '当前页面没有可刷新的内容',
     search: '搜索',
     loading: '加载中...',
     noData: '暂无数据',

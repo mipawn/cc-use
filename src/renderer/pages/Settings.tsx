@@ -3,7 +3,7 @@ import { getApi } from '../api'
  * Settings - 简化的设置页面
  * 只保留：语言、主题、代理端口、默认终端、代理状态（只读+重启）
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Typography,
   Card,
@@ -27,6 +27,8 @@ import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { useSettingsStore, ThemeMode } from '../stores/settingsStore'
 import { useServiceStatus } from '../hooks/useServiceStatus'
+import { usePageRefresh } from '../hooks/usePageRefresh'
+import { reloadMigratedStores } from '../stores/reloadStores'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -197,8 +199,10 @@ export default function Settings() {
     })
   }
 
-  useEffect(() => {
-    fetchGlobalSettings()
+  // Read-only settings and daemon/version status. Refreshing this never saves
+  // and never restarts anything, so an unsaved edit stays in the draft.
+  const loadSettings = useCallback(async () => {
+    await fetchGlobalSettings()
     getApi().app.getVersion().then(setAppVersion)
     // Load launch-at-login + show-window-shortcut state in parallel with the
     // other settings so the toggles are populated by the time the page renders.
@@ -214,6 +218,12 @@ export default function Settings() {
       .then(setCliToolStatus)
       .catch(() => setCliToolStatus(null))
   }, [fetchGlobalSettings])
+
+  useEffect(() => {
+    void loadSettings()
+  }, [loadSettings])
+
+  usePageRefresh(loadSettings)
 
   const handleToggleLaunchAtLogin = async (checked: boolean) => {
     setLaunchAtLoginLoading(true)
@@ -407,8 +417,10 @@ export default function Settings() {
         })
       }
 
-      // Ensure UI reflects newly imported data.
-      window.location.reload()
+      // Reflect the imported data by re-reading the affected stores. This used
+      // to reload the whole WebView, which discarded console history and any
+      // in-progress edits on other pages.
+      await reloadMigratedStores()
     } catch (e) {
       console.error('Import failed:', e)
       message.error(t('settings.importFailed') || '导入失败')

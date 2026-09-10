@@ -5,6 +5,7 @@
  * Tab 2: 供应商密钥
  */
 import { useEffect } from 'react'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import { Tabs } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { useProviderStore } from '../stores/providerStore'
@@ -35,6 +36,10 @@ export default function ClaudeCodePage({ clientKind = 'claude_code' }: ClaudeCod
   useEffect(() => {
     if (providers.length > 0) fetchAllApiKeys(providers.map((p) => p.id))
   }, [providers, fetchAllApiKeys])
+
+  // The embedded projects / instances / sessions tabs register their own
+  // refreshes; this covers the shared provider and key data they sit on.
+  usePageRefresh(fetchProviders)
 
   const items = [
     {

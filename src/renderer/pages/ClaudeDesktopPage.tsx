@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Typography, Button, message } from 'antd'
 import { DesktopOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import TakeoverConfigTab, { type TakeoverStatus } from '../components/launchpad/TakeoverConfigTab'
 import ConfigPreviewButton from '../components/launchpad/ConfigPreviewButton'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 
 const { Title, Text } = Typography
 
@@ -23,7 +24,7 @@ export default function ClaudeDesktopPage() {
     if (providers.length > 0) fetchAllApiKeys(providers.map((p) => p.id))
   }, [providers, fetchAllApiKeys])
 
-  const checkStatus = async () => {
+  const checkStatus = useCallback(async () => {
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       const s: string = await invoke('claude_desktop_schema_detect')
@@ -54,10 +55,16 @@ export default function ClaudeDesktopPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
   useEffect(() => {
     checkStatus()
-  }, [])
+  }, [checkStatus])
+
+  // Re-read saved configuration and takeover state only: refreshing never
+  // re-takes-over or restores a client config.
+  usePageRefresh(async () => {
+    await Promise.all([fetchProviders(), checkStatus()])
+  })
 
   const handleTakeover = async (keyId: string) => {
     const key = allKeys.find((k) => k.id === keyId)

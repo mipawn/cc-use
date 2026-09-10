@@ -3,6 +3,7 @@ import { Card, Table, Tag, Button, TreeSelect, Typography, message, Space, Segme
 import { ReloadOutlined, ClearOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { getApi } from '../api'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import type { ApiKey, ClientKind, ManagedInstance, Provider } from '@shared/types'
 
 const { Text, Title } = Typography
@@ -93,6 +94,9 @@ export default function Instances({ clientKind }: InstancesProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientKind])
+
+  // Refresh shows the progress indicator, unlike the silent heartbeat poll.
+  usePageRefresh(() => load())
 
   const providerMap = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers])
 

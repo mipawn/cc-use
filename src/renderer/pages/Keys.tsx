@@ -3,7 +3,7 @@ import { getApi } from '../api'
  * Keys - 以 Key 为核心维度的管理页面
  * Provider 作为分组/筛选器
  */
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import {
   Typography,
   Button,
@@ -64,6 +64,7 @@ import {
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
 import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import {
   buildDuplicatedKeyDraft,
   toCreateApiKeyInput,
@@ -227,20 +228,26 @@ export default function Keys() {
     fetchProviders()
   }, [fetchProviders])
 
-  useEffect(() => {
-    const fetchProviderMetrics = async () => {
-      try {
-        const metrics = await getApi().requestLog.getProviderGatewayMetrics()
-        setProviderMetrics(Object.fromEntries(metrics.map((item) => [item.providerName, item])))
-      } catch (error) {
-        console.error('Failed to fetch provider gateway metrics:', error)
-      }
+  const fetchProviderMetrics = useCallback(async () => {
+    try {
+      const metrics = await getApi().requestLog.getProviderGatewayMetrics()
+      setProviderMetrics(Object.fromEntries(metrics.map((item) => [item.providerName, item])))
+    } catch (error) {
+      console.error('Failed to fetch provider gateway metrics:', error)
     }
+  }, [])
 
+  useEffect(() => {
     void fetchProviderMetrics()
     const timer = window.setInterval(fetchProviderMetrics, 30_000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [fetchProviderMetrics])
+
+  // Local provider, key and metrics data only: refreshing must not fire a
+  // balance query at every upstream, and must leave search/expanded/drafts be.
+  usePageRefresh(async () => {
+    await Promise.all([fetchProviders(), fetchProviderMetrics()])
+  })
 
   // Fetch API keys for all providers
   useEffect(() => {

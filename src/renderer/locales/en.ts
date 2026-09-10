@@ -78,6 +78,7 @@ export default {
     edit: 'Edit',
     add: 'Add',
     confirm: 'Confirm',
+    nothingToRefresh: 'Nothing to refresh on this page',
     search: 'Search',
     loading: 'Loading...',
     noData: 'No data',

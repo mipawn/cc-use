@@ -3,7 +3,7 @@ import { getApi } from '../api'
  * Statistics - 用量统计页面
  * v3.8.0: 聚焦 Token 构成、Key / 项目归因和可追溯的请求记录。
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
 import { Typography, Card, Table, Tag, Spin, theme, Space, Statistic, Tooltip } from 'antd'
 import {
@@ -18,6 +18,7 @@ import {
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import type {
   UsageStatistics,
   PaginatedRecentRequests,
@@ -63,6 +64,7 @@ export default function Statistics() {
   const [recentLoading, setRecentLoading] = useState(true)
   const [recentPage, setRecentPage] = useState(1)
   const [recentPageSize, setRecentPageSize] = useState(10)
+  const refreshToken = useRef(0)
   useEffect(() => {
     let cancelled = false
 
@@ -126,6 +128,38 @@ export default function Statistics() {
   useEffect(() => {
     setRecentPage(1)
   }, [timeRange])
+
+  // A filter change makes any in-flight manual refresh outdated; drop it rather
+  // than let its response overwrite the new filter's data.
+  useEffect(() => {
+    refreshToken.current += 1
+  }, [timeRange, recentPage, recentPageSize])
+
+  // Manual refresh keeps the rows and filters that are on screen. Only a filter
+  // change clears the table, because then the old data no longer matches.
+  const refresh = useCallback(async () => {
+    const token = ++refreshToken.current
+    setLoading(true)
+    setRecentLoading(true)
+    try {
+      const [nextStats, nextRecent] = await Promise.all([
+        getApi().requestLog.getStatistics(timeRange),
+        getApi().requestLog.getRecentPaginated(timeRange, recentPage, recentPageSize),
+      ])
+      if (refreshToken.current !== token) return
+      setStats(nextStats)
+      setRecentRequests(nextRecent)
+    } catch (error) {
+      console.error('Failed to refresh usage statistics:', error)
+    } finally {
+      if (refreshToken.current === token) {
+        setLoading(false)
+        setRecentLoading(false)
+      }
+    }
+  }, [timeRange, recentPage, recentPageSize])
+
+  usePageRefresh(refresh)
 
   const recentColumns = [
     {

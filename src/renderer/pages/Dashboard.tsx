@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Typography, Card, theme, Popover, Tooltip } from 'antd'
 import {
   ThunderboltOutlined,
@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { getApi } from '../api'
 import UsageHeatmap from '../components/dashboard/UsageHeatmap'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import type { UsageOverview } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import styles from './Dashboard.module.css'
@@ -27,27 +28,28 @@ export default function Dashboard() {
   const [yearPickerOpen, setYearPickerOpen] = useState(false)
   const language = i18n.resolvedLanguage || i18n.language
 
-  useEffect(() => {
-    let cancelled = false
-
-    const fetchOverview = async () => {
-      try {
-        const data = await getApi().requestLog.getOverview()
-        if (!cancelled) {
-          setOverview(data)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch usage overview:', error)
-        }
+  const fetchOverview = useCallback(async (isCancelled?: () => boolean) => {
+    try {
+      const data = await getApi().requestLog.getOverview()
+      if (!isCancelled?.()) {
+        setOverview(data)
+      }
+    } catch (error) {
+      if (!isCancelled?.()) {
+        console.error('Failed to fetch usage overview:', error)
       }
     }
+  }, [])
 
-    void fetchOverview()
+  useEffect(() => {
+    let cancelled = false
+    void fetchOverview(() => cancelled)
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [fetchOverview])
+
+  usePageRefresh(() => fetchOverview())
 
   const yearList = Array.from({ length: 6 }, (_, i) => currentYear - i)
 

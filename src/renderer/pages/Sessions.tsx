@@ -3,6 +3,7 @@ import { Card, Table, Button, Space, Tag, Modal, Input, Select, Popconfirm, Tool
 import { DeleteOutlined, CopyOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useAppMessage } from '../hooks/useAppMessage'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import { getApi } from '../api'
 import type { ClaudeSession } from '../api/types'
 
@@ -39,6 +40,8 @@ export default function Sessions() {
     loadSessions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  usePageRefresh(loadSessions)
 
   const filteredSessions = useMemo(() => {
     let filtered = sessions

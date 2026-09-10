@@ -16,8 +16,19 @@ import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
 import AppErrorBoundary from './components/common/AppErrorBoundary'
+import { refreshCurrentPage } from './api/pageRefresh'
+import { reloadMigratedStores } from './stores/reloadStores'
 
 const { Content } = Layout
+
+/**
+ * Fault recovery and development only: rebuilds the whole WebView, discarding
+ * console buffers and every page's in-flight state. Normal refreshing goes
+ * through the current page's registered routine instead.
+ */
+function hardReloadWebview() {
+  window.location.reload()
+}
 
 function UpdateBanner() {
   const { t } = useTranslation()
@@ -82,7 +93,7 @@ function MigrationModal() {
     setMigrating(true)
     try {
       const result = await getApi().importExport.migrateFromElectron()
-      if (result.success) { message.success(t('migration.successDetail', { providers: result.providers, apiKeys: result.apiKeys, projects: result.projects })); setVisible(false); setTimeout(() => window.location.reload(), 500) }
+      if (result.success) { message.success(t('migration.successDetail', { providers: result.providers, apiKeys: result.apiKeys, projects: result.projects })); setVisible(false); await reloadMigratedStores() }
     } catch (e) { message.error(`${t('migration.failed')}: ${e}`) }
     finally { setMigrating(false) }
   }, [message, t])
@@ -97,16 +108,29 @@ function MigrationModal() {
 }
 
 function AppContent() {
+  const { t } = useTranslation()
   const { token } = theme.useToken()
   const { message } = AntdApp.useApp()
   useAntdTokenSync()
   setGlobalMessage(message)
 
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.metaKey && e.key === 'r') { e.preventDefault(); window.location.reload() } }
+    const h = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.key.toLowerCase() !== 'r') return
+      e.preventDefault()
+      // ⌘⇧R stays an explicit hard reload; ⌘R only re-reads the current page so
+      // filters, pagination, drafts and console history survive.
+      if (e.shiftKey) {
+        hardReloadWebview()
+        return
+      }
+      void refreshCurrentPage().then((refreshed) => {
+        if (!refreshed) message.info(t('common.nothingToRefresh'))
+      })
+    }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [])
+  }, [message, t])
 
   return (
     <Layout className='min-h-screen'>

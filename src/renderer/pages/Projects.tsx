@@ -19,6 +19,7 @@ import {
   AutoComplete,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import {
   FolderOutlined,
   PlayCircleOutlined,
@@ -164,6 +165,9 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
       fetchAllApiKeys(providers.map((p) => p.id))
     }
   }, [providers, fetchAllApiKeys])
+
+  // Re-read the local lists; the open editor's draft is not touched.
+  usePageRefresh(fetchProjects)
 
   const getProvider = (providerId: string | null) => {
     if (!providerId) return null
