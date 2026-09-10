@@ -427,6 +427,9 @@ export interface ConsoleRequestEvent {
 
 export interface ConsoleLogEvent {
   category: 'log'
+  /// v3.10.0: stable id assigned when the record was created, so the same line
+  /// arriving live and again from the on-disk copy collapses into one row.
+  id?: string
   /// UTC timestamp `YYYY-MM-DD HH:MM:SS`.
   timestamp: string
   /// Severity.

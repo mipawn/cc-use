@@ -291,6 +291,11 @@ pub enum ConsoleEvent {
     /// console. Shares the same stream so the UI is "one pane for everything".
     #[serde(rename_all = "camelCase")]
     Log {
+        /// Stable id assigned when the record was created, so the same line
+        /// arriving live and again from the on-disk copy collapses into one.
+        /// Defaulted so a record written by an older build still reads back.
+        #[serde(default)]
+        id: String,
         timestamp: String,
         /// "error" | "warn" | "info" | "debug" | "trace".
         level: String,
@@ -489,11 +494,31 @@ impl ConsoleEvent {
     /// Generic log record from the Rust log facade or the patched renderer console.
     pub fn log(level: &str, source: &str, target: Option<&str>, message: &str) -> Self {
         Self::Log {
+            id: format!("log-{}", nanoid::nanoid!()),
             timestamp: now_timestamp(),
             level: level.to_string(),
             source: source.to_string(),
             target: target.map(String::from),
             message: message.to_string(),
+        }
+    }
+
+    /// Identity of one event, shared by the live stream and the on-disk copy so
+    /// a replayed record de-duplicates against what is already on screen.
+    ///
+    /// A request is identified by the request it belongs to plus the stage it
+    /// reached — the same key the console already merges on. Log records carry
+    /// the id they were created with. Returns `None` only for request events
+    /// that never had a request id, which nothing can match up.
+    pub fn event_id(&self) -> Option<String> {
+        match self {
+            Self::Request {
+                request_id: Some(request_id),
+                kind,
+                ..
+            } => Some(format!("{}:{}", request_id, kind)),
+            Self::Request { .. } => None,
+            Self::Log { id, .. } => Some(id.clone()),
         }
     }
 
