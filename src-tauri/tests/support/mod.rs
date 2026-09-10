@@ -49,6 +49,8 @@ pub fn create_provider(db: &Database, name: &str, _provider_type: &str) -> Provi
         usage_url: None,
         usage_path: None,
         usage_headers: None,
+        preset_id: None,
+        default_key_config: None,
     })
     .expect("create provider")
 }

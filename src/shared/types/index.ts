@@ -225,8 +225,9 @@ export interface Provider {
   walletBalanceUserId: string | null
   cachedWalletBalance: number | null
   lastBalanceCheckedAt: string | null
-  // Usage configuration
-  usageType: 'none' | 'newapi' | 'custom'
+  // Usage configuration. `deepseek` and `opencode-go` are read by their own
+  // service branches; the stored string is the source of truth.
+  usageType: 'none' | 'newapi' | 'custom' | 'deepseek' | 'opencode-go'
   usageUrl: string | null
   usagePath: string | null
   usageHeaders: string | null
@@ -234,6 +235,49 @@ export interface Provider {
   lastUsageCheckedAt: string | null
   isActive: boolean
   sortOrder: number
+  /** Origin template. Descriptive only; it never locks any field. */
+  presetId: string
+  /** Defaults a new key for this provider inherits. */
+  defaultKeyConfig: ProviderDefaultKeyConfig | null
+}
+
+/**
+ * Defaults a newly created key for a provider starts from. Mirrors the key
+ * editor's own configuration shapes so a key created without opening any
+ * advanced tab is still complete. Never holds an inference credential.
+ */
+export interface ProviderDefaultKeyConfig {
+  types?: ClientKind[]
+  clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
+  modelMapping?: string
+  config?: CliConfig
+  usageType?: 'none' | 'newapi' | 'custom'
+  usageUrl?: string
+  usagePath?: string
+  usageHeaders?: string
+}
+
+/**
+ * An initialisation template, not a lock: it fills a new provider in and stays
+ * editable afterwards. `presetId` records where an account started; it never
+ * proves the current endpoint is still the vendor's.
+ */
+export interface ProviderPreset {
+  id: string
+  defaultName: string
+  baseUrl: string
+  icon: PresetIcon
+  /** The site address belongs to the user and cannot be preset (New API). */
+  requiresSiteAddress: boolean
+  /** Balance / quota queries need an account credential separate from the key. */
+  needsAccountCredential: boolean
+  walletBalanceType: Provider['walletBalanceType']
+  walletBalanceUrl: string | null
+  usageType: string
+  usageUrl: string | null
+  /** Request adapter this provider runs. Saved config, not a label. */
+  requestAdapter: string
+  defaultKeyConfig: ProviderDefaultKeyConfig
 }
 
 export interface CreateProviderInput {
@@ -249,15 +293,21 @@ export interface CreateProviderInput {
   walletBalancePath?: string
   walletBalanceHeaders?: string
   walletBalanceUserId?: string
-  usageType?: 'none' | 'newapi' | 'custom'
+  usageType?: 'none' | 'newapi' | 'custom' | 'deepseek' | 'opencode-go'
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  /** Origin template; absent means the provider was created by hand. */
+  presetId?: string
+  /** Defaults a new key for this provider inherits. */
+  defaultKeyConfig?: ProviderDefaultKeyConfig
 }
 
 export interface UpdateProviderInput extends Partial<CreateProviderInput> {
   id: string
   isActive?: boolean
+  /** `undefined` leaves the stored key defaults alone. */
+  defaultKeyConfig?: ProviderDefaultKeyConfig
 }
 
 // API Key types

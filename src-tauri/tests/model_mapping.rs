@@ -96,6 +96,8 @@ fn setup_provider_with_mapping(
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .expect("create provider");
 

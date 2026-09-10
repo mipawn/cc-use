@@ -27,6 +27,19 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                     },
                     types: Some(k.types),
                     priority: k.priority,
+                    config: k.config,
+                    client_configs: k.client_configs,
+                    model_mapping: k.model_mapping,
+                    usage_type: Some(k.usage_type),
+                    usage_url: k.usage_url,
+                    usage_path: k.usage_path,
+                    // Headers can carry a credential, so they follow the key
+                    // value's redaction switch.
+                    usage_headers: if options.include_api_keys {
+                        k.usage_headers
+                    } else {
+                        None
+                    },
                 })
                 .collect();
 
@@ -55,6 +68,8 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 } else {
                     None
                 },
+                preset_id: Some(provider.preset_id),
+                default_key_config: provider.default_key_config,
                 api_keys: export_keys,
             });
         }
@@ -117,17 +132,29 @@ pub fn import_all(
         // Create provider
         if preserve_ids && !ep.id.is_empty() {
             // NOTE: we preserve IDs from export so that logs keep relationships.
+            // The old `type` column was dropped from the schema, so the export
+            // field of the same name is intentionally not written back.
+            let preset_id = ep
+                .preset_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(crate::shared_runtime::PRESET_CUSTOM);
+            let default_key_config = ep
+                .default_key_config
+                .as_ref()
+                .and_then(crate::shared_runtime::serialize_default_key_config);
             if let Err(e) = db.conn.execute(
-                "INSERT OR REPLACE INTO providers (id, name, base_url, http_proxy, type, website, remark, token, icon,
+                "INSERT OR REPLACE INTO providers (id, name, base_url, http_proxy, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
-                    wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?16, 1)",
+                    wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
+                    preset_id, default_key_config)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17)",
                 rusqlite::params![
                     ep.id,
                     ep.name,
                     ep.base_url,
                     ep.http_proxy,
-                    ep.provider_type,
                     ep.website,
                     ep.remark,
                     ep.icon,
@@ -139,6 +166,8 @@ pub fn import_all(
                     ep.usage_url,
                     ep.usage_path,
                     ep.usage_headers,
+                    preset_id,
+                    default_key_config,
                 ],
             ) {
                 errors.push(format!("Failed to import {}: {}", ep.name, e));
@@ -159,13 +188,13 @@ pub fn import_all(
                         types: ek.types.clone(),
                         priority: Some(ek.priority),
                         is_active: Some(true),
-                        config: None,
-                        client_configs: None,
-                        usage_type: None,
-                        usage_url: None,
-                        usage_path: None,
-                        usage_headers: None,
-                        model_mapping: None,
+                        config: ek.config.clone(),
+                        client_configs: ek.client_configs.clone(),
+                        usage_type: ek.usage_type.clone(),
+                        usage_url: ek.usage_url.clone(),
+                        usage_path: ek.usage_path.clone(),
+                        usage_headers: ek.usage_headers.clone(),
+                        model_mapping: ek.model_mapping.clone(),
                     },
                 ) {
                     errors.push(format!("Failed to import key for {}: {}", ep.name, e));
@@ -192,6 +221,8 @@ pub fn import_all(
                 usage_url: ep.usage_url.clone(),
                 usage_path: ep.usage_path.clone(),
                 usage_headers: ep.usage_headers.clone(),
+                preset_id: ep.preset_id.clone(),
+                default_key_config: ep.default_key_config.clone(),
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {
@@ -205,13 +236,13 @@ pub fn import_all(
                             types: ek.types.clone(),
                             priority: Some(ek.priority),
                             is_active: Some(true),
-                            config: None,
-                            client_configs: None,
-                            usage_type: None,
-                            usage_url: None,
-                            usage_path: None,
-                            usage_headers: None,
-                            model_mapping: None,
+                            config: ek.config.clone(),
+                            client_configs: ek.client_configs.clone(),
+                            usage_type: ek.usage_type.clone(),
+                            usage_url: ek.usage_url.clone(),
+                            usage_path: ek.usage_path.clone(),
+                            usage_headers: ek.usage_headers.clone(),
+                            model_mapping: ek.model_mapping.clone(),
                         }) {
                             errors.push(format!("Failed to import key for {}: {}", ep.name, e));
                         }

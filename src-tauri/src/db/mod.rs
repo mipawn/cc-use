@@ -104,6 +104,10 @@ impl Database {
                 usage_headers TEXT,
                 cached_usage TEXT,
                 last_usage_checked_at TEXT,
+                -- v3.10.0: which template this account started from, and the
+                -- full configuration a new key for it inherits.
+                preset_id TEXT NOT NULL DEFAULT 'custom',
+                default_key_config TEXT,
                 is_active INTEGER DEFAULT 1,
                 sort_order INTEGER DEFAULT 0
             );
@@ -380,6 +384,16 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN last_usage_checked_at TEXT",
             "ALTER TABLE providers ADD COLUMN wallet_balance_user_id TEXT",
             "ALTER TABLE providers ADD COLUMN sort_order INTEGER DEFAULT 0",
+            // These four only ever existed in CREATE TABLE, so databases that
+            // predate the balance feature never got them. Add them before the
+            // v3.10.0 columns that build on top.
+            "ALTER TABLE providers ADD COLUMN wallet_balance_type TEXT DEFAULT 'none'",
+            "ALTER TABLE providers ADD COLUMN wallet_balance_url TEXT",
+            "ALTER TABLE providers ADD COLUMN wallet_balance_path TEXT",
+            "ALTER TABLE providers ADD COLUMN wallet_balance_headers TEXT",
+            // v3.10.0: template origin and the per-provider key defaults.
+            "ALTER TABLE providers ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'custom'",
+            "ALTER TABLE providers ADD COLUMN default_key_config TEXT",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
             "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\\\"claude_code\\\"]'",
@@ -754,5 +768,73 @@ mod tests {
             )
             .unwrap();
         assert_eq!(refs, (None, None));
+    }
+    /// A database created before v3.10.0 must gain the new columns *and* the
+    /// balance columns that only ever existed in CREATE TABLE, which older
+    /// installs therefore never got.
+    #[test]
+    fn legacy_provider_table_gains_every_missing_column() {
+        let db = Database::new_in_memory().unwrap();
+        for column in [
+            "preset_id",
+            "default_key_config",
+            "wallet_balance_type",
+            "wallet_balance_url",
+            "wallet_balance_path",
+            "wallet_balance_headers",
+        ] {
+            db.conn
+                .execute(&format!("ALTER TABLE providers DROP COLUMN {}", column), [])
+                .unwrap_or_else(|error| panic!("drop {}: {}", column, error));
+        }
+
+        db.run_alter_migrations();
+
+        let mut stmt = db
+            .conn
+            .prepare("SELECT name FROM pragma_table_info('providers')")
+            .unwrap();
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        for column in [
+            "preset_id",
+            "default_key_config",
+            "wallet_balance_type",
+            "wallet_balance_url",
+            "wallet_balance_path",
+            "wallet_balance_headers",
+        ] {
+            assert!(columns.contains(&column.to_string()), "{} restored", column);
+        }
+
+        // A row written after the migration reads back with the defaults the
+        // new column prescribes rather than failing on the added field.
+        let provider = db
+            .provider_create(&crate::models::CreateProviderInput {
+                name: "legacy".to_string(),
+                base_url: "https://example.com".to_string(),
+                http_proxy: None,
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                preset_id: None,
+                default_key_config: None,
+            })
+            .unwrap();
+        assert_eq!(provider.preset_id, "custom");
+        assert!(provider.default_key_config.is_none());
     }
 }

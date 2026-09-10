@@ -26,6 +26,8 @@ fn provider_crud() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .unwrap();
 
@@ -79,10 +81,14 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .unwrap();
 
     let update_token = |token: &str| UpdateProviderInput {
+        preset_id: None,
+        default_key_config: None,
         id: provider.id.clone(),
         name: None,
         base_url: None,
@@ -149,6 +155,8 @@ fn provider_create_returns_proper_result() {
         usage_url: None,
         usage_path: None,
         usage_headers: None,
+        preset_id: None,
+        default_key_config: None,
     });
     assert!(result.is_ok());
 }
@@ -183,6 +191,8 @@ fn provider_get_direct_query() {
                 usage_url: None,
                 usage_path: None,
                 usage_headers: None,
+                preset_id: None,
+                default_key_config: None,
             })
             .unwrap();
     }
@@ -218,10 +228,14 @@ fn provider_update_no_changes() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .unwrap();
 
     let result = fixture.db.provider_update(&UpdateProviderInput {
+        preset_id: None,
+        default_key_config: None,
         id: provider.id.clone(),
         name: None,
         base_url: None,
@@ -272,6 +286,8 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .unwrap();
 
@@ -283,6 +299,8 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
     let updated = fixture
         .db
         .provider_update(&UpdateProviderInput {
+            preset_id: None,
+            default_key_config: None,
             id: provider.id.clone(),
             name: None,
             base_url: None,
@@ -334,6 +352,8 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .unwrap();
 
@@ -356,6 +376,8 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .unwrap();
 
@@ -378,6 +400,8 @@ fn provider_reorder_sequence() {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .unwrap();
 

@@ -15,6 +15,7 @@ import type {
   UpdateProjectInput,
   GlobalSettings,
   PresetIcon,
+  ProviderPreset,
   UsageData,
   ExportData,
   ExportOptions,
@@ -53,6 +54,8 @@ export interface Api {
     delete: (id: string) => Promise<void>
     reorder: (providerIds: string[]) => Promise<Provider[]>
     modelList: (providerId: string, apiKeyId: string) => Promise<string[]>
+    /// The preset catalogue the add-provider flow fills from.
+    presets: () => Promise<ProviderPreset[]>
   }
   apiKey: {
     list: (providerId: string) => Promise<ApiKey[]>

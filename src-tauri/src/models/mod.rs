@@ -31,6 +31,14 @@ pub struct Provider {
     pub last_usage_checked_at: Option<String>,
     pub is_active: bool,
     pub sort_order: i32,
+    /// v3.10.0: which template this account started from. Descriptive only —
+    /// it never locks a field, and behaviour is always read from the stored
+    /// configuration rather than re-derived from this id.
+    #[serde(default = "crate::shared_runtime::default_preset_id")]
+    pub preset_id: String,
+    /// v3.10.0: the configuration a new key for this provider inherits.
+    #[serde(default)]
+    pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +60,12 @@ pub struct CreateProviderInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    /// Origin template. Absent means the provider was created by hand.
+    #[serde(default)]
+    pub preset_id: Option<String>,
+    /// Defaults a new key for this provider starts from.
+    #[serde(default)]
+    pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +93,13 @@ pub struct UpdateProviderInput {
     pub last_balance_checked_at: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
+    /// Changing the origin label is allowed; it never rewrites other fields.
+    #[serde(default)]
+    pub preset_id: Option<String>,
+    /// `Some` replaces the stored key defaults (an empty object clears them);
+    /// absent leaves them as they are.
+    #[serde(default)]
+    pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
 }
 
 // ── API Key ──
@@ -642,7 +663,9 @@ pub struct ExportProvider {
     #[serde(default)]
     pub id: String,
     pub name: String,
-    #[serde(rename = "type")]
+    /// Legacy field: this app no longer stores a provider type. Defaulted so a
+    /// file from any generation still parses; nothing reads it back.
+    #[serde(rename = "type", default)]
     pub provider_type: String,
     pub base_url: String,
     pub http_proxy: Option<String>,
@@ -657,6 +680,15 @@ pub struct ExportProvider {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    /// v3.10.0: template origin. Unknown values are preserved as-is so an
+    /// export from a newer build round-trips instead of being flattened.
+    #[serde(default)]
+    pub preset_id: Option<String>,
+    /// v3.10.0: defaults a new key inherits. Never contains an inference key.
+    #[serde(default)]
+    pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
+    /// Absent in the oldest exports, which listed providers without keys.
+    #[serde(default)]
     pub api_keys: Vec<ExportApiKey>,
 }
 
@@ -665,11 +697,30 @@ pub struct ExportProvider {
 pub struct ExportApiKey {
     #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub alias: Option<String>,
+    #[serde(default)]
     pub value: String,
     #[serde(default)]
     pub types: Option<Vec<String>>,
+    #[serde(default)]
     pub priority: i32,
+    // v3.10.0: the configuration half of a key, so an import does not silently
+    // strip a key's endpoint overrides and model mapping. Absent in old files.
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub client_configs: Option<serde_json::Value>,
+    #[serde(default)]
+    pub model_mapping: Option<String>,
+    #[serde(default)]
+    pub usage_type: Option<String>,
+    #[serde(default)]
+    pub usage_url: Option<String>,
+    #[serde(default)]
+    pub usage_path: Option<String>,
+    #[serde(default)]
+    pub usage_headers: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

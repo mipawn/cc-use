@@ -798,6 +798,8 @@ mod tests {
                 usage_url: None,
                 usage_path: None,
                 usage_headers: None,
+                preset_id: None,
+                default_key_config: None,
             })
             .unwrap();
         let api_key = db

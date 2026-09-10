@@ -52,6 +52,13 @@ pub fn provider_reorder(
         .map_err(|e| e.to_string())
 }
 
+/// The preset catalogue the "add provider" flow fills from. Read-only: presets
+/// are code, not user data, and are never mutated by the UI.
+#[tauri::command]
+pub fn provider_preset_list() -> Vec<crate::shared_runtime::ProviderPreset> {
+    crate::shared_runtime::provider_presets()
+}
+
 #[tauri::command]
 pub async fn provider_model_list(
     db: State<'_, Arc<Mutex<Database>>>,
@@ -225,6 +232,8 @@ mod tests {
             last_usage_checked_at: None,
             is_active: true,
             sort_order: 0,
+            preset_id: "custom".to_string(),
+            default_key_config: None,
         }
     }
 

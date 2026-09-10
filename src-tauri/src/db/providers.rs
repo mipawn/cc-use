@@ -32,8 +32,24 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         last_usage_checked_at: row.get(20)?,
         is_active: row.get::<_, i32>(21)? != 0,
         sort_order: row.get(22)?,
+        preset_id: row
+            .get::<_, Option<String>>(23)?
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(crate::shared_runtime::default_preset_id),
+        default_key_config: crate::shared_runtime::parse_default_key_config(
+            row.get::<_, Option<String>>(24)?.as_deref(),
+        ),
     })
 }
+
+/// Column list shared by every provider read, in `row_to_provider` order.
+const PROVIDER_COLUMNS: &str = "id, name, base_url, http_proxy, website, remark, token, icon,
+        wallet_balance_type, wallet_balance_url, wallet_balance_path,
+        wallet_balance_headers, wallet_balance_user_id,
+        cached_wallet_balance, last_balance_checked_at,
+        usage_type, usage_url, usage_path, usage_headers,
+        cached_usage, last_usage_checked_at,
+        is_active, sort_order, preset_id, default_key_config";
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
@@ -44,32 +60,20 @@ fn normalize_optional_string(value: Option<&str>) -> Option<String> {
 
 impl Database {
     pub fn provider_list(&self) -> Result<Vec<Provider>, rusqlite::Error> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, name, base_url, http_proxy, website, remark, token, icon,
-                    wallet_balance_type, wallet_balance_url, wallet_balance_path,
-                    wallet_balance_headers, wallet_balance_user_id,
-                    cached_wallet_balance, last_balance_checked_at,
-                    usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at,
-                    is_active, sort_order
-             FROM providers ORDER BY sort_order ASC, name ASC",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM providers ORDER BY sort_order ASC, name ASC",
+            PROVIDER_COLUMNS
+        ))?;
 
         let rows = stmt.query_map([], row_to_provider)?;
         rows.collect()
     }
 
     pub fn provider_get(&self, id: &str) -> Result<Option<Provider>, rusqlite::Error> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, name, base_url, http_proxy, website, remark, token, icon,
-                    wallet_balance_type, wallet_balance_url, wallet_balance_path,
-                    wallet_balance_headers, wallet_balance_user_id,
-                    cached_wallet_balance, last_balance_checked_at,
-                    usage_type, usage_url, usage_path, usage_headers,
-                    cached_usage, last_usage_checked_at,
-                    is_active, sort_order
-             FROM providers WHERE id = ?1",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM providers WHERE id = ?1",
+            PROVIDER_COLUMNS
+        ))?;
 
         let mut rows = stmt.query_map([id], row_to_provider)?;
 
@@ -95,12 +99,24 @@ impl Database {
             )
             .unwrap_or(0);
         let token = normalize_optional_string(input.token.as_deref());
+        // An unrecognised preset id is kept as origin information rather than
+        // rewritten, and a missing one means the provider was hand-rolled.
+        let preset_id = input
+            .preset_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(crate::shared_runtime::PRESET_CUSTOM);
+        let default_key_config = input
+            .default_key_config
+            .as_ref()
+            .and_then(crate::shared_runtime::serialize_default_key_config);
         self.conn.execute(
             "INSERT INTO providers (id, name, base_url, http_proxy, website, remark, token, token_secret_ref, icon,
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18)",
+                sort_order, preset_id, default_key_config)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20)",
             rusqlite::params![
                 id,
                 input.name,
@@ -120,6 +136,8 @@ impl Database {
                 input.usage_path,
                 input.usage_headers,
                 next_sort,
+                preset_id,
+                default_key_config,
             ],
         )?;
 
@@ -207,6 +225,28 @@ impl Database {
         if let Some(ref val) = input.cached_usage {
             sets.push("cached_usage = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
+        }
+
+        if input.preset_id.is_some() {
+            sets.push("preset_id = ?".to_string());
+            params.push(Box::new(
+                input
+                    .preset_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(crate::shared_runtime::PRESET_CUSTOM)
+                    .to_string(),
+            ));
+        }
+
+        // `Some(defaults)` replaces the stored defaults; `Some(empty)` clears
+        // them. Absent leaves whatever is stored untouched.
+        if let Some(ref defaults) = input.default_key_config {
+            sets.push("default_key_config = ?".to_string());
+            params.push(Box::new(
+                crate::shared_runtime::serialize_default_key_config(defaults),
+            ));
         }
 
         if sets.is_empty() {

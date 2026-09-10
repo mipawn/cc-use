@@ -75,6 +75,8 @@ fn seed_managed_instance(db: &Database) -> String {
             usage_url: None,
             usage_path: None,
             usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
         })
         .expect("create provider");
     let api_key = db

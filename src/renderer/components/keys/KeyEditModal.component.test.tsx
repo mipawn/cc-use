@@ -79,6 +79,8 @@ const deepseekProvider: Provider = {
   lastUsageCheckedAt: null,
   isActive: true,
   sortOrder: 0,
+  presetId: 'deepseek',
+  defaultKeyConfig: null,
 }
 
 function sourceKey(): ApiKey {

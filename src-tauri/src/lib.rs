@@ -36,6 +36,7 @@ pub fn run() {
             commands::providers::provider_delete,
             commands::providers::provider_reorder,
             commands::providers::provider_model_list,
+            commands::providers::provider_preset_list,
             // API Key commands
             commands::api_keys::api_key_list,
             commands::api_keys::api_key_create,
