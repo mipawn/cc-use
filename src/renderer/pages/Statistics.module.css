@@ -140,3 +140,17 @@
 .recentCard {
   border-radius: var(--radius-ant-lg) !important;
 }
+
+/* One compact line replacing the five separate summary cards. */
+.summaryBar {
+  padding: 12px 16px;
+  border: 1px solid var(--cc-use-border, rgba(128, 128, 128, 0.2));
+  border-radius: 8px;
+}
+
+/* The collapsed analysis keeps the same content, just below the fold. */
+.analysisBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}

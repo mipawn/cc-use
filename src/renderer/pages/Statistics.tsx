@@ -5,13 +5,23 @@ import { getApi } from '../api'
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
-import { Typography, Button, Card, Table, Tag, Spin, theme, Space, Statistic, Tooltip } from 'antd'
 import {
-  ThunderboltOutlined,
-  DatabaseOutlined,
-  FieldTimeOutlined,
+  Typography,
+  Button,
+  Card,
+  Collapse,
+  Divider,
+  Drawer,
+  Table,
+  Tag,
+  Spin,
+  theme,
+  Space,
+  Statistic,
+  Tooltip,
+} from 'antd'
+import {
   BarChartOutlined,
-  WarningOutlined,
   KeyOutlined,
   FolderOpenOutlined,
   RobotOutlined,
@@ -21,11 +31,11 @@ import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import AutoModeAuditDrawer from '../components/usage/AutoModeAuditDrawer'
+import RecentRequestDetailDrawer from '../components/usage/RecentRequestDetailDrawer'
 import type {
   UsageStatistics,
   PaginatedRecentRequests,
   StatsTimeRange,
-  RequestOutcome,
   UsageDimensionItem,
   RecentRequestLogDisplay,
 } from '@shared/types'
@@ -40,6 +50,16 @@ function displayName(value: string | null | undefined, fallback: string): string
   const trimmed = value?.trim()
   return trimmed || fallback
 }
+
+/** input + output + both cache buckets — the same four the database sums. */
+function totalTokens(record: RecentRequestLogDisplay): number {
+  return (
+    record.inputTokens + record.outputTokens + record.cacheReadTokens + record.cacheCreationTokens
+  )
+}
+
+/** Rankings show this many rows before offering "view all". */
+const RANKING_PREVIEW = 5
 
 const OUTCOME_COLORS: Record<string, string> = {
   success: 'green',
@@ -68,6 +88,25 @@ export default function Statistics() {
   const [recentPageSize, setRecentPageSize] = useState(10)
   const refreshToken = useRef(0)
   const [auditOpen, setAuditOpen] = useState(false)
+  const [detailRecord, setDetailRecord] = useState<RecentRequestLogDisplay | null>(null)
+  const [rankingScope, setRankingScope] = useState<'key' | 'project' | null>(null)
+  // The expanded/collapsed choice survives a reload, so the page keeps the
+  // shape the user chose rather than resetting to the default.
+  const [analysisOpen, setAnalysisOpen] = useState(() => {
+    try {
+      return localStorage.getItem('cc-use.statistics.analysisOpen') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('cc-use.statistics.analysisOpen', String(analysisOpen))
+    } catch {
+      // A blocked storage backend only costs the preference, nothing else.
+    }
+  }, [analysisOpen])
   useEffect(() => {
     let cancelled = false
 
@@ -164,80 +203,70 @@ export default function Statistics() {
 
   usePageRefresh(refresh)
 
+  /**
+   * Seven columns: the ones a user reads while scanning. Everything that is
+   * only consulted when something looks wrong — the full model id, the token
+   * breakdown, the error text — lives in the detail drawer.
+   */
   const recentColumns = [
+    {
+      title: t('statistics.time'),
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      width: 130,
+      render: (value: string) => {
+        const date = new Date(value)
+        // Same-day rows read as a clock; cross-day rows need the date too.
+        const today = new Date()
+        const sameDay =
+          date.getFullYear() === today.getFullYear() &&
+          date.getMonth() === today.getMonth() &&
+          date.getDate() === today.getDate()
+        return (
+          <Tooltip title={date.toLocaleString()}>
+            <span style={{ fontSize: 12 }}>
+              {sameDay ? date.toLocaleTimeString() : date.toLocaleString()}
+            </span>
+          </Tooltip>
+        )
+      },
+    },
     {
       title: t('statistics.model'),
       dataIndex: 'model',
       key: 'model',
-      width: 240,
-      render: (v: string | null, record: RecentRequestLogDisplay) => (
-        <div>
-          <Text ellipsis={{ tooltip: v }} style={{ display: 'block', maxWidth: '100%' }}>
-            {v || '-'}
+      render: (value: string | null, record: RecentRequestLogDisplay) => (
+        <Space size={4} style={{ maxWidth: '100%' }}>
+          {/* The model name yields space first; the label must stay visible. */}
+          <Text ellipsis style={{ maxWidth: 160, fontSize: 12 }}>
+            {value || '—'}
           </Text>
           {record.requestKind === 'auto_mode' && (
             <Tooltip title={t('statistics.autoModeRequestHint')}>
-              <Tag color='gold'>Auto mode</Tag>
+              <Tag color='gold' style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px' }}>
+                Auto
+              </Tag>
             </Tooltip>
           )}
-        </div>
+        </Space>
       ),
     },
     {
-      title: t('statistics.key'),
-      dataIndex: 'keyAlias',
-      key: 'keyAlias',
-      width: 120,
-      ellipsis: true,
-      render: (v: string | null) => v || '-',
+      title: t('statistics.route'),
+      key: 'route',
+      render: (_: unknown, record: RecentRequestLogDisplay) => (
+        <Text style={{ fontSize: 12 }}>
+          {[displayName(record.providerName, '-'), record.keyAlias || '-'].join(' / ')}
+        </Text>
+      ),
     },
     {
-      title: t('statistics.provider'),
-      dataIndex: 'providerName',
-      key: 'providerName',
-      width: 120,
-      ellipsis: true,
-      render: (v: string | null) => displayName(v, '-'),
-    },
-    {
-      title: t('statistics.project'),
-      dataIndex: 'projectName',
-      key: 'projectName',
-      width: 140,
-      ellipsis: true,
-      render: (v: string | null) => displayName(v, t('statistics.other')),
-    },
-    {
-      title: t('statistics.inputTokens'),
+      title: t('statistics.tokens'),
       dataIndex: 'inputTokens',
-      key: 'inputTokens',
+      key: 'tokens',
       width: 90,
       align: 'right' as const,
-      render: (v: number) => renderTokens(v),
-    },
-    {
-      title: t('statistics.outputTokens'),
-      dataIndex: 'outputTokens',
-      key: 'outputTokens',
-      width: 90,
-      align: 'right' as const,
-      render: (v: number) => renderTokens(v),
-    },
-    {
-      title: t('statistics.cacheReadTokens'),
-      dataIndex: 'cacheReadTokens',
-      key: 'cacheReadTokens',
-      width: 100,
-      align: 'right' as const,
-      render: (v: number) => renderTokens(v),
-    },
-    {
-      title: t('statistics.cacheCreationTokens'),
-      dataIndex: 'cacheCreationTokens',
-      key: 'cacheCreationTokens',
-      width: 100,
-      align: 'right' as const,
-      render: (v: number) => renderTokens(v),
+      render: (_: number, record: RecentRequestLogDisplay) => renderTokens(totalTokens(record)),
     },
     {
       title: t('statistics.latency'),
@@ -245,28 +274,29 @@ export default function Statistics() {
       key: 'latencyMs',
       width: 80,
       align: 'right' as const,
-      render: (v: number | null) => (v != null ? `${v}ms` : '-'),
+      render: (value: number | null) => (
+        <span style={{ fontSize: 12 }}>{value != null ? `${value}ms` : '—'}</span>
+      ),
     },
     {
       title: t('statistics.status'),
-      dataIndex: 'statusCode',
-      key: 'statusCode',
-      width: 90,
-      render: (
-        v: number | null,
-        record: { outcome: RequestOutcome | null; errorMessage: string | null },
-      ) => {
-        const outcome = record.outcome ?? 'success'
-        const tag = <Tag color={OUTCOME_COLORS[outcome] || 'default'}>{v ?? outcome}</Tag>
-        return record.errorMessage ? <Tooltip title={record.errorMessage}>{tag}</Tooltip> : tag
-      },
+      key: 'status',
+      width: 100,
+      render: (_: unknown, record: RecentRequestLogDisplay) => (
+        <Tag color={OUTCOME_COLORS[record.outcome ?? ''] || 'default'}>
+          {record.statusCode ?? record.outcome ?? '-'}
+        </Tag>
+      ),
     },
     {
-      title: t('statistics.time'),
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      width: 160,
-      render: (v: string) => new Date(v).toLocaleString(),
+      title: t('statistics.detail'),
+      key: 'detail',
+      width: 80,
+      render: (_: unknown, record: RecentRequestLogDisplay) => (
+        <Button type='link' size='small' onClick={() => setDetailRecord(record)}>
+          {t('statistics.detail')}
+        </Button>
+      ),
     },
   ]
 
@@ -346,143 +376,31 @@ export default function Statistics() {
             </div>
           ) : hasData && summary ? (
             <div className={styles.statsContent}>
-              {/* Summary Cards */}
-              <div className={styles.summaryRow}>
-                <Card className={styles.summaryCard} variant='outlined'>
+              {/* One compact line: the three numbers a user checks first.
+                  Cache rate and latency need a reason to look at them, so they
+                  moved into the analysis section below. */}
+              <div className={styles.summaryBar}>
+                <Space size={24} wrap split={<Divider type='vertical' />}>
                   <Statistic
                     title={t('statistics.totalTokens')}
                     value={summary.totalTokens}
-                    prefix={<DatabaseOutlined style={{ color: token.colorPrimary }} />}
                     formatter={(v) => renderTokens(Number(v))}
                   />
-                </Card>
-                <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
-                    title={t('statistics.totalRequests')}
+                    title={t('statistics.requestsWithUsage')}
                     value={summary.totalRequests}
-                    prefix={<ThunderboltOutlined style={{ color: token.colorPrimary }} />}
                   />
-                </Card>
-                <Card className={styles.summaryCard} variant='outlined'>
-                  <Statistic
-                    title={
-                      <Tooltip title={t('statistics.cacheHitRateHint')}>
-                        <span>{t('statistics.cacheHitRate')}</span>
-                      </Tooltip>
-                    }
-                    value={summary.cacheHitRate * 100}
-                    precision={1}
-                    suffix='%'
-                    prefix={<ThunderboltOutlined style={{ color: token.colorSuccess }} />}
-                  />
-                </Card>
-                <Card className={styles.summaryCard} variant='outlined'>
                   <Statistic
                     title={t('statistics.failedRequests')}
                     value={summary.failedRequests}
-                    prefix={
-                      <WarningOutlined
-                        style={{
-                          color:
-                            summary.failedRequests > 0
-                              ? token.colorError
-                              : token.colorTextSecondary,
-                        }}
-                      />
+                    valueStyle={
+                      summary.failedRequests > 0 ? { color: token.colorError } : undefined
                     }
                   />
-                </Card>
-                <Card className={styles.summaryCard} variant='outlined'>
-                  <Statistic
-                    title={t('statistics.avgLatency')}
-                    value={summary.avgLatencyMs || 0}
-                    suffix='ms'
-                    precision={0}
-                    prefix={<FieldTimeOutlined style={{ color: token.colorSuccess }} />}
-                  />
-                </Card>
+                </Space>
               </div>
 
-              {/* Model usage per time bucket */}
-              <Card
-                className={styles.tableCard}
-                variant='outlined'
-                title={
-                  <Space>
-                    <RobotOutlined style={{ color: token.colorPrimary }} />
-                    <span>{t('statistics.dailyModelUsage')}</span>
-                  </Space>
-                }
-                extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
-              >
-                {stats.dailyModelUsage.length > 0 ? (
-                  <DailyModelUsageChart
-                    data={stats.dailyModelUsage}
-                    granularity={stats.trendGranularity}
-                    legendHint={t('statistics.legendToggleHint')}
-                    ariaLabel={t('statistics.dailyModelUsage')}
-                    unknownModelLabel={t('statistics.unknownModel')}
-                  />
-                ) : (
-                  <div className={styles.trendEmpty}>
-                    <Text type='secondary'>{t('statistics.noData')}</Text>
-                  </div>
-                )}
-              </Card>
-
-              {/* Key / project dimensions for the selected range */}
-              <div className={styles.dimensionGrid}>
-                <Card
-                  className={styles.tableCard}
-                  variant='outlined'
-                  title={
-                    <Space>
-                      <KeyOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.keyUsage')}</span>
-                    </Space>
-                  }
-                  extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
-                >
-                  <Table
-                    dataSource={stats!.keyUsage}
-                    columns={dimensionColumns}
-                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
-                    size='small'
-                    pagination={
-                      stats!.keyUsage.length > 8
-                        ? { pageSize: 8, showSizeChanger: false, size: 'small' }
-                        : false
-                    }
-                    locale={{ emptyText: t('statistics.noData') }}
-                  />
-                </Card>
-                <Card
-                  className={styles.tableCard}
-                  variant='outlined'
-                  title={
-                    <Space>
-                      <FolderOpenOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.projectUsage')}</span>
-                    </Space>
-                  }
-                  extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
-                >
-                  <Table
-                    dataSource={stats!.projectUsage}
-                    columns={dimensionColumns}
-                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
-                    size='small'
-                    pagination={
-                      stats!.projectUsage.length > 8
-                        ? { pageSize: 8, showSizeChanger: false, size: 'small' }
-                        : false
-                    }
-                    locale={{ emptyText: t('statistics.noData') }}
-                  />
-                </Card>
-              </div>
-
-              {/* Recent Requests */}
+              {/* Recent Requests — the reason the page is opened. */}
               <Card
                 className={styles.recentCard}
                 variant='outlined'
@@ -508,9 +426,140 @@ export default function Statistics() {
                     pageSizeOptions: ['10', '20', '50', '100'],
                     showTotal: (total) => t('statistics.totalItems', { total }),
                   }}
-                  scroll={{ x: 1330 }}
                 />
               </Card>
+
+              {/* Analysis — collapsed by default, and the choice is remembered.
+                  Nothing here is removed: it is the same data, one click away. */}
+              <Collapse
+                ghost
+                activeKey={analysisOpen ? ['analysis'] : []}
+                onChange={(keys: string[]) => setAnalysisOpen(keys.includes('analysis'))}
+                items={[
+                  {
+                    key: 'analysis',
+                    label: t('statistics.analysis') || '分析',
+                    children: (
+                      <div className={styles.analysisBody}>
+                        <div className={styles.summaryRow}>
+                          <Card className={styles.summaryCard} variant='outlined'>
+                            <Statistic
+                              title={
+                                <Tooltip title={t('statistics.cacheHitRateHint')}>
+                                  <span>{t('statistics.cacheHitRate')}</span>
+                                </Tooltip>
+                              }
+                              value={summary.cacheHitRate * 100}
+                              precision={1}
+                              suffix='%'
+                            />
+                          </Card>
+                          <Card className={styles.summaryCard} variant='outlined'>
+                            <Statistic
+                              title={t('statistics.avgLatency')}
+                              // A missing measurement is not 0ms.
+                              value={summary.avgLatencyMs ?? undefined}
+                              suffix={summary.avgLatencyMs != null ? 'ms' : undefined}
+                              precision={0}
+                            />
+                          </Card>
+                        </div>
+
+                        <Card
+                          className={styles.tableCard}
+                          variant='outlined'
+                          title={
+                            <Space>
+                              <RobotOutlined style={{ color: token.colorPrimary }} />
+                              <span>{t('statistics.dailyModelUsage')}</span>
+                            </Space>
+                          }
+                          extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
+                        >
+                          {stats.dailyModelUsage.length > 0 ? (
+                            <DailyModelUsageChart
+                              data={stats.dailyModelUsage}
+                              granularity={stats.trendGranularity}
+                              legendHint={t('statistics.legendToggleHint')}
+                              ariaLabel={t('statistics.dailyModelUsage')}
+                              unknownModelLabel={t('statistics.unknownModel')}
+                            />
+                          ) : (
+                            <div className={styles.trendEmpty}>
+                              <Text type='secondary'>{t('statistics.noData')}</Text>
+                            </div>
+                          )}
+                        </Card>
+
+                        <div className={styles.dimensionGrid}>
+                          <Card
+                            className={styles.tableCard}
+                            variant='outlined'
+                            title={
+                              <Space>
+                                <KeyOutlined style={{ color: token.colorPrimary }} />
+                                <span>{t('statistics.keyUsage')}</span>
+                              </Space>
+                            }
+                            extra={
+                              stats.keyUsage.length > RANKING_PREVIEW ? (
+                                <Button
+                                  type='link'
+                                  size='small'
+                                  onClick={() => setRankingScope('key')}
+                                >
+                                  {t('statistics.viewAll', { count: stats.keyUsage.length })}
+                                </Button>
+                              ) : undefined
+                            }
+                          >
+                            <Table
+                              dataSource={stats.keyUsage.slice(0, RANKING_PREVIEW)}
+                              columns={dimensionColumns}
+                              rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
+                              size='small'
+                              pagination={false}
+                              locale={{ emptyText: t('statistics.noData') }}
+                            />
+                          </Card>
+                          <Card
+                            className={styles.tableCard}
+                            variant='outlined'
+                            title={
+                              <Space>
+                                <FolderOpenOutlined style={{ color: token.colorPrimary }} />
+                                <span>{t('statistics.projectUsage')}</span>
+                              </Space>
+                            }
+                            extra={
+                              stats.projectUsage.length > RANKING_PREVIEW ? (
+                                <Button
+                                  type='link'
+                                  size='small'
+                                  onClick={() => setRankingScope('project')}
+                                >
+                                  {t('statistics.viewAll', {
+                                    count: stats.projectUsage.length,
+                                  })}
+                                </Button>
+                              ) : undefined
+                            }
+                          >
+                            <Table
+                              dataSource={stats.projectUsage.slice(0, RANKING_PREVIEW)}
+                              columns={dimensionColumns}
+                              rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
+                              size='small'
+                              pagination={false}
+                              locale={{ emptyText: t('statistics.noData') }}
+                            />
+                          </Card>
+                        </div>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
             </div>
           ) : (
             <Card className='empty-state' variant='outlined'>
@@ -534,6 +583,26 @@ export default function Statistics() {
         timeRange={timeRange}
         onClose={() => setAuditOpen(false)}
       />
+
+      <RecentRequestDetailDrawer record={detailRecord} onClose={() => setDetailRecord(null)} />
+
+      {/* "View all" opens the full ranking; the page itself keeps the top few. */}
+      <Drawer
+        title={rankingScope === 'key' ? t('statistics.keyUsage') : t('statistics.projectUsage')}
+        open={rankingScope !== null}
+        onClose={() => setRankingScope(null)}
+        size='large'
+        destroyOnHidden
+      >
+        <Table
+          dataSource={(rankingScope === 'key' ? stats?.keyUsage : stats?.projectUsage) ?? []}
+          columns={dimensionColumns}
+          rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
+          size='small'
+          pagination={{ pageSize: 20, size: 'small' }}
+          locale={{ emptyText: t('statistics.noData') }}
+        />
+      </Drawer>
     </div>
   )
 }

@@ -725,6 +725,13 @@ export default {
     projectUsage: 'Usage by Project',
     currentRange: 'Selected range',
     recentRequests: 'Recent Requests',
+    requestsWithUsage: 'Requests with usage',
+    route: 'Route',
+    detail: 'Details',
+    detailTitle: 'Request details',
+    errorDetail: 'Error',
+    analysis: 'Analysis',
+    viewAll: 'View all ({{count}})',
     autoAuditEntry: 'Auto records',
     autoAuditTitle: 'Auto records',
     autoAuditHint:
