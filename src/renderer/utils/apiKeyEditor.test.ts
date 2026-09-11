@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiKey } from '@shared/types'
-import { buildDuplicatedKeyDraft, toCreateApiKeyInput, toUpdateApiKeyInput } from './apiKeyEditor'
+import {
+  buildDuplicatedKeyDraft,
+  newKeyDefaults,
+  toCreateApiKeyInput,
+  toUpdateApiKeyInput,
+} from './apiKeyEditor'
 
 const clientConfigs = {
   claude_code: {
@@ -144,5 +149,35 @@ describe('duplicated key drafts', () => {
     expect(draft.config).not.toBe(source.config)
     ;(draft.clientConfigs!.claude_code as { baseUrl?: string }).baseUrl = 'https://changed.example'
     expect(source.clientConfigs?.claude_code?.baseUrl).toBe('https://gateway.example.com')
+  })
+})
+
+describe('new key defaults', () => {
+  it('starts a new key with Auto mode on', () => {
+    // Auto mode only reshapes the permission-classifier requests; leaving it
+    // off makes the classifier answer about a model the user did not pick.
+    expect(newKeyDefaults(null, false).mapping.autoMode.enabled).toBe(true)
+  })
+
+  it('lets a provider template turn Auto mode off', () => {
+    const defaults = newKeyDefaults(
+      { modelMapping: JSON.stringify({ autoMode: { enabled: false } }) },
+      false,
+    )
+
+    expect(defaults.mapping.autoMode.enabled).toBe(false)
+  })
+
+  it('keeps the family mapping a template supplies alongside it', () => {
+    const defaults = newKeyDefaults(
+      { modelMapping: JSON.stringify({ haiku: 'fast', sonnet: 'big' }) },
+      false,
+    )
+
+    expect(defaults.mapping).toMatchObject({
+      haiku: 'fast',
+      sonnet: 'big',
+      autoMode: { enabled: true },
+    })
   })
 })

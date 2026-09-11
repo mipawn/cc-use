@@ -7,7 +7,7 @@ import type {
   ProviderDefaultKeyConfig,
   UpdateApiKeyInput,
 } from '@shared/types'
-import { parseModelMapping } from './modelMapping'
+import { parseModelMapping, type ModelMappingFields } from './modelMapping'
 
 /**
  * How the editor was opened. Both `create` and `duplicate` produce a new record
@@ -99,6 +99,33 @@ export interface NewKeyDefaults {
  * The defaults are a snapshot, not a live link: changing the provider later
  * never rewrites an existing key.
  */
+/**
+ * The mapping a brand-new key starts from.
+ *
+ * Auto mode is on unless the provider's template says otherwise: it only
+ * reshapes the permission-classifier requests, and leaving it off means the
+ * classifier answers about a model the user did not pick. A template that
+ * states `autoMode.enabled` explicitly still wins, so a provider that cannot
+ * take the rewrite can say so.
+ */
+function newKeyMapping(json: string | null | undefined): ModelMappingFields {
+  const mapping = parseModelMapping(json)
+  if (!statesAutoMode(json)) {
+    return { ...mapping, autoMode: { ...mapping.autoMode, enabled: true } }
+  }
+  return mapping
+}
+
+function statesAutoMode(json: string | null | undefined): boolean {
+  if (!json) return false
+  try {
+    const parsed = JSON.parse(json) as { autoMode?: { enabled?: unknown } } | null
+    return typeof parsed?.autoMode?.enabled === 'boolean'
+  } catch {
+    return false
+  }
+}
+
 export function newKeyDefaults(
   providerDefault: ProviderDefaultKeyConfig | null | undefined,
   legacyOfficialDeepSeek: boolean,
@@ -111,7 +138,7 @@ export function newKeyDefaults(
     usageUrl: '',
     usagePath: '',
     usageHeaders: '',
-    mapping: parseModelMapping(null),
+    mapping: newKeyMapping(null),
   }
 
   if (!providerDefault) {
@@ -128,7 +155,7 @@ export function newKeyDefaults(
           authScheme: 'bearer',
         },
       },
-      mapping: parseModelMapping(
+      mapping: newKeyMapping(
         JSON.stringify({
           haiku: 'deepseek-v4-flash',
           sonnet: 'deepseek-v4-pro[1m]',
@@ -138,7 +165,7 @@ export function newKeyDefaults(
     }
   }
 
-  const mapping = parseModelMapping(providerDefault.modelMapping ?? null)
+  const mapping = newKeyMapping(providerDefault.modelMapping)
   const usageType = providerDefault.usageType ?? 'none'
   const claudeConfig = { ...(providerDefault.config ?? {}) } as CliConfig
   delete claudeConfig.prelaunchCommand
