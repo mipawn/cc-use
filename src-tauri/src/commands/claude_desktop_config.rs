@@ -782,6 +782,7 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let provider = db
             .provider_create(&CreateProviderInput {
+                wallet_balance_script: None,
                 name: "No Probe Provider".to_string(),
                 base_url: "http://127.0.0.1:1".to_string(),
                 http_proxy: None,
@@ -805,6 +806,7 @@ mod tests {
             .unwrap();
         let api_key = db
             .api_key_create(&CreateApiKeyInput {
+                usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("Claude Desktop".to_string()),
                 value: "sk-test".to_string(),

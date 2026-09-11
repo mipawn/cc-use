@@ -1,6 +1,13 @@
 use crate::db::Database;
 use crate::models::{ApiKey, CreateApiKeyInput, UpdateApiKeyInput, UsageData};
 
+fn non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn normalize_model_mapping(value: Option<&String>) -> Option<String> {
     value
         .map(|mapping| mapping.trim())
@@ -13,7 +20,7 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
     //         is_exhausted(5), is_active(6), config(7), usage_type(8),
     //         usage_url(9), usage_path(10), usage_headers(11),
     //         cached_usage(12), last_usage_checked_at(13), model_mapping(14),
-    //         types(15), client_configs(16)
+    //         types(15), client_configs(16), usage_script(17)
     let config_str: Option<String> = row.get(7)?;
     let config = config_str.and_then(|s| serde_json::from_str(&s).ok());
     let client_configs_str: Option<String> = row.get(16)?;
@@ -46,6 +53,9 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
         last_usage_checked_at: row.get(13)?,
         model_mapping: row.get(14)?,
         client_configs,
+        usage_script: row
+            .get::<_, Option<String>>(17)?
+            .filter(|value| !value.trim().is_empty()),
     })
 }
 
@@ -55,7 +65,7 @@ impl Database {
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, model_mapping, types,
-                    client_configs
+                    client_configs, usage_script
              FROM api_keys WHERE provider_id = ?1 ORDER BY priority ASC",
         )?;
 
@@ -68,7 +78,7 @@ impl Database {
             "SELECT id, provider_id, alias, value, priority, is_exhausted, is_active,
                     config, usage_type, usage_url, usage_path, usage_headers,
                     cached_usage, last_usage_checked_at, model_mapping, types,
-                    client_configs
+                    client_configs, usage_script
              FROM api_keys WHERE id = ?1",
         )?;
 
@@ -112,8 +122,8 @@ impl Database {
         self.conn.execute(
             "INSERT INTO api_keys (id, provider_id, alias, value, secret_ref, types, priority, is_exhausted, is_active,
                 config, usage_type, usage_url, usage_path, usage_headers, model_mapping,
-                client_configs)
-             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                client_configs, usage_script)
+             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, 0, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 id,
                 input.provider_id,
@@ -129,6 +139,7 @@ impl Database {
                 input.usage_headers,
                 model_mapping,
                 client_configs_json,
+                non_empty(input.usage_script.as_deref()),
             ],
         )?;
 
@@ -164,6 +175,10 @@ impl Database {
                 sets.push("model_mapping = ?".to_string());
                 params.push(Box::new(value.trim().to_string()));
             }
+        }
+        if input.usage_script.is_some() {
+            sets.push("usage_script = ?".to_string());
+            params.push(Box::new(input.usage_script.clone()));
         }
         if let Some(ref val) = input.client_configs {
             sets.push("client_configs = ?".to_string());

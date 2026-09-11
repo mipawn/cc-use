@@ -780,6 +780,7 @@ mod tests {
 
     fn api_key(types: Vec<&str>, is_active: bool, is_exhausted: bool) -> ApiKey {
         ApiKey {
+            usage_script: None,
             id: "key-1".to_string(),
             provider_id: "provider-1".to_string(),
             alias: None,

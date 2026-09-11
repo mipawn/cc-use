@@ -112,6 +112,9 @@ impl Database {
                 -- full configuration a new key for it inherits.
                 preset_id TEXT NOT NULL DEFAULT 'custom',
                 default_key_config TEXT,
+                -- v3.11.0: the account query — request and reader in one
+                -- editable script. Empty means no account query configured.
+                wallet_balance_script TEXT,
                 -- v3.10.0: request-shaping adapter. Saved config, not a label
                 -- derived from the preset.
                 request_adapter TEXT NOT NULL DEFAULT 'none',
@@ -136,6 +139,8 @@ impl Database {
                 usage_headers TEXT,
                 cached_usage TEXT,
                 last_usage_checked_at TEXT,
+                -- v3.11.0: this key's own quota query.
+                usage_script TEXT,
                 client_configs TEXT
             );
 
@@ -412,6 +417,135 @@ impl Database {
         format!("DATE({}, 'localtime')", col)
     }
 
+    /// Write every pre-script account query out as the script it meant.
+    ///
+    /// Providers and keys created before v3.11.0 kept a query as a kind plus an
+    /// address, and the running code no longer speaks that vocabulary. Doing
+    /// this here rather than on first edit means an existing balance keeps
+    /// answering instead of going dark until someone retypes it.
+    fn lift_queries_onto_scripts(&self) {
+        use crate::shared_runtime::account_scripts;
+
+        // A provider's account query: the balance kind if it had one, else the
+        // usage kind, because both answered the same question.
+        let mut statement = match self.conn.prepare(
+            "SELECT id, wallet_balance_type, wallet_balance_url, wallet_balance_headers,
+                    wallet_balance_path, usage_type, usage_url, usage_headers, usage_path
+             FROM providers
+             WHERE wallet_balance_script IS NULL OR TRIM(wallet_balance_script) = ''",
+        ) {
+            Ok(statement) => statement,
+            Err(_) => return,
+        };
+
+        let rows: Vec<(
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = match statement.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+            ))
+        }) {
+            Ok(rows) => rows.filter_map(Result::ok).collect(),
+            Err(_) => return,
+        };
+        drop(statement);
+
+        for (
+            id,
+            balance_kind,
+            balance_url,
+            balance_headers,
+            balance_path,
+            usage_kind,
+            usage_url,
+            usage_headers,
+            usage_path,
+        ) in rows
+        {
+            let lifted = account_scripts::lift_from_legacy(
+                &balance_kind,
+                balance_url.as_deref(),
+                balance_headers.as_deref(),
+                balance_path.as_deref(),
+            )
+            .or_else(|| {
+                let script = account_scripts::usage_for_legacy_kind(usage_kind.trim())?;
+                account_scripts::lift_from_legacy(
+                    usage_kind.trim(),
+                    usage_url.as_deref().or(Some(script.url)),
+                    usage_headers.as_deref(),
+                    usage_path.as_deref(),
+                )
+            });
+
+            let Some(script) = lifted else { continue };
+            let _ = self.conn.execute(
+                "UPDATE providers SET wallet_balance_script = ?1 WHERE id = ?2",
+                rusqlite::params![script, id],
+            );
+        }
+
+        let mut statement = match self.conn.prepare(
+            "SELECT id, usage_type, usage_url, usage_headers, usage_path
+             FROM api_keys
+             WHERE usage_script IS NULL OR TRIM(usage_script) = ''",
+        ) {
+            Ok(statement) => statement,
+            Err(_) => return,
+        };
+
+        let rows: Vec<(
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = match statement.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        }) {
+            Ok(rows) => rows.filter_map(Result::ok).collect(),
+            Err(_) => return,
+        };
+        drop(statement);
+
+        for (id, kind, url, headers, path) in rows {
+            let Some(script) = account_scripts::lift_from_legacy(
+                kind.trim(),
+                url.as_deref(),
+                headers.as_deref(),
+                path.as_deref(),
+            ) else {
+                continue;
+            };
+            let _ = self.conn.execute(
+                "UPDATE api_keys SET usage_script = ?1 WHERE id = ?2",
+                rusqlite::params![script, id],
+            );
+        }
+    }
+
     fn run_alter_migrations(&self) {
         // These are safe to run even if columns already exist — we just ignore errors
         let alter_statements = [
@@ -451,6 +585,9 @@ impl Database {
             "ALTER TABLE api_keys ADD COLUMN cached_usage TEXT",
             "ALTER TABLE api_keys ADD COLUMN last_usage_checked_at TEXT",
             "ALTER TABLE api_keys ADD COLUMN client_configs TEXT",
+            // v3.11.0: the account and quota queries as editable scripts.
+            "ALTER TABLE providers ADD COLUMN wallet_balance_script TEXT",
+            "ALTER TABLE api_keys ADD COLUMN usage_script TEXT",
             "ALTER TABLE api_keys ADD COLUMN secret_ref TEXT",
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
@@ -480,6 +617,8 @@ impl Database {
         for stmt in &alter_statements {
             let _ = self.conn.execute(stmt, []);
         }
+
+        self.lift_queries_onto_scripts();
 
         // Created after the ALTERs so the column exists on upgraded databases too.
         // Pre-v3.10.0 rows keep a NULL request_id; nothing guesses an association.
@@ -861,6 +1000,7 @@ mod tests {
         // new column prescribes rather than failing on the added field.
         let provider = db
             .provider_create(&crate::models::CreateProviderInput {
+                wallet_balance_script: None,
                 name: "legacy".to_string(),
                 base_url: "https://example.com".to_string(),
                 http_proxy: None,

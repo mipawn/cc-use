@@ -1,3 +1,4 @@
+pub mod account_scripts;
 pub mod launch_preview;
 pub mod management_token;
 pub mod project_session;

@@ -222,6 +222,7 @@ mod tests {
 
     fn test_provider() -> Provider {
         Provider {
+            wallet_balance_script: None,
             id: "provider-1".to_string(),
             name: "Provider".to_string(),
             base_url: "https://provider.example.com/v1".to_string(),
@@ -254,6 +255,7 @@ mod tests {
 
     fn test_key(client_kind: &str, client_configs: Option<serde_json::Value>) -> ApiKey {
         ApiKey {
+            usage_script: None,
             id: "key-1".to_string(),
             provider_id: "provider-1".to_string(),
             alias: None,

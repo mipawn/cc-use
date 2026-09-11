@@ -40,6 +40,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                     } else {
                         None
                     },
+                    usage_script: k.usage_script,
                 })
                 .collect();
 
@@ -68,6 +69,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 } else {
                     None
                 },
+                wallet_balance_script: provider.wallet_balance_script,
                 preset_id: Some(provider.preset_id),
                 default_key_config: provider.default_key_config,
                 request_adapter: Some(provider.request_adapter),
@@ -149,8 +151,8 @@ pub fn import_all(
                 "INSERT OR REPLACE INTO providers (id, name, base_url, http_proxy, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                     wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                    preset_id, default_key_config, request_adapter)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18)",
+                    preset_id, default_key_config, request_adapter, wallet_balance_script)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19)",
                 rusqlite::params![
                     ep.id,
                     ep.name,
@@ -170,6 +172,7 @@ pub fn import_all(
                     preset_id,
                     default_key_config,
                     ep.request_adapter.as_deref().unwrap_or("none"),
+                    ep.wallet_balance_script,
                 ],
             ) {
                 errors.push(format!("Failed to import {}: {}", ep.name, e));
@@ -196,6 +199,7 @@ pub fn import_all(
                         usage_url: ek.usage_url.clone(),
                         usage_path: ek.usage_path.clone(),
                         usage_headers: ek.usage_headers.clone(),
+                        usage_script: ek.usage_script.clone(),
                         model_mapping: ek.model_mapping.clone(),
                     },
                 ) {
@@ -226,6 +230,7 @@ pub fn import_all(
                 preset_id: ep.preset_id.clone(),
                 default_key_config: ep.default_key_config.clone(),
                 request_adapter: ep.request_adapter.clone(),
+                wallet_balance_script: ep.wallet_balance_script.clone(),
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {
@@ -245,6 +250,7 @@ pub fn import_all(
                             usage_url: ek.usage_url.clone(),
                             usage_path: ek.usage_path.clone(),
                             usage_headers: ek.usage_headers.clone(),
+                            usage_script: ek.usage_script.clone(),
                             model_mapping: ek.model_mapping.clone(),
                         }) {
                             errors.push(format!("Failed to import key for {}: {}", ep.name, e));

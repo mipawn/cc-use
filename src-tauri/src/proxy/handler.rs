@@ -3116,6 +3116,7 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let provider = db
             .provider_create(&CreateProviderInput {
+                wallet_balance_script: None,
                 name: "grok-provider".to_string(),
                 base_url: "https://api.x.ai/v1".to_string(),
                 http_proxy: None,
@@ -3139,6 +3140,7 @@ mod tests {
             .unwrap();
         let grok_key = db
             .api_key_create(&CreateApiKeyInput {
+                usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: None,
                 value: "xai-key".to_string(),
@@ -3383,6 +3385,7 @@ mod tests {
         let raw_db = Database::new_in_memory().unwrap();
         let provider = raw_db
             .provider_create(&CreateProviderInput {
+                wallet_balance_script: None,
                 name: "codex-provider".to_string(),
                 base_url: "https://example.com/v1".to_string(),
                 http_proxy: None,
@@ -3406,6 +3409,7 @@ mod tests {
             .unwrap();
         let api_key = raw_db
             .api_key_create(&CreateApiKeyInput {
+                usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("codex-key".to_string()),
                 value: "sk-test".to_string(),
@@ -3635,6 +3639,7 @@ mod tests {
         let raw_db = Database::new_in_memory().unwrap();
         let provider = raw_db
             .provider_create(&CreateProviderInput {
+                wallet_balance_script: None,
                 name: "claude-provider".to_string(),
                 base_url: "https://example.com".to_string(),
                 http_proxy: None,
@@ -3658,6 +3663,7 @@ mod tests {
             .unwrap();
         let api_key = raw_db
             .api_key_create(&CreateApiKeyInput {
+                usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("claude-key".to_string()),
                 value: "sk-test".to_string(),
@@ -3834,6 +3840,7 @@ mod tests {
     /// covers the persisted value rather than a hand-built struct.
     fn provider_with_adapter(db: &Database, adapter: &str) -> crate::models::Provider {
         db.provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "go".to_string(),
             base_url: "https://opencode.ai/zen/go".to_string(),
             http_proxy: None,

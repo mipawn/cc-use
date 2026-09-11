@@ -44,6 +44,9 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
             .get::<_, Option<String>>(26)?
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(crate::shared_runtime::default_request_adapter_string),
+        wallet_balance_script: row
+            .get::<_, Option<String>>(27)?
+            .filter(|value| !value.trim().is_empty()),
     })
 }
 
@@ -55,7 +58,7 @@ const PROVIDER_COLUMNS: &str = "id, name, base_url, http_proxy, website, remark,
         usage_type, usage_url, usage_path, usage_headers,
         cached_usage, last_usage_checked_at,
         is_active, sort_order, preset_id, default_key_config, cached_wallet_balance_currency,
-        request_adapter";
+        request_adapter, wallet_balance_script";
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
@@ -121,8 +124,8 @@ impl Database {
             "INSERT INTO providers (id, name, base_url, http_proxy, website, remark, token, token_secret_ref, icon,
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                sort_order, preset_id, default_key_config, request_adapter)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21)",
+                sort_order, preset_id, default_key_config, request_adapter, wallet_balance_script)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21, ?22)",
             rusqlite::params![
                 id,
                 input.name,
@@ -151,6 +154,11 @@ impl Database {
                     .filter(|value| !value.is_empty())
                     .map(str::to_string)
                     .unwrap_or_else(crate::shared_runtime::default_request_adapter_string),
+                input
+                    .wallet_balance_script
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
             ],
         )?;
 
@@ -211,6 +219,12 @@ impl Database {
         add_field!(input.usage_url, "usage_url", sets, params);
         add_field!(input.usage_path, "usage_path", sets, params);
         add_field!(input.usage_headers, "usage_headers", sets, params);
+        add_field!(
+            input.wallet_balance_script,
+            "wallet_balance_script",
+            sets,
+            params
+        );
         add_field!(
             input.cached_wallet_balance,
             "cached_wallet_balance",

@@ -47,6 +47,10 @@ pub struct Provider {
     /// unsupported rather than silently ignored.
     #[serde(default = "crate::shared_runtime::default_request_adapter_string")]
     pub request_adapter: String,
+    /// v3.11.0: the account query — request and reader in one editable script.
+    /// Empty means the provider has no account query configured.
+    #[serde(default)]
+    pub wallet_balance_script: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +72,7 @@ pub struct CreateProviderInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    pub wallet_balance_script: Option<String>,
     /// Origin template. Absent means the provider was created by hand.
     #[serde(default)]
     pub preset_id: Option<String>,
@@ -99,6 +104,7 @@ pub struct UpdateProviderInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    pub wallet_balance_script: Option<String>,
     pub is_active: Option<bool>,
     pub cached_wallet_balance: Option<f64>,
     pub cached_wallet_balance_currency: Option<String>,
@@ -139,6 +145,9 @@ pub struct ApiKey {
     pub last_usage_checked_at: Option<String>,
     pub model_mapping: Option<String>,
     pub client_configs: Option<serde_json::Value>,
+    /// v3.11.0: this key's own quota query.
+    #[serde(default)]
+    pub usage_script: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +164,7 @@ pub struct CreateApiKeyInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    pub usage_script: Option<String>,
     pub model_mapping: Option<String>,
     pub client_configs: Option<serde_json::Value>,
 }
@@ -174,6 +184,7 @@ pub struct UpdateApiKeyInput {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    pub usage_script: Option<String>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
     pub model_mapping: Option<String>,
@@ -776,6 +787,10 @@ pub struct ExportProvider {
     pub usage_url: Option<String>,
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
+    /// v3.11.0: the account query. Carried through an export so a provider
+    /// keeps the query it was tuned with.
+    #[serde(default)]
+    pub wallet_balance_script: Option<String>,
     /// v3.10.0: template origin. Unknown values are preserved as-is so an
     /// export from a newer build round-trips instead of being flattened.
     #[serde(default)]
@@ -820,6 +835,9 @@ pub struct ExportApiKey {
     pub usage_path: Option<String>,
     #[serde(default)]
     pub usage_headers: Option<String>,
+    /// v3.11.0: this key's own quota query.
+    #[serde(default)]
+    pub usage_script: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

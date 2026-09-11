@@ -12,6 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::account_scripts;
+
 pub const PRESET_CUSTOM: &str = "custom";
 pub const PRESET_OPENCODE_GO: &str = "opencode-go";
 pub const PRESET_DEEPSEEK: &str = "deepseek";
@@ -78,10 +80,9 @@ pub struct ProviderPreset {
     /// Balance / quota queries need a separate account credential that is not
     /// the inference key.
     pub needs_account_credential: bool,
+    /// Kept for the presets' own bookkeeping and for the migration; the
+    /// running query is `wallet_balance_script`.
     pub wallet_balance_type: String,
-    /// The request the balance query sends. It is shown in the provider's
-    /// settings and is editable there, so the preset carries a complete one —
-    /// url and headers together — rather than leaving the headers implicit.
     pub wallet_balance_url: Option<String>,
     #[serde(default)]
     pub wallet_balance_headers: Option<String>,
@@ -89,38 +90,18 @@ pub struct ProviderPreset {
     pub usage_url: Option<String>,
     #[serde(default)]
     pub usage_headers: Option<String>,
+    /// The account query itself: request and reader in one editable script.
+    #[serde(default)]
+    pub wallet_balance_script: Option<String>,
     /// Request adapter to run for this provider's traffic.
     pub request_adapter: String,
     pub default_key_config: DefaultKeyConfig,
 }
 
-/// The request each built-in parse rule sends when the provider has not written
-/// its own.
-///
-/// One source rather than two: the catalogue fills a new provider's stored
-/// request from here, the settings dialog shows these as `恢复默认`, and the
-/// fetch functions fall back to them for providers created before the request
-/// was configurable. `{baseUrl}`, `{key}`, `{token}` and `{userId}` are resolved
-/// at send time.
-pub mod query_defaults {
-    pub const DEEPSEEK_BALANCE_URL: &str = "https://api.deepseek.com/user/balance";
-    pub const DEEPSEEK_BALANCE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
-
-    pub const NEWAPI_ACCOUNT_URL: &str = "{baseUrl}/api/user/self";
-    pub const NEWAPI_ACCOUNT_HEADERS: &str =
-        r#"{"Authorization": "{token}", "New-Api-User": "{userId}"}"#;
-
-    /// Account-wide usage. The per-key endpoint below keeps its trailing slash:
-    /// they are different routes on the same service.
-    pub const NEWAPI_USAGE_URL: &str = "{baseUrl}/api/usage/token";
-    pub const NEWAPI_USAGE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
-    pub const NEWAPI_KEY_USAGE_URL: &str = "{baseUrl}/api/usage/token/";
-
-    /// OpenCode Go answers the account question with its metering periods
-    /// rather than a balance, but it is the same shape of query: one request
-    /// that says how much of the account is left.
-    pub const OPENCODE_GO_USAGE_URL: &str = "{baseUrl}/v1/usage";
-    pub const OPENCODE_GO_USAGE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
+/// The catalogue entry for a service, which is also where that service's
+/// address and headers come from.
+fn script_of(kind: &str) -> &'static account_scripts::AccountScript {
+    account_scripts::for_legacy_kind(kind).expect("the catalogue names every kind it ships")
 }
 
 /// DeepSeek: Anthropic-compatible endpoint for Claude clients, native
@@ -134,8 +115,11 @@ fn deepseek_preset() -> ProviderPreset {
         requires_site_address: false,
         needs_account_credential: false,
         wallet_balance_type: "deepseek".to_string(),
-        wallet_balance_url: Some(query_defaults::DEEPSEEK_BALANCE_URL.to_string()),
-        wallet_balance_headers: Some(query_defaults::DEEPSEEK_BALANCE_HEADERS.to_string()),
+        wallet_balance_url: Some(script_of("deepseek").url.to_string()),
+        wallet_balance_headers: Some(script_of("deepseek").headers.to_string()),
+        wallet_balance_script: Some(account_scripts::script_for(
+            &account_scripts::for_legacy_kind("deepseek").expect("deepseek script"),
+        )),
         usage_type: "none".to_string(),
         usage_url: None,
         usage_headers: None,
@@ -176,11 +160,14 @@ fn newapi_preset() -> ProviderPreset {
         requires_site_address: true,
         needs_account_credential: true,
         wallet_balance_type: "newapi".to_string(),
-        wallet_balance_url: Some(query_defaults::NEWAPI_ACCOUNT_URL.to_string()),
-        wallet_balance_headers: Some(query_defaults::NEWAPI_ACCOUNT_HEADERS.to_string()),
-        usage_type: "newapi".to_string(),
-        usage_url: Some(query_defaults::NEWAPI_USAGE_URL.to_string()),
-        usage_headers: Some(query_defaults::NEWAPI_USAGE_HEADERS.to_string()),
+        wallet_balance_url: Some(script_of("newapi").url.to_string()),
+        wallet_balance_headers: Some(script_of("newapi").headers.to_string()),
+        wallet_balance_script: Some(account_scripts::script_for(
+            &account_scripts::for_legacy_kind("newapi").expect("newapi script"),
+        )),
+        usage_type: "none".to_string(),
+        usage_url: None,
+        usage_headers: None,
         request_adapter: ADAPTER_NONE.to_string(),
         default_key_config: DefaultKeyConfig::with_clients(&["claude_code"], serde_json::json!({})),
     }
@@ -245,8 +232,11 @@ fn opencode_go_preset() -> ProviderPreset {
         // balance, so the answer is read differently, but it is still one
         // request and it is still editable.
         usage_type: "opencode-go".to_string(),
-        usage_url: Some(query_defaults::OPENCODE_GO_USAGE_URL.to_string()),
-        usage_headers: Some(query_defaults::OPENCODE_GO_USAGE_HEADERS.to_string()),
+        usage_url: Some(script_of("opencode-go").url.to_string()),
+        usage_headers: Some(script_of("opencode-go").headers.to_string()),
+        wallet_balance_script: Some(account_scripts::script_for(
+            &account_scripts::for_legacy_kind("opencode-go").expect("go script"),
+        )),
         request_adapter: ADAPTER_OPENCODE_GO.to_string(),
         default_key_config: DefaultKeyConfig {
             types: vec!["claude_code".to_string(), "codex".to_string()],
@@ -289,6 +279,7 @@ fn custom_preset() -> ProviderPreset {
         usage_type: "none".to_string(),
         usage_url: None,
         usage_headers: None,
+        wallet_balance_script: None,
         request_adapter: ADAPTER_NONE.to_string(),
         default_key_config: DefaultKeyConfig::with_clients(&["claude_code"], serde_json::json!({})),
     }
@@ -377,6 +368,7 @@ mod tests {
 
     fn blank_input(preset_id: Option<&str>) -> crate::models::CreateProviderInput {
         crate::models::CreateProviderInput {
+            wallet_balance_script: None,
             name: String::new(),
             base_url: String::new(),
             http_proxy: None,
@@ -552,18 +544,15 @@ mod tests {
     }
 
     /// New API's account balance is read with a separate account credential, so
-    /// its preset request has to name both placeholders the dialog will ask for.
+    /// its script has to name both placeholders the dialog asks for.
     #[test]
-    fn the_newapi_balance_request_names_the_credential_it_needs() {
+    fn the_newapi_balance_script_names_the_credential_it_needs() {
         let preset = provider_preset(PRESET_NEWAPI).expect("newapi preset");
-        let headers = preset.wallet_balance_headers.expect("headers preset");
+        let script = preset.wallet_balance_script.expect("script preset");
 
-        assert!(headers.contains("{token}"));
-        assert!(headers.contains("{userId}"));
-        assert_eq!(
-            preset.wallet_balance_url.as_deref(),
-            Some("{baseUrl}/api/user/self")
-        );
+        assert!(script.contains("{{accessToken}}"));
+        assert!(script.contains("{{userId}}"));
+        assert!(script.contains("{{baseUrl}}/api/user/self"));
     }
 
     #[test]
@@ -577,7 +566,9 @@ mod tests {
         );
         assert!(preset.needs_account_credential);
         assert_eq!(preset.wallet_balance_type, "newapi");
-        assert_eq!(preset.usage_type, "newapi");
+        // Its account script is its one query; a second usage route would be a
+        // second thing to keep in step.
+        assert_eq!(preset.usage_type, "none");
     }
 
     #[test]
