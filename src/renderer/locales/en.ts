@@ -66,6 +66,8 @@ export default {
     takeover: 'Takeover',
   },
   common: {
+    more: 'More actions',
+    retry: 'Retry',
     settings: 'Settings',
     dashboard: 'Dashboard',
     providers: 'Providers',
@@ -317,6 +319,16 @@ export default {
     requests: 'Requests',
   },
   providers: {
+    queryTemplates: 'Query templates',
+    balanceTemplate: 'Custom balance example',
+    rollingWindowTemplate: '5-hour rolling window example',
+    iconLoadFailed: 'Icon could not load. Upload it again.',
+
+    queryNeedsKey: 'Add and enable an API key to check quota',
+    queryNeedsToken: 'Configure the account access token first',
+    queryNeedsUserId: 'Configure the account user ID first',
+    disableProvider: 'Disable provider',
+    enableProvider: 'Enable provider',
     addProvider: 'Add Provider',
     editProvider: 'Edit Provider',
     newProvider: 'New Provider',
@@ -378,6 +390,8 @@ export default {
     periodWeekly: 'Weekly',
     periodMonthly: 'Monthly',
     queryUpdated: 'Quota updated',
+    configureQuery: 'Set up query',
+    queryNow: 'Check quota',
     queryNotChecked: 'Quota not checked yet',
     usageStatus: {
       exceeded: 'Exceeded',
@@ -559,9 +573,8 @@ export default {
     quota: 'Quota',
     refreshQuota: 'Refresh Quota',
     refreshQuotaFailed: 'Failed to refresh quota',
+    queryScriptRequired: 'Enter a quota query script or turn off quota queries',
     usageConfig: 'Quota Query Config',
-    advancedSettings: 'Advanced settings',
-    defaultsSummary: 'Defaults come from the provider. Expand advanced settings to change them.',
     usageScriptPlaceholder: '({ request: {...}, extractor: (response) => ({ remaining: ... }) })',
     usageEnabled: "Query this key's quota",
     usageScriptHint:
@@ -698,8 +711,6 @@ export default {
     viewAll: 'View all ({{count}})',
     autoAuditEntry: 'Auto records',
     autoAuditTitle: 'Auto records',
-    autoAuditHint:
-      'What the classifier was asked to review. Whether the tool ran can only be confirmed by the client.',
     autoAuditAction: 'Action under review',
     autoAuditUnknownAction: 'Not identified',
     autoAuditModel: 'Forwarded model',

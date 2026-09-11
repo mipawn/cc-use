@@ -7,6 +7,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  container: provider-page / inline-size;
 }
 
 .header {
@@ -99,13 +100,6 @@
   padding-bottom: 24px;
 }
 
-.keyGroup {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-ant-lg);
-  overflow: hidden;
-  background: var(--surface-default);
-}
-
 .groupHeader {
   display: flex;
   justify-content: space-between;
@@ -114,12 +108,12 @@
   background: var(--surface-sunken);
   border-radius: var(--radius-ant);
   margin-bottom: 0;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .groupInfo {
   display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -147,38 +141,24 @@
 .providerHealthTitle {
   font-size: 12px;
   line-height: 1.3;
-}
-
-.providerHealthRate {
-  display: block;
-  font-size: 9px;
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
 }
 
-.providerHealthMeta,
-.providerHealthEmpty {
+.providerHealthMeta {
   font-size: 11px;
-}
-
-.providerHealthEmpty {
-  margin-left: 4px;
-  padding-left: 14px;
-  border-left: 1px solid var(--border-subtle);
 }
 
 /* Key Card */
 .keyCard {
   transition: all 0.2s ease;
-  border-radius: 0 !important;
-  border: 0 !important;
-  border-top: 1px solid var(--border-subtle) !important;
+  border-radius: var(--radius-ant) !important;
   height: 100%;
 }
 
 .keyCard:hover {
-  background: var(--surface-sunken);
+  border-color: var(--color-accent-primary) !important;
+  box-shadow: var(--shadow-sm);
 }
 
 .keyCard.exhausted {
@@ -190,9 +170,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 0;
-  gap: 12px;
-  min-width: 0;
+  margin-bottom: 12px;
 }
 
 .keyCardTitle {
@@ -227,12 +205,14 @@
 
 .statsRow {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
-  padding: 0;
-  margin: 0;
-  gap: 8px 16px;
+  padding: 12px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px 20px;
 }
 
 .statItem {
@@ -262,8 +242,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: auto;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -354,36 +336,86 @@
   margin-bottom: 12px;
 }
 
-.keyCard :global(.ant-card-body) {
-  display: grid;
-  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr);
+/* A provider groups independent key cards, matching the original page. */
+.providerSummary {
+  background: var(--surface-sunken);
+  border-radius: var(--radius-ant);
+  margin-bottom: 14px;
+}
+.groupInfo {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.groupName {
+  font-size: 14px;
+}
+.providerIdentity {
+  min-width: 0;
+}
+.accountAmount {
+  display: inline-flex;
   align-items: center;
-  gap: 14px 24px;
-  padding: 18px 20px;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--ant-color-primary-bg, #e6f4ff);
+  color: var(--ant-color-primary, #1677ff);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
 }
-
-.keyCardActions {
-  grid-column: 1 / -1;
+.healthLabel {
+  font-weight: 400;
+  color: var(--ant-color-text-secondary);
+  font-size: 11px;
 }
-.keyQuota {
-  grid-column: 1 / -1;
+.providerQuota {
+  padding: 0 16px 14px;
+}
+.providerQuota :global(.ant-progress) {
+  margin-bottom: 0;
+}
+.providerInactive .groupName {
+  color: var(--ant-color-text-tertiary);
+}
+.keysGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.keyCard {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-default);
+}
+.keyCard :global(.ant-card-body) {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  height: 100%;
+}
+.keyCardHeader {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.keyTitleInfo {
+  min-width: 0;
 }
 .keyAlias {
   overflow-wrap: anywhere;
+  font-size: 15px;
+}
+.keyMeta {
+  margin-top: 2px;
 }
 .clientLabel {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  color: var(--ant-color-text-secondary);
   font-size: 11px;
-  color: var(--text-secondary);
 }
-.providerQuota {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-subtle);
+.keyQuota {
+  margin-bottom: 16px;
 }
 .statItemClickable {
   border: 0;
@@ -391,37 +423,50 @@
   color: inherit;
   font: inherit;
 }
-.statItemClickable:focus-visible {
+.statItemClickable:focus-visible,
+.addKeyCard:focus-visible {
   outline: 2px solid var(--color-accent-primary);
   outline-offset: 3px;
 }
-.groupHeader {
-  flex-wrap: wrap;
-  gap: 12px;
-  border-radius: 0;
+.addKeyCard {
+  width: 100%;
+  height: 100%;
+  min-height: 206px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-ant);
+  background: var(--surface-elevated);
+  color: var(--ant-color-text-secondary);
+  font: inherit;
+}
+@container provider-page (max-width: 740px) {
+  .keysGrid {
+    grid-template-columns: 1fr;
+  }
+  .providerHealth {
+    display: none;
+  }
+  .groupHeader {
+    padding: 12px;
+  }
+  .keyCard :global(.ant-card-body) {
+    padding: 16px;
+  }
+  .addKeyCard {
+    min-height: 100px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .keyCard,
+  .addKeyCard {
+    transition: none;
+  }
 }
 
-@media (min-width: 1250px) {
-  .keyCard :global(.ant-card-body) {
-    grid-template-columns: minmax(180px, 1fr) minmax(190px, 1fr) auto;
-  }
-  .keyCardActions {
-    grid-column: 3;
-    grid-row: 1;
-  }
+.addKeyCardWide {
+  grid-column: 1 / -1;
+  min-height: 48px;
+  flex-direction: row;
 }
-@media (max-width: 700px) {
-  .keyCard :global(.ant-card-body) {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-  .keyCardActions {
-    justify-content: flex-start;
-  }
-  .providerHealth,
-  .providerHealthEmpty {
-    border: 0;
-    margin: 0;
-    padding: 0;
-  }
+.addKeyCardWide .addIcon {
+  font-size: 16px;
 }
