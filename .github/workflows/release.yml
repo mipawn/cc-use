@@ -70,7 +70,9 @@ jobs:
         with:
           tagName: ${{ github.event_name == 'workflow_dispatch' && format('test-{0}', github.run_id) || 'v__VERSION__' }}
           releaseCommitish: ${{ github.sha }}
-          releaseName: ${{ github.event_name == 'workflow_dispatch' && format('v__VERSION__ 测试版 #{0}', github.run_number) || 'v__VERSION__' }}
+          # Quoted: an unquoted scalar would end at the " #" below, and the
+          # workflow would fail to parse before any job runs.
+          releaseName: "${{ github.event_name == 'workflow_dispatch' && format('v__VERSION__ 测试版 #{0}', github.run_number) || 'v__VERSION__' }}"
           releaseBody: |
             ${{ steps.release_notes.outputs.body }}
 
