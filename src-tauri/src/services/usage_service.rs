@@ -507,22 +507,30 @@ async fn fetch_opencode_go_usage(
     let api_key = super::balance_service::pick_first_available_key(fallback_api_keys)
         .ok_or_else(|| "No available API keys for the quota check".to_string())?;
 
-    let base = provider
-        .usage_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("{}/v1/usage", provider.base_url.trim_end_matches('/')));
+    // The request is the provider's own when it has written one, and the
+    // documented one otherwise — same rule as every other account query.
+    let vars = QueryVars::for_provider(provider, Some(api_key.as_str()));
+    let url = substitute(
+        stored_or(
+            provider.usage_url.as_deref(),
+            query_defaults::OPENCODE_GO_USAGE_URL,
+        ),
+        &vars,
+    );
+    let headers = resolve_headers(
+        provider.usage_headers.as_deref(),
+        query_defaults::OPENCODE_GO_USAGE_HEADERS,
+        &vars,
+    )?;
 
-    let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
-    let resp = client
-        .get(&base)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let mut request = crate::services::http_client::outbound_client_for_provider(Some(provider))?
+        .get(&url)
+        .header("Content-Type", "application/json");
+    for (name, value) in &headers {
+        request = request.header(name, value);
+    }
+
+    let resp = request.send().await.map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status().as_u16()));

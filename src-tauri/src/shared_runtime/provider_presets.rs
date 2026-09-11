@@ -115,6 +115,12 @@ pub mod query_defaults {
     pub const NEWAPI_USAGE_URL: &str = "{baseUrl}/api/usage/token";
     pub const NEWAPI_USAGE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
     pub const NEWAPI_KEY_USAGE_URL: &str = "{baseUrl}/api/usage/token/";
+
+    /// OpenCode Go answers the account question with its metering periods
+    /// rather than a balance, but it is the same shape of query: one request
+    /// that says how much of the account is left.
+    pub const OPENCODE_GO_USAGE_URL: &str = "{baseUrl}/v1/usage";
+    pub const OPENCODE_GO_USAGE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
 }
 
 /// DeepSeek: Anthropic-compatible endpoint for Claude clients, native
@@ -235,10 +241,12 @@ fn opencode_go_preset() -> ProviderPreset {
         wallet_balance_type: "none".to_string(),
         wallet_balance_url: None,
         wallet_balance_headers: None,
-        // Filled in by the Go adapter, which reports the rolling windows.
+        // The account query for Go: it reports metering periods rather than a
+        // balance, so the answer is read differently, but it is still one
+        // request and it is still editable.
         usage_type: "opencode-go".to_string(),
-        usage_url: None,
-        usage_headers: None,
+        usage_url: Some(query_defaults::OPENCODE_GO_USAGE_URL.to_string()),
+        usage_headers: Some(query_defaults::OPENCODE_GO_USAGE_HEADERS.to_string()),
         request_adapter: ADAPTER_OPENCODE_GO.to_string(),
         default_key_config: DefaultKeyConfig {
             types: vec!["claude_code".to_string(), "codex".to_string()],
@@ -516,7 +524,7 @@ mod tests {
                     preset.id
                 );
             }
-            if preset.usage_type == "newapi" {
+            if matches!(preset.usage_type.as_str(), "newapi" | "opencode-go") {
                 assert!(preset.usage_url.is_some(), "{}: usage url", preset.id);
                 assert!(
                     preset.usage_headers.is_some(),
@@ -525,6 +533,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The account query is on for every preset that knows how to ask; only the
+    /// blank template leaves it off, because it knows nothing to ask.
+    #[test]
+    fn a_preset_queries_the_account_by_default_except_the_blank_one() {
+        let presets = provider_presets();
+        let silent: Vec<&str> = presets
+            .iter()
+            .filter(|preset| {
+                preset.wallet_balance_type == "none" && preset.usage_type != "opencode-go"
+            })
+            .map(|preset| preset.id.as_str())
+            .collect();
+
+        assert_eq!(silent, vec![PRESET_CUSTOM]);
     }
 
     /// New API's account balance is read with a separate account credential, so
