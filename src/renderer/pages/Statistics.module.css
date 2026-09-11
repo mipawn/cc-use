@@ -141,31 +141,65 @@
   border-radius: var(--radius-ant-lg) !important;
 }
 
-/* One compact line replacing the five separate summary cards. */
+/* Five aligned readings, with token volume given the visual emphasis. */
 .summaryBar {
   display: grid;
-  /* Equal cells that reflow instead of wrapping mid-row, which is what a
-     divider-separated line of statistics does. */
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-  gap: 4px 8px;
-  padding: 16px 20px;
-  border: 1px solid var(--cc-use-border, rgba(128, 128, 128, 0.2));
-  border-radius: 12px;
-  background: var(--cc-use-surface, transparent);
-}
-
-.summaryBar :global(.ant-statistic-title) {
-  margin-bottom: 2px;
-  font-size: 12px;
-  white-space: nowrap;
+  grid-template-columns: 1.35fr repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-ant-lg);
+  background: var(--surface-default);
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
+.summaryBar > :global(.ant-statistic) {
+  min-width: 0;
+  padding: 20px 22px;
+  border-left: 1px solid var(--border-subtle);
+}
+.summaryBar > :global(.ant-statistic):first-child {
+  border-left: 0;
+  background: var(--surface-sunken);
+}
+.summaryBar :global(.ant-statistic-title) {
+  margin-bottom: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
 .summaryBar :global(.ant-statistic-content) {
-  /* Figures line up column to column instead of shifting with each glyph. */
-  font-size: 22px;
+  font-family: var(--font-mono);
+  font-size: 25px;
+  font-weight: 500;
+  line-height: 1.3;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.8px;
+}
+.summaryBar :global(.ant-statistic-content-suffix) {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 5px;
+  letter-spacing: 0;
+  color: var(--text-secondary);
+}
+@media (max-width: 1050px) {
+  .summaryBar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--border-subtle);
+  }
+  .summaryBar > :global(.ant-statistic) {
+    border: 0;
+    background: var(--surface-default);
+    padding: 16px;
+  }
+  .summaryBar > :global(.ant-statistic):first-child {
+    grid-column: span 2;
+  }
+}
+@media (max-width: 600px) {
+  .summaryBar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* The collapsed analysis keeps the same content, just below the fold. */

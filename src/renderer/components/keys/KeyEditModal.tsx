@@ -328,7 +328,7 @@ export default function KeyEditModal({
         value: values.value?.trim(),
         types: selectedTypes,
         config: localConfig,
-        usageScript: keyScript || undefined,
+        usageScript: mode === 'edit' ? keyScript : keyScript || undefined,
         modelMapping: serializedModelMapping,
         clientConfigs,
       })

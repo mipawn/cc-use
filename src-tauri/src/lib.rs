@@ -20,6 +20,9 @@ pub fn run() {
     let db = Database::new().expect("Failed to initialize database");
 
     tauri::Builder::default()
+        .register_uri_scheme_protocol("cc-use-icon", |_ctx, request| {
+            commands::system::icon_response(request.uri().path())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())

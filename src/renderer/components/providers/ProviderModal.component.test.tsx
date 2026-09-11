@@ -12,11 +12,12 @@ import ProviderModal from './ProviderModal'
 
 const presets = vi.fn()
 const checkScript = vi.fn()
+const iconList = vi.fn()
 
 vi.mock('../../api', () => ({
   getApi: () => ({
     provider: { presets },
-    icon: { upload: async () => '' },
+    icon: { upload: async () => '', list: iconList },
     balance: { checkScript },
   }),
 }))
@@ -115,6 +116,8 @@ const newapi: ProviderPreset = {
 let mounted: { root: Root; container: HTMLElement } | null = null
 
 beforeEach(() => {
+  iconList.mockReset()
+  iconList.mockResolvedValue({ uploaded: [] })
   presets.mockReset()
   checkScript.mockReset()
   checkScript.mockResolvedValue({ url: 'https://relay.example.com', method: 'GET', headers: {} })
@@ -407,4 +410,26 @@ it('asks for the access token only when the script names it', async () => {
   await clickPreset(2) // newapi: names both {{accessToken}} and {{userId}}
   expect(document.body.querySelector('input#token')).not.toBeNull()
   expect(document.body.querySelector('input#walletBalanceUserId')).not.toBeNull()
+})
+
+it('reuses an uploaded icon from the local library', async () => {
+  iconList.mockResolvedValue({ uploaded: ['saved-logo.png'] })
+  const onSave = await render(providerFixture())
+  const icon = document.body.querySelector<HTMLButtonElement>('button[aria-label="saved-logo.png"]')
+  expect(icon?.querySelector('img')?.getAttribute('src')).toBe(
+    'cc-use-icon://localhost/saved-logo.png',
+  )
+  await act(async () => {
+    icon!.click()
+  })
+  await submit()
+  expect(onSave.mock.calls[0][0].icon).toBe('saved-logo.png')
+})
+
+it('persists an explicitly cleared account query', async () => {
+  const onSave = await render(providerFixture({ walletBalanceScript: DEEPSEEK_SCRIPT }))
+  await typeInto(scriptEditor(), '')
+  await submit()
+  expect(onSave.mock.calls[0][0].walletBalanceScript).toBe('')
+  expect(onSave.mock.calls[0][0].walletBalanceType).toBe('none')
 })

@@ -374,6 +374,17 @@ export default {
     accountCredentialHint:
       'Account credential. Used for balance queries only and never sent with inference requests.',
     usageNotChecked: 'Not checked yet',
+    periodRolling: '5 hours',
+    periodWeekly: 'Weekly',
+    periodMonthly: 'Monthly',
+    queryUpdated: 'Quota updated',
+    queryNotChecked: 'Quota not checked yet',
+    usageStatus: {
+      exceeded: 'Exceeded',
+      exhausted: 'Exhausted',
+      limited: 'Limited',
+      active: 'Active',
+    },
     usageWindowUnknown: 'Not reported',
     usageWindowUsed: '{{percent}}% used',
     usageWindowResetsAt: 'Resets {{time}}',

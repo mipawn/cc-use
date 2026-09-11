@@ -1,3 +1,6 @@
+import { hasKeyQuery, hasProviderQuery, formatAccountAmount } from '../utils/accountQuery'
+import ProviderUsageWindows from '../components/providers/ProviderUsageWindows'
+import { providerIconSrc } from '../utils/providerIcon'
 import { getApi } from '../api'
 /**
  * Keys - 以 Key 为核心维度的管理页面
@@ -126,8 +129,6 @@ function SortableTab({
 // Import provider type icons
 import claudeIcon from '../assets/provider-icons/claude.svg'
 import openaiIcon from '../assets/provider-icons/openai.svg'
-import deepseekIcon from '../assets/provider-icons/deepseek.svg'
-import newapiIcon from '../assets/provider-icons/newapi.svg'
 
 const { Title, Text } = Typography
 
@@ -148,26 +149,6 @@ const clientIconType = (clientKind: string) =>
       : clientKind === 'claude_desktop'
         ? 'claude_desktop'
         : 'claude_code'
-
-// Preset provider icon mapping
-const PRESET_ICON_MAP: Record<string, string> = {
-  claude: claudeIcon,
-  codex: openaiIcon,
-  openai: openaiIcon,
-  deepseek: deepseekIcon,
-  newapi: newapiIcon,
-}
-
-// Get provider icon src
-function getProviderIconSrc(provider: Provider): string {
-  if (!provider.icon) {
-    return PRESET_ICON_MAP['custom'] || PRESET_ICON_MAP.claude
-  }
-  if (PRESET_ICON_MAP[provider.icon]) {
-    return PRESET_ICON_MAP[provider.icon]
-  }
-  return `file://${provider.icon}`
-}
 
 export default function Keys() {
   const { t, i18n } = useTranslation()
@@ -285,13 +266,11 @@ export default function Keys() {
     if (activeFilter === 'all') {
       providers.forEach((provider) => {
         const providerKeys = apiKeys[provider.id] || []
-        if (providerKeys.length > 0) {
-          groups.push({
-            provider,
-            keys: providerKeys,
-            balance: provider.cachedWalletBalance || undefined,
-          })
-        }
+        groups.push({
+          provider,
+          keys: providerKeys,
+          balance: provider.cachedWalletBalance ?? undefined,
+        })
       })
     } else {
       const provider = providers.find((p) => p.id === activeFilter)
@@ -299,7 +278,7 @@ export default function Keys() {
         groups.push({
           provider,
           keys: apiKeys[provider.id] || [],
-          balance: provider.cachedWalletBalance || undefined,
+          balance: provider.cachedWalletBalance ?? undefined,
         })
       }
     }
@@ -351,21 +330,8 @@ export default function Keys() {
         message.error(result.error)
       } else if (!result.isValid) {
         message.error(result.invalidMessage || t('providers.refreshBalanceFailed'))
-      } else if (result.windows.length > 0) {
-        message.success(
-          result.windows
-            .map(
-              (window) =>
-                `${window.label} ${
-                  window.usedPercent === null
-                    ? t('providers.usageWindowUnknown')
-                    : `${window.usedPercent.toFixed(0)}%`
-                }`,
-            )
-            .join(' · '),
-        )
       } else {
-        message.success(`${t('providers.balance')}: $${result.balance?.toFixed(2)}`)
+        message.success(t('providers.queryUpdated'))
       }
     } catch {
       message.error(t('providers.refreshBalanceFailed'))
@@ -622,7 +588,7 @@ export default function Keys() {
                 >
                   <Space size={4}>
                     <Avatar
-                      src={getProviderIconSrc(provider)}
+                      src={providerIconSrc(provider?.icon) ?? undefined}
                       size={16}
                       style={{ background: 'transparent' }}
                     />
@@ -666,7 +632,7 @@ export default function Keys() {
                   <div className={styles.groupHeader}>
                     <div className={styles.groupInfo}>
                       <Avatar
-                        src={getProviderIconSrc(provider)}
+                        src={providerIconSrc(provider?.icon) ?? undefined}
                         size={20}
                         style={{ background: 'transparent' }}
                       />
@@ -680,7 +646,7 @@ export default function Keys() {
                       )}
                       {balance !== undefined && (
                         <Tag icon={<WalletOutlined />} color='blue'>
-                          ${balance.toFixed(2)}
+                          {formatAccountAmount(balance, provider.cachedWalletBalanceCurrency)}
                         </Tag>
                       )}
                       {providerMetrics[provider.name] ? (
@@ -725,7 +691,14 @@ export default function Keys() {
                         </Text>
                       )}
                     </div>
-                    <Space size={8}>
+                    <Space size={8} wrap>
+                      <Button
+                        size='small'
+                        icon={<PlusOutlined />}
+                        onClick={() => handleAddKey(provider.id)}
+                      >
+                        {t('apiKeys.addKey')}
+                      </Button>
                       <Tooltip
                         title={provider.isActive ? t('common.active') : t('common.inactive')}
                       >
@@ -749,9 +722,10 @@ export default function Keys() {
                           }
                         />
                       </Tooltip>
-                      {provider.walletBalanceType !== 'none' && (
+                      {hasProviderQuery(provider) && (
                         <Tooltip title={t('providers.refreshBalance')}>
                           <Button
+                            aria-label={t('providers.refreshBalance')}
                             type='text'
                             size='small'
                             icon={<ReloadOutlined spin={refreshingIds.has(provider.id)} />}
@@ -774,7 +748,9 @@ export default function Keys() {
                           size='small'
                           icon={<SettingOutlined />}
                           onClick={() => handleEditProvider(provider)}
-                        />
+                        >
+                          {t('common.settings')}
+                        </Button>
                       </Tooltip>
                       <Popconfirm
                         title={t('providers.deleteProvider')}
@@ -789,10 +765,30 @@ export default function Keys() {
                     </Space>
                   </div>
 
-                  {/* Keys Grid - 一排两个 */}
-                  <Row gutter={[16, 16]}>
+                  {hasProviderQuery(provider) &&
+                    (balance === undefined ||
+                      Boolean(
+                        provider.cachedUsage?.windows?.length ||
+                        provider.cachedUsage?.groups?.length,
+                      )) && (
+                      <div className={styles.providerQuota}>
+                        <Text type='secondary'>{t('providers.usage')}</Text>
+                        {provider.cachedUsage?.windows?.length ||
+                        provider.cachedUsage?.groups?.length ? (
+                          <ProviderUsageWindows
+                            windows={provider.cachedUsage?.windows ?? []}
+                            groups={provider.cachedUsage?.groups ?? []}
+                          />
+                        ) : balance === undefined ? (
+                          <Text type='secondary'>{t('providers.queryNotChecked')}</Text>
+                        ) : null}
+                      </div>
+                    )}
+
+                  {/* Each key has a consistent row of identity, usage and actions. */}
+                  <Row gutter={[0, 0]}>
                     {keys.map((key) => (
-                      <Col key={key.id} xs={24} sm={24} md={12}>
+                      <Col key={key.id} span={24}>
                         <Card
                           className={`${styles.keyCard} ${key.isExhausted ? styles.exhausted : ''}`}
                           variant='outlined'
@@ -812,11 +808,14 @@ export default function Keys() {
                                         key={clientKind}
                                         title={getClientKindLabel(clientKind)}
                                       >
-                                        <Avatar
-                                          src={TYPE_ICONS[clientIconType(clientKind)]}
-                                          size={16}
-                                          style={{ background: 'transparent' }}
-                                        />
+                                        <span className={styles.clientLabel}>
+                                          <Avatar
+                                            src={TYPE_ICONS[clientIconType(clientKind)]}
+                                            size={14}
+                                            style={{ background: 'transparent' }}
+                                          />
+                                          {getClientKindLabel(clientKind)}
+                                        </span>
                                       </Tooltip>
                                     )
                                   })}
@@ -824,6 +823,7 @@ export default function Keys() {
                               </div>
                             </div>
                             <Switch
+                              aria-label={`${key.alias || t('keys.unnamedKey')} ${t('common.active')}`}
                               size='small'
                               checked={!key.isExhausted}
                               onChange={(checked) => handleToggleKey(key, checked)}
@@ -833,9 +833,12 @@ export default function Keys() {
                           {/* Stats Row */}
                           <div className={styles.statsRow}>
                             {/* Key Quota - 额度 */}
-                            {key.usageType && key.usageType !== 'none' && (
+                            {hasKeyQuery(key) && (
                               <Tooltip title={t('keys.refreshQuota')}>
-                                <div
+                                <button
+                                  type='button'
+                                  aria-label={t('keys.refreshQuota')}
+                                  disabled={refreshingKeyUsageIds.has(key.id)}
                                   className={`${styles.statItem} ${styles.statItemClickable}`}
                                   onClick={() => handleRefreshKeyUsage(key.id)}
                                 >
@@ -844,13 +847,16 @@ export default function Keys() {
                                     {key.cachedUsage?.isUnlimited
                                       ? '∞'
                                       : key.cachedUsage?.remaining != null
-                                        ? `$${key.cachedUsage.remaining.toFixed(2)}`
+                                        ? formatAccountAmount(
+                                            key.cachedUsage.remaining,
+                                            key.cachedUsage.unit,
+                                          )
                                         : '--'}
                                   </span>
                                   {refreshingKeyUsageIds.has(key.id) && (
                                     <ReloadOutlined spin style={{ fontSize: 12, marginLeft: 4 }} />
                                   )}
-                                </div>
+                                </button>
                               </Tooltip>
                             )}
                             {/* Today's tokens */}
@@ -890,6 +896,18 @@ export default function Keys() {
                               </Tooltip>
                             </div>
                           </div>
+
+                          {hasKeyQuery(key) &&
+                            Boolean(
+                              key.cachedUsage?.windows?.length || key.cachedUsage?.groups?.length,
+                            ) && (
+                              <div className={styles.keyQuota}>
+                                <ProviderUsageWindows
+                                  windows={key.cachedUsage?.windows ?? []}
+                                  groups={key.cachedUsage?.groups ?? []}
+                                />
+                              </div>
+                            )}
 
                           {/* Actions */}
                           <div className={styles.keyCardActions}>
@@ -937,7 +955,9 @@ export default function Keys() {
                                     e.stopPropagation()
                                     handleDuplicateKey(key)
                                   }}
-                                />
+                                >
+                                  {t('keys.copyKey')}
+                                </Button>
                               </Tooltip>
                               {provider.website && (
                                 <Tooltip title={t('keys.visitWebsite')}>
@@ -952,20 +972,6 @@ export default function Keys() {
                                   />
                                 </Tooltip>
                               )}
-                              {provider.walletBalanceType !== 'none' && (
-                                <Tooltip title={t('providers.refreshBalance')}>
-                                  <Button
-                                    type='text'
-                                    size='small'
-                                    icon={<ReloadOutlined spin={refreshingIds.has(provider.id)} />}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleRefreshBalance(provider.id)
-                                    }}
-                                    disabled={refreshingIds.has(provider.id)}
-                                  />
-                                </Tooltip>
-                              )}
                               <Tooltip title={t('common.edit')}>
                                 <Button
                                   type='text'
@@ -975,7 +981,9 @@ export default function Keys() {
                                     e.stopPropagation()
                                     handleEditKey(key)
                                   }}
-                                />
+                                >
+                                  {t('common.edit')}
+                                </Button>
                               </Tooltip>
                               <Popconfirm
                                 title={t('apiKeys.deleteKey')}
@@ -998,18 +1006,6 @@ export default function Keys() {
                         </Card>
                       </Col>
                     ))}
-
-                    {/* Add Key Card */}
-                    <Col xs={24} sm={24} md={12}>
-                      <Card
-                        className={styles.addKeyCard}
-                        variant='outlined'
-                        onClick={() => handleAddKey(provider.id)}
-                      >
-                        <PlusOutlined className={styles.addIcon} />
-                        <Text type='secondary'>{t('apiKeys.addKey')}</Text>
-                      </Card>
-                    </Col>
                   </Row>
                 </div>
               ))}

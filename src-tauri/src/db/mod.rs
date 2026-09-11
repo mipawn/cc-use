@@ -13,6 +13,7 @@ macro_rules! add_field {
 pub mod api_keys;
 pub mod auto_mode_audits;
 pub mod gateway_metrics;
+mod go_preset_cleanup;
 mod keychain_migration;
 pub mod managed_instances;
 pub mod projects;
@@ -316,6 +317,7 @@ impl Database {
 
         // Run ALTER TABLE migrations for backward compatibility with existing databases
         self.run_alter_migrations();
+        self.clear_shipped_go_model_defaults()?;
         self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
 
         Ok(())
@@ -434,7 +436,7 @@ impl Database {
             "SELECT id, wallet_balance_type, wallet_balance_url, wallet_balance_headers,
                     wallet_balance_path, usage_type, usage_url, usage_headers, usage_path
              FROM providers
-             WHERE wallet_balance_script IS NULL OR TRIM(wallet_balance_script) = ''",
+             WHERE wallet_balance_script IS NULL",
         ) {
             Ok(statement) => statement,
             Err(_) => return,
@@ -506,7 +508,7 @@ impl Database {
         let mut statement = match self.conn.prepare(
             "SELECT id, usage_type, usage_url, usage_headers, usage_path
              FROM api_keys
-             WHERE usage_script IS NULL OR TRIM(usage_script) = ''",
+             WHERE usage_script IS NULL",
         ) {
             Ok(statement) => statement,
             Err(_) => return,
@@ -1102,5 +1104,30 @@ mod tests {
             .wallet_balance_script
             .expect("script");
         assert!(script.contains("https://mine.example.com"));
+    }
+    #[test]
+    fn explicitly_disabled_queries_are_not_restored_on_restart() {
+        let db = Database::new_in_memory().unwrap();
+        db.conn.execute("INSERT INTO providers (id, name, base_url, wallet_balance_type, wallet_balance_script) VALUES ('disabled', 'disabled', 'https://example.com', 'deepseek', '')", []).unwrap();
+        db.conn.execute("INSERT INTO api_keys (id, provider_id, value, usage_type, usage_script) VALUES ('disabled-key', 'disabled', 'test', 'newapi', '')", []).unwrap();
+        db.run_alter_migrations();
+        let provider_script: String = db
+            .conn
+            .query_row(
+                "SELECT wallet_balance_script FROM providers WHERE id='disabled'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let key_script: String = db
+            .conn
+            .query_row(
+                "SELECT usage_script FROM api_keys WHERE id='disabled-key'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(provider_script, "");
+        assert_eq!(key_script, "");
     }
 }

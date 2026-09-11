@@ -1,3 +1,4 @@
+import { hasProviderQuery } from '../../utils/accountQuery'
 import { Card, Typography, Tag, Button, Space, Tooltip, Popconfirm, theme } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import {
@@ -46,10 +47,7 @@ export default function ProviderCard({
 
   const handleCopyCommand = async () => {
     const apiKey = firstApiKey || provider.token || 'YOUR_API_KEY'
-    const command = generateTerminalCommand(
-      { type: 'custom', baseUrl: provider.baseUrl },
-      apiKey,
-    )
+    const command = generateTerminalCommand({ type: 'custom', baseUrl: provider.baseUrl }, apiKey)
     try {
       await navigator.clipboard.writeText(command)
       const terminalLabel = TERMINAL_TYPE_LABELS[terminalType]
@@ -122,14 +120,18 @@ export default function ProviderCard({
         <Tooltip title={t('common.edit')} key='edit'>
           <Button type='text' icon={<EditOutlined />} onClick={() => onEdit(provider)} />
         </Tooltip>,
-        <Tooltip title={t('providers.refreshBalance')} key='refresh'>
-          <Button
-            type='text'
-            icon={<ReloadOutlined spin={refreshing} />}
-            onClick={() => onRefreshBalance(provider.id)}
-            disabled={provider.walletBalanceType === 'none' || refreshing}
-          />
-        </Tooltip>,
+        ...(hasProviderQuery(provider)
+          ? [
+              <Tooltip title={t('providers.refreshBalance')} key='refresh'>
+                <Button
+                  type='text'
+                  icon={<ReloadOutlined spin={refreshing} />}
+                  onClick={() => onRefreshBalance(provider.id)}
+                  disabled={refreshing}
+                />
+              </Tooltip>,
+            ]
+          : []),
         <Popconfirm
           key='delete'
           title={t('providers.deleteProvider')}
@@ -216,13 +218,16 @@ export default function ProviderCard({
           </div>
         )}
 
-        {provider.walletBalanceType !== 'none' && (
+        {hasProviderQuery(provider) && provider.cachedWalletBalance != null && (
           <div className={styles.balanceBox}>
             <Space direction='vertical' size={0} className='w-full'>
               <Space className='justify-between w-full'>
                 <Text type='secondary'>{t('providers.balance')}</Text>
                 <Text strong className={styles.balanceAmount} style={{ color: token.colorPrimary }}>
-                  {formatBalance(provider.cachedWalletBalance, provider.cachedWalletBalanceCurrency)}
+                  {formatBalance(
+                    provider.cachedWalletBalance,
+                    provider.cachedWalletBalanceCurrency,
+                  )}
                 </Text>
               </Space>
               <Text type='secondary' className={styles.lastChecked}>
@@ -231,8 +236,6 @@ export default function ProviderCard({
             </Space>
           </div>
         )}
-
-        <Tag color='blue'>{provider.walletBalanceType.toUpperCase()}</Tag>
       </Space>
     </Card>
   )

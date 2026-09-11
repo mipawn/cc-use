@@ -360,3 +360,10 @@ it('seeds a new key from the provider defaults instead of a hardcoded template',
   })
   expect(onSave).not.toHaveBeenCalled() // value is required and still empty
 })
+
+it('clears a previously configured quota script when the switch is turned off', async () => {
+  const onSave = await render('edit', sourceKey())
+  await toggleQuota()
+  await submit()
+  expect(onSave.mock.calls[0][0].usageScript).toBe('')
+})

@@ -20,9 +20,10 @@ describe('providerIconSrc', () => {
     expect(providerIconSrc('   ')).toBeNull()
   })
 
-  it('loads an uploaded file from its path', () => {
-    expect(providerIconSrc('/Users/me/icon.png')).toBe('file:///Users/me/icon.png')
-    expect(providerIconSrc('file:///Users/me/icon.png')).toBe('file:///Users/me/icon.png')
+  it('loads both legacy paths and stored filenames from the icon library', () => {
+    expect(providerIconSrc('my logo.png')).toBe('cc-use-icon://localhost/my%20logo.png')
+    expect(providerIconSrc('/Users/me/icon.png')).toBe('cc-use-icon://localhost/icon.png')
+    expect(providerIconSrc('file:///Users/me/icon.png')).toBe('cc-use-icon://localhost/icon.png')
   })
 
   it('keeps the client-kind aliases pointing at their vendor mark', () => {

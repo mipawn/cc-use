@@ -100,32 +100,10 @@
 }
 
 .keyGroup {
-  animation: slide-up-fade 0.3s ease-out;
-  animation-fill-mode: backwards;
-}
-
-.keyGroup:nth-child(1) {
-  animation-delay: 0s;
-}
-.keyGroup:nth-child(2) {
-  animation-delay: 0.05s;
-}
-.keyGroup:nth-child(3) {
-  animation-delay: 0.1s;
-}
-.keyGroup:nth-child(4) {
-  animation-delay: 0.15s;
-}
-
-@keyframes slide-up-fade {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-ant-lg);
+  overflow: hidden;
+  background: var(--surface-default);
 }
 
 .groupHeader {
@@ -135,11 +113,13 @@
   padding: 12px 16px;
   background: var(--surface-sunken);
   border-radius: var(--radius-ant);
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .groupInfo {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -191,13 +171,14 @@
 /* Key Card */
 .keyCard {
   transition: all 0.2s ease;
-  border-radius: var(--radius-ant) !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--border-subtle) !important;
   height: 100%;
 }
 
 .keyCard:hover {
-  border-color: var(--color-accent-primary) !important;
-  box-shadow: var(--shadow-md);
+  background: var(--surface-sunken);
 }
 
 .keyCard.exhausted {
@@ -209,7 +190,9 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 0;
+  gap: 12px;
+  min-width: 0;
 }
 
 .keyCardTitle {
@@ -244,12 +227,12 @@
 
 .statsRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
-  padding: 12px;
-  background: var(--surface-sunken);
-  border-radius: var(--radius-sm);
-  margin-bottom: 12px;
+  padding: 0;
+  margin: 0;
+  gap: 8px 16px;
 }
 
 .statItem {
@@ -279,8 +262,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 12px;
-  border-top: 1px dashed var(--border-subtle);
+  gap: 12px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 /* Add Key Card */
@@ -368,4 +352,76 @@
   display: block;
   font-size: 12px;
   margin-bottom: 12px;
+}
+
+.keyCard :global(.ant-card-body) {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr);
+  align-items: center;
+  gap: 14px 24px;
+  padding: 18px 20px;
+}
+
+.keyCardActions {
+  grid-column: 1 / -1;
+}
+.keyQuota {
+  grid-column: 1 / -1;
+}
+.keyAlias {
+  overflow-wrap: anywhere;
+}
+.clientLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.providerQuota {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+.statItemClickable {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.statItemClickable:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 3px;
+}
+.groupHeader {
+  flex-wrap: wrap;
+  gap: 12px;
+  border-radius: 0;
+}
+
+@media (min-width: 1250px) {
+  .keyCard :global(.ant-card-body) {
+    grid-template-columns: minmax(180px, 1fr) minmax(190px, 1fr) auto;
+  }
+  .keyCardActions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+@media (max-width: 700px) {
+  .keyCard :global(.ant-card-body) {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .keyCardActions {
+    justify-content: flex-start;
+  }
+  .providerHealth,
+  .providerHealthEmpty {
+    border: 0;
+    margin: 0;
+    padding: 0;
+  }
 }

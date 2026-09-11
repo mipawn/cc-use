@@ -374,7 +374,9 @@ export default function Statistics() {
                 <Statistic
                   title={t('statistics.failedRequests')}
                   value={summary.failedRequests}
-                  valueStyle={summary.failedRequests > 0 ? { color: token.colorError } : undefined}
+                  styles={{
+                    content: summary.failedRequests > 0 ? { color: token.colorError } : undefined,
+                  }}
                 />
                 <Statistic
                   title={

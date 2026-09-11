@@ -42,6 +42,12 @@ export function providerIconSrc(icon: string | null | undefined): string | null 
   const known = ICON_SOURCES[value]
   if (known) return known
   if (value === 'custom') return null
-  // Anything else came back from the icon uploader as a filesystem path.
-  return value.startsWith('file://') ? value : `file://${value}`
+  // Uploaded icons are served only from the app's local icon library.
+  // Older records can contain an absolute path; only its filename is used.
+  const filename = value
+    .replace(/^file:\/\//, '')
+    .split('/')
+    .pop()
+  if (!filename || filename === '.' || filename === '..') return null
+  return `cc-use-icon://localhost/${encodeURIComponent(filename)}`
 }

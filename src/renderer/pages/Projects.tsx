@@ -1,3 +1,4 @@
+import { providerIconSrc } from '../utils/providerIcon'
 import { getApi } from '../api'
 /**
  * Projects - 项目管理页面（卡片布局）
@@ -38,8 +39,6 @@ import {
 // Import provider icons
 import claudeIcon from '../assets/provider-icons/claude.svg'
 import openaiIcon from '../assets/provider-icons/openai.svg'
-import deepseekIcon from '../assets/provider-icons/deepseek.svg'
-import newapiIcon from '../assets/provider-icons/newapi.svg'
 
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../stores/projectStore'
@@ -48,35 +47,12 @@ import { useApiKeyStore } from '../stores/apiKeyStore'
 import KeyCascader from '../components/common/KeyCascader'
 import RoutePickerModal from '../components/common/RoutePickerModal'
 import SimpleBar from 'simplebar-react'
-import type { Project, ApiKey, Provider, ClientKind, ProjectClientBinding } from '@shared/types'
+import type { Project, ApiKey, ClientKind, ProjectClientBinding } from '@shared/types'
 import styles from './Projects.module.css'
 import { supportsKeyClient } from '../utils/clientSupport'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
-
-// Preset provider icon mapping
-const PRESET_ICON_MAP: Record<string, string> = {
-  claude: claudeIcon,
-  codex: openaiIcon,
-  openai: openaiIcon,
-  deepseek: deepseekIcon,
-  newapi: newapiIcon,
-}
-
-// Get provider icon src
-function getProviderIconSrc(provider: Provider | null): string {
-  if (!provider) {
-    return PRESET_ICON_MAP.claude
-  }
-  if (!provider.icon) {
-    return PRESET_ICON_MAP['custom'] || PRESET_ICON_MAP.claude
-  }
-  if (PRESET_ICON_MAP[provider.icon]) {
-    return PRESET_ICON_MAP[provider.icon]
-  }
-  return `file://${provider.icon}`
-}
 
 // CLI type icon component
 const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => {
@@ -465,7 +441,7 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
                                 {t('projects.nextLaunchRoute')}
                               </Text>
                               <img
-                                src={getProviderIconSrc(provider)}
+                                src={providerIconSrc(provider?.icon) ?? undefined}
                                 alt={provider?.name}
                                 className={styles.providerIcon}
                               />

@@ -28,6 +28,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [selectedIcon, setSelectedIcon] = useState<string>('claude')
+  const [uploadedIcons, setUploadedIcons] = useState<string[]>([])
   const [customIconPath, setCustomIconPath] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [presets, setPresets] = useState<ProviderPreset[]>([])
@@ -46,6 +47,10 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   // The catalogue is code, not user data; it only seeds a new provider.
   useEffect(() => {
     if (!open) return
+    getApi()
+      .icon.list()
+      .then((result) => setUploadedIcons(result.uploaded))
+      .catch(() => setUploadedIcons([]))
     getApi()
       .provider.presets()
       .then(setPresets)
@@ -152,12 +157,12 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         remark: values.remark?.trim(),
         token: values.token?.trim(),
         icon: iconValue || undefined,
-        walletBalanceScript: script || undefined,
+        walletBalanceScript: provider ? script : script || undefined,
         requestHeaders: requestHeaders.trim() || undefined,
         walletBalanceUserId: values.walletBalanceUserId?.trim(),
         // The account query is the script now; there is no service kind left
         // to record, and these columns are what the migration reads.
-        walletBalanceType: 'custom',
+        walletBalanceType: script ? 'custom' : 'none',
         usageType: 'none',
         requestAdapter: provider ? provider.requestAdapter : (preset?.requestAdapter ?? 'none'),
         // The template's key defaults travel with the provider. Editing the
@@ -184,6 +189,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
     try {
       const buffer = await file.arrayBuffer()
       const path = await getApi().icon.upload(buffer, file.name)
+      setUploadedIcons((icons) => [...icons, path])
       setCustomIconPath(path)
       setSelectedIcon('custom')
     } catch {
@@ -296,30 +302,46 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                         </div>
                       </Tooltip>
                     ))}
+                    {Array.from(
+                      new Set([...uploadedIcons, ...(customIconPath ? [customIconPath] : [])]),
+                    ).map((icon) => (
+                      <button
+                        type='button'
+                        key={icon}
+                        aria-label={icon}
+                        aria-pressed={selectedIcon === 'custom' && customIconPath === icon}
+                        className={`${styles.iconItem} ${selectedIcon === 'custom' && customIconPath === icon ? styles.iconItemActive : ''}`}
+                        onClick={() => {
+                          setSelectedIcon('custom')
+                          setCustomIconPath(icon)
+                        }}
+                      >
+                        <img
+                          src={providerIconSrc(icon) ?? undefined}
+                          alt={icon}
+                          className={styles.iconImg}
+                        />
+                      </button>
+                    ))}
                     <Tooltip title={t('providers.uploadIcon')}>
-                      <div
-                        className={`${styles.iconItem} ${selectedIcon === 'custom' ? styles.iconItemActive : ''}`}
+                      <button
+                        type='button'
+                        className={styles.iconItem}
+                        aria-label={t('providers.uploadIcon')}
                         onClick={() => fileInputRef.current?.click()}
                       >
-                        {customIconPath ? (
-                          <img
-                            src={`file://${customIconPath}`}
-                            alt='custom'
-                            className={styles.iconImg}
-                          />
-                        ) : (
-                          <UploadOutlined className={styles.uploadIcon} />
-                        )}
-                      </div>
+                        <UploadOutlined className={styles.uploadIcon} />
+                      </button>
                     </Tooltip>
                     <input
                       ref={fileInputRef}
                       type='file'
-                      accept='image/*'
+                      accept='.png,.jpg,.jpeg,.webp,.gif,.svg,.ico'
                       className={styles.hiddenInput}
                       onChange={(e) => {
                         const file = e.target.files?.[0]
-                        if (file) handleIconUpload(file)
+                        if (file) void handleIconUpload(file)
+                        e.target.value = ''
                       }}
                     />
                   </div>

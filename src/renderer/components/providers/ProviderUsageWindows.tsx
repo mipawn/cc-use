@@ -1,4 +1,6 @@
-import { Progress, Space, Typography, theme } from 'antd'
+import styles from './ProviderUsageWindows.module.css'
+import { usageWindowLabel } from '../../utils/accountQuery'
+import { Progress, Typography, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { UsageGroup, UsageWindow } from '@shared/types'
 
@@ -25,7 +27,7 @@ export default function ProviderUsageWindows({
 
   if (groups.length > 0) {
     return (
-      <Space direction='vertical' size={8} className='w-full'>
+      <div className={styles.groups}>
         {groups.map((group) => (
           <div key={group.id}>
             <Text type='secondary' style={{ fontSize: 12 }}>
@@ -34,7 +36,7 @@ export default function ProviderUsageWindows({
             <WindowList windows={group.windows} />
           </div>
         ))}
-      </Space>
+      </div>
     )
   }
 
@@ -42,35 +44,33 @@ export default function ProviderUsageWindows({
 
   function WindowList({ windows: list }: { windows: UsageWindow[] }) {
     return (
-      <Space direction='vertical' size={4} className='w-full'>
+      <div className={styles.windows}>
         {list.map((window) => (
-          <div key={window.id} style={{ width: '100%' }}>
-            <Space className='justify-between w-full' size={8}>
-              <Text style={{ fontSize: 12, minWidth: 52 }}>{window.label}</Text>
-              <div style={{ flex: 1, minWidth: 60 }}>
-                <Progress
-                  percent={window.usedPercent ?? 0}
-                  showInfo={false}
-                  size='small'
-                  strokeColor={progressColor(window.usedPercent, token.colorPrimary)}
-                  // An unreported percentage is not "0% used".
-                  trailColor={window.usedPercent === null ? 'transparent' : undefined}
-                />
-              </div>
-              <Text type='secondary' style={{ fontSize: 12, minWidth: 64, textAlign: 'right' }}>
+          <div key={window.id} className={styles.window}>
+            <div className={styles.heading}>
+              <Text>{usageWindowLabel(window, t)}</Text>
+              <Text type='secondary' className={styles.percent}>
                 {window.usedPercent === null
-                  ? t('providers.usageWindowUnknown') || '未返回'
-                  : t('providers.usageWindowUsed', { percent: window.usedPercent.toFixed(0) }) ||
-                    `已用 ${window.usedPercent.toFixed(0)}%`}
+                  ? t('providers.usageWindowUnknown')
+                  : t('providers.usageWindowUsed', { percent: window.usedPercent.toFixed(0) })}
               </Text>
-            </Space>
-            <Text type='secondary' style={{ fontSize: 11 }}>
+            </div>
+            <Progress
+              percent={window.usedPercent ?? 0}
+              showInfo={false}
+              size='small'
+              strokeColor={progressColor(window.usedPercent, token.colorPrimary)}
+              trailColor={window.usedPercent === null ? 'transparent' : undefined}
+            />
+            <Text type='secondary' className={styles.reset}>
               {resetLabel(window.resetsAt, t)}
-              {window.status && window.status !== 'ok' ? ` · ${window.status}` : ''}
+              {window.status && window.status !== 'ok'
+                ? ` · ${t(`providers.usageStatus.${window.status}`, { defaultValue: window.status })}`
+                : ''}
             </Text>
           </div>
         ))}
-      </Space>
+      </div>
     )
   }
 }

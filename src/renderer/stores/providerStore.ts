@@ -91,7 +91,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
 
   refreshBalance: async (id) => {
     const result = await getApi().balance.refresh(id)
-    if (result.balance !== null) {
+    if (!result.error && result.isValid) {
       const provider = await getApi().provider.get(id)
       if (provider) {
         get().upsertProvider(provider)
