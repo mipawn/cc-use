@@ -88,6 +88,41 @@
   color: var(--ant-color-text-quaternary);
 }
 
+/* Preset Row */
+.presetRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  /* The chips sit above the two-column form; without this the first section
+     header butts straight up against them. */
+  margin-bottom: 24px;
+}
+
+.presetChip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default, rgba(0, 0, 0, 0.1));
+  background: var(--surface-elevated, #ffffff);
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.presetChip:hover {
+  border-color: var(--color-accent-primary, #00d4aa);
+  color: var(--color-accent-primary, #00d4aa);
+}
+
+.presetChipActive {
+  border-color: var(--color-accent-primary, #00d4aa);
+  background: var(--color-accent-glow, rgba(0, 212, 170, 0.1));
+  color: var(--color-accent-primary, #00d4aa);
+  font-weight: 600;
+}
+
 /* Icon Grid */
 .iconGrid {
   display: flex;
@@ -229,6 +264,10 @@
 }
 
 [data-theme='dark'] .iconItem {
+  background: var(--surface-elevated, #1e293b);
+}
+
+[data-theme='dark'] .presetChip {
   background: var(--surface-elevated, #1e293b);
 }
 

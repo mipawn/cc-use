@@ -350,8 +350,6 @@ export default {
     balanceTypeCustom: '自定义',
     balanceTypeDeepseek: 'DeepSeek',
     preset: '预设',
-    presetHint: '已填入该预设的地址、查询配置与请求适配选项，全部可以修改',
-    presetNeedsSite: '该预设需要你填写自己的站点地址，已填入的参数仍可修改',
     presetNames: {
       custom: '自定义',
       deepseek: 'DeepSeek',

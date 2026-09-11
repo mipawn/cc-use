@@ -357,10 +357,6 @@ export default {
     balanceTypeCustom: 'Custom',
     balanceTypeDeepseek: 'DeepSeek',
     preset: 'Preset',
-    presetHint:
-      'Filled with this preset\u2019s address, query settings and request adapter. Everything stays editable.',
-    presetNeedsSite:
-      'This preset needs your own site address. The values it filled in remain editable.',
     presetNames: {
       custom: 'Custom',
       deepseek: 'DeepSeek',

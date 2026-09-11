@@ -223,42 +223,31 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
             className={styles.form}
             initialValues={{ walletBalanceType: 'none', usageType: 'none' }}
           >
-            {/* The template is a starting point, not a lock: it only pre-fills
-                the fields below, all of which stay editable. */}
+            {/* A template is a starting point, not a lock: picking one fills in
+                the fields below, and each of them stays editable. Presets are
+                named, not branded — they select a template, so a vendor logo
+                would say the wrong thing. */}
             {!provider && presets.length > 0 && (
-              <div className={styles.sectionHeader}>
-                <SettingOutlined className={styles.sectionIcon} />
-                <Text strong>{t('providers.preset') || '预设'}</Text>
-              </div>
-            )}
-            {!provider && presets.length > 0 && (
-              <div className={styles.iconGrid}>
-                {presets.map((item) => (
-                  <Tooltip key={item.id} title={presetLabel(item.id, t)}>
-                    <div
-                      className={`${styles.iconItem} ${preset?.id === item.id ? styles.iconItemActive : ''}`}
+              <>
+                <div className={styles.sectionHeader}>
+                  <SettingOutlined className={styles.sectionIcon} />
+                  <Text strong>{t('providers.preset') || '预设'}</Text>
+                </div>
+                <div className={styles.presetRow}>
+                  {presets.map((item) => (
+                    <button
+                      key={item.id}
+                      type='button'
+                      className={`${styles.presetChip} ${
+                        preset?.id === item.id ? styles.presetChipActive : ''
+                      }`}
                       onClick={() => applyPreset(item)}
                     >
-                      <img
-                        src={PRESET_ICON_MAP[item.icon] || claudeIcon}
-                        alt={item.id}
-                        className={styles.iconImg}
-                      />
-                    </div>
-                  </Tooltip>
-                ))}
-              </div>
-            )}
-            {!provider && preset && (
-              <div className={styles.hint}>
-                <Text type='secondary'>
-                  {preset.requiresSiteAddress
-                    ? t('providers.presetNeedsSite') ||
-                      '该预设需要你填写自己的站点地址，已填入的参数仍可修改'
-                    : t('providers.presetHint') ||
-                      '已填入该预设的地址、查询配置与请求适配选项，全部可以修改'}
-                </Text>
-              </div>
+                      {presetLabel(item.id, t)}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
 
             {/* Main Form Grid */}

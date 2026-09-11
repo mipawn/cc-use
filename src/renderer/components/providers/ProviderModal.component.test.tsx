@@ -118,10 +118,9 @@ async function render(provider: Provider | null, onSave = vi.fn()) {
 }
 
 async function clickPreset(index: number) {
-  const icons = document.body.querySelectorAll('[class*="iconItem"]')
-  // The first ones belong to the preset picker; the icon picker follows.
+  const chips = document.body.querySelectorAll('[class*="presetChip"]')
   await act(async () => {
-    ;(icons[index] as HTMLElement).click()
+    ;(chips[index] as HTMLElement).click()
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
@@ -150,9 +149,12 @@ async function submit() {
 it('offers the catalogue on a new provider', async () => {
   await render(null)
   expect(presets).toHaveBeenCalled()
-  expect(document.body.querySelectorAll('[class*="iconItem"]').length).toBeGreaterThanOrEqual(
-    2 + 4, // preset picker + icon picker
-  )
+  // Presets are offered by name, not by vendor logo: a preset picks a
+  // template, so a brand mark would promise the wrong thing.
+  const chips = Array.from(document.body.querySelectorAll('[class*="presetChip"]'))
+  expect(chips.map((chip) => chip.textContent)).toEqual(['custom', 'deepseek'])
+  // The icon picker below is a separate control and keeps its logos.
+  expect(document.body.querySelectorAll('[class*="iconItem"]').length).toBe(4 + 1)
 })
 
 it('fills the address, name and query settings from the chosen preset', async () => {
