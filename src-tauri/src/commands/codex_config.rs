@@ -44,6 +44,14 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use toml_edit::DocumentMut;
 
+/// 接管会覆写的顶层键。恢复时逐个回填,而不是整份文件替换。
+const OVERWRITTEN_TOP_LEVEL_KEYS: &[&str] = &[
+    "model_provider",
+    "model",
+    "model_reasoning_effort",
+    "disable_response_storage",
+];
+
 const CC_USE_PROVIDER_KEY: &str = "cc-use";
 /// 默认钉死的 Codex 模型(Codex Desktop 当前主力模型)。
 const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
@@ -525,45 +533,18 @@ impl CodexConfigManager {
 
     /// 恢复配置:优先从最新备份还原 config.toml/auth.json;
     /// 无备份时移除 cc-use provider 并清空被覆写字段。
+    /// 恢复:把 cc-use 覆写过的字段还原,其余一切保持当前状态。
+    ///
+    /// 不整份覆盖 config.toml。接管期间用户新增的 `[mcp_servers.*]`、插件、
+    /// 项目信任只存在于当前文件里,用一份冻结的旧备份覆盖会静默丢掉它们 ——
+    /// 备份只是「这些字段原来是什么值」的来源,不是回退目标。
+    ///
+    /// 也不动 auth.json:本应用从不写它,里面的登录凭据属于 Codex 自己,
+    /// 用旧备份覆盖等于把用户此后的登录状态一起回退。
     pub fn restore(&self, backup_path: Option<&Path>) -> Result<(), CodexConfigError> {
-        let dir = backup_path
-            .map(|p| p.to_path_buf())
-            .or_else(|| self.latest_backup_dir());
-
-        if let Some(dir) = dir.filter(|d| d.is_dir()) {
-            // 从备份目录还原
-            let backup_config = dir.join("config.toml");
-            if backup_config.exists() {
-                fs::copy(&backup_config, &self.config_path)?;
-            } else {
-                self.strip_cc_use_from_config()?;
-            }
-            let backup_auth = dir.join("auth.json");
-            if backup_auth.exists() {
-                if let Some(parent) = self.auth_path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::copy(&backup_auth, &self.auth_path)?;
-            }
-            self.cleanup_deepseek_runtime();
-            return Ok(());
-        }
-
-        // 无备份:移除 cc-use 痕迹
-        self.strip_cc_use_from_config()?;
-        self.cleanup_deepseek_runtime();
-        Ok(())
-    }
-
-    fn cleanup_deepseek_runtime(&self) {
-        let _ = fs::remove_file(&self.model_catalog_path);
-        let _ = fs::remove_file(&self.model_catalog_state_path);
-    }
-
-    /// 从 config.toml 移除 cc-use provider 及被我们覆写的顶层字段
-    fn strip_cc_use_from_config(&self) -> Result<(), CodexConfigError> {
         let original_text = self.read_text()?;
         if original_text.trim().is_empty() {
+            self.cleanup_deepseek_runtime();
             return Ok(());
         }
 
@@ -571,19 +552,56 @@ impl CodexConfigManager {
             .parse::<DocumentMut>()
             .map_err(|e| CodexConfigError::ParseError(format!("Invalid TOML: {}", e)))?;
 
-        if doc
+        let snapshot = self.read_backup_config(backup_path);
+        self.restore_overwritten_fields(&mut doc, snapshot.as_ref());
+
+        write_atomic(&self.config_path, &doc.to_string())?;
+        self.cleanup_deepseek_runtime();
+        Ok(())
+    }
+
+    /// 读取用于回填的备份快照。读不出就当作「接管前没有这些键」处理。
+    fn read_backup_config(&self, backup_path: Option<&Path>) -> Option<DocumentMut> {
+        let dir = backup_path
+            .map(Path::to_path_buf)
+            .or_else(|| self.latest_backup_dir())?;
+        let text = fs::read_to_string(dir.join("config.toml")).ok()?;
+        text.parse::<DocumentMut>().ok()
+    }
+
+    fn cleanup_deepseek_runtime(&self) {
+        let _ = fs::remove_file(&self.model_catalog_path);
+        let _ = fs::remove_file(&self.model_catalog_state_path);
+    }
+
+    /// 把 cc-use 覆写过的键还原成快照里的值;快照里没有该键说明接管前就没有,
+    /// 删除即可。其余字段一律不动。
+    fn restore_overwritten_fields(&self, doc: &mut DocumentMut, snapshot: Option<&DocumentMut>) {
+        // `model_provider` 是我们的标记:不是 cc-use 就说明这个文件从未被接管,
+        // 里面的 model 等字段是用户自己的,不能碰。
+        let ours = doc
             .get("model_provider")
             .and_then(|item: &toml_edit::Item| item.as_str())
-            == Some(CC_USE_PROVIDER_KEY)
-        {
-            let table = doc.as_table_mut();
-            table.remove("model_provider");
-            table.remove("model");
-            table.remove("model_reasoning_effort");
-            table.remove("disable_response_storage");
+            == Some(CC_USE_PROVIDER_KEY);
+
+        if ours {
+            for key in OVERWRITTEN_TOP_LEVEL_KEYS {
+                match snapshot.and_then(|snapshot| snapshot.get(key)) {
+                    Some(item) => doc[*key] = item.clone(),
+                    None => {
+                        doc.as_table_mut().remove(key);
+                    }
+                }
+            }
         }
-        if self.is_our_model_catalog(&doc) {
-            doc.as_table_mut().remove("model_catalog_json");
+
+        if self.is_our_model_catalog(doc) {
+            match snapshot.and_then(|snapshot| snapshot.get("model_catalog_json")) {
+                Some(item) => doc["model_catalog_json"] = item.clone(),
+                None => {
+                    doc.as_table_mut().remove("model_catalog_json");
+                }
+            }
         }
 
         if let Some(providers) = doc
@@ -595,8 +613,6 @@ impl CodexConfigManager {
                 doc.as_table_mut().remove("model_providers");
             }
         }
-
-        write_atomic(&self.config_path, &doc.to_string())
     }
 
     /// 列出所有备份目录
@@ -1204,19 +1220,85 @@ command = "/x/node_repl"
         assert!(fs::read_to_string(&manager.config_path)
             .unwrap()
             .contains("experimental_bearer_token = \"session-xyz\""));
-        fs::write(&manager.auth_path, r#"{"OPENAI_API_KEY":"session-bad"}"#).unwrap();
 
-        // 恢复:从备份还原
+        // 恢复:被覆写的字段回到接管前的值
         manager.restore(None).unwrap();
 
         assert_eq!(
             fs::read_to_string(&manager.config_path).unwrap(),
             original_config
         );
+        // auth.json 从未被本应用写过,恢复不碰它。
         assert_eq!(
             fs::read_to_string(&manager.auth_path).unwrap(),
             original_auth
         );
+    }
+
+    /// 本次修复的核心回归:接管期间新增的 MCP / 插件 / 项目信任只存在于当前
+    /// 文件里,恢复不能把它们一起丢掉。
+    #[test]
+    fn test_restore_keeps_config_added_while_taken_over() {
+        let (manager, _temp) = create_test_manager();
+        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
+        fs::write(
+            &manager.config_path,
+            "model_provider = \"openai\"\nmodel = \"gpt-6-astra\"\n",
+        )
+        .unwrap();
+
+        manager.takeover("session-xyz", 22345).unwrap();
+
+        // 接管期间用户自己往 config.toml 里加的东西。
+        let mut taken_over = fs::read_to_string(&manager.config_path).unwrap();
+        taken_over.push_str(
+            "\n[mcp_servers.apifox]\nurl = \"https://api.apifox.com/mcp\"\n\n             [plugins.\"code-review\"]\nenabled = true\n\n             [projects.\"/Users/me/proj\"]\ntrust_level = \"trusted\"\n",
+        );
+        fs::write(&manager.config_path, &taken_over).unwrap();
+
+        manager.restore(None).unwrap();
+
+        let text = fs::read_to_string(&manager.config_path).unwrap();
+        assert!(text.contains("[mcp_servers.apifox]"), "{}", text);
+        assert!(text.contains("[plugins.\"code-review\"]"), "{}", text);
+        assert!(text.contains("trust_level = \"trusted\""), "{}", text);
+        // 被覆写的字段仍然还原成接管前的值。
+        assert!(text.contains("model_provider = \"openai\""), "{}", text);
+        assert!(text.contains("model = \"gpt-6-astra\""), "{}", text);
+        assert!(!text.contains("model_providers.cc-use"), "{}", text);
+    }
+
+    /// 接管期间用户改过的 auth.json 不能被旧备份覆盖 —— 那里面是登录凭据。
+    #[test]
+    fn test_restore_never_reverts_auth_json() {
+        let (manager, _temp) = create_test_manager();
+        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
+        fs::write(&manager.config_path, "model_provider = \"openai\"\n").unwrap();
+        fs::write(&manager.auth_path, r#"{"tokens":{"id_token":"old"}}"#).unwrap();
+
+        manager.takeover("session-xyz", 22345).unwrap();
+        // Codex 自己刷新了登录凭据。
+        fs::write(&manager.auth_path, r#"{"tokens":{"id_token":"refreshed"}}"#).unwrap();
+
+        manager.restore(None).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&manager.auth_path).unwrap(),
+            r#"{"tokens":{"id_token":"refreshed"}}"#
+        );
+    }
+
+    /// 未被接管的文件不该被「恢复」改动。
+    #[test]
+    fn test_restore_leaves_a_foreign_config_untouched() {
+        let (manager, _temp) = create_test_manager();
+        fs::create_dir_all(manager.config_path.parent().unwrap()).unwrap();
+        let foreign = "model_provider = \"openai\"\nmodel = \"gpt-6-astra\"\n\n                       [mcp_servers.dbx]\ncommand = \"node\"\n";
+        fs::write(&manager.config_path, foreign).unwrap();
+
+        manager.restore(None).unwrap();
+
+        assert_eq!(fs::read_to_string(&manager.config_path).unwrap(), foreign);
     }
 
     #[test]
