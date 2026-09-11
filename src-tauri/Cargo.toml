@@ -51,6 +51,7 @@ futures = "0.3"
 sys-locale = "0.3"
 libc = "0.2"
 toml_edit = "0.25.12"
+rquickjs = { version = "0.13.0", features = ["full"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"

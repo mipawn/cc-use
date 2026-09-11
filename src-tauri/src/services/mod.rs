@@ -5,4 +5,5 @@ pub mod console_log_store;
 pub mod http_client;
 pub mod import_export;
 pub(crate) mod query_request;
+pub mod query_script;
 pub mod usage_service;
