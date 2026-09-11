@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.9.2 更新**：修复 `cc-use claude` / `cc-use grok` 匹配项目后漏执行已配置前置命令的问题。详见 [CHANGELOG](./CHANGELOG.md) 与 [CLI 使用指南](./guides/CLI.md)。
+> **3.10.0 更新**：供应商预设、可写的账户查询脚本、控制台与用量统计重做；修复 Codex 恢复会丢 MCP / 插件 / 项目信任的问题。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >

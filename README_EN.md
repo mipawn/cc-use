@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.9.2 Update**: Fixed configured prelaunch commands being skipped when `cc-use claude` / `cc-use grok` matches a project. See [CHANGELOG](./CHANGELOG.md).
+> **3.10.0 Update**: Provider presets, editable account-query scripts, a reworked console and usage statistics; fixes Codex restore discarding MCP servers, plugins and project trust. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
