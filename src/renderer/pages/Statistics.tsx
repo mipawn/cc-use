@@ -9,7 +9,6 @@ import {
   Typography,
   Button,
   Card,
-  Collapse,
   Divider,
   Drawer,
   Table,
@@ -90,23 +89,7 @@ export default function Statistics() {
   const [auditOpen, setAuditOpen] = useState(false)
   const [detailRecord, setDetailRecord] = useState<RecentRequestLogDisplay | null>(null)
   const [rankingScope, setRankingScope] = useState<'key' | 'project' | null>(null)
-  // The expanded/collapsed choice survives a reload, so the page keeps the
-  // shape the user chose rather than resetting to the default.
-  const [analysisOpen, setAnalysisOpen] = useState(() => {
-    try {
-      return localStorage.getItem('cc-use.statistics.analysisOpen') === 'true'
-    } catch {
-      return false
-    }
-  })
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('cc-use.statistics.analysisOpen', String(analysisOpen))
-    } catch {
-      // A blocked storage backend only costs the preference, nothing else.
-    }
-  }, [analysisOpen])
   useEffect(() => {
     let cancelled = false
 
@@ -376,9 +359,8 @@ export default function Statistics() {
             </div>
           ) : hasData && summary ? (
             <div className={styles.statsContent}>
-              {/* One compact line: the three numbers a user checks first.
-                  Cache rate and latency need a reason to look at them, so they
-                  moved into the analysis section below. */}
+              {/* One line: the numbers a user checks first, cache rate and
+                  latency among them — they are read together or not at all. */}
               <div className={styles.summaryBar}>
                 <Space size={24} wrap split={<Divider type='vertical' />}>
                   <Statistic
@@ -397,8 +379,52 @@ export default function Statistics() {
                       summary.failedRequests > 0 ? { color: token.colorError } : undefined
                     }
                   />
+                  <Statistic
+                    title={
+                      <Tooltip title={t('statistics.cacheHitRateHint')}>
+                        <span>{t('statistics.cacheHitRate')}</span>
+                      </Tooltip>
+                    }
+                    value={summary.cacheHitRate * 100}
+                    precision={1}
+                    suffix='%'
+                  />
+                  <Statistic
+                    title={t('statistics.avgLatency')}
+                    // A missing measurement is not 0ms.
+                    value={summary.avgLatencyMs ?? undefined}
+                    suffix={summary.avgLatencyMs != null ? 'ms' : undefined}
+                    precision={0}
+                  />
                 </Space>
               </div>
+
+              {/* Directly under the summary: how the traffic moved over time. */}
+              <Card
+                className={styles.tableCard}
+                variant='outlined'
+                title={
+                  <Space>
+                    <RobotOutlined style={{ color: token.colorPrimary }} />
+                    <span>{t('statistics.dailyModelUsage')}</span>
+                  </Space>
+                }
+                extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
+              >
+                {stats.dailyModelUsage.length > 0 ? (
+                  <DailyModelUsageChart
+                    data={stats.dailyModelUsage}
+                    granularity={stats.trendGranularity}
+                    legendHint={t('statistics.legendToggleHint')}
+                    ariaLabel={t('statistics.dailyModelUsage')}
+                    unknownModelLabel={t('statistics.unknownModel')}
+                  />
+                ) : (
+                  <div className={styles.trendEmpty}>
+                    <Text type='secondary'>{t('statistics.noData')}</Text>
+                  </div>
+                )}
+              </Card>
 
               {/* Recent Requests — the reason the page is opened. */}
               <Card
@@ -429,137 +455,63 @@ export default function Statistics() {
                 />
               </Card>
 
-              {/* Analysis — collapsed by default, and the choice is remembered.
-                  Nothing here is removed: it is the same data, one click away. */}
-              <Collapse
-                ghost
-                activeKey={analysisOpen ? ['analysis'] : []}
-                onChange={(keys: string[]) => setAnalysisOpen(keys.includes('analysis'))}
-                items={[
-                  {
-                    key: 'analysis',
-                    label: t('statistics.analysis') || '分析',
-                    children: (
-                      <div className={styles.analysisBody}>
-                        <div className={styles.summaryRow}>
-                          <Card className={styles.summaryCard} variant='outlined'>
-                            <Statistic
-                              title={
-                                <Tooltip title={t('statistics.cacheHitRateHint')}>
-                                  <span>{t('statistics.cacheHitRate')}</span>
-                                </Tooltip>
-                              }
-                              value={summary.cacheHitRate * 100}
-                              precision={1}
-                              suffix='%'
-                            />
-                          </Card>
-                          <Card className={styles.summaryCard} variant='outlined'>
-                            <Statistic
-                              title={t('statistics.avgLatency')}
-                              // A missing measurement is not 0ms.
-                              value={summary.avgLatencyMs ?? undefined}
-                              suffix={summary.avgLatencyMs != null ? 'ms' : undefined}
-                              precision={0}
-                            />
-                          </Card>
-                        </div>
-
-                        <Card
-                          className={styles.tableCard}
-                          variant='outlined'
-                          title={
-                            <Space>
-                              <RobotOutlined style={{ color: token.colorPrimary }} />
-                              <span>{t('statistics.dailyModelUsage')}</span>
-                            </Space>
-                          }
-                          extra={<Text type='secondary'>{t('statistics.currentRange')}</Text>}
-                        >
-                          {stats.dailyModelUsage.length > 0 ? (
-                            <DailyModelUsageChart
-                              data={stats.dailyModelUsage}
-                              granularity={stats.trendGranularity}
-                              legendHint={t('statistics.legendToggleHint')}
-                              ariaLabel={t('statistics.dailyModelUsage')}
-                              unknownModelLabel={t('statistics.unknownModel')}
-                            />
-                          ) : (
-                            <div className={styles.trendEmpty}>
-                              <Text type='secondary'>{t('statistics.noData')}</Text>
-                            </div>
-                          )}
-                        </Card>
-
-                        <div className={styles.dimensionGrid}>
-                          <Card
-                            className={styles.tableCard}
-                            variant='outlined'
-                            title={
-                              <Space>
-                                <KeyOutlined style={{ color: token.colorPrimary }} />
-                                <span>{t('statistics.keyUsage')}</span>
-                              </Space>
-                            }
-                            extra={
-                              stats.keyUsage.length > RANKING_PREVIEW ? (
-                                <Button
-                                  type='link'
-                                  size='small'
-                                  onClick={() => setRankingScope('key')}
-                                >
-                                  {t('statistics.viewAll', { count: stats.keyUsage.length })}
-                                </Button>
-                              ) : undefined
-                            }
-                          >
-                            <Table
-                              dataSource={stats.keyUsage.slice(0, RANKING_PREVIEW)}
-                              columns={dimensionColumns}
-                              rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
-                              size='small'
-                              pagination={false}
-                              locale={{ emptyText: t('statistics.noData') }}
-                            />
-                          </Card>
-                          <Card
-                            className={styles.tableCard}
-                            variant='outlined'
-                            title={
-                              <Space>
-                                <FolderOpenOutlined style={{ color: token.colorPrimary }} />
-                                <span>{t('statistics.projectUsage')}</span>
-                              </Space>
-                            }
-                            extra={
-                              stats.projectUsage.length > RANKING_PREVIEW ? (
-                                <Button
-                                  type='link'
-                                  size='small'
-                                  onClick={() => setRankingScope('project')}
-                                >
-                                  {t('statistics.viewAll', {
-                                    count: stats.projectUsage.length,
-                                  })}
-                                </Button>
-                              ) : undefined
-                            }
-                          >
-                            <Table
-                              dataSource={stats.projectUsage.slice(0, RANKING_PREVIEW)}
-                              columns={dimensionColumns}
-                              rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
-                              size='small'
-                              pagination={false}
-                              locale={{ emptyText: t('statistics.noData') }}
-                            />
-                          </Card>
-                        </div>
-                      </div>
-                    ),
-                  },
-                ]}
-              />
+              {/* Rankings last: they answer "who spent it", after "how much". */}
+              <div className={styles.dimensionGrid}>
+                <Card
+                  className={styles.tableCard}
+                  variant='outlined'
+                  title={
+                    <Space>
+                      <KeyOutlined style={{ color: token.colorPrimary }} />
+                      <span>{t('statistics.keyUsage')}</span>
+                    </Space>
+                  }
+                  extra={
+                    stats.keyUsage.length > RANKING_PREVIEW ? (
+                      <Button type='link' size='small' onClick={() => setRankingScope('key')}>
+                        {t('statistics.viewAll', { count: stats.keyUsage.length })}
+                      </Button>
+                    ) : undefined
+                  }
+                >
+                  <Table
+                    dataSource={stats.keyUsage.slice(0, RANKING_PREVIEW)}
+                    columns={dimensionColumns}
+                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
+                    size='small'
+                    pagination={false}
+                    locale={{ emptyText: t('statistics.noData') }}
+                  />
+                </Card>
+                <Card
+                  className={styles.tableCard}
+                  variant='outlined'
+                  title={
+                    <Space>
+                      <FolderOpenOutlined style={{ color: token.colorPrimary }} />
+                      <span>{t('statistics.projectUsage')}</span>
+                    </Space>
+                  }
+                  extra={
+                    stats.projectUsage.length > RANKING_PREVIEW ? (
+                      <Button type='link' size='small' onClick={() => setRankingScope('project')}>
+                        {t('statistics.viewAll', {
+                          count: stats.projectUsage.length,
+                        })}
+                      </Button>
+                    ) : undefined
+                  }
+                >
+                  <Table
+                    dataSource={stats.projectUsage.slice(0, RANKING_PREVIEW)}
+                    columns={dimensionColumns}
+                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
+                    size='small'
+                    pagination={false}
+                    locale={{ emptyText: t('statistics.noData') }}
+                  />
+                </Card>
+              </div>
             </div>
           ) : (
             <Card className='empty-state' variant='outlined'>

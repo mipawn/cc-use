@@ -89,7 +89,10 @@ export default function AutoModeAuditDrawer({
       title={t('statistics.autoAuditTitle') || 'Auto 记录'}
       open={open}
       onClose={onClose}
-      size='large'
+      // Six columns need room. The `large` size is 736px, which is less than
+      // the fixed columns asked for — everything past the first two was
+      // squeezed. `size` takes a length as well as a keyword.
+      size='clamp(680px, 74vw, 1100px)'
       destroyOnHidden
     >
       <Space style={{ marginBottom: 12 }} wrap>
@@ -130,12 +133,15 @@ export default function AutoModeAuditDrawer({
           {
             title: t('statistics.time') || '时间',
             dataIndex: 'createdAt',
-            width: 160,
+            width: 150,
             render: (value: string) => new Date(value).toLocaleString(),
           },
           {
             title: t('statistics.autoAuditAction') || '待审核动作',
             dataIndex: 'actionSummary',
+            // The one column that can be long, so it is the one that absorbs
+            // the free space and yields it back when the drawer narrows.
+            ellipsis: true,
             render: (value: string | null, row) =>
               value ? (
                 <Tooltip title={row.toolUseId ?? undefined}>
@@ -151,7 +157,7 @@ export default function AutoModeAuditDrawer({
           {
             title: t('statistics.autoAuditModel') || '模型',
             dataIndex: 'forwardedModel',
-            width: 170,
+            width: 160,
             render: (value: string | null, row) => (
               <Tooltip
                 title={
@@ -165,28 +171,18 @@ export default function AutoModeAuditDrawer({
             ),
           },
           {
-            title: t('statistics.autoAuditThinking') || '思考',
-            dataIndex: 'thinking',
-            width: 90,
-            render: (value: string | null) => (
-              <Text type='secondary' style={{ fontSize: 12 }}>
-                {value ?? '—'}
-              </Text>
-            ),
-          },
-          {
             title: t('statistics.autoAuditVerdict') || '模型返回',
-            width: 100,
+            width: 90,
             render: (_, row) => verdictTag(row),
           },
           {
             title: t('statistics.autoAuditState') || '请求状态',
-            width: 110,
+            width: 90,
             render: (_, row) => stateTag(row),
           },
           {
             title: t('statistics.autoAuditClient') || '客户端执行',
-            width: 110,
+            width: 90,
             render: (_, row) =>
               // Only ever filled from a reliable client receipt.
               row.clientOutcome ? (
@@ -203,6 +199,9 @@ export default function AutoModeAuditDrawer({
             <Space direction='vertical' size={2} style={{ fontSize: 12 }}>
               <Text type='secondary'>
                 {t('statistics.autoAuditRequestId') || '请求 ID'}：{row.requestId}
+              </Text>
+              <Text type='secondary'>
+                {t('statistics.autoAuditThinking') || '思考'}：{row.thinking ?? '—'}
               </Text>
               {row.verdictReason && <Text>{row.verdictReason}</Text>}
               {row.stopReason && (
