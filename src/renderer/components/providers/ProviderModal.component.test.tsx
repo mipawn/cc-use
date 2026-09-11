@@ -237,10 +237,12 @@ function queryEditors(): HTMLTextAreaElement[] {
   )
 }
 
-async function typeInto(element: HTMLTextAreaElement, text: string) {
+async function typeInto(element: HTMLInputElement | HTMLTextAreaElement, text: string) {
   // React tracks the previous value on the node, so a plain assignment is
   // swallowed; going through the native setter is what makes the change land.
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+  const prototype =
+    element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
   await act(async () => {
     setter?.call(element, text)
     element.dispatchEvent(new Event('input', { bubbles: true }))
@@ -311,6 +313,44 @@ it('shows the request a chosen rule will send, headers and all', async () => {
   expect(balance.value).toBe(
     'GET https://api.deepseek.com/user/balance\nAuthorization: Bearer {key}',
   )
+})
+
+it('defaults a new provider to the hand-written account rule', async () => {
+  const onSave = await render(null)
+
+  // The query is a field to complete, not a switch to find: a new provider
+  // opens on the hand-written rule with its template already written out.
+  const [account] = queryEditors()
+  expect(account.value).toContain('GET {baseUrl}/api/user/balance')
+  expect(account.value).toContain('取值: data.balance')
+
+  await typeInto(document.body.querySelector<HTMLInputElement>('input#name')!, 'relay')
+  await typeInto(document.body.querySelector<HTMLInputElement>('input#baseUrl')!, 'https://relay.example.com')
+  await submit()
+
+  expect(onSave.mock.calls[0][0]).toMatchObject({
+    walletBalanceType: 'custom',
+    walletBalanceUrl: '{baseUrl}/api/user/balance',
+    walletBalancePath: 'data.balance',
+  })
+})
+
+it('returns to the hand-written rule when the blank template is chosen', async () => {
+  presets.mockResolvedValue([custom, deepseek])
+  const onSave = await render(null)
+
+  await clickPreset(1) // deepseek moves it to that service's request
+  expect(queryEditors()[0].value).toContain('api.deepseek.com')
+
+  await clickPreset(0) // blank template: back to the hand-written rule
+  await typeInto(document.body.querySelector<HTMLInputElement>('input#name')!, 'relay')
+  await typeInto(document.body.querySelector<HTMLInputElement>('input#baseUrl')!, 'https://relay.example.com')
+  await submit()
+
+  expect(onSave.mock.calls[0][0]).toMatchObject({
+    walletBalanceType: 'custom',
+    walletBalanceUrl: '{baseUrl}/api/user/balance',
+  })
 })
 
 it('writes the account rule onto the columns the daemon dispatches on', async () => {

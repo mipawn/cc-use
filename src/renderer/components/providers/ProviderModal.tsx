@@ -59,7 +59,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   // The account query: which rule reads it, and the request that carries it.
   // Held as text because that is how it is edited; the stored columns are read
   // and written through the block grammar.
-  const [accountRule, setAccountRule] = useState<AccountRule>('none')
+  const [accountRule, setAccountRule] = useState<AccountRule>('custom')
   const [accountBlock, setAccountBlock] = useState('')
   const [accountError, setAccountError] = useState<string | null>(null)
 
@@ -112,8 +112,11 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setCustomIconPath(null)
         setShowAdvanced(false)
         setPreset(null)
-        setAccountRule('none')
-        setAccountBlock('')
+        // A new provider starts on the hand-written rule with its template
+        // filled in: the account query is a field to complete, not a switch
+        // to find. Picking a template still moves it to that service's rule.
+        setAccountRule('custom')
+        setAccountBlock(blockFromDefault(accountRequestForRule('custom', [])))
       }
       setAccountError(null)
     }
@@ -129,8 +132,15 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
    */
   const applyPreset = (next: ProviderPreset) => {
     setPreset(next)
-    setAccountRule(accountRuleOf(next))
-    setAccountBlock(blockFromDefault(accountRequestForPreset(next)))
+    // The blank template is the hand-written rule, so it lands where a new
+    // provider already starts rather than switching the query off.
+    const rule: AccountRule = next.id === 'custom' ? 'custom' : accountRuleOf(next)
+    setAccountRule(rule)
+    setAccountBlock(
+      rule === 'custom'
+        ? blockFromDefault(accountRequestForRule('custom', presets))
+        : blockFromDefault(accountRequestForPreset(next)),
+    )
     setAccountError(null)
     form.setFieldsValue({
       name: next.defaultName,
