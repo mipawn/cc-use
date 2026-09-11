@@ -2,13 +2,7 @@ use crate::models::{ApiKey, Provider};
 use serde_json::Value;
 
 use super::query_request::{resolve_headers, stored_or, substitute, QueryVars};
-
-/// The requests these branches send when the provider has not written its own.
-/// They are shown in the settings dialog and are editable there, so they live
-/// here as the default that `恢复默认` restores rather than as hidden code.
-const NEWAPI_USAGE_PATH: &str = "/api/usage/token";
-const NEWAPI_KEY_USAGE_PATH: &str = "/api/usage/token/";
-const NEWAPI_USAGE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
+use crate::shared_runtime::provider_presets::query_defaults;
 
 pub async fn refresh_usage(
     provider: &Provider,
@@ -54,14 +48,16 @@ async fn fetch_newapi_usage(
         .ok_or_else(|| "No available token for usage query".to_string())?;
 
     let vars = QueryVars::for_provider(provider, Some(token.as_str()));
-    let default_url = format!("{}{}", vars.base_url, NEWAPI_USAGE_PATH);
     let url = substitute(
-        stored_or(provider.usage_url.as_deref(), &default_url),
+        stored_or(
+            provider.usage_url.as_deref(),
+            query_defaults::NEWAPI_USAGE_URL,
+        ),
         &vars,
     );
     let headers = resolve_headers(
         provider.usage_headers.as_deref(),
-        NEWAPI_USAGE_HEADERS,
+        query_defaults::NEWAPI_USAGE_HEADERS,
         &vars,
     )?;
 
@@ -172,9 +168,18 @@ async fn fetch_newapi_key_usage(
     provider: &Provider,
 ) -> Result<serde_json::Value, String> {
     let vars = QueryVars::for_key(key, provider);
-    let default_url = format!("{}{}", vars.base_url, NEWAPI_KEY_USAGE_PATH);
-    let url = substitute(stored_or(key.usage_url.as_deref(), &default_url), &vars);
-    let headers = resolve_headers(key.usage_headers.as_deref(), NEWAPI_USAGE_HEADERS, &vars)?;
+    let url = substitute(
+        stored_or(
+            key.usage_url.as_deref(),
+            query_defaults::NEWAPI_KEY_USAGE_URL,
+        ),
+        &vars,
+    );
+    let headers = resolve_headers(
+        key.usage_headers.as_deref(),
+        query_defaults::NEWAPI_USAGE_HEADERS,
+        &vars,
+    )?;
 
     let mut request = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&url)

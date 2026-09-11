@@ -2,19 +2,10 @@ use crate::models::{ApiKey, Provider};
 use serde_json::Value;
 
 use super::query_request::{has_stored, resolve_headers, stored_or, substitute, QueryVars};
+use crate::shared_runtime::provider_presets::query_defaults;
 
 const QUOTA_PER_UNIT: f64 = 500000.0;
-/// Documented DeepSeek balance endpoint, used only when the saved address is
-/// empty.
-const DEEPSEEK_BALANCE_URL: &str = "https://api.deepseek.com/user/balance";
 const UNLIMITED_THRESHOLD: f64 = 99_999_999.0;
-
-/// The requests these branches send when the provider has not written its own.
-/// They are shown in the provider's settings and are editable there, so they
-/// live here as the default that `恢复默认` restores rather than as hidden code.
-const NEWAPI_ACCOUNT_PATH: &str = "/api/user/self";
-const NEWAPI_ACCOUNT_HEADERS: &str = r#"{"Authorization": "{token}", "New-Api-User": "{userId}"}"#;
-const DEEPSEEK_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
 
 pub async fn refresh_balance(
     provider: &Provider,
@@ -48,11 +39,13 @@ async fn fetch_newapi_balance(
     // The account endpoint reads a named account, so it needs a user id. With
     // none, the key-scoped billing routes are the only thing left to ask.
     if vars.user_id.is_some() {
-        let default_url = format!("{}{}", vars.base_url, NEWAPI_ACCOUNT_PATH);
-        let url = substitute(stored_or(own_url, &default_url), &vars);
+        let url = substitute(
+            stored_or(own_url, query_defaults::NEWAPI_ACCOUNT_URL),
+            &vars,
+        );
         let headers = resolve_headers(
             provider.wallet_balance_headers.as_deref(),
-            NEWAPI_ACCOUNT_HEADERS,
+            query_defaults::NEWAPI_ACCOUNT_HEADERS,
             &vars,
         )?;
 
@@ -260,12 +253,15 @@ async fn fetch_deepseek_balance(
     // the vendor endpoint; an empty value means "use the documented official
     // one". `{key}` is the key being borrowed for this check.
     let url = substitute(
-        stored_or(provider.wallet_balance_url.as_deref(), DEEPSEEK_BALANCE_URL),
+        stored_or(
+            provider.wallet_balance_url.as_deref(),
+            query_defaults::DEEPSEEK_BALANCE_URL,
+        ),
         &vars,
     );
     let headers = resolve_headers(
         provider.wallet_balance_headers.as_deref(),
-        DEEPSEEK_HEADERS,
+        query_defaults::DEEPSEEK_BALANCE_HEADERS,
         &vars,
     )?;
 

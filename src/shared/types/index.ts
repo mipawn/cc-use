@@ -301,9 +301,16 @@ export interface ProviderPreset {
   /** Balance / quota queries need an account credential separate from the key. */
   needsAccountCredential: boolean
   walletBalanceType: Provider['walletBalanceType']
+  /**
+   * The request the balance query sends, complete with its headers: the
+   * settings dialog shows this as an editable block, so a preset that ships
+   * only a URL would leave half the request invisible.
+   */
   walletBalanceUrl: string | null
+  walletBalanceHeaders: string | null
   usageType: string
   usageUrl: string | null
+  usageHeaders: string | null
   /** Request adapter this provider runs. Saved config, not a label. */
   requestAdapter: string
   defaultKeyConfig: ProviderDefaultKeyConfig

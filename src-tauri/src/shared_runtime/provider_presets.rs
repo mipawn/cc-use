@@ -79,12 +79,42 @@ pub struct ProviderPreset {
     /// the inference key.
     pub needs_account_credential: bool,
     pub wallet_balance_type: String,
+    /// The request the balance query sends. It is shown in the provider's
+    /// settings and is editable there, so the preset carries a complete one —
+    /// url and headers together — rather than leaving the headers implicit.
     pub wallet_balance_url: Option<String>,
+    #[serde(default)]
+    pub wallet_balance_headers: Option<String>,
     pub usage_type: String,
     pub usage_url: Option<String>,
+    #[serde(default)]
+    pub usage_headers: Option<String>,
     /// Request adapter to run for this provider's traffic.
     pub request_adapter: String,
     pub default_key_config: DefaultKeyConfig,
+}
+
+/// The request each built-in parse rule sends when the provider has not written
+/// its own.
+///
+/// One source rather than two: the catalogue fills a new provider's stored
+/// request from here, the settings dialog shows these as `恢复默认`, and the
+/// fetch functions fall back to them for providers created before the request
+/// was configurable. `{baseUrl}`, `{key}`, `{token}` and `{userId}` are resolved
+/// at send time.
+pub mod query_defaults {
+    pub const DEEPSEEK_BALANCE_URL: &str = "https://api.deepseek.com/user/balance";
+    pub const DEEPSEEK_BALANCE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
+
+    pub const NEWAPI_ACCOUNT_URL: &str = "{baseUrl}/api/user/self";
+    pub const NEWAPI_ACCOUNT_HEADERS: &str =
+        r#"{"Authorization": "{token}", "New-Api-User": "{userId}"}"#;
+
+    /// Account-wide usage. The per-key endpoint below keeps its trailing slash:
+    /// they are different routes on the same service.
+    pub const NEWAPI_USAGE_URL: &str = "{baseUrl}/api/usage/token";
+    pub const NEWAPI_USAGE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
+    pub const NEWAPI_KEY_USAGE_URL: &str = "{baseUrl}/api/usage/token/";
 }
 
 /// DeepSeek: Anthropic-compatible endpoint for Claude clients, native
@@ -98,9 +128,11 @@ fn deepseek_preset() -> ProviderPreset {
         requires_site_address: false,
         needs_account_credential: false,
         wallet_balance_type: "deepseek".to_string(),
-        wallet_balance_url: Some("https://api.deepseek.com/user/balance".to_string()),
+        wallet_balance_url: Some(query_defaults::DEEPSEEK_BALANCE_URL.to_string()),
+        wallet_balance_headers: Some(query_defaults::DEEPSEEK_BALANCE_HEADERS.to_string()),
         usage_type: "none".to_string(),
         usage_url: None,
+        usage_headers: None,
         request_adapter: ADAPTER_NONE.to_string(),
         default_key_config: DefaultKeyConfig {
             types: vec![
@@ -138,9 +170,11 @@ fn newapi_preset() -> ProviderPreset {
         requires_site_address: true,
         needs_account_credential: true,
         wallet_balance_type: "newapi".to_string(),
-        wallet_balance_url: None,
+        wallet_balance_url: Some(query_defaults::NEWAPI_ACCOUNT_URL.to_string()),
+        wallet_balance_headers: Some(query_defaults::NEWAPI_ACCOUNT_HEADERS.to_string()),
         usage_type: "newapi".to_string(),
-        usage_url: None,
+        usage_url: Some(query_defaults::NEWAPI_USAGE_URL.to_string()),
+        usage_headers: Some(query_defaults::NEWAPI_USAGE_HEADERS.to_string()),
         request_adapter: ADAPTER_NONE.to_string(),
         default_key_config: DefaultKeyConfig::with_clients(&["claude_code"], serde_json::json!({})),
     }
@@ -200,9 +234,11 @@ fn opencode_go_preset() -> ProviderPreset {
         needs_account_credential: false,
         wallet_balance_type: "none".to_string(),
         wallet_balance_url: None,
+        wallet_balance_headers: None,
         // Filled in by the Go adapter, which reports the rolling windows.
         usage_type: "opencode-go".to_string(),
         usage_url: None,
+        usage_headers: None,
         request_adapter: ADAPTER_OPENCODE_GO.to_string(),
         default_key_config: DefaultKeyConfig {
             types: vec!["claude_code".to_string(), "codex".to_string()],
@@ -241,8 +277,10 @@ fn custom_preset() -> ProviderPreset {
         needs_account_credential: false,
         wallet_balance_type: "none".to_string(),
         wallet_balance_url: None,
+        wallet_balance_headers: None,
         usage_type: "none".to_string(),
         usage_url: None,
+        usage_headers: None,
         request_adapter: ADAPTER_NONE.to_string(),
         default_key_config: DefaultKeyConfig::with_clients(&["claude_code"], serde_json::json!({})),
     }
@@ -460,6 +498,50 @@ mod tests {
         assert_eq!(mapping["sonnet"], "deepseek-v4-pro[1m]");
     }
 
+    /// The settings dialog shows the request and lets it be edited, so a preset
+    /// that queries has to ship a whole request — a url with no headers would
+    /// leave the dialog showing half of what will actually be sent.
+    #[test]
+    fn a_preset_that_queries_carries_the_whole_request() {
+        for preset in provider_presets() {
+            if !matches!(preset.wallet_balance_type.as_str(), "none" | "custom") {
+                assert!(
+                    preset.wallet_balance_url.is_some(),
+                    "{}: balance url",
+                    preset.id
+                );
+                assert!(
+                    preset.wallet_balance_headers.is_some(),
+                    "{}: balance headers",
+                    preset.id
+                );
+            }
+            if preset.usage_type == "newapi" {
+                assert!(preset.usage_url.is_some(), "{}: usage url", preset.id);
+                assert!(
+                    preset.usage_headers.is_some(),
+                    "{}: usage headers",
+                    preset.id
+                );
+            }
+        }
+    }
+
+    /// New API's account balance is read with a separate account credential, so
+    /// its preset request has to name both placeholders the dialog will ask for.
+    #[test]
+    fn the_newapi_balance_request_names_the_credential_it_needs() {
+        let preset = provider_preset(PRESET_NEWAPI).expect("newapi preset");
+        let headers = preset.wallet_balance_headers.expect("headers preset");
+
+        assert!(headers.contains("{token}"));
+        assert!(headers.contains("{userId}"));
+        assert_eq!(
+            preset.wallet_balance_url.as_deref(),
+            Some("{baseUrl}/api/user/self")
+        );
+    }
+
     #[test]
     fn newapi_leaves_the_site_address_to_the_user() {
         let preset = provider_preset(PRESET_NEWAPI).expect("newapi preset");
@@ -566,8 +648,12 @@ pub fn apply_preset_defaults(
             .wallet_balance_type
             .or_else(|| Some(preset.wallet_balance_type)),
         wallet_balance_url: input.wallet_balance_url.or(preset.wallet_balance_url),
+        wallet_balance_headers: input
+            .wallet_balance_headers
+            .or(preset.wallet_balance_headers),
         usage_type: input.usage_type.or_else(|| Some(preset.usage_type)),
         usage_url: input.usage_url.or(preset.usage_url),
+        usage_headers: input.usage_headers.or(preset.usage_headers),
         request_adapter: input
             .request_adapter
             .or_else(|| Some(preset.request_adapter.clone())),

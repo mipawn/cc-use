@@ -49,8 +49,10 @@ const deepseek: ProviderPreset = {
   needsAccountCredential: false,
   walletBalanceType: 'deepseek',
   walletBalanceUrl: 'https://api.deepseek.com/user/balance',
+  walletBalanceHeaders: '{"Authorization": "Bearer {key}"}',
   usageType: 'none',
   usageUrl: null,
+  usageHeaders: null,
   requestAdapter: 'none',
   defaultKeyConfig: {
     types: ['claude_code', 'codex'],
@@ -68,8 +70,10 @@ const custom: ProviderPreset = {
   needsAccountCredential: false,
   walletBalanceType: 'none',
   walletBalanceUrl: null,
+  walletBalanceHeaders: null,
   usageType: 'none',
   usageUrl: null,
+  usageHeaders: null,
   requestAdapter: 'none',
   defaultKeyConfig: { types: ['claude_code'] },
 }
