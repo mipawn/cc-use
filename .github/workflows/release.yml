@@ -1,6 +1,7 @@
 name: Build & Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -51,6 +52,7 @@ jobs:
           cache: pnpm
 
       - name: Extract version changelog
+        if: github.event_name == 'push'
         id: release_notes
         run: >-
           node scripts/extract-release-notes.mjs
@@ -60,7 +62,15 @@ jobs:
 
       - run: pnpm install
 
+      - name: Diagnostic build
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build ${{ matrix.args }} --verbose
+
       - uses: tauri-apps/tauri-action@v0
+        if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -84,4 +94,5 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           assetNamePattern: ${{ matrix.assetName }}
-          args: ${{ matrix.args }}
+          # Show the underlying DMG script error instead of only the bundler summary.
+          args: ${{ matrix.args }} --verbose
