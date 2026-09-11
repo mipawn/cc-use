@@ -1029,4 +1029,78 @@ mod tests {
         assert_eq!(provider.preset_id, "custom");
         assert!(provider.default_key_config.is_none());
     }
+
+    /// A database written before the script model keeps its queries.
+    ///
+    /// The lift is pure-function tested in `account_scripts`; this is the half
+    /// that only a real database can prove — that the rows are found, that the
+    /// right columns are read, and that the result is written back.
+    #[test]
+    fn a_pre_script_database_has_its_queries_written_out() {
+        let db = Database::new_in_memory().expect("in-memory database");
+
+        db.conn
+            .execute(
+                "INSERT INTO providers (id, name, base_url, wallet_balance_type, wallet_balance_url,
+                    wallet_balance_headers, wallet_balance_path, usage_type, preset_id, request_adapter)
+                 VALUES ('p1', 'relay', 'https://relay.example.com', 'custom', '{baseUrl}/api/user/balance',
+                    '{\"Authorization\": \"Bearer {key}\"}', 'data.balance', 'none', 'custom', 'none')",
+                [],
+            )
+            .expect("legacy provider");
+
+        db.conn
+            .execute(
+                "INSERT INTO api_keys (id, provider_id, value, types, usage_type, usage_url,
+                    usage_headers, usage_path)
+                 VALUES ('k1', 'p1', 'sk-live', '[\"claude_code\"]', 'newapi',
+                    '{baseUrl}/api/usage/token/', '{\"Authorization\": \"Bearer {key}\"}', 'data.total_available')",
+                [],
+            )
+            .expect("legacy key");
+
+        db.run_alter_migrations();
+
+        let provider = db.provider_get("p1").unwrap().expect("provider");
+        let script = provider
+            .wallet_balance_script
+            .expect("provider script lifted");
+        // The address the provider was actually using survives, with the
+        // placeholders rewritten to the ones scripts substitute.
+        assert!(script.contains("{{baseUrl}}/api/user/balance"));
+        assert!(script.contains("Bearer {{apiKey}}"));
+        assert!(script.contains(r#"response["data"]["balance"]"#));
+
+        let key = db.api_key_get("k1").unwrap().expect("key");
+        let key_script = key.usage_script.expect("key script lifted");
+        // A key asks a different route than the account does.
+        assert!(key_script.contains("{{baseUrl}}/api/usage/token/"));
+        assert!(!key_script.contains("/api/user/self"));
+    }
+
+    /// The lift is a one-time translation, not a rewrite on every start.
+    #[test]
+    fn a_provider_that_already_has_a_script_keeps_it() {
+        let db = Database::new_in_memory().expect("in-memory database");
+
+        db.conn
+            .execute(
+                "INSERT INTO providers (id, name, base_url, wallet_balance_type, preset_id,
+                    request_adapter, wallet_balance_script)
+                 VALUES ('p1', 'relay', 'https://relay.example.com', 'deepseek', 'custom', 'none',
+                    '({ request: { url: \"https://mine.example.com\" }, extractor: () => ({}) })')",
+                [],
+            )
+            .expect("provider");
+
+        db.run_alter_migrations();
+
+        let script = db
+            .provider_get("p1")
+            .unwrap()
+            .expect("provider")
+            .wallet_balance_script
+            .expect("script");
+        assert!(script.contains("https://mine.example.com"));
+    }
 }

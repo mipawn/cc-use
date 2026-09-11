@@ -345,8 +345,12 @@ export default function Keys() {
       // answer is a balance, a set of metering periods, or both; either is
       // reported from the same result rather than guessed at from a type.
       const result = await refreshBalance(id)
+      // An account the service reports as unusable is not a balance of zero,
+      // and it must not fall through to the success branch below.
       if (result.error) {
         message.error(result.error)
+      } else if (!result.isValid) {
+        message.error(result.invalidMessage || t('providers.refreshBalanceFailed'))
       } else if (result.windows.length > 0) {
         message.success(
           result.windows

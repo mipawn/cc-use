@@ -97,19 +97,37 @@ const OPENCODE_GO: AccountScript = AccountScript {
     url: "{{baseUrl}}/v1/usage",
     headers: r#"{"Authorization": "Bearer {{apiKey}}"}"#,
     extractor: r#"function (response) {
-    var periods = response.usage || {}
+    var usage = response.usage
+    // A shape this build cannot read is reported, not rendered as no windows:
+    // "the provider said nothing" and "we could not read what it said" are
+    // different facts and only one of them is the user's to act on.
+    if (usage == null || typeof usage !== "object" || Array.isArray(usage)) {
+      return { isValid: false, invalidMessage: "响应里没有 usage 对象" }
+    }
+    var ids = Object.keys(usage)
+    if (ids.length === 0) {
+      return { isValid: false, invalidMessage: "usage 里没有计量周期" }
+    }
     var labels = { rolling: "5h", weekly: "Weekly", monthly: "Monthly" }
-    var windows = Object.keys(periods).map(function (id) {
-      var period = periods[id] || {}
-      return {
+    var windows = []
+    for (var i = 0; i < ids.length; i++) {
+      var id = ids[i]
+      var period = usage[id]
+      if (period == null || typeof period !== "object" || Array.isArray(period)) {
+        return { isValid: false, invalidMessage: "计量周期 " + id + " 不是对象" }
+      }
+      windows.push({
         id: id,
         label: labels[id] || id,
+        // A missing percentage stays missing rather than becoming zero.
         usedPercent: period.percent == null ? null : Number(period.percent),
         resetsAt: period.resets_at || period.resetsAt || null,
         status: period.status || null
-      }
-    })
-    return { isUnlimited: false, windows: windows }
+      })
+    }
+    // No unit and no unlimited claim: a percentage is not a currency, and the
+    // provider never said the account was unlimited.
+    return { windows: windows }
   }"#,
 };
 
