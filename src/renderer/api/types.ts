@@ -18,6 +18,7 @@ import type {
   ProviderPreset,
   AutoModeAudit,
   UsageData,
+  UsageWindow,
   ExportData,
   ExportOptions,
   ImportOptions,
@@ -147,11 +148,18 @@ export interface Api {
       unlimited: boolean
       /// Currency the endpoint quoted, when it said.
       currency: string | null
+      /// Metering periods, for a service that reports those instead.
+      windows: UsageWindow[]
+      isValid: boolean
+      invalidMessage: string | null
       error: string | null
     }>
-  }
-  usage: {
-    refresh: (providerId: string) => Promise<{ usage: UsageData | null; error: string | null }>
+    /// Evaluate a query script without sending anything, so a typo is caught
+    /// by the editor rather than by the next refresh.
+    checkScript: (
+      script: string,
+      baseUrl: string,
+    ) => Promise<{ url: string; method: string; headers: Record<string, string> }>
   }
   keyUsage: {
     refresh: (keyId: string) => Promise<{ usage: UsageData | null; error: string | null }>

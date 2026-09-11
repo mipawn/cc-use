@@ -14,6 +14,8 @@ import { buildDuplicatedKeyDraft, type KeyEditMode } from '../../utils/apiKeyEdi
 vi.mock('../../api', () => ({
   getApi: () => ({
     terminal: { getLaunchPreview: async () => null },
+    // The quota script is checked before saving; the mock accepts it.
+    balance: { checkScript: async () => ({ url: '', method: 'GET', headers: {} }) },
   }),
 }))
 vi.mock('react-i18next', () => ({
@@ -40,6 +42,11 @@ globalThis.ResizeObserver = class {
   unobserve() {}
   disconnect() {}
 }
+
+const SOURCE_QUOTA_SCRIPT =
+  '({ request: { url: "https://quota.example.com" }, extractor: () => ({ remaining: 1 }) })'
+const PRESET_QUOTA_SCRIPT =
+  '({ request: { url: "https://preset.example.com/quota" }, extractor: () => ({ remaining: 1 }) })'
 
 let mounted: { root: Root; container: HTMLElement } | null = null
 
@@ -89,9 +96,7 @@ const presetProvider: Provider = {
       claude_code: { baseUrl: 'https://preset.example.com/anthropic', authScheme: 'bearer' },
     },
     modelMapping: JSON.stringify({ haiku: 'preset-haiku', sonnet: 'preset-sonnet' }),
-    usageType: 'custom',
-    usageUrl: 'https://preset.example.com/quota',
-    usagePath: 'data.remaining',
+    usageScript: PRESET_QUOTA_SCRIPT,
   },
 }
 
@@ -123,6 +128,7 @@ const deepseekProvider: Provider = {
   presetId: 'deepseek',
   defaultKeyConfig: null,
   requestAdapter: 'none',
+  walletBalanceScript: null,
 }
 
 function sourceKey(): ApiKey {
@@ -136,8 +142,9 @@ function sourceKey(): ApiKey {
     isExhausted: false,
     isActive: true,
     usageType: 'custom',
-    usageUrl: 'https://quota.example.com',
-    usagePath: 'data.remaining',
+    usageScript: SOURCE_QUOTA_SCRIPT,
+    usageUrl: null,
+    usagePath: null,
     usageHeaders: null,
     cachedUsage: null,
     lastUsageCheckedAt: null,
@@ -209,8 +216,7 @@ it('fills every tab from the source key when duplicating', async () => {
   const fieldValues = Array.from(document.body.querySelectorAll('input, textarea')).map(
     (field) => (field as HTMLInputElement | HTMLTextAreaElement).value,
   )
-  expect(fieldValues).toContain('https://quota.example.com')
-  expect(fieldValues).toContain('data.remaining')
+  expect(fieldValues).toContain(SOURCE_QUOTA_SCRIPT)
 
   // The copy opens on the model mapping so it can be re-pointed immediately.
   expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain('模型映射')
@@ -284,8 +290,7 @@ it('seeds a new key from the provider defaults instead of a hardcoded template',
   const seeded = Array.from(document.body.querySelectorAll('input, textarea')).map(
     (field) => (field as HTMLInputElement | HTMLTextAreaElement).value,
   )
-  expect(seeded).toContain('https://preset.example.com/quota')
-  expect(seeded).toContain('data.remaining')
+  expect(seeded).toContain(PRESET_QUOTA_SCRIPT)
 
   await openTab('模型映射')
   expect(query('input[placeholder="claude-haiku-4-5"]')?.value).toBe('preset-haiku')

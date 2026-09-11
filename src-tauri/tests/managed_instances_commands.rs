@@ -159,6 +159,7 @@ fn assignment_rejects_an_exhausted_key() {
     fixture
         .db
         .api_key_update(&UpdateApiKeyInput {
+            usage_script: None,
             id: exhausted_key.id.clone(),
             alias: None,
             value: None,

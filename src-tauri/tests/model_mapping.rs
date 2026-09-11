@@ -80,6 +80,7 @@ fn setup_provider_with_mapping(
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            wallet_balance_script: None,
             name: "test-provider".to_string(),
             base_url: format!("http://127.0.0.1:{}", upstream_port),
             http_proxy: None,
@@ -104,6 +105,7 @@ fn setup_provider_with_mapping(
 
     let api_key = db
         .api_key_create(&CreateApiKeyInput {
+            usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some(format!("{}-key", provider_type)),
             value: format!("sk-{}", provider_type),

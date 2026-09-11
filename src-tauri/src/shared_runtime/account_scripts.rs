@@ -31,7 +31,12 @@ const DEEPSEEK: AccountScript = AccountScript {
     if (!entry || entry.total_balance == null) {
       return { isValid: false, invalidMessage: "响应中没有余额条目" }
     }
-    return { remaining: entry.total_balance, unit: entry.currency }
+    // The amount arrives as a string; the standard field is a number.
+    var amount = Number(entry.total_balance)
+    if (!isFinite(amount)) {
+      return { isValid: false, invalidMessage: "余额不是数字" }
+    }
+    return { remaining: amount, unit: entry.currency }
   }"#,
 };
 

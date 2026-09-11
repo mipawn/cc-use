@@ -104,10 +104,9 @@ export default function KeyEditModal({
   const [launchPreview, setLaunchPreview] = useState<TerminalLaunchPreview | null>(null)
   const { globalSettings } = useSettingsStore()
 
-  const [usageType, setUsageType] = useState<'none' | 'newapi' | 'custom'>('none')
-  const [usageUrl, setUsageUrl] = useState('')
-  const [usagePath, setUsagePath] = useState('')
-  const [usageHeaders, setUsageHeaders] = useState('')
+  // This key's own quota query. Empty means none is configured — the key
+  // reports what the account query reports, and nothing is asked about it.
+  const [usageScript, setUsageScript] = useState('')
   const [haikuModel, setHaikuModel] = useState('')
   const [sonnetModel, setSonnetModel] = useState('')
   const [opusModel, setOpusModel] = useState('')
@@ -195,10 +194,7 @@ export default function KeyEditModal({
         isOfficialDeepSeek ? defaults.types.filter((type) => type !== 'grok') : defaults.types,
       )
       setClaudeConfigJson(defaults.claudeConfigJson)
-      setUsageType(defaults.usageType)
-      setUsageUrl(defaults.usageUrl)
-      setUsagePath(defaults.usagePath)
-      setUsageHeaders(defaults.usageHeaders)
+      setUsageScript(defaults.usageScript)
       setHaikuModel(defaults.mapping.haiku)
       setSonnetModel(defaults.mapping.sonnet)
       setOpusModel(defaults.mapping.opus)
@@ -211,9 +207,7 @@ export default function KeyEditModal({
     setConfigMode('preview')
 
     if (source) {
-      setUsageType(source.usageType || 'none')
-      setUsageUrl(source.usageUrl || '')
-      setUsagePath(source.usagePath || '')
+      setUsageScript(source.usageScript || '')
       const mapping = parseModelMapping(source.modelMapping)
       setHaikuModel(mapping.haiku)
       setSonnetModel(mapping.sonnet)
@@ -222,15 +216,6 @@ export default function KeyEditModal({
       setModelOverrides(mapping.modelOverrides.map(createModelOverrideRow))
       setCodexModel(mapping.codex)
       setGrokModel(mapping.grok)
-      if (source.usageHeaders) {
-        try {
-          setUsageHeaders(JSON.stringify(JSON.parse(source.usageHeaders), null, 2))
-        } catch {
-          setUsageHeaders(source.usageHeaders)
-        }
-      } else {
-        setUsageHeaders('')
-      }
       setClientConfigs(source.clientConfigs || {})
     }
 
@@ -318,6 +303,18 @@ export default function KeyEditModal({
         message.error(t('keys.modelOverrideDuplicate') || '精确映射的原模型不能重复')
         return
       }
+      // Evaluated before saving, so a typo is caught here rather than on the
+      // next refresh. Nothing is sent and no credential is involved.
+      const keyScript = usageScript.trim()
+      if (keyScript) {
+        try {
+          await getApi().balance.checkScript(keyScript, currentProvider?.baseUrl ?? '')
+        } catch (error) {
+          message.error(String(error))
+          return
+        }
+      }
+
       const serializedModelMapping = buildModelMappingJson()
       await onSave({
         id: mode === 'edit' ? apiKey?.id : undefined,
@@ -327,10 +324,7 @@ export default function KeyEditModal({
         value: values.value?.trim(),
         types: selectedTypes,
         config: localConfig,
-        usageType,
-        usageUrl: usageType === 'custom' ? usageUrl?.trim() : undefined,
-        usagePath: usageType === 'custom' ? usagePath?.trim() : undefined,
-        usageHeaders: usageType === 'custom' ? usageHeaders?.trim() : undefined,
+        usageScript: usageScript.trim() || undefined,
         modelMapping: serializedModelMapping,
         clientConfigs,
       })
@@ -499,98 +493,21 @@ export default function KeyEditModal({
                   label: t('keys.usageConfig') || '额度查询配置',
                   children: (
                     <div className={styles.tabPane}>
-                      <Form.Item label={t('keys.usageConfig') || '额度查询配置'}>
-                        <Select
-                          value={usageType}
-                          onChange={(value) => {
-                            setUsageType(value)
-                            if (value === 'custom') {
-                              if (!usageUrl) setUsageUrl('{baseUrl}/api/usage/token/')
-                              if (!usagePath) setUsagePath('data.total_available')
-                              if (!usageHeaders)
-                                setUsageHeaders('{\n  "Authorization": "Bearer {key}"\n}')
-                            }
-                          }}
-                          options={[
-                            { value: 'none', label: t('keys.usageTypeNone') || '不查询' },
-                            { value: 'newapi', label: t('keys.usageTypeNewapi') || 'NewAPI' },
-                            { value: 'custom', label: t('keys.usageTypeCustom') || '自定义' },
-                          ]}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-
-                      {usageType === 'custom' && (
-                        <>
-                          <Form.Item
-                            label={t('keys.usageUrl') || '查询 URL'}
-                            extra={
-                              t('keys.usageUrlVarHint') ||
-                              '支持变量: {baseUrl} = 供应商地址, {key} = API 密钥'
-                            }
-                          >
-                            <Input
-                              value={usageUrl}
-                              onChange={(e) => setUsageUrl(e.target.value)}
-                              placeholder='{baseUrl}/api/usage/token/'
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            label={
-                              <Space>
-                                <span>{t('keys.usagePath') || 'JSON 路径'}</span>
-                                <Button
-                                  type='link'
-                                  size='small'
-                                  className={styles.templateBtn}
-                                  onClick={() => {
-                                    setUsagePath(
-                                      JSON.stringify(
-                                        {
-                                          remaining: 'data.total_available',
-                                          total: 'data.total_granted',
-                                          isUnlimited: 'data.unlimited_quota',
-                                        },
-                                        null,
-                                        2,
-                                      ),
-                                    )
-                                  }}
-                                >
-                                  {t('keys.usagePathMapTemplate') || '映射表模板'}
-                                </Button>
-                              </Space>
-                            }
-                            extra={
-                              t('keys.usagePathMapHint') ||
-                              '支持单路径（如 data.balance）或 JSON 映射表'
-                            }
-                          >
-                            <TextArea
-                              value={usagePath}
-                              onChange={(e) => setUsagePath(e.target.value)}
-                              placeholder='data.total_available'
-                              autoSize={{ minRows: 1, maxRows: 8 }}
-                              className={styles.jsonEditor}
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            label={t('keys.usageHeaders') || '自定义 Headers'}
-                            extra={
-                              t('keys.usageHeadersVarHint') ||
-                              '支持变量: {key} = API 密钥, {baseUrl} = 供应商地址'
-                            }
-                          >
-                            <Input.TextArea
-                              value={usageHeaders}
-                              onChange={(e) => setUsageHeaders(e.target.value)}
-                              placeholder={'{\n  "Authorization": "Bearer {key}"\n}'}
-                              autoSize={{ minRows: 3, maxRows: 6 }}
-                              style={{ fontFamily: 'monospace', fontSize: 12 }}
-                            />
-                          </Form.Item>
-                        </>
-                      )}
+                      <TextArea
+                        value={usageScript}
+                        onChange={(event) => setUsageScript(event.target.value)}
+                        autoSize={{ minRows: 8, maxRows: 20 }}
+                        spellCheck={false}
+                        className={styles.jsonEditor}
+                        placeholder={
+                          t('keys.usageScriptPlaceholder') ||
+                          '({ request: {...}, extractor: (response) => ({ remaining: ... }) })'
+                        }
+                      />
+                      <Text type='secondary' style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                        {t('keys.usageScriptHint') ||
+                          '留空则不查询。脚本与供应商的账户查询同构：{{baseUrl}} 供应商地址，{{apiKey}} 这把密钥'}
+                      </Text>
                     </div>
                   ),
                 },

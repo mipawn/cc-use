@@ -84,6 +84,7 @@ function sourceKey(): ApiKey {
     priority: 3,
     isExhausted: true,
     isActive: true,
+    usageScript: null,
     config: { prelaunchCommand: 'echo hi' },
     usageType: 'custom',
     usageUrl: 'https://quota.example.com',

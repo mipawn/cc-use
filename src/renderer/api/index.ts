@@ -91,9 +91,8 @@ function buildApi(): Api {
     },
     balance: {
       refresh: (providerId) => invoke('balance_refresh', { providerId }),
-    },
-    usage: {
-      refresh: (providerId) => invoke('usage_refresh', { providerId }),
+      // Checks a query script without sending anything.
+      checkScript: (script, baseUrl) => invoke('provider_script_check', { script, baseUrl }),
     },
     keyUsage: {
       refresh: (keyId) => invoke('key_usage_refresh', { keyId }),

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { UsageWindow } from '@shared/types'
 import type { Provider } from '@shared/types'
 import { getApi } from '../api'
 
@@ -20,6 +21,10 @@ interface ProviderState {
     used: number | null
     unlimited: boolean
     currency: string | null
+    /// Metering periods, for a service that reports those instead.
+    windows: UsageWindow[]
+    isValid: boolean
+    invalidMessage: string | null
     error: string | null
   }>
 }

@@ -1223,6 +1223,7 @@ mod tests {
 
         let provider = db
             .provider_create(&CreateProviderInput {
+                wallet_balance_script: None,
                 name: "Example".to_string(),
                 base_url: "https://api.example.com".to_string(),
                 http_proxy: None,
@@ -1246,6 +1247,7 @@ mod tests {
             .unwrap();
         let key = db
             .api_key_create(&CreateApiKeyInput {
+                usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("alpha".to_string()),
                 value: "test-value".to_string(),

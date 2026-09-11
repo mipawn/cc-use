@@ -22,6 +22,7 @@ fn merges_global_key_and_runtime_for_claude_preview() {
     let api_key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("test".to_string()),
             value: "sk-test".to_string(),
@@ -208,6 +209,7 @@ fn overlay_null_unsets_inherited_env_and_stringifies_values() {
     let api_key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("test".to_string()),
             value: "sk-test".to_string(),
@@ -257,6 +259,7 @@ fn project_preview_returns_project_prelaunch_command_and_keeps_it_out_of_env() {
     let api_key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("test".to_string()),
             value: "sk-test".to_string(),

@@ -80,25 +80,14 @@ export interface NewKeyDefaults {
   types: ClientKind[]
   clientConfigs: Partial<Record<ClientKind, ClientConfig>>
   claudeConfigJson: string
-  usageType: 'none' | 'newapi' | 'custom'
-  usageUrl: string
-  usagePath: string
-  usageHeaders: string
+  /**
+   * This key's own quota query. Empty by default: a key reports what the
+   * account query reports unless the user gives it one of its own.
+   */
+  usageScript: string
   mapping: ReturnType<typeof parseModelMapping>
 }
 
-/**
- * Starting values for a new key.
- *
- * A provider created from a preset carries a complete `defaultKeyConfig`, and
- * that is what a new key inherits — so filling in only the key value still
- * stores the endpoints, model mapping and quota settings. Providers saved
- * before v3.10.0 have none, and keep the behaviour they had: the DeepSeek
- * detection below, or a bare Claude Code default.
- *
- * The defaults are a snapshot, not a live link: changing the provider later
- * never rewrites an existing key.
- */
 /**
  * The mapping a brand-new key starts from.
  *
@@ -126,6 +115,18 @@ function statesAutoMode(json: string | null | undefined): boolean {
   }
 }
 
+/**
+ * Starting values for a new key.
+ *
+ * A provider created from a preset carries a complete `defaultKeyConfig`, and
+ * that is what a new key inherits — so filling in only the key value still
+ * stores the endpoints, model mapping and config. Providers saved before
+ * v3.10.0 have none, and keep the behaviour they had: the DeepSeek detection
+ * below, or a bare Claude Code default.
+ *
+ * The defaults are a snapshot, not a live link: changing the provider later
+ * never rewrites an existing key.
+ */
 export function newKeyDefaults(
   providerDefault: ProviderDefaultKeyConfig | null | undefined,
   legacyOfficialDeepSeek: boolean,
@@ -134,10 +135,7 @@ export function newKeyDefaults(
     types: ['claude_code'],
     clientConfigs: {},
     claudeConfigJson: '{}',
-    usageType: 'none',
-    usageUrl: '',
-    usagePath: '',
-    usageHeaders: '',
+    usageScript: '',
     mapping: newKeyMapping(null),
   }
 
@@ -165,8 +163,6 @@ export function newKeyDefaults(
     }
   }
 
-  const mapping = newKeyMapping(providerDefault.modelMapping)
-  const usageType = providerDefault.usageType ?? 'none'
   const claudeConfig = { ...(providerDefault.config ?? {}) } as CliConfig
   delete claudeConfig.prelaunchCommand
 
@@ -174,20 +170,7 @@ export function newKeyDefaults(
     types: providerDefault.types?.length ? [...providerDefault.types] : empty.types,
     clientConfigs: cloneJson(providerDefault.clientConfigs) ?? {},
     claudeConfigJson: JSON.stringify(claudeConfig, null, 2),
-    usageType,
-    usageUrl: providerDefault.usageUrl ?? '',
-    usagePath: providerDefault.usagePath ?? '',
-    usageHeaders: formatJsonOrRaw(providerDefault.usageHeaders),
-    mapping,
-  }
-}
-
-/** Pretty-print a JSON string for an editor, leaving anything else as-is. */
-function formatJsonOrRaw(value: string | undefined): string {
-  if (!value) return ''
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2)
-  } catch {
-    return value
+    usageScript: providerDefault.usageScript ?? '',
+    mapping: newKeyMapping(providerDefault.modelMapping),
   }
 }

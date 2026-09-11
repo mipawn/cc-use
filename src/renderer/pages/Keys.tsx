@@ -341,35 +341,25 @@ export default function Keys() {
   const handleRefreshBalance = async (id: string) => {
     setRefreshingIds((prev) => new Set(prev).add(id))
     try {
-      // A provider that meters by period reports through the usage endpoint;
-      // the balance endpoint has nothing to say about it, and its dollar-shaped
-      // result would be meaningless here.
-      if (providers.find((item) => item.id === id)?.usageType === 'opencode-go') {
-        const usage = await getApi().usage.refresh(id)
-        if (usage.error) {
-          message.error(usage.error)
-        } else {
-          const windows = usage.usage?.windows ?? []
-          message.success(
-            windows.length > 0
-              ? windows
-                  .map(
-                    (window) =>
-                      `${window.label} ${
-                        window.usedPercent === null
-                          ? t('providers.usageWindowUnknown')
-                          : `${window.usedPercent.toFixed(0)}%`
-                      }`,
-                  )
-                  .join(' · ')
-              : t('providers.usageWindowUnknown'),
-          )
-        }
-        return
-      }
+      // One query per provider, so one call. The script decides whether the
+      // answer is a balance, a set of metering periods, or both; either is
+      // reported from the same result rather than guessed at from a type.
       const result = await refreshBalance(id)
       if (result.error) {
         message.error(result.error)
+      } else if (result.windows.length > 0) {
+        message.success(
+          result.windows
+            .map(
+              (window) =>
+                `${window.label} ${
+                  window.usedPercent === null
+                    ? t('providers.usageWindowUnknown')
+                    : `${window.usedPercent.toFixed(0)}%`
+                }`,
+            )
+            .join(' · '),
+        )
       } else {
         message.success(`${t('providers.balance')}: $${result.balance?.toFixed(2)}`)
       }

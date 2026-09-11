@@ -87,6 +87,7 @@ pub fn run() {
             commands::statistics::gateway_metrics_get_by_provider,
             // Balance commands
             commands::balance::balance_refresh,
+            commands::balance::provider_script_check,
             commands::balance::key_usage_refresh,
             // Import/Export commands
             commands::import_export::export_providers,

@@ -1,7 +1,35 @@
 use crate::db::Database;
+use crate::services::query_script::{self, ScriptLimits, ScriptVars};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use tauri::State;
+
+/// Check a query script without running it.
+///
+/// A script is text until something evaluates it, so a typo would otherwise
+/// only surface the next time a balance was refreshed. This evaluates it —
+/// still without sending anything, and without any credential — and reports
+/// what it would ask for, so the editor can refuse a script that cannot work.
+#[tauri::command]
+pub fn provider_script_check(script: String, base_url: String) -> Result<Value, String> {
+    let limits = ScriptLimits::default();
+    // No credentials: placeholders that need one stay visible in the result,
+    // which is what the editor shows back rather than a half-resolved request.
+    let vars = ScriptVars {
+        base_url: base_url.trim().trim_end_matches('/').to_string(),
+        ..ScriptVars::default()
+    };
+
+    let request = query_script::resolve_request(&script, &vars, &limits)
+        .map_err(|error| error.message().to_string())?;
+    query_script::is_permitted_target(&request.url, &base_url)?;
+
+    Ok(serde_json::json!({
+        "url": request.url,
+        "method": request.method,
+        "headers": request.headers,
+    }))
+}
 
 /// Run a provider's account query and cache what it answered.
 ///

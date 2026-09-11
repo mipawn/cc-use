@@ -33,6 +33,7 @@ impl Drop for TempDb {
 
 pub fn create_provider(db: &Database, name: &str, _provider_type: &str) -> Provider {
     db.provider_create(&CreateProviderInput {
+        wallet_balance_script: None,
         name: name.to_string(),
         base_url: "https://example.com".to_string(),
         http_proxy: None,
@@ -58,6 +59,7 @@ pub fn create_provider(db: &Database, name: &str, _provider_type: &str) -> Provi
 
 pub fn create_api_key(db: &Database, provider_id: &str, cli_type: &str) -> ApiKey {
     db.api_key_create(&CreateApiKeyInput {
+        usage_script: None,
         provider_id: provider_id.to_string(),
         alias: Some(format!("{}-key", cli_type)),
         value: format!("sk-{}", cli_type),

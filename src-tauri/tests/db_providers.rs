@@ -10,6 +10,7 @@ fn provider_crud() {
     let provider = fixture
         .db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Test Provider".to_string(),
             base_url: "https://api.test.com".to_string(),
             http_proxy: None,
@@ -66,6 +67,7 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
     let provider = fixture
         .db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Token Provider".to_string(),
             base_url: "https://api.test.com".to_string(),
             http_proxy: None,
@@ -89,6 +91,7 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
         .unwrap();
 
     let update_token = |token: &str| UpdateProviderInput {
+        wallet_balance_script: None,
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
@@ -143,6 +146,7 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
 fn provider_create_returns_proper_result() {
     let fixture = TempDb::new();
     let result = fixture.db.provider_create(&CreateProviderInput {
+        wallet_balance_script: None,
         name: "Test".to_string(),
         base_url: "https://api.test.com".to_string(),
         http_proxy: None,
@@ -180,6 +184,7 @@ fn provider_get_direct_query() {
         fixture
             .db
             .provider_create(&CreateProviderInput {
+                wallet_balance_script: None,
                 name: format!("Provider {}", index),
                 base_url: format!("https://api{}.test.com", index),
                 http_proxy: None,
@@ -218,6 +223,7 @@ fn provider_update_no_changes() {
     let provider = fixture
         .db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Test".to_string(),
             base_url: "https://api.test.com".to_string(),
             http_proxy: None,
@@ -241,6 +247,7 @@ fn provider_update_no_changes() {
         .unwrap();
 
     let result = fixture.db.provider_update(&UpdateProviderInput {
+        wallet_balance_script: None,
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
@@ -279,6 +286,7 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
     let provider = fixture
         .db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Proxy Provider".to_string(),
             base_url: "https://api.test.com".to_string(),
             http_proxy: Some(" http://127.0.0.1:7890 ".to_string()),
@@ -309,6 +317,7 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
     let updated = fixture
         .db
         .provider_update(&UpdateProviderInput {
+            wallet_balance_script: None,
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
@@ -348,6 +357,7 @@ fn provider_reorder_sequence() {
     let p1 = fixture
         .db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Alpha".to_string(),
             base_url: "https://alpha.test.com".to_string(),
             http_proxy: None,
@@ -373,6 +383,7 @@ fn provider_reorder_sequence() {
     let p2 = fixture
         .db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Beta".to_string(),
             base_url: "https://beta.test.com".to_string(),
             http_proxy: None,
@@ -398,6 +409,7 @@ fn provider_reorder_sequence() {
     let p3 = fixture
         .db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Gamma".to_string(),
             base_url: "https://gamma.test.com".to_string(),
             http_proxy: None,

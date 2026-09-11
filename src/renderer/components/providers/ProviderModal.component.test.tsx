@@ -11,11 +11,13 @@ import ProviderModal from './ProviderModal'
 ).IS_REACT_ACT_ENVIRONMENT = true
 
 const presets = vi.fn()
+const checkScript = vi.fn()
 
 vi.mock('../../api', () => ({
   getApi: () => ({
     provider: { presets },
     icon: { upload: async () => '' },
+    balance: { checkScript },
   }),
 }))
 vi.mock('react-i18next', () => ({
@@ -40,6 +42,18 @@ globalThis.ResizeObserver = class {
   disconnect() {}
 }
 
+const DEEPSEEK_SCRIPT = `({
+  request: { url: "https://api.deepseek.com/user/balance", method: "GET",
+             headers: { Authorization: "Bearer {{apiKey}}" } },
+  extractor: function (response) { return { remaining: response.balance } }
+})`
+
+const NEWAPI_SCRIPT = `({
+  request: { url: "{{baseUrl}}/api/user/self", method: "GET",
+             headers: { Authorization: "{{accessToken}}", "New-Api-User": "{{userId}}" } },
+  extractor: function (response) { return { remaining: response.data.quota / 500000 } }
+})`
+
 const deepseek: ProviderPreset = {
   id: 'deepseek',
   defaultName: 'deepseek',
@@ -53,6 +67,7 @@ const deepseek: ProviderPreset = {
   usageType: 'none',
   usageUrl: null,
   usageHeaders: null,
+  walletBalanceScript: DEEPSEEK_SCRIPT,
   requestAdapter: 'none',
   defaultKeyConfig: {
     types: ['claude_code', 'codex'],
@@ -74,6 +89,25 @@ const custom: ProviderPreset = {
   usageType: 'none',
   usageUrl: null,
   usageHeaders: null,
+  walletBalanceScript: null,
+  requestAdapter: 'none',
+  defaultKeyConfig: { types: ['claude_code'] },
+}
+
+const newapi: ProviderPreset = {
+  id: 'newapi',
+  defaultName: '',
+  baseUrl: '',
+  icon: 'newapi',
+  requiresSiteAddress: true,
+  needsAccountCredential: true,
+  walletBalanceType: 'newapi',
+  walletBalanceUrl: '{baseUrl}/api/user/self',
+  walletBalanceHeaders: '{"Authorization": "{token}", "New-Api-User": "{userId}"}',
+  usageType: 'none',
+  usageUrl: null,
+  usageHeaders: null,
+  walletBalanceScript: NEWAPI_SCRIPT,
   requestAdapter: 'none',
   defaultKeyConfig: { types: ['claude_code'] },
 }
@@ -82,6 +116,8 @@ let mounted: { root: Root; container: HTMLElement } | null = null
 
 beforeEach(() => {
   presets.mockReset()
+  checkScript.mockReset()
+  checkScript.mockResolvedValue({ url: 'https://relay.example.com', method: 'GET', headers: {} })
   presets.mockResolvedValue([custom, deepseek])
 })
 
@@ -99,6 +135,11 @@ afterEach(async () => {
 /** antd form controls carry the field name as their element id. */
 function fieldValue(name: string): string | undefined {
   return document.body.querySelector<HTMLInputElement>(`input#${name}`)?.value
+}
+
+/** The one editable account query. */
+function scriptEditor(): HTMLTextAreaElement {
+  return document.body.querySelector<HTMLTextAreaElement>('textarea[class*="queryEditor"]')!
 }
 
 async function render(provider: Provider | null, onSave = vi.fn()) {
@@ -129,14 +170,28 @@ async function clickPreset(index: number) {
   })
 }
 
-/** The advanced panel is collapsed by default; open it before asserting. */
-async function openAdvanced() {
-  const header = document.body.querySelector('.ant-collapse-header')
-  expect(header).toBeDefined()
+async function typeInto(element: HTMLInputElement | HTMLTextAreaElement, text: string) {
+  // React tracks the previous value on the node, so a plain assignment is
+  // swallowed; going through the native setter is what makes the change land.
+  const prototype =
+    element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
   await act(async () => {
-    ;(header as HTMLElement).click()
+    setter?.call(element, text)
+    element.dispatchEvent(new Event('input', { bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+}
+
+/** A new provider cannot be saved without these. */
+async function fillRequiredFields() {
+  await typeInto(document.body.querySelector<HTMLInputElement>('input#name')!, 'relay')
+  await typeInto(
+    document.body.querySelector<HTMLInputElement>('input#baseUrl')!,
+    'https://relay.example.com',
+  )
 }
 
 async function submit() {
@@ -146,106 +201,6 @@ async function submit() {
   expect(ok).toBeDefined()
   await act(async () => {
     ok!.click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-}
-
-it('offers the catalogue on a new provider', async () => {
-  await render(null)
-  expect(presets).toHaveBeenCalled()
-  // Presets are offered by name, not by vendor logo: a preset picks a
-  // template, so a brand mark would promise the wrong thing.
-  const chips = Array.from(document.body.querySelectorAll('[class*="presetChip"]'))
-  expect(chips.map((chip) => chip.textContent)).toEqual(['custom', 'deepseek'])
-  // The icon picker below is a separate control and keeps its logos.
-  expect(document.body.querySelectorAll('[class*="iconItem"]').length).toBe(4 + 1)
-})
-
-it('fills the address, name and query settings from the chosen preset', async () => {
-  await render(null)
-
-  await clickPreset(1) // deepseek
-
-  expect(fieldValue('baseUrl')).toBe('https://api.deepseek.com')
-  expect(fieldValue('name')).toBe('deepseek')
-
-  // Opening the advanced panel shows the template's whole request rather than a
-  // blank default; the stored values are asserted on the save payload.
-  await openAdvanced()
-  const [account] = queryEditors()
-  expect(account.value).toBe(
-    'GET https://api.deepseek.com/user/balance\nAuthorization: Bearer {key}',
-  )
-})
-
-it('resets the address when a template that has none of its own is chosen', async () => {
-  presets.mockResolvedValue([custom, deepseek, newapi])
-  await render(null)
-
-  await clickPreset(1) // deepseek fills its own address
-  expect(fieldValue('baseUrl')).toBe('https://api.deepseek.com')
-  expect(fieldValue('name')).toBe('deepseek')
-
-  // New API's site belongs to the user, so its template carries none. Leaving
-  // DeepSeek's address standing would point the provider at a service it is not.
-  await clickPreset(2)
-  expect(fieldValue('baseUrl')).toBe('')
-  expect(fieldValue('name')).toBe('')
-})
-
-it('sends the template origin and its key defaults when creating', async () => {
-  const onSave = await render(null)
-  await clickPreset(1)
-  await submit()
-
-  expect(onSave).toHaveBeenCalledTimes(1)
-  const input = onSave.mock.calls[0][0]
-  expect(input).toMatchObject({
-    presetId: 'deepseek',
-    baseUrl: 'https://api.deepseek.com',
-    name: 'deepseek',
-    // Section 2 never opened the advanced panel, yet the template's query
-    // settings and adapter still reach the save payload.
-    walletBalanceType: 'deepseek',
-    walletBalanceUrl: 'https://api.deepseek.com/user/balance',
-    usageType: 'none',
-  })
-  expect(input.defaultKeyConfig).toMatchObject({ types: ['claude_code', 'codex'] })
-})
-
-const newapi: ProviderPreset = {
-  id: 'newapi',
-  defaultName: '',
-  baseUrl: '',
-  icon: 'newapi',
-  requiresSiteAddress: true,
-  needsAccountCredential: true,
-  walletBalanceType: 'newapi',
-  walletBalanceUrl: '{baseUrl}/api/user/self',
-  walletBalanceHeaders: '{"Authorization": "{token}", "New-Api-User": "{userId}"}',
-  usageType: 'newapi',
-  usageUrl: '{baseUrl}/api/usage/token',
-  usageHeaders: '{"Authorization": "Bearer {key}"}',
-  requestAdapter: 'none',
-  defaultKeyConfig: { types: ['claude_code'] },
-}
-
-/** The editable request blocks, in the order they appear: balance, then usage. */
-function queryEditors(): HTMLTextAreaElement[] {
-  return Array.from(
-    document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]'),
-  )
-}
-
-async function typeInto(element: HTMLInputElement | HTMLTextAreaElement, text: string) {
-  // React tracks the previous value on the node, so a plain assignment is
-  // swallowed; going through the native setter is what makes the change land.
-  const prototype =
-    element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
-  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
-  await act(async () => {
-    setter?.call(element, text)
-    element.dispatchEvent(new Event('input', { bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
@@ -279,22 +234,130 @@ function providerFixture(overrides: Partial<Provider> = {}): Provider {
     presetId: 'newapi',
     defaultKeyConfig: { types: ['claude_code'] },
     requestAdapter: 'none',
+    walletBalanceScript: null,
     ...overrides,
   }
 }
 
-it('keeps the stored origin when editing, without re-applying a template', async () => {
-  const onSave = await render(providerFixture())
-  // No preset picker on edit: the stored config is the source of truth.
+it('offers the catalogue on a new provider', async () => {
+  await render(null)
+  expect(presets).toHaveBeenCalled()
+  // Presets are offered by name, not by vendor logo: a preset picks a
+  // template, so a brand mark would promise the wrong thing.
+  const chips = Array.from(document.body.querySelectorAll('[class*="presetChip"]'))
+  expect(chips.map((chip) => chip.textContent)).toEqual(['custom', 'deepseek'])
+  // The icon picker below is a separate control and keeps its logos.
   expect(document.body.querySelectorAll('[class*="iconItem"]').length).toBe(4 + 1)
+})
+
+it('writes a chosen preset script into the editor', async () => {
+  await render(null)
+  await clickPreset(1) // deepseek
+
+  expect(fieldValue('baseUrl')).toBe('https://api.deepseek.com')
+  expect(fieldValue('name')).toBe('deepseek')
+  expect(scriptEditor().value).toBe(DEEPSEEK_SCRIPT)
+})
+
+it('resets the address when a template that has none of its own is chosen', async () => {
+  presets.mockResolvedValue([custom, deepseek, newapi])
+  await render(null)
+
+  await clickPreset(1) // deepseek fills its own address
+  expect(fieldValue('baseUrl')).toBe('https://api.deepseek.com')
+
+  // New API's site belongs to the user, so its template carries none. Leaving
+  // DeepSeek's address standing would point the provider at a service it is not.
+  await clickPreset(2)
+  expect(fieldValue('baseUrl')).toBe('')
+  expect(fieldValue('name')).toBe('')
+})
+
+it('starts a new provider on the starter script', async () => {
+  await render(null)
+
+  // The query is a field to complete, not a switch to find: a new provider
+  // opens on a script that shows the shape rather than on nothing at all.
+  expect(scriptEditor().value).toContain('{{baseUrl}}')
+  expect(scriptEditor().value).toContain('extractor')
+})
+
+it('returns to the starter script when the blank template is chosen', async () => {
+  presets.mockResolvedValue([custom, deepseek])
+  await render(null)
+
+  await clickPreset(1)
+  expect(scriptEditor().value).toBe(DEEPSEEK_SCRIPT)
+
+  await clickPreset(0)
+  expect(scriptEditor().value).not.toBe(DEEPSEEK_SCRIPT)
+  expect(scriptEditor().value).toContain('extractor')
+})
+
+it('saves the script a preset shipped', async () => {
+  const onSave = await render(null)
+  await clickPreset(1)
+  await submit()
+
+  expect(onSave).toHaveBeenCalledTimes(1)
+  expect(onSave.mock.calls[0][0]).toMatchObject({
+    presetId: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    name: 'deepseek',
+    walletBalanceScript: DEEPSEEK_SCRIPT,
+    usageType: 'none',
+  })
+  expect(onSave.mock.calls[0][0].defaultKeyConfig).toMatchObject({ types: ['claude_code', 'codex'] })
+})
+
+it('saves the script as the user edited it, not as the preset shipped it', async () => {
+  const onSave = await render(null)
+  await clickPreset(1)
+
+  await typeInto(scriptEditor(), '({ request: { url: "https://x/y" }, extractor: () => ({}) })')
+  await submit()
+
+  expect(onSave.mock.calls[0][0].walletBalanceScript).toBe(
+    '({ request: { url: "https://x/y" }, extractor: () => ({}) })',
+  )
+})
+
+it('checks the script before saving, and refuses one the engine rejects', async () => {
+  checkScript.mockRejectedValue('第 1 行无法识别')
+  const onSave = await render(null)
+  await fillRequiredFields()
+
+  await submit()
+
+  expect(checkScript).toHaveBeenCalledWith(expect.any(String), 'https://relay.example.com')
+  expect(onSave).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('第 1 行无法识别')
+})
+
+it('does not ask the engine about a provider with no query', async () => {
+  const onSave = await render(null)
+  await typeInto(scriptEditor(), '')
+  await fillRequiredFields()
+  await submit()
+
+  expect(checkScript).not.toHaveBeenCalled()
+  expect(onSave).toHaveBeenCalledTimes(1)
+  expect(onSave.mock.calls[0][0].walletBalanceScript).toBeUndefined()
+})
+
+it('shows the stored script when editing, without re-applying a template', async () => {
+  const onSave = await render(providerFixture({ walletBalanceScript: DEEPSEEK_SCRIPT }))
+
+  expect(scriptEditor().value).toBe(DEEPSEEK_SCRIPT)
+  // No preset picker on edit: the stored config is the source of truth.
+  expect(document.body.querySelectorAll('[class*="presetChip"]').length).toBe(0)
   await submit()
 
   expect(onSave.mock.calls[0][0]).toMatchObject({
     id: 'provider-1',
     presetId: 'newapi',
-    baseUrl: 'https://custom.example.com',
+    walletBalanceScript: DEEPSEEK_SCRIPT,
   })
-  expect(onSave.mock.calls[0][0].defaultKeyConfig).toMatchObject({ types: ['claude_code'] })
 })
 
 it('shows nothing — rather than a broken path — when no mark was chosen', async () => {
@@ -305,119 +368,14 @@ it('shows nothing — rather than a broken path — when no mark was chosen', as
   expect(document.body.querySelectorAll('[class*="iconItemActive"]').length).toBe(0)
 })
 
-it('shows the request a chosen rule will send, headers and all', async () => {
-  await render(null)
-  await clickPreset(1) // deepseek
-
-  const [balance] = queryEditors()
-  expect(balance.value).toBe(
-    'GET https://api.deepseek.com/user/balance\nAuthorization: Bearer {key}',
-  )
-})
-
-it('defaults a new provider to the hand-written account rule', async () => {
-  const onSave = await render(null)
-
-  // The query is a field to complete, not a switch to find: a new provider
-  // opens on the hand-written rule with its template already written out.
-  const [account] = queryEditors()
-  expect(account.value).toContain('GET {baseUrl}/api/user/balance')
-  expect(account.value).toContain('取值: data.balance')
-
-  await typeInto(document.body.querySelector<HTMLInputElement>('input#name')!, 'relay')
-  await typeInto(document.body.querySelector<HTMLInputElement>('input#baseUrl')!, 'https://relay.example.com')
-  await submit()
-
-  expect(onSave.mock.calls[0][0]).toMatchObject({
-    walletBalanceType: 'custom',
-    walletBalanceUrl: '{baseUrl}/api/user/balance',
-    walletBalancePath: 'data.balance',
-  })
-})
-
-it('returns to the hand-written rule when the blank template is chosen', async () => {
-  presets.mockResolvedValue([custom, deepseek])
-  const onSave = await render(null)
-
-  await clickPreset(1) // deepseek moves it to that service's request
-  expect(queryEditors()[0].value).toContain('api.deepseek.com')
-
-  await clickPreset(0) // blank template: back to the hand-written rule
-  await typeInto(document.body.querySelector<HTMLInputElement>('input#name')!, 'relay')
-  await typeInto(document.body.querySelector<HTMLInputElement>('input#baseUrl')!, 'https://relay.example.com')
-  await submit()
-
-  expect(onSave.mock.calls[0][0]).toMatchObject({
-    walletBalanceType: 'custom',
-    walletBalanceUrl: '{baseUrl}/api/user/balance',
-  })
-})
-
-it('writes the account rule onto the columns the daemon dispatches on', async () => {
-  // OpenCode Go answers the account question with metering periods, so its
-  // query lives in the usage columns; the one choice maps onto both.
-  const opencodeGo: ProviderPreset = {
-    ...custom,
-    id: 'opencode-go',
-    defaultName: 'opencode go',
-    baseUrl: 'https://opencode.ai/zen/go',
-    icon: 'claude',
-    walletBalanceType: 'none',
-    usageType: 'opencode-go',
-    usageUrl: '{baseUrl}/v1/usage',
-    usageHeaders: '{"Authorization": "Bearer {key}"}',
-    requestAdapter: 'opencode-go',
-  }
-  presets.mockResolvedValue([custom, opencodeGo])
-
-  const onSave = await render(null)
-  await clickPreset(1)
-  await submit()
-
-  expect(onSave.mock.calls[0][0]).toMatchObject({
-    walletBalanceType: 'none',
-    usageType: 'opencode-go',
-    usageUrl: '{baseUrl}/v1/usage',
-    usageHeaders: '{\n  "Authorization": "Bearer {key}"\n}',
-  })
-  expect(onSave.mock.calls[0][0].walletBalanceUrl).toBeUndefined()
-})
-
-it('saves the request as the user edited it, not as the preset shipped it', async () => {
-  const onSave = await render(null)
-  await clickPreset(1) // deepseek
-
-  const [balance] = queryEditors()
-  await typeInto(balance, 'GET {baseUrl}/user/balance\nAuthorization: Bearer {key}\n取值: data.total')
-  await submit()
-
-  expect(onSave.mock.calls[0][0]).toMatchObject({
-    walletBalanceType: 'deepseek',
-    walletBalanceUrl: '{baseUrl}/user/balance',
-    walletBalancePath: 'data.total',
-    walletBalanceHeaders: '{\n  "Authorization": "Bearer {key}"\n}',
-  })
-})
-
-it('refuses to save a request it cannot read, and says which line', async () => {
-  const onSave = await render(null)
-  await clickPreset(1) // deepseek
-
-  const [balance] = queryEditors()
-  await typeInto(balance, 'GET https://api.deepseek.com/user/balance\nnonsense')
-  await submit()
-
-  expect(onSave).not.toHaveBeenCalled()
-  expect(document.body.textContent).toContain('第 2 行')
-})
-
-it('asks for the access token only when a request names it', async () => {
+it('asks for the access token only when the script names it', async () => {
   presets.mockResolvedValue([custom, deepseek, newapi])
 
   await render(null)
-  await clickPreset(1) // deepseek: its request uses {key}, not {token}
+  await clickPreset(1) // deepseek: its script uses {{apiKey}}, not {{accessToken}}
   expect(document.body.querySelector('input#token')).toBeNull()
 
-  await clickPreset(2) // newapi: {"Authorization": "{token}", ...}
+  await clickPreset(2) // newapi: names both {{accessToken}} and {{userId}}
   expect(document.body.querySelector('input#token')).not.toBeNull()
+  expect(document.body.querySelector('input#walletBalanceUserId')).not.toBeNull()
 })

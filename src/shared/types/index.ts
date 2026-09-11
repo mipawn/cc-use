@@ -268,6 +268,11 @@ export interface Provider {
    * preset label; an id this build does not implement is reported.
    */
   requestAdapter: string
+  /**
+   * The account query — request and reader in one editable script. Empty or
+   * null means this provider has no account query configured.
+   */
+  walletBalanceScript: string | null
 }
 
 /**
@@ -284,6 +289,8 @@ export interface ProviderDefaultKeyConfig {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  /** The quota query a new key for this provider starts with, if any. */
+  usageScript?: string
 }
 
 /**
@@ -311,6 +318,8 @@ export interface ProviderPreset {
   usageType: string
   usageUrl: string | null
   usageHeaders: string | null
+  /** The account query this template ships. */
+  walletBalanceScript: string | null
   /** Request adapter this provider runs. Saved config, not a label. */
   requestAdapter: string
   defaultKeyConfig: ProviderDefaultKeyConfig
@@ -333,6 +342,7 @@ export interface CreateProviderInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  walletBalanceScript?: string
   /** Origin template; absent means the provider was created by hand. */
   presetId?: string
   /** Defaults a new key for this provider inherits. */
@@ -363,6 +373,8 @@ export interface ApiKey {
   usageUrl: string | null
   usagePath: string | null
   usageHeaders: string | null
+  /** This key's own quota query. Empty or null means none is configured. */
+  usageScript: string | null
   cachedUsage: UsageData | null
   lastUsageCheckedAt: string | null
   modelMapping: string | null
@@ -386,6 +398,7 @@ export interface CreateApiKeyInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  usageScript?: string
   modelMapping?: string
   clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
 }
@@ -403,6 +416,7 @@ export interface UpdateApiKeyInput {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  usageScript?: string
   modelMapping?: string
   clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
 }
@@ -587,6 +601,7 @@ export interface ExportProvider {
   usageUrl?: string
   usagePath?: string
   usageHeaders?: string
+  walletBalanceScript?: string
   apiKeys: ExportApiKey[]
 }
 

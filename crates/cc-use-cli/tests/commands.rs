@@ -65,6 +65,7 @@ struct Fixture {
 fn seed(db: &Database, cli_type: &str) -> Fixture {
     let provider = db
         .provider_create(&CreateProviderInput {
+            wallet_balance_script: None,
             name: "Example".to_string(),
             base_url: "https://example.com".to_string(),
             http_proxy: None,
@@ -89,6 +90,7 @@ fn seed(db: &Database, cli_type: &str) -> Fixture {
 
     let make_key = |alias: &str| {
         db.api_key_create(&CreateApiKeyInput {
+            usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some(alias.to_string()),
             value: format!("sk-{}", alias),
