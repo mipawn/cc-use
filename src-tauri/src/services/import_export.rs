@@ -70,6 +70,13 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                     None
                 },
                 wallet_balance_script: provider.wallet_balance_script,
+                request_headers: if options.include_api_keys {
+                    provider.request_headers
+                } else {
+                    // A header can carry a credential, so it follows the same
+                    // redaction switch as the key value.
+                    None
+                },
                 preset_id: Some(provider.preset_id),
                 default_key_config: provider.default_key_config,
                 request_adapter: Some(provider.request_adapter),
@@ -151,8 +158,8 @@ pub fn import_all(
                 "INSERT OR REPLACE INTO providers (id, name, base_url, http_proxy, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                     wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                    preset_id, default_key_config, request_adapter, wallet_balance_script)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19)",
+                    preset_id, default_key_config, request_adapter, wallet_balance_script, request_headers)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20)",
                 rusqlite::params![
                     ep.id,
                     ep.name,
@@ -173,6 +180,7 @@ pub fn import_all(
                     default_key_config,
                     ep.request_adapter.as_deref().unwrap_or("none"),
                     ep.wallet_balance_script,
+                    ep.request_headers,
                 ],
             ) {
                 errors.push(format!("Failed to import {}: {}", ep.name, e));
@@ -231,6 +239,7 @@ pub fn import_all(
                 default_key_config: ep.default_key_config.clone(),
                 request_adapter: ep.request_adapter.clone(),
                 wallet_balance_script: ep.wallet_balance_script.clone(),
+                request_headers: ep.request_headers.clone(),
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {

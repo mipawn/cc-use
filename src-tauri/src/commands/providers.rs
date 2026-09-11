@@ -222,6 +222,7 @@ mod tests {
 
     fn test_provider() -> Provider {
         Provider {
+            request_headers: None,
             wallet_balance_script: None,
             id: "provider-1".to_string(),
             name: "Provider".to_string(),

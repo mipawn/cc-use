@@ -115,6 +115,8 @@ impl Database {
                 -- v3.11.0: the account query — request and reader in one
                 -- editable script. Empty means no account query configured.
                 wallet_balance_script TEXT,
+                -- v3.12.0: extra headers this provider's traffic carries.
+                request_headers TEXT,
                 -- v3.10.0: request-shaping adapter. Saved config, not a label
                 -- derived from the preset.
                 request_adapter TEXT NOT NULL DEFAULT 'none',
@@ -531,7 +533,7 @@ impl Database {
         drop(statement);
 
         for (id, kind, url, headers, path) in rows {
-            let Some(script) = account_scripts::lift_from_legacy(
+            let Some(script) = account_scripts::lift_key_usage_from_legacy(
                 kind.trim(),
                 url.as_deref(),
                 headers.as_deref(),
@@ -588,6 +590,7 @@ impl Database {
             // v3.11.0: the account and quota queries as editable scripts.
             "ALTER TABLE providers ADD COLUMN wallet_balance_script TEXT",
             "ALTER TABLE api_keys ADD COLUMN usage_script TEXT",
+            "ALTER TABLE providers ADD COLUMN request_headers TEXT",
             "ALTER TABLE api_keys ADD COLUMN secret_ref TEXT",
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
             "ALTER TABLE projects ADD COLUMN terminal_type TEXT DEFAULT 'iterm2'",
@@ -1000,6 +1003,7 @@ mod tests {
         // new column prescribes rather than failing on the added field.
         let provider = db
             .provider_create(&crate::models::CreateProviderInput {
+                request_headers: None,
                 wallet_balance_script: None,
                 name: "legacy".to_string(),
                 base_url: "https://example.com".to_string(),

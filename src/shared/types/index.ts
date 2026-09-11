@@ -273,6 +273,11 @@ export interface Provider {
    * null means this provider has no account query configured.
    */
   walletBalanceScript: string | null
+  /**
+   * Extra headers this provider's inference traffic carries, as a JSON object.
+   * Additive: a header the client already sent is never overwritten.
+   */
+  requestHeaders: string | null
 }
 
 /**
@@ -343,6 +348,7 @@ export interface CreateProviderInput {
   usagePath?: string
   usageHeaders?: string
   walletBalanceScript?: string
+  requestHeaders?: string
   /** Origin template; absent means the provider was created by hand. */
   presetId?: string
   /** Defaults a new key for this provider inherits. */
@@ -602,6 +608,7 @@ export interface ExportProvider {
   usagePath?: string
   usageHeaders?: string
   walletBalanceScript?: string
+  requestHeaders?: string
   apiKeys: ExportApiKey[]
 }
 

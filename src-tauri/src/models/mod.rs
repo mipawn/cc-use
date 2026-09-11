@@ -51,6 +51,10 @@ pub struct Provider {
     /// Empty means the provider has no account query configured.
     #[serde(default)]
     pub wallet_balance_script: Option<String>,
+    /// v3.12.0: extra headers this provider's inference traffic carries, as a
+    /// JSON object. Additive: a header the client sent is never overwritten.
+    #[serde(default)]
+    pub request_headers: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +77,7 @@ pub struct CreateProviderInput {
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
     pub wallet_balance_script: Option<String>,
+    pub request_headers: Option<String>,
     /// Origin template. Absent means the provider was created by hand.
     #[serde(default)]
     pub preset_id: Option<String>,
@@ -105,6 +110,7 @@ pub struct UpdateProviderInput {
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
     pub wallet_balance_script: Option<String>,
+    pub request_headers: Option<String>,
     pub is_active: Option<bool>,
     pub cached_wallet_balance: Option<f64>,
     pub cached_wallet_balance_currency: Option<String>,
@@ -791,6 +797,9 @@ pub struct ExportProvider {
     /// keeps the query it was tuned with.
     #[serde(default)]
     pub wallet_balance_script: Option<String>,
+    /// v3.12.0: extra headers this provider's traffic carries.
+    #[serde(default)]
+    pub request_headers: Option<String>,
     /// v3.10.0: template origin. Unknown values are preserved as-is so an
     /// export from a newer build round-trips instead of being flattened.
     #[serde(default)]

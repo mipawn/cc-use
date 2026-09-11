@@ -782,6 +782,7 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let provider = db
             .provider_create(&CreateProviderInput {
+                request_headers: None,
                 wallet_balance_script: None,
                 name: "No Probe Provider".to_string(),
                 base_url: "http://127.0.0.1:1".to_string(),

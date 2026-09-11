@@ -1223,6 +1223,7 @@ mod tests {
 
         let provider = db
             .provider_create(&CreateProviderInput {
+                request_headers: None,
                 wallet_balance_script: None,
                 name: "Example".to_string(),
                 base_url: "https://api.example.com".to_string(),

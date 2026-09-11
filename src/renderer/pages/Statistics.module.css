@@ -143,9 +143,29 @@
 
 /* One compact line replacing the five separate summary cards. */
 .summaryBar {
-  padding: 12px 16px;
+  display: grid;
+  /* Equal cells that reflow instead of wrapping mid-row, which is what a
+     divider-separated line of statistics does. */
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 4px 8px;
+  padding: 16px 20px;
   border: 1px solid var(--cc-use-border, rgba(128, 128, 128, 0.2));
-  border-radius: 8px;
+  border-radius: 12px;
+  background: var(--cc-use-surface, transparent);
+}
+
+.summaryBar :global(.ant-statistic-title) {
+  margin-bottom: 2px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summaryBar :global(.ant-statistic-content) {
+  /* Figures line up column to column instead of shifting with each glyph. */
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The collapsed analysis keeps the same content, just below the fold. */

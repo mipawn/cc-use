@@ -65,6 +65,7 @@ struct Fixture {
 fn seed(db: &Database, cli_type: &str) -> Fixture {
     let provider = db
         .provider_create(&CreateProviderInput {
+            request_headers: None,
             wallet_balance_script: None,
             name: "Example".to_string(),
             base_url: "https://example.com".to_string(),

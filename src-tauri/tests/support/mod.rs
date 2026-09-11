@@ -33,6 +33,7 @@ impl Drop for TempDb {
 
 pub fn create_provider(db: &Database, name: &str, _provider_type: &str) -> Provider {
     db.provider_create(&CreateProviderInput {
+        request_headers: None,
         wallet_balance_script: None,
         name: name.to_string(),
         base_url: "https://example.com".to_string(),

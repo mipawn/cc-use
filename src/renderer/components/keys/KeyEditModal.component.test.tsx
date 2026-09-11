@@ -129,6 +129,7 @@ const deepseekProvider: Provider = {
   defaultKeyConfig: null,
   requestAdapter: 'none',
   walletBalanceScript: null,
+  requestHeaders: null,
 }
 
 function sourceKey(): ApiKey {
@@ -278,6 +279,59 @@ it('saves an edit against the existing id', async () => {
   })
 
   expect(onSave.mock.calls[0][0]).toMatchObject({ mode: 'edit', id: 'key-1' })
+})
+
+async function submit() {
+  const saveButton = Array.from(document.body.querySelectorAll('button')).find(
+    (button) => button.textContent === 'common.confirm',
+  )
+  expect(saveButton).toBeDefined()
+  await act(async () => {
+    saveButton!.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+/** A new key cannot be saved without a credential. */
+async function fillKeyValue(value = 'sk-new') {
+  const field = document.body.querySelector<HTMLInputElement>('input#value')
+  expect(field).not.toBeNull()
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  await act(async () => {
+    setter?.call(field, value)
+    field!.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+async function toggleQuota() {
+  const toggle = document.body.querySelector('[role="switch"]')
+  expect(toggle).not.toBeNull()
+  await act(async () => {
+    ;(toggle as HTMLElement).click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+it('keeps the key quota query off until the switch is turned on', async () => {
+  const onSave = await render('create', null, vi.fn(), presetProvider)
+
+  await fillKeyValue()
+  await submit()
+
+  // The script is on screen to read, but nothing is asked about this key until
+  // the switch says so.
+  expect(onSave.mock.calls[0][0].usageScript).toBeUndefined()
+})
+
+it('saves the key quota query once the switch is on', async () => {
+  const onSave = await render('create', null, vi.fn(), presetProvider)
+
+  await fillKeyValue()
+  await toggleQuota()
+  await submit()
+
+  expect(onSave.mock.calls[0][0].usageScript).toBe(PRESET_QUOTA_SCRIPT)
 })
 
 it('seeds a new key from the provider defaults instead of a hardcoded template', async () => {

@@ -489,6 +489,7 @@ pub async fn proxy_handler(
         request_json.as_ref(),
         emit.request_id,
     );
+    apply_provider_headers(&mut headers, &route_execution);
     let forwarded_request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
         .and_then(|value| {
@@ -1846,6 +1847,45 @@ fn apply_request_adapter(
     );
 }
 
+/// Add the headers the provider's configuration asks for.
+///
+/// Additive: a header the client already sent is left exactly as sent, so a
+/// provider can supply a default without overriding the caller's choice — the
+/// same rule the session header follows. A rule that is not a usable header is
+/// reported and skipped rather than failing the request it was meant to help.
+fn apply_provider_headers(headers: &mut HeaderMap, route: &RouteExecution) {
+    let Some(provider) = route.provider.as_ref() else {
+        return;
+    };
+    let rules = crate::shared_runtime::request_headers::parse(provider.request_headers.as_deref());
+
+    for (name, value) in rules {
+        let Ok(header_name) = name.parse::<axum::http::header::HeaderName>() else {
+            log::warn!(
+                "provider {}: {:?} is not a header name; skipped",
+                provider.id,
+                name
+            );
+            continue;
+        };
+        if headers.contains_key(&header_name) {
+            continue;
+        }
+
+        let resolved = crate::shared_runtime::request_headers::resolve(&value, &provider.base_url);
+        match HeaderValue::from_str(&resolved) {
+            Ok(header_value) => {
+                headers.insert(header_name, header_value);
+            }
+            Err(_) => log::warn!(
+                "provider {}: {} was not a valid header value; skipped",
+                provider.id,
+                name
+            ),
+        }
+    }
+}
+
 fn strip_hop_by_hop_headers(headers: &mut HeaderMap) {
     let connection_headers = headers
         .get_all("connection")
@@ -3116,6 +3156,7 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let provider = db
             .provider_create(&CreateProviderInput {
+                request_headers: None,
                 wallet_balance_script: None,
                 name: "grok-provider".to_string(),
                 base_url: "https://api.x.ai/v1".to_string(),
@@ -3385,6 +3426,7 @@ mod tests {
         let raw_db = Database::new_in_memory().unwrap();
         let provider = raw_db
             .provider_create(&CreateProviderInput {
+                request_headers: None,
                 wallet_balance_script: None,
                 name: "codex-provider".to_string(),
                 base_url: "https://example.com/v1".to_string(),
@@ -3639,6 +3681,7 @@ mod tests {
         let raw_db = Database::new_in_memory().unwrap();
         let provider = raw_db
             .provider_create(&CreateProviderInput {
+                request_headers: None,
                 wallet_balance_script: None,
                 name: "claude-provider".to_string(),
                 base_url: "https://example.com".to_string(),
@@ -3840,6 +3883,7 @@ mod tests {
     /// covers the persisted value rather than a hand-built struct.
     fn provider_with_adapter(db: &Database, adapter: &str) -> crate::models::Provider {
         db.provider_create(&CreateProviderInput {
+            request_headers: None,
             wallet_balance_script: None,
             name: "go".to_string(),
             base_url: "https://opencode.ai/zen/go".to_string(),

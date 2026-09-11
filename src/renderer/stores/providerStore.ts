@@ -13,9 +13,7 @@ interface ProviderState {
   updateProvider: (input: Parameters<typeof window.api.provider.update>[0]) => Promise<Provider>
   deleteProvider: (id: string) => Promise<void>
   reorderProviders: (providerIds: string[]) => Promise<void>
-  refreshBalance: (
-    id: string,
-  ) => Promise<{
+  refreshBalance: (id: string) => Promise<{
     balance: number | null
     total: number | null
     used: number | null
@@ -79,7 +77,9 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   reorderProviders: async (providerIds) => {
     // Optimistic update — reorder in store immediately, persist in background
     const current = get().providers
-    const reordered = providerIds.map((id) => current.find((p) => p.id === id)).filter(Boolean) as Provider[]
+    const reordered = providerIds
+      .map((id) => current.find((p) => p.id === id))
+      .filter(Boolean) as Provider[]
     set({ providers: reordered })
     try {
       await getApi().provider.reorder(providerIds)

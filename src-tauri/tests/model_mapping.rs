@@ -80,6 +80,7 @@ fn setup_provider_with_mapping(
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            request_headers: None,
             wallet_balance_script: None,
             name: "test-provider".to_string(),
             base_url: format!("http://127.0.0.1:{}", upstream_port),

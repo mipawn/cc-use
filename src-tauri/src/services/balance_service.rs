@@ -155,6 +155,7 @@ mod tests {
             default_key_config: None,
             request_adapter: "none".to_string(),
             wallet_balance_script: None,
+            request_headers: None,
         }
     }
 

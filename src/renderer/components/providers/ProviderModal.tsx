@@ -37,6 +37,8 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   // editor only ever changes the text.
   const [accountScript, setAccountScript] = useState(STARTER_ACCOUNT_SCRIPT)
   const [accountError, setAccountError] = useState<string | null>(null)
+  // Headers added to this provider's inference traffic, as a JSON object.
+  const [requestHeaders, setRequestHeaders] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const message = useAppMessage()
@@ -64,6 +66,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         })
         setPreset(null)
         setAccountScript(provider.walletBalanceScript ?? '')
+        setRequestHeaders(formatHeaders(provider.requestHeaders))
         if (provider.icon && isIconChoice(provider.icon)) {
           setSelectedIcon(provider.icon)
           setCustomIconPath(null)
@@ -89,6 +92,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         // a field to complete, not a switch to find. Picking a template writes
         // that service's script in its place.
         setAccountScript(STARTER_ACCOUNT_SCRIPT)
+        setRequestHeaders('')
       }
       setAccountError(null)
     }
@@ -149,6 +153,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         token: values.token?.trim(),
         icon: iconValue || undefined,
         walletBalanceScript: script || undefined,
+        requestHeaders: requestHeaders.trim() || undefined,
         walletBalanceUserId: values.walletBalanceUserId?.trim(),
         // The account query is the script now; there is no service kind left
         // to record, and these columns are what the migration reads.
@@ -395,7 +400,9 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                           autoSize={{ minRows: 8, maxRows: 20 }}
                           spellCheck={false}
                           className={`${styles.queryEditor} ${accountError ? styles.queryEditorError : ''}`}
-                          placeholder={t('providers.scriptPlaceholder') || '{ request: ..., extractor: ... }'}
+                          placeholder={
+                            t('providers.scriptPlaceholder') || '{ request: ..., extractor: ... }'
+                          }
                         />
                         <Text type='secondary' className={styles.queryNote}>
                           {t('providers.scriptVars') ||
@@ -410,6 +417,24 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                             {accountError}
                           </Text>
                         )}
+                      </div>
+
+                      <div className={styles.queryBlock}>
+                        <div className={styles.queryHeader}>
+                          <Text strong>{t('providers.requestHeaders') || '请求头'}</Text>
+                        </div>
+                        <TextArea
+                          value={requestHeaders}
+                          onChange={(event) => setRequestHeaders(event.target.value)}
+                          autoSize={{ minRows: 2, maxRows: 8 }}
+                          spellCheck={false}
+                          className={styles.queryEditor}
+                          placeholder={'{\n  "X-Relay": "cc-use"\n}'}
+                        />
+                        <Text type='secondary' className={styles.queryNote}>
+                          {t('providers.requestHeadersHint') ||
+                            '加在这家供应商的推理请求上；客户端已发的同名请求头不会被覆盖。支持 {{baseUrl}}'}
+                        </Text>
                       </div>
 
                       {/* Only the credentials the request actually names. */}
@@ -443,10 +468,22 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   )
 }
 
+/** Pretty-print the stored header object for editing. */
+function formatHeaders(raw: string | null | undefined): string {
+  const text = raw?.trim()
+  if (!text) return ''
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2)
+  } catch {
+    // A value that is not JSON came from somewhere else; show it as-is rather
+    // than emptying the field and losing it on the next save.
+    return text
+  }
+}
+
 /** `opencode-go` and the like are service types this build may not name yet. */
 function presetLabel(id: string, t: (key: string) => string): string {
   const key = `providers.presetNames.${id}`
   const translated = t(key)
   return translated === key ? id : translated
 }
-

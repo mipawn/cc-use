@@ -59,6 +59,7 @@ fn app_with_console_log() -> (axum::Router, Arc<ConsoleLogHandle>, std::path::Pa
 fn seed_managed_instance(db: &Database) -> String {
     let provider = db
         .provider_create(&CreateProviderInput {
+            request_headers: None,
             wallet_balance_script: None,
             name: "Managed Provider".to_string(),
             base_url: "https://example.com".to_string(),

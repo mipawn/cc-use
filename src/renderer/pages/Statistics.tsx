@@ -9,7 +9,6 @@ import {
   Typography,
   Button,
   Card,
-  Divider,
   Drawer,
   Table,
   Tag,
@@ -359,44 +358,41 @@ export default function Statistics() {
             </div>
           ) : hasData && summary ? (
             <div className={styles.statsContent}>
-              {/* One line: the numbers a user checks first, cache rate and
-                  latency among them — they are read together or not at all. */}
+              {/* The numbers a user checks first, cache rate and latency among
+                  them. Equal cells in a grid rather than a divided row: five
+                  figures wrap badly when the dividers wrap with them. */}
               <div className={styles.summaryBar}>
-                <Space size={24} wrap split={<Divider type='vertical' />}>
-                  <Statistic
-                    title={t('statistics.totalTokens')}
-                    value={summary.totalTokens}
-                    formatter={(v) => renderTokens(Number(v))}
-                  />
-                  <Statistic
-                    title={t('statistics.requestsWithUsage')}
-                    value={summary.totalRequests}
-                  />
-                  <Statistic
-                    title={t('statistics.failedRequests')}
-                    value={summary.failedRequests}
-                    valueStyle={
-                      summary.failedRequests > 0 ? { color: token.colorError } : undefined
-                    }
-                  />
-                  <Statistic
-                    title={
-                      <Tooltip title={t('statistics.cacheHitRateHint')}>
-                        <span>{t('statistics.cacheHitRate')}</span>
-                      </Tooltip>
-                    }
-                    value={summary.cacheHitRate * 100}
-                    precision={1}
-                    suffix='%'
-                  />
-                  <Statistic
-                    title={t('statistics.avgLatency')}
-                    // A missing measurement is not 0ms.
-                    value={summary.avgLatencyMs ?? undefined}
-                    suffix={summary.avgLatencyMs != null ? 'ms' : undefined}
-                    precision={0}
-                  />
-                </Space>
+                <Statistic
+                  title={t('statistics.totalTokens')}
+                  value={summary.totalTokens}
+                  formatter={(v) => renderTokens(Number(v))}
+                />
+                <Statistic
+                  title={t('statistics.requestsWithUsage')}
+                  value={summary.totalRequests}
+                />
+                <Statistic
+                  title={t('statistics.failedRequests')}
+                  value={summary.failedRequests}
+                  valueStyle={summary.failedRequests > 0 ? { color: token.colorError } : undefined}
+                />
+                <Statistic
+                  title={
+                    <Tooltip title={t('statistics.cacheHitRateHint')}>
+                      <span>{t('statistics.cacheHitRate')}</span>
+                    </Tooltip>
+                  }
+                  value={summary.cacheHitRate * 100}
+                  precision={1}
+                  suffix='%'
+                />
+                <Statistic
+                  title={t('statistics.avgLatency')}
+                  // A missing measurement is not 0ms.
+                  value={summary.avgLatencyMs ?? undefined}
+                  suffix={summary.avgLatencyMs != null ? 'ms' : undefined}
+                  precision={0}
+                />
               </div>
 
               {/* Directly under the summary: how the traffic moved over time. */}

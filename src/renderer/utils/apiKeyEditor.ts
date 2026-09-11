@@ -8,6 +8,7 @@ import type {
   UpdateApiKeyInput,
 } from '@shared/types'
 import { parseModelMapping, type ModelMappingFields } from './modelMapping'
+import { STARTER_ACCOUNT_SCRIPT } from './providerQueryDefaults'
 
 /**
  * How the editor was opened. Both `create` and `duplicate` produce a new record
@@ -81,8 +82,9 @@ export interface NewKeyDefaults {
   clientConfigs: Partial<Record<ClientKind, ClientConfig>>
   claudeConfigJson: string
   /**
-   * This key's own quota query. Empty by default: a key reports what the
-   * account query reports unless the user gives it one of its own.
+   * This key's own quota query. Filled in from the start so the shape is
+   * visible; whether it runs is decided by the caller's switch, not by the
+   * field being non-empty.
    */
   usageScript: string
   mapping: ReturnType<typeof parseModelMapping>
@@ -135,7 +137,7 @@ export function newKeyDefaults(
     types: ['claude_code'],
     clientConfigs: {},
     claudeConfigJson: '{}',
-    usageScript: '',
+    usageScript: STARTER_ACCOUNT_SCRIPT,
     mapping: newKeyMapping(null),
   }
 
@@ -170,7 +172,7 @@ export function newKeyDefaults(
     types: providerDefault.types?.length ? [...providerDefault.types] : empty.types,
     clientConfigs: cloneJson(providerDefault.clientConfigs) ?? {},
     claudeConfigJson: JSON.stringify(claudeConfig, null, 2),
-    usageScript: providerDefault.usageScript ?? '',
+    usageScript: providerDefault.usageScript || STARTER_ACCOUNT_SCRIPT,
     mapping: newKeyMapping(providerDefault.modelMapping),
   }
 }

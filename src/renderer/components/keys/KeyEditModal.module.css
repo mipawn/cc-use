@@ -159,3 +159,47 @@
   padding-left: 0;
   margin-bottom: 4px;
 }
+
+/* Client overrides: one row per client, its two settings side by side. */
+.clientList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.clientRow {
+  padding: 12px 14px;
+  border: 1px solid var(--cc-use-border, rgba(128, 128, 128, 0.2));
+  border-radius: 10px;
+}
+
+.clientRowHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.clientRowBadge {
+  font-size: 12px;
+}
+
+.clientRowFields {
+  display: grid;
+  /* The address takes the slack; the scheme is a fixed, comparable column. */
+  grid-template-columns: minmax(0, 1fr) 176px;
+  gap: 12px;
+}
+
+.hintLine {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.usageSwitchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}

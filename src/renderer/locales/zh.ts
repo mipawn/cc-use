@@ -357,6 +357,9 @@ export default {
     scriptPlaceholder: '({ request: {...}, extractor: (response) => ({...}) })',
     scriptVars:
       '发送时替换：{{baseUrl}} 供应商地址，{{apiKey}} 推理密钥，{{accessToken}} 访问令牌，{{userId}} 用户 ID',
+    requestHeaders: '请求头',
+    requestHeadersHint:
+      '加在这家供应商的推理请求上；客户端已发的同名请求头不会被覆盖。支持 {{baseUrl}}',
     scriptFields:
       'extractor 返回标准字段：remaining / total / used / unit / isUnlimited / windows / isValid / invalidMessage',
     userId: '用户 ID',
@@ -538,6 +541,7 @@ export default {
     advancedSettings: '高级设置',
     defaultsSummary: '默认配置来自供应商，可展开高级设置修改',
     usageScriptPlaceholder: '({ request: {...}, extractor: (response) => ({ remaining: ... }) })',
+    usageEnabled: '查询这把密钥的额度',
     usageScriptHint:
       '留空则不查询。脚本与供应商的账户查询同构：{{baseUrl}} 供应商地址，{{apiKey}} 这把密钥',
     modelMappingHint: '配置上游模型映射和 Claude Code Auto mode 分类器',

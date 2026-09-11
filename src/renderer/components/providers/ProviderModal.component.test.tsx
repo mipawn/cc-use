@@ -137,9 +137,13 @@ function fieldValue(name: string): string | undefined {
   return document.body.querySelector<HTMLInputElement>(`input#${name}`)?.value
 }
 
-/** The one editable account query. */
+/** The account query editor, then the request-header editor beneath it. */
 function scriptEditor(): HTMLTextAreaElement {
-  return document.body.querySelector<HTMLTextAreaElement>('textarea[class*="queryEditor"]')!
+  return document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]')[0]!
+}
+
+function headersEditor(): HTMLTextAreaElement {
+  return document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]')[1]!
 }
 
 async function render(provider: Provider | null, onSave = vi.fn()) {
@@ -235,6 +239,7 @@ function providerFixture(overrides: Partial<Provider> = {}): Provider {
     defaultKeyConfig: { types: ['claude_code'] },
     requestAdapter: 'none',
     walletBalanceScript: null,
+    requestHeaders: null,
     ...overrides,
   }
 }
@@ -307,7 +312,9 @@ it('saves the script a preset shipped', async () => {
     walletBalanceScript: DEEPSEEK_SCRIPT,
     usageType: 'none',
   })
-  expect(onSave.mock.calls[0][0].defaultKeyConfig).toMatchObject({ types: ['claude_code', 'codex'] })
+  expect(onSave.mock.calls[0][0].defaultKeyConfig).toMatchObject({
+    types: ['claude_code', 'codex'],
+  })
 })
 
 it('saves the script as the user edited it, not as the preset shipped it', async () => {
@@ -358,6 +365,28 @@ it('shows the stored script when editing, without re-applying a template', async
     presetId: 'newapi',
     walletBalanceScript: DEEPSEEK_SCRIPT,
   })
+})
+
+it('carries the request headers it was given', async () => {
+  const onSave = await render(providerFixture())
+
+  await typeInto(headersEditor(), '{"X-Relay": "cc-use"}')
+  await submit()
+
+  expect(onSave.mock.calls[0][0].requestHeaders).toBe('{"X-Relay": "cc-use"}')
+})
+
+it('shows the stored headers pretty-printed, and clears them when emptied', async () => {
+  const onSave = await render(
+    providerFixture({ requestHeaders: '{"X-Relay":"cc-use","X-Tenant":"acme"}' }),
+  )
+
+  expect(headersEditor().value).toBe('{\n  "X-Relay": "cc-use",\n  "X-Tenant": "acme"\n}')
+
+  await typeInto(headersEditor(), '')
+  await submit()
+
+  expect(onSave.mock.calls[0][0].requestHeaders).toBeUndefined()
 })
 
 it('shows nothing — rather than a broken path — when no mark was chosen', async () => {

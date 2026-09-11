@@ -10,6 +10,7 @@ fn export_excludes_api_key_secrets_by_default() {
     let provider = fixture
         .db
         .provider_create(&CreateProviderInput {
+            request_headers: None,
             wallet_balance_script: None,
             name: "Secure export".to_string(),
             base_url: "https://example.com".to_string(),

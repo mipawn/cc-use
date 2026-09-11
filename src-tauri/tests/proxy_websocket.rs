@@ -55,6 +55,7 @@ fn setup_proxy(
     let db = Database::open_at(&path).expect("create test database");
     let provider = db
         .provider_create(&CreateProviderInput {
+            request_headers: None,
             wallet_balance_script: None,
             name: "websocket-provider".to_string(),
             base_url: format!("http://127.0.0.1:{}", upstream_port),

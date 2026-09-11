@@ -153,6 +153,36 @@ pub fn lift_from_legacy(
     headers: Option<&str>,
     path: Option<&str>,
 ) -> Option<String> {
+    lift_with(kind, for_legacy_kind(kind.trim()), url, headers, path)
+}
+
+/// The same, for a key's own quota query.
+///
+/// A key asks a different route than the account does — New API serves the
+/// per-key quota from `/api/usage/token/` and the account's from
+/// `/api/user/self` — so the two cannot share one lookup.
+pub fn lift_key_usage_from_legacy(
+    kind: &str,
+    url: Option<&str>,
+    headers: Option<&str>,
+    path: Option<&str>,
+) -> Option<String> {
+    lift_with(
+        kind,
+        key_usage_for_legacy_kind(kind.trim()),
+        url,
+        headers,
+        path,
+    )
+}
+
+fn lift_with(
+    kind: &str,
+    script: Option<&'static AccountScript>,
+    url: Option<&str>,
+    headers: Option<&str>,
+    path: Option<&str>,
+) -> Option<String> {
     let kind = kind.trim();
     if kind.is_empty() || kind == "none" {
         return None;
@@ -167,7 +197,7 @@ pub fn lift_from_legacy(
         return Some(compose(&url, &headers, &reading_a_path(path)));
     }
 
-    let script = for_legacy_kind(kind)?;
+    let script = script?;
     let url = non_empty(url)
         .map(modernize)
         .unwrap_or_else(|| script.url.to_string());
@@ -387,6 +417,24 @@ mod tests {
         let script = lift_from_legacy("opencode-go", None, None, None).expect("lifted");
 
         assert!(script.contains(r#"url: "{{baseUrl}}/v1/usage""#));
+    }
+
+    /// A key asks a different route than the account does, so lifting a key's
+    /// query must not borrow the account's address.
+    #[test]
+    fn a_lifted_key_query_uses_the_per_key_route() {
+        let script = lift_key_usage_from_legacy("newapi", None, None, None).expect("lifted");
+
+        assert!(script.contains("{{baseUrl}}/api/usage/token/"));
+        assert!(!script.contains("/api/user/self"));
+    }
+
+    /// The provider's own lift still uses the account route.
+    #[test]
+    fn a_lifted_account_query_uses_the_account_route() {
+        let script = lift_from_legacy("newapi", None, None, None).expect("lifted");
+
+        assert!(script.contains("{{baseUrl}}/api/user/self"));
     }
 
     #[test]

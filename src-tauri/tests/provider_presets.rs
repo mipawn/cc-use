@@ -15,6 +15,7 @@ use support::TempDb;
 /// Every optional field is `None`, which for an update means "leave it alone".
 fn provider_patch(id: &str) -> UpdateProviderInput {
     UpdateProviderInput {
+        request_headers: None,
         wallet_balance_script: None,
         id: id.to_string(),
         name: None,
@@ -47,6 +48,7 @@ fn provider_patch(id: &str) -> UpdateProviderInput {
 
 fn provider_input(name: &str) -> CreateProviderInput {
     CreateProviderInput {
+        request_headers: None,
         wallet_balance_script: None,
         name: name.to_string(),
         base_url: "https://api.deepseek.com".to_string(),

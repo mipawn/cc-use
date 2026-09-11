@@ -17,7 +17,6 @@ import {
   Select,
   Tabs,
   Button,
-  Badge,
   Switch,
 } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
@@ -53,6 +52,7 @@ import {
   type ModelMappingFields,
 } from '../../utils/modelMapping'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
+import { STARTER_ACCOUNT_SCRIPT } from '../../utils/providerQueryDefaults'
 import styles from './KeyEditModal.module.css'
 
 const { Text } = Typography
@@ -104,9 +104,11 @@ export default function KeyEditModal({
   const [launchPreview, setLaunchPreview] = useState<TerminalLaunchPreview | null>(null)
   const { globalSettings } = useSettingsStore()
 
-  // This key's own quota query. Empty means none is configured — the key
-  // reports what the account query reports, and nothing is asked about it.
-  const [usageScript, setUsageScript] = useState('')
+  // This key's own quota query, and whether it runs. The script is filled in
+  // from the start so its shape is visible; the switch is what decides, so a
+  // query is never asked by accident because a field happened to have text.
+  const [usageEnabled, setUsageEnabled] = useState(false)
+  const [usageScript, setUsageScript] = useState(STARTER_ACCOUNT_SCRIPT)
   const [haikuModel, setHaikuModel] = useState('')
   const [sonnetModel, setSonnetModel] = useState('')
   const [opusModel, setOpusModel] = useState('')
@@ -195,6 +197,7 @@ export default function KeyEditModal({
       )
       setClaudeConfigJson(defaults.claudeConfigJson)
       setUsageScript(defaults.usageScript)
+      setUsageEnabled(false)
       setHaikuModel(defaults.mapping.haiku)
       setSonnetModel(defaults.mapping.sonnet)
       setOpusModel(defaults.mapping.opus)
@@ -207,7 +210,8 @@ export default function KeyEditModal({
     setConfigMode('preview')
 
     if (source) {
-      setUsageScript(source.usageScript || '')
+      setUsageScript(source.usageScript || STARTER_ACCOUNT_SCRIPT)
+      setUsageEnabled(Boolean(source.usageScript?.trim()))
       const mapping = parseModelMapping(source.modelMapping)
       setHaikuModel(mapping.haiku)
       setSonnetModel(mapping.sonnet)
@@ -305,7 +309,7 @@ export default function KeyEditModal({
       }
       // Evaluated before saving, so a typo is caught here rather than on the
       // next refresh. Nothing is sent and no credential is involved.
-      const keyScript = usageScript.trim()
+      const keyScript = usageEnabled ? usageScript.trim() : ''
       if (keyScript) {
         try {
           await getApi().balance.checkScript(keyScript, currentProvider?.baseUrl ?? '')
@@ -324,7 +328,7 @@ export default function KeyEditModal({
         value: values.value?.trim(),
         types: selectedTypes,
         config: localConfig,
-        usageScript: usageScript.trim() || undefined,
+        usageScript: keyScript || undefined,
         modelMapping: serializedModelMapping,
         clientConfigs,
       })
@@ -493,20 +497,28 @@ export default function KeyEditModal({
                   label: t('keys.usageConfig') || '额度查询配置',
                   children: (
                     <div className={styles.tabPane}>
+                      <div className={styles.usageSwitchRow}>
+                        <Switch
+                          checked={usageEnabled}
+                          onChange={setUsageEnabled}
+                          aria-label={t('keys.usageEnabled') || '查询这把密钥的额度'}
+                        />
+                        <Text>{t('keys.usageEnabled') || '查询这把密钥的额度'}</Text>
+                      </div>
                       <TextArea
                         value={usageScript}
                         onChange={(event) => setUsageScript(event.target.value)}
+                        disabled={!usageEnabled}
                         autoSize={{ minRows: 8, maxRows: 20 }}
                         spellCheck={false}
                         className={styles.jsonEditor}
-                        placeholder={
-                          t('keys.usageScriptPlaceholder') ||
-                          '({ request: {...}, extractor: (response) => ({ remaining: ... }) })'
-                        }
                       />
-                      <Text type='secondary' style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                      <Text
+                        type='secondary'
+                        style={{ fontSize: 12, display: 'block', marginTop: 8 }}
+                      >
                         {t('keys.usageScriptHint') ||
-                          '留空则不查询。脚本与供应商的账户查询同构：{{baseUrl}} 供应商地址，{{apiKey}} 这把密钥'}
+                          '脚本与供应商的账户查询同构：{{baseUrl}} 供应商地址，{{apiKey}} 这把密钥'}
                       </Text>
                     </div>
                   ),
@@ -712,9 +724,7 @@ export default function KeyEditModal({
                             <Input
                               value={codexModel}
                               onChange={(e) => setCodexModel(e.target.value)}
-                              placeholder={
-                                t('keys.modelMapCodexPlaceholder') || '默认跟随客户端'
-                              }
+                              placeholder={t('keys.modelMapCodexPlaceholder') || '默认跟随客户端'}
                             />
                           </Form.Item>
                         </div>
@@ -817,46 +827,49 @@ export default function KeyEditModal({
                   label: '客户端配置',
                   children: (
                     <div className={styles.tabPane}>
-                      <Text
-                        type='secondary'
-                        style={{ marginBottom: 16, display: 'block', fontSize: 12 }}
-                      >
-                        为不同客户端指定专用 URL 和上游认证方式,留空则使用默认配置
+                      <Text type='secondary' className={styles.hintLine}>
+                        为不同客户端指定专用 URL 和上游认证方式，留空则使用默认配置
                       </Text>
-                      <Space direction='vertical' style={{ width: '100%' }} size={16}>
+                      {/* One row per client, its two controls side by side: a
+                          stacked pair per client reads as four unrelated
+                          fields rather than two settings for one client. */}
+                      <div className={styles.clientList}>
                         {selectedTypes.map((clientKind) => {
                           const config = getClientKindConfig(clientKind)
                           const currentValue = clientConfigs[clientKind]?.baseUrl || ''
                           const currentAuthScheme = clientConfigs[clientKind]?.authScheme
                           const isOverridden = !!currentValue || !!currentAuthScheme
                           return (
-                            <div key={clientKind}>
-                              <Space style={{ marginBottom: 8 }}>
+                            <div className={styles.clientRow} key={clientKind}>
+                              <div className={styles.clientRowHead}>
                                 <Text strong>{config.label}</Text>
-                                {isOverridden && <Badge status='processing' text='已覆盖' />}
-                              </Space>
-                              <Space direction='vertical' style={{ width: '100%' }} size={8}>
+                                {isOverridden && (
+                                  <Text type='secondary' className={styles.clientRowBadge}>
+                                    已覆盖
+                                  </Text>
+                                )}
+                              </div>
+                              <div className={styles.clientRowFields}>
                                 <Form.Item
                                   label='Base URL'
-                                  extra={`默认: ${currentProvider?.baseUrl || '(未设置)'}`}
+                                  extra={`默认 ${currentProvider?.baseUrl || '未设置'}`}
                                   style={{ marginBottom: 0 }}
                                 >
                                   <Input
                                     value={currentValue}
-                                    onChange={(e) =>
+                                    onChange={(event) =>
                                       updateClientConfig(clientKind, {
-                                        baseUrl: e.target.value.trim(),
+                                        baseUrl: event.target.value.trim(),
                                       })
                                     }
                                     placeholder={
                                       currentProvider?.baseUrl || 'https://api.example.com/v1'
                                     }
-                                    size='large'
                                   />
                                 </Form.Item>
                                 <Form.Item
                                   label='上游认证方式'
-                                  extra={`默认: ${getDefaultAuthSchemeLabel(clientKind)}`}
+                                  extra={`默认 ${getDefaultAuthSchemeLabel(clientKind)}`}
                                   style={{ marginBottom: 0 }}
                                 >
                                   <Select
@@ -872,14 +885,13 @@ export default function KeyEditModal({
                                       { label: 'Authorization: Bearer', value: 'bearer' },
                                       { label: '不发认证头', value: 'none' },
                                     ]}
-                                    size='large'
                                   />
                                 </Form.Item>
-                              </Space>
+                              </div>
                             </div>
                           )
                         })}
-                      </Space>
+                      </div>
                     </div>
                   ),
                 },

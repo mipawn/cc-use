@@ -364,6 +364,9 @@ export default {
     scriptPlaceholder: '({ request: {...}, extractor: (response) => ({...}) })',
     scriptVars:
       'Substituted on send: {{baseUrl}} provider address, {{apiKey}} inference key, {{accessToken}} access token, {{userId}} user ID',
+    requestHeaders: 'Request headers',
+    requestHeadersHint:
+      "Added to this provider's inference requests; a header the client sent is never overwritten. {{baseUrl}} is available.",
     scriptFields:
       'The extractor returns the standard fields: remaining / total / used / unit / isUnlimited / windows / isValid / invalidMessage',
     userId: 'User ID',
@@ -549,6 +552,7 @@ export default {
     advancedSettings: 'Advanced settings',
     defaultsSummary: 'Defaults come from the provider. Expand advanced settings to change them.',
     usageScriptPlaceholder: '({ request: {...}, extractor: (response) => ({ remaining: ... }) })',
+    usageEnabled: "Query this key's quota",
     usageScriptHint:
       'Leave empty for no query. Same shape as the provider account query: {{baseUrl}} provider address, {{apiKey}} this key',
     modelMappingHint: 'Configure upstream models and the Claude Code Auto mode classifier',

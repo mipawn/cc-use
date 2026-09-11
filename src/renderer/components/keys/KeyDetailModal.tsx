@@ -30,12 +30,7 @@ interface KeyDetailModalProps {
   onClose: () => void
 }
 
-export default function KeyDetailModal({
-  open,
-  apiKey,
-  provider,
-  onClose,
-}: KeyDetailModalProps) {
+export default function KeyDetailModal({ open, apiKey, provider, onClose }: KeyDetailModalProps) {
   const { t } = useTranslation()
   const message = useAppMessage()
   const { token } = theme.useToken()
@@ -59,7 +54,6 @@ export default function KeyDetailModal({
   useEffect(() => {
     setNewAlias(apiKey.alias || '')
   }, [apiKey.alias])
-
 
   const handleSaveAlias = async () => {
     setSaving(true)

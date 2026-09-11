@@ -3,6 +3,7 @@ pub mod launch_preview;
 pub mod management_token;
 pub mod project_session;
 pub mod provider_presets;
+pub mod request_headers;
 pub mod route_plan;
 pub mod session_token;
 pub mod upstream_routing;
