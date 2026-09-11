@@ -153,8 +153,8 @@ impl Database {
     ) -> Result<Vec<String>, rusqlite::Error> {
         let where_clause = self.time_range_where("created_at", time_range);
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT DISTINCT tool_name FROM auto_mode_audits {}
-             WHERE tool_name IS NOT NULL AND tool_name != ''
+            "SELECT DISTINCT tool_name FROM auto_mode_audits
+             WHERE tool_name IS NOT NULL AND tool_name != '' {}
              ORDER BY tool_name",
             // The range clause already starts with WHERE, or is empty.
             where_clause.replace("WHERE", "AND")
@@ -423,6 +423,32 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn tool_filter_supports_ranges_and_excludes_out_of_range_tools() {
+        let db = Database::new_in_memory().unwrap();
+        let mut old = audit("old", "2020-01-01T00:00:00Z");
+        old.tool_name = Some("OldTool".into());
+        db.auto_mode_audit_upsert(&old).unwrap();
+        db.auto_mode_audit_upsert(&audit("new", "2026-09-11T00:00:00Z"))
+            .unwrap();
+        assert_eq!(
+            db.auto_mode_audit_tool_names("custom:2026-09-01:2026-09-30")
+                .unwrap(),
+            vec!["Bash"]
+        );
+        for range in [
+            "week",
+            "last30Days",
+            "lastYear",
+            "month",
+            "lastMonth",
+            "year",
+            "all",
+        ] {
+            db.auto_mode_audit_tool_names(range).unwrap();
+        }
     }
 
     #[test]

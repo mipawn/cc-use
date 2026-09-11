@@ -150,3 +150,18 @@ it('offers only the tools that actually appear in range', async () => {
 
   expect(tools).toHaveBeenCalledWith('week')
 })
+
+it('keeps a readable error and retries loading from the drawer', async () => {
+  list
+    .mockRejectedValueOnce(new Error('temporary database failure'))
+    .mockResolvedValueOnce([audit({})])
+  const body = await render()
+  expect(body.textContent).toContain('temporary database failure')
+  const retry = Array.from(body.querySelectorAll('button')).find(
+    (button) => button.textContent === 'common.retry',
+  )!
+  await act(async () => retry.click())
+  expect(body.textContent).toContain('Bash · git status')
+  expect(body.textContent).not.toContain('temporary database failure')
+  expect(list).toHaveBeenCalledTimes(2)
+})

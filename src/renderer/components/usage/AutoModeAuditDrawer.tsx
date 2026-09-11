@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Drawer, Empty, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Drawer, Empty, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { AutoModeAudit, StatsTimeRange } from '@shared/types'
 import { getApi } from '../../api'
@@ -30,11 +30,14 @@ export default function AutoModeAuditDrawer({
   const [tool, setTool] = useState<string | undefined>(undefined)
   const [verdict, setVerdict] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoading(true)
+    setLoadError(null)
     Promise.all([
       getApi().autoModeAudit.list({ timeRange, tool, verdict, limit: 200 }),
       getApi().autoModeAudit.tools(timeRange),
@@ -47,6 +50,8 @@ export default function AutoModeAuditDrawer({
       .catch((error) => {
         if (cancelled) return
         console.error('Failed to load Auto mode audits:', error)
+        setLoadError(String(error))
+        setAudits([])
         message.error(t('statistics.autoAuditLoadFailed') || '加载 Auto 记录失败')
       })
       .finally(() => {
@@ -58,7 +63,7 @@ export default function AutoModeAuditDrawer({
     // Only the query parameters are dependencies: `message` and `t` change
     // identity between renders and would re-trigger this effect forever.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, timeRange, tool, verdict])
+  }, [open, timeRange, tool, verdict, reload])
 
   const verdictTag = (row: AutoModeAudit) => {
     if (!row.parseOk || !row.verdict || row.verdict === 'unknown') {
@@ -116,12 +121,20 @@ export default function AutoModeAuditDrawer({
             { value: 'unknown', label: t('statistics.verdictUnknown') || '未知' },
           ]}
         />
-        <Text type='secondary' style={{ fontSize: 12 }}>
-          {t('statistics.autoAuditHint') ||
-            '记录分类器审核了什么；工具是否真正执行只有客户端回执才能确认'}
-        </Text>
       </Space>
 
+      {loadError && (
+        <Alert
+          type='error'
+          showIcon
+          title={t('statistics.autoAuditLoadFailed')}
+          description={loadError}
+          style={{ marginBottom: 16 }}
+          action={
+            <Button onClick={() => setReload((value) => value + 1)}>{t('common.retry')}</Button>
+          }
+        />
+      )}
       <Table<AutoModeAudit>
         rowKey='requestId'
         size='small'
