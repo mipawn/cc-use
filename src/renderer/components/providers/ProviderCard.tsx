@@ -8,29 +8,18 @@ import {
   CloseCircleOutlined,
   LinkOutlined,
   CopyOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import type { Provider } from '@shared/types'
 import { getProviderTypeConfig, generateTerminalCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { providerIconSrc } from '../../utils/providerIcon'
 import ProviderUsageWindows from './ProviderUsageWindows'
 import styles from './ProviderCard.module.css'
 
-import claudeIcon from '../../assets/provider-icons/claude.svg'
-import openaiIcon from '../../assets/provider-icons/openai.svg'
-import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
-import newapiIcon from '../../assets/provider-icons/newapi.svg'
-
 const { Text, Title } = Typography
-
-const PRESET_ICON_MAP: Record<string, string> = {
-  claude: claudeIcon,
-  codex: openaiIcon,
-  openai: openaiIcon,
-  deepseek: deepseekIcon,
-  newapi: newapiIcon,
-}
 
 interface ProviderCardProps {
   provider: Provider
@@ -101,18 +90,21 @@ export default function ProviderCard({
     return date.toLocaleString()
   }
 
-  const getIconSrc = () => {
-    if (!provider.icon) {
-      return PRESET_ICON_MAP['custom'] || PRESET_ICON_MAP.claude
-    }
-    if (PRESET_ICON_MAP[provider.icon]) {
-      return PRESET_ICON_MAP[provider.icon]
-    }
-    return `file://${provider.icon}`
-  }
-
   const renderIcon = () => {
-    const iconSrc = getIconSrc()
+    const iconSrc = providerIconSrc(provider.icon)
+    if (!iconSrc) {
+      // "No mark chosen" is a normal state; a broken <img> would read as a
+      // fault in the app instead of an unmade choice.
+      return (
+        <span
+          className='w-6 h-6 inline-flex items-center justify-center'
+          role='img'
+          aria-label={provider.name}
+        >
+          <AppstoreOutlined className='text-base opacity-50' />
+        </span>
+      )
+    }
     return <img src={iconSrc} alt={provider.name} className='w-6 h-6 object-contain' />
   }
 

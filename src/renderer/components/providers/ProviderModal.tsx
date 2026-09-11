@@ -8,24 +8,12 @@ import SimpleBar from 'simplebar-react'
 import type { Provider, CreateProviderInput, ProviderPreset } from '@shared/types'
 import styles from './ProviderModal.module.css'
 
-import claudeIcon from '../../assets/provider-icons/claude.svg'
-import openaiIcon from '../../assets/provider-icons/openai.svg'
-import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
-import newapiIcon from '../../assets/provider-icons/newapi.svg'
+import { PROVIDER_ICON_CHOICES, providerIconSrc } from '../../utils/providerIcon'
 
 const { Text } = Typography
 const { TextArea } = Input
 
-const PRESET_ICONS: { key: string; icon: string; label: string }[] = [
-  { key: 'claude', icon: claudeIcon, label: 'Claude' },
-  { key: 'openai', icon: openaiIcon, label: 'OpenAI' },
-  { key: 'deepseek', icon: deepseekIcon, label: 'DeepSeek' },
-  { key: 'newapi', icon: newapiIcon, label: 'NewAPI' },
-]
-
-const PRESET_ICON_MAP: Record<string, string> = Object.fromEntries(
-  PRESET_ICONS.map((i) => [i.key, i.icon]),
-)
+const isIconChoice = (key: string) => PROVIDER_ICON_CHOICES.some((choice) => choice.key === key)
 
 const BALANCE_TYPES = ['none', 'newapi', 'custom', 'deepseek'] as const
 type BalanceType = (typeof BALANCE_TYPES)[number]
@@ -87,16 +75,16 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setBalanceType(provider.walletBalanceType)
         setUsageType(normalizeUsageType(provider.usageType))
         setPreset(null)
-        if (provider.icon) {
-          if (PRESET_ICON_MAP[provider.icon]) {
-            setSelectedIcon(provider.icon)
-            setCustomIconPath(null)
-          } else {
-            setSelectedIcon('custom')
-            setCustomIconPath(provider.icon)
-          }
+        if (provider.icon && isIconChoice(provider.icon)) {
+          setSelectedIcon(provider.icon)
+          setCustomIconPath(null)
+        } else if (providerIconSrc(provider.icon)) {
+          // An uploaded file. `custom` is not one: it marks "no mark chosen",
+          // and reading it as a path produced a `file://custom` broken image.
+          setSelectedIcon('custom')
+          setCustomIconPath(provider.icon!)
         } else {
-          setSelectedIcon('claude')
+          setSelectedIcon('')
           setCustomIconPath(null)
         }
         // Show advanced if there's balance config
@@ -140,10 +128,10 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
     })
     setBalanceType(balance)
     setUsageType(usage)
-    if (PRESET_ICON_MAP[next.icon]) {
-      setSelectedIcon(next.icon)
-      setCustomIconPath(null)
-    }
+    // A template that names a mark selects it; the blank one names none, and
+    // leaving the previous choice standing would claim a vendor it never named.
+    setSelectedIcon(isIconChoice(next.icon) ? next.icon : '')
+    setCustomIconPath(null)
   }
 
   const handleSubmit = async () => {
@@ -306,7 +294,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                 {/* Icon Selector */}
                 <Form.Item label={t('providers.icon')}>
                   <div className={styles.iconGrid}>
-                    {PRESET_ICONS.map((item) => (
+                    {PROVIDER_ICON_CHOICES.map((item) => (
                       <Tooltip key={item.key} title={item.label}>
                         <div
                           className={`${styles.iconItem} ${selectedIcon === item.key ? styles.iconItemActive : ''}`}
@@ -315,7 +303,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                             setCustomIconPath(null)
                           }}
                         >
-                          <img src={item.icon} alt={item.label} className={styles.iconImg} />
+                          <img src={item.src} alt={item.label} className={styles.iconImg} />
                         </div>
                       </Tooltip>
                     ))}

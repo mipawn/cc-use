@@ -191,8 +191,8 @@ it('sends the template origin and its key defaults when creating', async () => {
   expect(input.defaultKeyConfig).toMatchObject({ types: ['claude_code', 'codex'] })
 })
 
-it('keeps the stored origin when editing, without re-applying a template', async () => {
-  const provider: Provider = {
+function providerFixture(overrides: Partial<Provider> = {}): Provider {
+  return {
     id: 'provider-1',
     name: 'my gateway',
     baseUrl: 'https://custom.example.com',
@@ -220,9 +220,12 @@ it('keeps the stored origin when editing, without re-applying a template', async
     presetId: 'newapi',
     defaultKeyConfig: { types: ['claude_code'] },
     requestAdapter: 'none',
+    ...overrides,
   }
+}
 
-  const onSave = await render(provider)
+it('keeps the stored origin when editing, without re-applying a template', async () => {
+  const onSave = await render(providerFixture())
   // No preset picker on edit: the stored config is the source of truth.
   expect(document.body.querySelectorAll('[class*="iconItem"]').length).toBe(4 + 1)
   await submit()
@@ -233,4 +236,12 @@ it('keeps the stored origin when editing, without re-applying a template', async
     baseUrl: 'https://custom.example.com',
   })
   expect(onSave.mock.calls[0][0].defaultKeyConfig).toMatchObject({ types: ['claude_code'] })
+})
+
+it('shows nothing — rather than a broken path — when no mark was chosen', async () => {
+  // `custom` is what the blank template stores, and it means "unset".
+  await render(providerFixture({ icon: 'custom', presetId: 'custom' }))
+
+  expect(document.body.querySelector('img[src="file://custom"]')).toBeNull()
+  expect(document.body.querySelectorAll('[class*="iconItemActive"]').length).toBe(0)
 })

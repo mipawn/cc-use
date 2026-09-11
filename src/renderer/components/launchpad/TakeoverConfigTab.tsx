@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Avatar, Button, Empty, Tag, Typography } from 'antd'
 import {
   ApiOutlined,
+  AppstoreOutlined,
   ArrowRightOutlined,
   CheckCircleOutlined,
   KeyOutlined,
@@ -13,25 +14,12 @@ import type { ApiKey, ClientKind, Provider } from '@shared/types'
 import { getClientKindLabel } from '@shared/types'
 import RoutePickerModal, { getRouteModelLabel } from '../common/RoutePickerModal'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
-import claudeIcon from '../../assets/provider-icons/claude.svg'
-import openaiIcon from '../../assets/provider-icons/openai.svg'
-import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
-import newapiIcon from '../../assets/provider-icons/newapi.svg'
+import { providerIconSrc } from '../../utils/providerIcon'
 import styles from './TakeoverConfigTab.module.css'
 
 const { Text, Title } = Typography
 
 export type TakeoverStatus = 'taken_over' | 'official' | 'not_found' | 'unknown' | 'error'
-
-const PRESET_ICON_MAP: Record<string, string> = {
-  claude: claudeIcon,
-  claude_code: claudeIcon,
-  claude_desktop: claudeIcon,
-  codex: openaiIcon,
-  openai: openaiIcon,
-  deepseek: deepseekIcon,
-  newapi: newapiIcon,
-}
 
 export interface TakeoverConfigTabProps {
   status: TakeoverStatus
@@ -71,10 +59,6 @@ function statusBadge(status: TakeoverStatus) {
   }
 }
 
-function providerIcon(provider: Provider) {
-  if (!provider.icon) return claudeIcon
-  return PRESET_ICON_MAP[provider.icon] || `file://${provider.icon}`
-}
 
 export default function TakeoverConfigTab({
   status,
@@ -119,7 +103,11 @@ export default function TakeoverConfigTab({
             </div>
             <ArrowRightOutlined className={styles.routeArrow} />
             <div className={styles.routeNode}>
-              <Avatar src={providerIcon(activeProvider)} size={34} />
+              <Avatar
+                src={providerIconSrc(activeProvider.icon) ?? undefined}
+                icon={<AppstoreOutlined />}
+                size={34}
+              />
               <span className={styles.nodeBody}>
                 <span className={styles.nodeTitleLine}>
                   <Text type='secondary'>供应商</Text>

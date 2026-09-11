@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Avatar, Button, Empty, Input, Modal, Segmented, Tag, Typography } from 'antd'
 import {
+  AppstoreOutlined,
   CheckOutlined,
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -13,29 +14,11 @@ import { getClientKindLabel } from '@shared/types'
 import { supportsKeyClient } from '../../utils/clientSupport'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
 import { parseModelMapping } from '../../utils/modelMapping'
+import { providerIconSrc } from '../../utils/providerIcon'
 import { computeVisibleReorder } from '../launchpad/reorder'
-import claudeIcon from '../../assets/provider-icons/claude.svg'
-import openaiIcon from '../../assets/provider-icons/openai.svg'
-import deepseekIcon from '../../assets/provider-icons/deepseek.svg'
-import newapiIcon from '../../assets/provider-icons/newapi.svg'
 import styles from './RoutePickerModal.module.css'
 
 const { Text } = Typography
-
-const PRESET_ICON_MAP: Record<string, string> = {
-  claude: claudeIcon,
-  claude_code: claudeIcon,
-  claude_desktop: claudeIcon,
-  codex: openaiIcon,
-  openai: openaiIcon,
-  deepseek: deepseekIcon,
-  newapi: newapiIcon,
-}
-
-function providerIcon(provider: Provider) {
-  if (!provider.icon) return claudeIcon
-  return PRESET_ICON_MAP[provider.icon] || `file://${provider.icon}`
-}
 
 function keyName(key: ApiKey) {
   return key.alias || `Key ${key.priority + 1}`
@@ -254,7 +237,11 @@ export default function RoutePickerModal({
                   }`}
                   onClick={() => setProviderId(provider.id)}
                 >
-                  <Avatar src={providerIcon(provider)} size={28} />
+                  <Avatar
+                    src={providerIconSrc(provider.icon) ?? undefined}
+                    icon={<AppstoreOutlined />}
+                    size={28}
+                  />
                   <span className={styles.providerBody}>
                     <span className={styles.providerNameLine}>
                       <Text strong ellipsis>
