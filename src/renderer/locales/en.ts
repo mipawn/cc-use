@@ -363,14 +363,16 @@ export default {
       newapi: 'New API',
       'opencode-go': 'OpenCode Go',
     },
-    balanceQuery: 'Account balance',
-    usageQuery: 'Account usage',
-    ruleNone: 'Do not query',
-    ruleCustom: 'Custom',
+    accountQuery: 'Account balance and usage',
+    accountRules: {
+      none: 'Do not query',
+      newapi: 'NewAPI',
+      deepseek: 'DeepSeek',
+      'opencode-go': 'OpenCode Go',
+      custom: 'Custom',
+    },
     ruleNote: {
       none: 'No query request is sent',
-      'opencode-go':
-        'Rolling windows are reported by the OpenCode Go adapter, which needs no request of its own',
     },
     restoreDefault: 'Restore default',
     queryPlaceholder: 'GET {baseUrl}/api/...',

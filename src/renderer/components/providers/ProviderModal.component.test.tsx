@@ -169,10 +169,28 @@ it('fills the address, name and query settings from the chosen preset', async ()
   expect(fieldValue('baseUrl')).toBe('https://api.deepseek.com')
   expect(fieldValue('name')).toBe('deepseek')
 
-  // Opening the advanced panel shows the template's query settings rather than
-  // a blank default; the values themselves are asserted on the save payload.
+  // Opening the advanced panel shows the template's whole request rather than a
+  // blank default; the stored values are asserted on the save payload.
   await openAdvanced()
-  expect(document.body.querySelectorAll('.ant-select').length).toBeGreaterThanOrEqual(2)
+  const [account] = queryEditors()
+  expect(account.value).toBe(
+    'GET https://api.deepseek.com/user/balance\nAuthorization: Bearer {key}',
+  )
+})
+
+it('resets the address when a template that has none of its own is chosen', async () => {
+  presets.mockResolvedValue([custom, deepseek, newapi])
+  await render(null)
+
+  await clickPreset(1) // deepseek fills its own address
+  expect(fieldValue('baseUrl')).toBe('https://api.deepseek.com')
+  expect(fieldValue('name')).toBe('deepseek')
+
+  // New API's site belongs to the user, so its template carries none. Leaving
+  // DeepSeek's address standing would point the provider at a service it is not.
+  await clickPreset(2)
+  expect(fieldValue('baseUrl')).toBe('')
+  expect(fieldValue('name')).toBe('')
 })
 
 it('sends the template origin and its key defaults when creating', async () => {
@@ -293,6 +311,36 @@ it('shows the request a chosen rule will send, headers and all', async () => {
   expect(balance.value).toBe(
     'GET https://api.deepseek.com/user/balance\nAuthorization: Bearer {key}',
   )
+})
+
+it('writes the account rule onto the columns the daemon dispatches on', async () => {
+  // OpenCode Go answers the account question with metering periods, so its
+  // query lives in the usage columns; the one choice maps onto both.
+  const opencodeGo: ProviderPreset = {
+    ...custom,
+    id: 'opencode-go',
+    defaultName: 'opencode go',
+    baseUrl: 'https://opencode.ai/zen/go',
+    icon: 'claude',
+    walletBalanceType: 'none',
+    usageType: 'opencode-go',
+    usageUrl: '{baseUrl}/v1/usage',
+    usageHeaders: '{"Authorization": "Bearer {key}"}',
+    requestAdapter: 'opencode-go',
+  }
+  presets.mockResolvedValue([custom, opencodeGo])
+
+  const onSave = await render(null)
+  await clickPreset(1)
+  await submit()
+
+  expect(onSave.mock.calls[0][0]).toMatchObject({
+    walletBalanceType: 'none',
+    usageType: 'opencode-go',
+    usageUrl: '{baseUrl}/v1/usage',
+    usageHeaders: '{\n  "Authorization": "Bearer {key}"\n}',
+  })
+  expect(onSave.mock.calls[0][0].walletBalanceUrl).toBeUndefined()
 })
 
 it('saves the request as the user edited it, not as the preset shipped it', async () => {

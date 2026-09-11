@@ -23,20 +23,19 @@ import {
   storedValueToHeaders,
 } from '../../utils/providerRequestBlock'
 import {
-  balanceRequestForRule,
+  ACCOUNT_RULES,
+  accountRequestForPreset,
+  accountRequestForRule,
+  accountRuleOf,
+  accountStorageForRule,
+  requestSlotForRule,
   ruleHasNoRequest,
-  usageRequestForRule,
+  type AccountRule,
   type QueryRequestDefault,
 } from '../../utils/providerQueryDefaults'
 
 const { Text } = Typography
 const { TextArea } = Input
-
-const BALANCE_RULES = ['none', 'newapi', 'custom', 'deepseek'] as const
-type BalanceRule = (typeof BALANCE_RULES)[number]
-
-const USAGE_RULES = ['none', 'newapi', 'custom', 'opencode-go'] as const
-type UsageRule = (typeof USAGE_RULES)[number]
 
 const isIconChoice = (key: string) => PROVIDER_ICON_CHOICES.some((choice) => choice.key === key)
 
@@ -57,15 +56,12 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const [presets, setPresets] = useState<ProviderPreset[]>([])
   const [preset, setPreset] = useState<ProviderPreset | null>(null)
 
-  // The two queries a provider can run, each as its rule plus the request that
-  // rule sends. They are held as text because that is how they are edited; the
-  // stored columns are read and written through the block grammar.
-  const [balanceRule, setBalanceRule] = useState<BalanceRule>('none')
-  const [balanceBlock, setBalanceBlock] = useState('')
-  const [balanceError, setBalanceError] = useState<string | null>(null)
-  const [usageRule, setUsageRule] = useState<UsageRule>('none')
-  const [usageBlock, setUsageBlock] = useState('')
-  const [usageError, setUsageError] = useState<string | null>(null)
+  // The account query: which rule reads it, and the request that carries it.
+  // Held as text because that is how it is edited; the stored columns are read
+  // and written through the block grammar.
+  const [accountRule, setAccountRule] = useState<AccountRule>('none')
+  const [accountBlock, setAccountBlock] = useState('')
+  const [accountError, setAccountError] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const message = useAppMessage()
@@ -92,16 +88,9 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           walletBalanceUserId: provider.walletBalanceUserId,
         })
         setPreset(null)
-        setBalanceRule(asBalanceRule(provider.walletBalanceType))
-        setBalanceBlock(
-          blockFromStored(
-            provider.walletBalanceUrl,
-            provider.walletBalanceHeaders,
-            provider.walletBalancePath,
-          ),
-        )
-        setUsageRule(asUsageRule(provider.usageType))
-        setUsageBlock(blockFromStored(provider.usageUrl, provider.usageHeaders, provider.usagePath))
+        const rule = accountRuleOf(provider)
+        setAccountRule(rule)
+        setAccountBlock(blockForStoredRequest(provider, rule))
         if (provider.icon && isIconChoice(provider.icon)) {
           setSelectedIcon(provider.icon)
           setCustomIconPath(null)
@@ -115,9 +104,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           setCustomIconPath(null)
         }
         // Show advanced if this provider actually queries something.
-        setShowAdvanced(
-          provider.walletBalanceType !== 'none' || provider.usageType !== 'none',
-        )
+        setShowAdvanced(rule !== 'none')
       } else {
         form.resetFields()
         form.setFieldsValue({ walletBalanceUserId: undefined })
@@ -125,34 +112,30 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setCustomIconPath(null)
         setShowAdvanced(false)
         setPreset(null)
-        setBalanceRule('none')
-        setBalanceBlock('')
-        setUsageRule('none')
-        setUsageBlock('')
+        setAccountRule('none')
+        setAccountBlock('')
       }
-      setBalanceError(null)
-      setUsageError(null)
+      setAccountError(null)
     }
   }, [open, provider, form])
 
   /**
-   * Fill the form from a template. Everything the template supplies is written
-   * into the form, so the user sees exactly what will be saved and can edit any
-   * of it — nothing is applied behind the form's back.
+   * Fill the form from a template, in full.
+   *
+   * The template decides every field it governs, including the ones it leaves
+   * empty. Carrying the previous template's address forward would point a New
+   * API provider at DeepSeek's endpoint and leave the user to notice — the
+   * dialog would look like it had applied the template when it had not.
    */
   const applyPreset = (next: ProviderPreset) => {
     setPreset(next)
-    setBalanceRule(asBalanceRule(next.walletBalanceType))
-    setBalanceBlock(
-      blockFromStored(next.walletBalanceUrl, next.walletBalanceHeaders, undefined),
-    )
-    setUsageRule(asUsageRule(next.usageType))
-    setUsageBlock(blockFromStored(next.usageUrl, next.usageHeaders, undefined))
-    setBalanceError(null)
-    setUsageError(null)
+    setAccountRule(accountRuleOf(next))
+    setAccountBlock(blockFromDefault(accountRequestForPreset(next)))
+    setAccountError(null)
     form.setFieldsValue({
-      name: next.defaultName || form.getFieldValue('name') || '',
-      baseUrl: next.baseUrl || form.getFieldValue('baseUrl') || '',
+      name: next.defaultName,
+      baseUrl: next.baseUrl,
+      website: '',
     })
     // A template that names a mark selects it; the blank one names none, and
     // leaving the previous choice standing would claim a vendor it never named.
@@ -161,22 +144,16 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   }
 
   /**
-   * Switch the rule a query is read with, and restate its request.
+   * Switch the rule the account query is read with, and restate its request.
    *
    * Changing the rule replaces the block with that rule's own request: a URL
    * written for one service means nothing to another, and carrying it over
    * would send it to a place it was never meant for.
    */
-  const changeBalanceRule = (rule: BalanceRule) => {
-    setBalanceRule(rule)
-    setBalanceBlock(blockFromDefault(balanceRequestForRule(rule, presets)))
-    setBalanceError(null)
-  }
-
-  const changeUsageRule = (rule: UsageRule) => {
-    setUsageRule(rule)
-    setUsageBlock(blockFromDefault(usageRequestForRule(rule, presets)))
-    setUsageError(null)
+  const changeAccountRule = (rule: AccountRule) => {
+    setAccountRule(rule)
+    setAccountBlock(blockFromDefault(accountRequestForRule(rule, presets)))
+    setAccountError(null)
   }
 
   const handleSubmit = async () => {
@@ -184,27 +161,25 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
       setLoading(true)
       const values = await form.validateFields()
 
-      const balance = parseRequestBlock(balanceBlock)
-      if (!balance.ok) {
-        setBalanceError(balance.error)
-        return
-      }
-      const usage = parseRequestBlock(usageBlock)
-      if (!usage.ok) {
-        setUsageError(usage.error)
+      const account = parseRequestBlock(accountBlock)
+      if (!account.ok) {
+        setAccountError(account.error)
         return
       }
       // A custom rule is the user's own definition, so it has nothing to fall
       // back on: without an address there is no query at all.
-      if (balanceRule === 'custom' && !balance.request.url) {
-        setBalanceError(t('providers.queryNeedsUrl') || '自定义规则必须填写请求地址')
-        return
-      }
-      if (usageRule === 'custom' && !usage.request.url) {
-        setUsageError(t('providers.queryNeedsUrl') || '自定义规则必须填写请求地址')
+      if (accountRule === 'custom' && !account.request.url) {
+        setAccountError(t('providers.queryNeedsUrl') || '自定义规则必须填写请求地址')
         return
       }
 
+      // The single choice is written back onto the two columns the daemon
+      // dispatches on, and the request onto whichever pair its rule uses.
+      const slot = requestSlotForRule(accountRule)
+      const storage = accountStorageForRule(accountRule)
+      const requestUrl = account.request.url || undefined
+      const requestPath = account.request.path || undefined
+      const requestHeaders = headersToStoredValue(account.request.headers) || undefined
       const iconValue = selectedIcon === 'custom' ? customIconPath : selectedIcon
 
       await onSave({
@@ -216,15 +191,15 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         remark: values.remark?.trim(),
         token: values.token?.trim(),
         icon: iconValue || undefined,
-        walletBalanceType: balanceRule,
-        walletBalanceUrl: balance.request.url || undefined,
-        walletBalancePath: balance.request.path || undefined,
-        walletBalanceHeaders: headersToStoredValue(balance.request.headers) || undefined,
+        walletBalanceType: storage.walletBalanceType,
+        walletBalanceUrl: slot === 'balance' ? requestUrl : undefined,
+        walletBalancePath: slot === 'balance' ? requestPath : undefined,
+        walletBalanceHeaders: slot === 'balance' ? requestHeaders : undefined,
         walletBalanceUserId: values.walletBalanceUserId?.trim(),
-        usageType: usageRule,
-        usageUrl: usage.request.url || undefined,
-        usagePath: usage.request.path || undefined,
-        usageHeaders: headersToStoredValue(usage.request.headers) || undefined,
+        usageType: storage.usageType,
+        usageUrl: slot === 'usage' ? requestUrl : undefined,
+        usagePath: slot === 'usage' ? requestPath : undefined,
+        usageHeaders: slot === 'usage' ? requestHeaders : undefined,
         requestAdapter: provider ? provider.requestAdapter : (preset?.requestAdapter ?? 'none'),
         // The template's key defaults travel with the provider. Editing the
         // address or the icon never silently drops them.
@@ -257,11 +232,13 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
     }
   }
 
-  // Which credentials the queries actually name. Asking for a token no request
+  // Which credentials the request actually names. Asking for a token no request
   // mentions would collect a secret for nothing.
-  const queriesText = `${balanceBlock}\n${usageBlock}`
-  const queriesToken = queriesText.includes('{token}')
-  const queriesUserId = queriesText.includes('{userId}')
+  const queriesToken = accountBlock.includes('{token}')
+  const queriesUserId = accountBlock.includes('{userId}')
+  // Which stored columns the request belongs in, so the unreadable-headers
+  // warning looks at the pair this rule actually writes.
+  const slot = requestSlotForRule(accountRule)
 
   return (
     <Modal
@@ -455,48 +432,28 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                       </Form.Item>
 
                       <QueryBlock
-                        title={t('providers.balanceQuery') || '账户余额'}
-                        rule={balanceRule}
-                        ruleOptions={[
-                          { value: 'none', label: t('providers.ruleNone') || '不查询' },
-                          { value: 'newapi', label: 'NewAPI' },
-                          { value: 'deepseek', label: 'DeepSeek' },
-                          { value: 'custom', label: t('providers.ruleCustom') || '自定义' },
-                        ]}
-                        onRuleChange={(value) => changeBalanceRule(value as BalanceRule)}
-                        onRestore={() => changeBalanceRule(balanceRule)}
-                        block={balanceBlock}
+                        title={t('providers.accountQuery') || '账户余额与用量'}
+                        rule={accountRule}
+                        ruleOptions={ACCOUNT_RULES.map((rule) => ({
+                          value: rule,
+                          label: t(`providers.accountRules.${rule}`),
+                        }))}
+                        onRuleChange={(value) => changeAccountRule(value as AccountRule)}
+                        onRestore={() => changeAccountRule(accountRule)}
+                        block={accountBlock}
                         onBlockChange={(value) => {
-                          setBalanceBlock(value)
-                          if (balanceError) setBalanceError(null)
+                          setAccountBlock(value)
+                          if (accountError) setAccountError(null)
                         }}
-                        error={balanceError}
+                        error={accountError}
                         unreadableHeaders={isStoredHeadersUnreadable(
-                          provider?.walletBalanceHeaders,
+                          slot === 'usage'
+                            ? provider?.usageHeaders
+                            : provider?.walletBalanceHeaders,
                         )}
                       />
 
-                      <QueryBlock
-                        title={t('providers.usageQuery') || '账号用量'}
-                        rule={usageRule}
-                        ruleOptions={[
-                          { value: 'none', label: t('providers.ruleNone') || '不查询' },
-                          { value: 'newapi', label: 'NewAPI' },
-                          { value: 'opencode-go', label: 'OpenCode Go' },
-                          { value: 'custom', label: t('providers.ruleCustom') || '自定义' },
-                        ]}
-                        onRuleChange={(value) => changeUsageRule(value as UsageRule)}
-                        onRestore={() => changeUsageRule(usageRule)}
-                        block={usageBlock}
-                        onBlockChange={(value) => {
-                          setUsageBlock(value)
-                          if (usageError) setUsageError(null)
-                        }}
-                        error={usageError}
-                        unreadableHeaders={isStoredHeadersUnreadable(provider?.usageHeaders)}
-                      />
-
-                      {/* Only the credentials the requests actually name. */}
+                      {/* Only the credentials the request actually names. */}
                       {queriesToken && (
                         <Form.Item
                           name='token'
@@ -619,14 +576,6 @@ function presetLabel(id: string, t: (key: string) => string): string {
   return translated === key ? id : translated
 }
 
-function asBalanceRule(value: string | null | undefined): BalanceRule {
-  return BALANCE_RULES.includes(value as BalanceRule) ? (value as BalanceRule) : 'none'
-}
-
-function asUsageRule(value: string | null | undefined): UsageRule {
-  return USAGE_RULES.includes(value as UsageRule) ? (value as UsageRule) : 'none'
-}
-
 /** Render stored query columns as the editable block. */
 function blockFromStored(
   url: string | null | undefined,
@@ -638,6 +587,17 @@ function blockFromStored(
     headers: storedValueToHeaders(headers),
     path: path ?? '',
   })
+}
+
+/** The provider's stored request, read from whichever columns its rule uses. */
+function blockForStoredRequest(provider: Provider, rule: AccountRule): string {
+  return requestSlotForRule(rule) === 'usage'
+    ? blockFromStored(provider.usageUrl, provider.usageHeaders, provider.usagePath)
+    : blockFromStored(
+        provider.walletBalanceUrl,
+        provider.walletBalanceHeaders,
+        provider.walletBalancePath,
+      )
 }
 
 function blockFromDefault(fallback: QueryRequestDefault): string {
