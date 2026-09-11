@@ -1,7 +1,7 @@
 use crate::models::{ApiKey, Provider};
 use serde_json::Value;
 
-use super::query_request::{has_stored, resolve_headers, stored_or, substitute, QueryVars};
+use super::query_request::{points_elsewhere, resolve_headers, stored_or, substitute, QueryVars};
 use crate::shared_runtime::provider_presets::query_defaults;
 
 const QUOTA_PER_UNIT: f64 = 500000.0;
@@ -53,9 +53,11 @@ async fn fetch_newapi_balance(
             return Ok(result);
         }
 
-        // A hand-written address is the user's own answer. Falling back to the
-        // vendor's billing routes would query an endpoint they never named.
-        if has_stored(own_url) {
+        // An address that differs from the built-in one is the user's own
+        // answer. Falling back to the vendor's billing routes would query an
+        // endpoint they never named. A stored value equal to the default is not
+        // an answer — the preset writes that one in when the provider is created.
+        if points_elsewhere(own_url, query_defaults::NEWAPI_ACCOUNT_URL) {
             return Err(format!(
                 "Account balance endpoint returned no usable data: {}",
                 url

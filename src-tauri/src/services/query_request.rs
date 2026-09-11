@@ -68,13 +68,17 @@ pub(super) fn stored_or<'a>(stored: Option<&'a str>, fallback: &'a str) -> &'a s
     non_empty(stored).unwrap_or(fallback)
 }
 
-/// Whether the user supplied their own URL for this query.
+/// Whether the provider is pointed somewhere other than the built-in address.
 ///
-/// Worth knowing apart from the resolved value: a provider with a hand-written
+/// Worth asking apart from the resolved value: a provider with a hand-written
 /// address must not be silently redirected to a vendor default when the first
-/// attempt fails.
-pub(super) fn has_stored(stored: Option<&str>) -> bool {
-    non_empty(stored).is_some()
+/// attempt fails. A stored value equal to the default does not count — the
+/// catalogue writes that one in when the provider is created.
+pub(super) fn points_elsewhere(stored: Option<&str>, default: &str) -> bool {
+    match non_empty(stored) {
+        Some(value) => value != default.trim(),
+        None => false,
+    }
 }
 
 /// The header object for a query: the stored one when set, otherwise the
@@ -194,10 +198,15 @@ mod tests {
     }
 
     #[test]
-    fn a_supplied_address_is_recognised_as_the_users_own() {
-        assert!(has_stored(Some("https://mine.example.com")));
-        assert!(!has_stored(Some("  ")));
-        assert!(!has_stored(None));
+    fn only_an_address_that_differs_counts_as_the_users_own() {
+        let default = "{baseUrl}/api/user/self";
+
+        assert!(points_elsewhere(Some("https://mine.example.com"), default));
+        assert!(!points_elsewhere(Some("  "), default));
+        assert!(!points_elsewhere(None, default));
+        // The catalogue writes the default into a new provider's row, so it has
+        // to keep counting as "not the user's own answer".
+        assert!(!points_elsewhere(Some(default), default));
     }
 
     /// The built-in default is what the settings dialog shows and what
