@@ -62,22 +62,15 @@ jobs:
 
       - run: pnpm install
 
-      - name: Diagnostic build
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build ${{ matrix.args }} --verbose
-
       - uses: tauri-apps/tauri-action@v0
-        if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: ${{ github.event_name == 'workflow_dispatch' && format('v{0}-test', github.run_number) || 'v__VERSION__' }}
+          tagName: ${{ github.event_name == 'workflow_dispatch' && format('test-{0}', github.run_id) || 'v__VERSION__' }}
+          releaseCommitish: ${{ github.sha }}
+          releaseName: ${{ github.event_name == 'workflow_dispatch' && format('v__VERSION__ 测试版 #{0}', github.run_number) || 'v__VERSION__' }}
           releaseBody: |
             ${{ steps.release_notes.outputs.body }}
 
@@ -92,7 +85,7 @@ jobs:
             如果你的应用不在 `/Applications` 目录，请将路径替换为实际安装路径。
           releaseDraft: false
           prerelease: ${{ github.event_name == 'workflow_dispatch' }}
-          includeUpdaterJson: true
+          includeUpdaterJson: ${{ github.event_name == 'push' }}
           assetNamePattern: ${{ matrix.assetName }}
           # Show the underlying DMG script error instead of only the bundler summary.
           args: ${{ matrix.args }} --verbose
