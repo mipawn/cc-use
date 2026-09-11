@@ -1,4 +1,4 @@
-import { providerIconSrc } from '../utils/providerIcon'
+import ProviderIcon from '../components/providers/ProviderIcon'
 import { getApi } from '../api'
 /**
  * Projects - 项目管理页面（卡片布局）
@@ -440,9 +440,9 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
                               <Text type='secondary' className={styles.routeScopeLabel}>
                                 {t('projects.nextLaunchRoute')}
                               </Text>
-                              <img
-                                src={providerIconSrc(provider?.icon) ?? undefined}
-                                alt={provider?.name}
+                              <ProviderIcon
+                                icon={provider?.icon}
+                                name={provider?.name}
                                 className={styles.providerIcon}
                               />
                               <Text className={styles.providerName}>{provider?.name}</Text>

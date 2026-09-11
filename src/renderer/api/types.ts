@@ -162,7 +162,12 @@ export interface Api {
     ) => Promise<{ url: string; method: string; headers: Record<string, string> }>
   }
   keyUsage: {
-    refresh: (keyId: string) => Promise<{ usage: UsageData | null; error: string | null }>
+    refresh: (keyId: string) => Promise<{
+      usage: UsageData | null
+      error: string | null
+      isValid: boolean
+      invalidMessage: string | null
+    }>
   }
   importExport: {
     export: () => Promise<ExportData>
@@ -190,6 +195,7 @@ export interface Api {
     readClaudeDesktop: () => Promise<string>
   }
   icon: {
+    read: (filename: string) => Promise<string>
     upload: (buffer: ArrayBuffer, filename: string) => Promise<string>
     list: () => Promise<{ preset: PresetIcon[]; uploaded: string[] }>
   }

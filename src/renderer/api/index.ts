@@ -126,6 +126,7 @@ function buildApi(): Api {
       readClaudeDesktop: () => invoke('claude_desktop_config_read'),
     },
     icon: {
+      read: (filename) => invoke('icon_read', { filename }),
       upload: (buffer, filename) => {
         const arr = Array.from(new Uint8Array(buffer))
         return invoke('icon_upload', { buffer: arr, filename })

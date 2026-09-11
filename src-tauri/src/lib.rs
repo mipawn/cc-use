@@ -135,6 +135,7 @@ pub fn run() {
             // Icon commands
             commands::system::icon_upload,
             commands::system::icon_list,
+            commands::system::icon_read,
             // Codex config commands
             commands::codex_config::codex_config_read,
             commands::codex_config::codex_config_is_taken_over,

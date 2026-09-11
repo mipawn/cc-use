@@ -9,14 +9,13 @@ import {
   CloseCircleOutlined,
   LinkOutlined,
   CopyOutlined,
-  AppstoreOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
 import type { Provider } from '@shared/types'
 import { getProviderTypeConfig, generateTerminalCommand, TERMINAL_TYPE_LABELS } from '@shared/types'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { providerIconSrc } from '../../utils/providerIcon'
+import ProviderIcon from './ProviderIcon'
 import ProviderUsageWindows from './ProviderUsageWindows'
 import styles from './ProviderCard.module.css'
 
@@ -88,24 +87,6 @@ export default function ProviderCard({
     return date.toLocaleString()
   }
 
-  const renderIcon = () => {
-    const iconSrc = providerIconSrc(provider.icon)
-    if (!iconSrc) {
-      // "No mark chosen" is a normal state; a broken <img> would read as a
-      // fault in the app instead of an unmade choice.
-      return (
-        <span
-          className='w-6 h-6 inline-flex items-center justify-center'
-          role='img'
-          aria-label={provider.name}
-        >
-          <AppstoreOutlined className='text-base opacity-50' />
-        </span>
-      )
-    }
-    return <img src={iconSrc} alt={provider.name} className='w-6 h-6 object-contain' />
-  }
-
   return (
     <Card
       className={styles.card}
@@ -156,7 +137,7 @@ export default function ProviderCard({
                 provider.isActive ? styles.iconBoxActive : styles.iconBoxInactive,
               )}
             >
-              {renderIcon()}
+              <ProviderIcon icon={provider.icon} name={provider.name} />
             </div>
             <div>
               <Title level={5} className='m-0!'>

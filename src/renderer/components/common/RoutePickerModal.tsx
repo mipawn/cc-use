@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Avatar, Button, Empty, Input, Modal, Segmented, Tag, Typography } from 'antd'
+import { Button, Empty, Input, Modal, Segmented, Tag, Typography } from 'antd'
 import {
-  AppstoreOutlined,
   CheckOutlined,
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -14,7 +13,7 @@ import { getClientKindLabel } from '@shared/types'
 import { supportsKeyClient } from '../../utils/clientSupport'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
 import { parseModelMapping } from '../../utils/modelMapping'
-import { providerIconSrc } from '../../utils/providerIcon'
+import ProviderIcon from '../providers/ProviderIcon'
 import { computeVisibleReorder } from '../launchpad/reorder'
 import styles from './RoutePickerModal.module.css'
 
@@ -237,11 +236,7 @@ export default function RoutePickerModal({
                   }`}
                   onClick={() => setProviderId(provider.id)}
                 >
-                  <Avatar
-                    src={providerIconSrc(provider.icon) ?? undefined}
-                    icon={<AppstoreOutlined />}
-                    size={28}
-                  />
+                  <ProviderIcon icon={provider.icon} size={28} />
                   <span className={styles.providerBody}>
                     <span className={styles.providerNameLine}>
                       <Text strong ellipsis>

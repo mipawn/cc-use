@@ -72,6 +72,13 @@ describe('renderer api contract', () => {
     })
   })
 
+  it('reads uploaded image data through IPC with the filename intact', async () => {
+    invokeMock.mockResolvedValue('data:image/png;base64,aWNvbg==')
+    const { getApi } = await loadApiModule()
+    expect(await getApi().icon.read('my logo.png')).toBe('data:image/png;base64,aWNvbg==')
+    expect(invokeMock).toHaveBeenCalledWith('icon_read', { filename: 'my logo.png' })
+  })
+
   it('passes the CLI type when creating a manual proxy session', async () => {
     invokeMock.mockResolvedValue(undefined)
     const { getApi } = await loadApiModule()

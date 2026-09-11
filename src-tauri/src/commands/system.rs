@@ -1,4 +1,20 @@
+use base64::Engine;
 use std::path::PathBuf;
+
+/// Read through IPC so uploaded images also work in the development WebView.
+/// Reuse the protocol's library-only path and file checks.
+#[tauri::command]
+pub fn icon_read(filename: String) -> Result<String, String> {
+    icon_data_url(&get_icons_dir()?, &filename)
+}
+
+fn icon_data_url(directory: &std::path::Path, filename: &str) -> Result<String, String> {
+    let (bytes, mime) = read_icon(directory, &urlencoding::encode(filename))?;
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
 
 #[tauri::command]
 pub fn app_get_version() -> String {
@@ -137,6 +153,29 @@ fn get_icons_dir() -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ipc_icons_preserve_image_bytes_and_mime_and_reject_outside_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = include_bytes!("../../icons/32x32.png");
+        std::fs::write(dir.path().join("my logo.png"), image).unwrap();
+        let data_url = icon_data_url(dir.path(), "my logo.png").unwrap();
+        let encoded = data_url.strip_prefix("data:image/png;base64,").unwrap();
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .unwrap(),
+            image
+        );
+        assert!(icon_data_url(dir.path(), "../outside.png").is_err());
+        assert!(icon_data_url(dir.path(), "missing.png").is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.path().join("my logo.png"), dir.path().join("link.png"))
+                .unwrap();
+            assert!(icon_data_url(dir.path(), "link.png").is_err());
+        }
+    }
 
     #[test]
     fn uploads_are_distinct_library_entries_and_can_be_read() {

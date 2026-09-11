@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { Avatar, Button, Empty, Tag, Typography } from 'antd'
+import { Button, Empty, Tag, Typography } from 'antd'
 import {
   ApiOutlined,
-  AppstoreOutlined,
   ArrowRightOutlined,
   CheckCircleOutlined,
   KeyOutlined,
@@ -14,7 +13,7 @@ import type { ApiKey, ClientKind, Provider } from '@shared/types'
 import { getClientKindLabel } from '@shared/types'
 import RoutePickerModal, { getRouteModelLabel } from '../common/RoutePickerModal'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
-import { providerIconSrc } from '../../utils/providerIcon'
+import ProviderIcon from '../providers/ProviderIcon'
 import styles from './TakeoverConfigTab.module.css'
 
 const { Text, Title } = Typography
@@ -59,7 +58,6 @@ function statusBadge(status: TakeoverStatus) {
   }
 }
 
-
 export default function TakeoverConfigTab({
   status,
   providers,
@@ -103,11 +101,7 @@ export default function TakeoverConfigTab({
             </div>
             <ArrowRightOutlined className={styles.routeArrow} />
             <div className={styles.routeNode}>
-              <Avatar
-                src={providerIconSrc(activeProvider.icon) ?? undefined}
-                icon={<AppstoreOutlined />}
-                size={34}
-              />
+              <ProviderIcon icon={activeProvider.icon} size={34} />
               <span className={styles.nodeBody}>
                 <span className={styles.nodeTitleLine}>
                   <Text type='secondary'>供应商</Text>
