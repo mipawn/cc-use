@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.10.0 Update**: Provider presets, editable account-query scripts, a reworked console and usage statistics; fixes Codex restore discarding MCP servers, plugins and project trust. See [CHANGELOG](./CHANGELOG.md).
+> **3.10.1 Update**: Finishes what 3.10.0 started — uploaded icons read through IPC, a reworked provider and key list, and quota queries that stop before a missing credential, no longer overwrite the cache, and keep the reported periods and percentages intact. Adds the Intel build missing from 3.10.0. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
