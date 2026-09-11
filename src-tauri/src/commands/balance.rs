@@ -56,6 +56,11 @@ pub async fn balance_refresh(
     // Only a successful query updates the cache. A failure leaves the last
     // known answer standing rather than blanking it.
     if let Ok(ref answer) = result {
+        if answer.get("error").is_some_and(|value| !value.is_null())
+            || answer.get("isValid").and_then(Value::as_bool) == Some(false)
+        {
+            return result;
+        }
         let cached_usage = serde_json::json!({
             "total": answer.get("total").cloned().unwrap_or(Value::Null),
             "used": answer.get("used").cloned().unwrap_or(Value::Null),
@@ -72,7 +77,7 @@ pub async fn balance_refresh(
         let currency = answer.get("currency").and_then(Value::as_str);
 
         let db = db.lock().map_err(|e| e.to_string())?;
-        let _ = db.conn.execute(
+        db.conn.execute(
             "UPDATE providers SET cached_wallet_balance = ?1, cached_wallet_balance_currency = ?2,
                 cached_usage = ?3, last_balance_checked_at = ?4, last_usage_checked_at = ?4
              WHERE id = ?5",
@@ -83,7 +88,7 @@ pub async fn balance_refresh(
                 now,
                 provider_id
             ],
-        );
+        ).map_err(|error| error.to_string())?;
     }
 
     result
@@ -111,14 +116,19 @@ pub async fn key_usage_refresh(
     let result = crate::services::usage_service::refresh_key_usage(&key, &provider).await;
 
     if let Ok(ref res) = result {
-        if let Some(usage) = res.get("usage") {
+        if res.get("error").is_some_and(|value| !value.is_null())
+            || res.get("isValid").and_then(Value::as_bool) == Some(false)
+        {
+            return result;
+        }
+        if let Some(usage) = res.get("usage").filter(|usage| !usage.is_null()) {
             let db = db.lock().map_err(|e| e.to_string())?;
             let now = chrono::Utc::now().to_rfc3339();
             let usage_str = serde_json::to_string(usage).unwrap_or_default();
-            let _ = db.conn.execute(
+            db.conn.execute(
                 "UPDATE api_keys SET cached_usage = ?1, last_usage_checked_at = ?2 WHERE id = ?3",
                 rusqlite::params![usage_str, now, key_id],
-            );
+            ).map_err(|error| error.to_string())?;
         }
     }
 

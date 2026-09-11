@@ -28,8 +28,6 @@ import {
   CodeOutlined,
   DeleteOutlined,
   PlusOutlined,
-  DownOutlined,
-  RightOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -122,9 +120,6 @@ export default function KeyEditModal({
   const [grokModel, setGrokModel] = useState('')
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
   const [activeTab, setActiveTab] = useState('usage')
-  // A copy is opened to be re-pointed at another model mapping, so it starts
-  // with the advanced section expanded; a plain create starts minimal.
-  const [advancedOpen, setAdvancedOpen] = useState(mode === 'duplicate')
 
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
@@ -310,6 +305,10 @@ export default function KeyEditModal({
       // Evaluated before saving, so a typo is caught here rather than on the
       // next refresh. Nothing is sent and no credential is involved.
       const keyScript = usageEnabled ? usageScript.trim() : ''
+      if (usageEnabled && !keyScript) {
+        message.error(t('keys.queryScriptRequired'))
+        return
+      }
       if (keyScript) {
         try {
           await getApi().balance.checkScript(keyScript, currentProvider?.baseUrl ?? '')
@@ -394,98 +393,81 @@ export default function KeyEditModal({
       open={open}
       onCancel={onClose}
       onOk={handleSubmit}
-      okText={t('common.confirm')}
+      okText={t('common.save')}
       cancelText={t('common.cancel')}
       confirmLoading={loading}
-      width={600}
+      width={960}
       destroyOnHidden
       className={styles.modal}
     >
       <SimpleBar className={styles.scrollContainer}>
         <Form form={form} layout='vertical' className={styles.form}>
-          <Form.Item
-            label={t('apiKeys.keyType') || '适用客户端'}
-            required
-            className={styles.clientSelector}
-            extra={t('apiKeys.clientScopeHint') || '选择这把密钥可以用于哪些客户端'}
-          >
-            <Select
-              mode='multiple'
-              value={selectedTypes}
-              onChange={(values) => handleTypesChange(values as ClientKind[])}
-              options={CLIENT_KIND_CONFIGS.filter(
-                (client) => !isOfficialDeepSeek || client.kind !== 'grok',
-              ).map((client) => ({
-                value: client.kind,
-                label: client.label,
-              }))}
-              optionRender={(option) => {
-                const client = getClientKindConfig(option.value as ClientKind)
-                return (
-                  <div className={styles.clientOption}>
-                    <Space size={8}>
-                      {client.form === 'process_injection' ? <CodeOutlined /> : <DesktopOutlined />}
-                      <span>{client.label}</span>
-                    </Space>
-                    <Text type='secondary' className={styles.clientOptionMeta}>
-                      {client.form === 'process_injection'
-                        ? t('launchpad.processInjection') || '进程级'
-                        : t('launchpad.configTakeover') || '配置级'}
-                    </Text>
-                  </div>
-                )
-              }}
-              maxTagCount={2}
-              maxTagPlaceholder={(omitted) => `+${omitted.length}`}
-              placeholder={t('apiKeys.selectClients') || '选择适用客户端'}
-              className={styles.clientSelect}
-              size='large'
-            />
-          </Form.Item>
+          <div className={styles.identityPane}>
+            <Form.Item
+              label={t('apiKeys.keyType') || '适用客户端'}
+              required
+              className={styles.clientSelector}
+              extra={t('apiKeys.clientScopeHint') || '选择这把密钥可以用于哪些客户端'}
+            >
+              <Select
+                mode='multiple'
+                value={selectedTypes}
+                onChange={(values) => handleTypesChange(values as ClientKind[])}
+                options={CLIENT_KIND_CONFIGS.filter(
+                  (client) => !isOfficialDeepSeek || client.kind !== 'grok',
+                ).map((client) => ({
+                  value: client.kind,
+                  label: client.label,
+                }))}
+                optionRender={(option) => {
+                  const client = getClientKindConfig(option.value as ClientKind)
+                  return (
+                    <div className={styles.clientOption}>
+                      <Space size={8}>
+                        {client.form === 'process_injection' ? (
+                          <CodeOutlined />
+                        ) : (
+                          <DesktopOutlined />
+                        )}
+                        <span>{client.label}</span>
+                      </Space>
+                      <Text type='secondary' className={styles.clientOptionMeta}>
+                        {client.form === 'process_injection'
+                          ? t('launchpad.processInjection') || '进程级'
+                          : t('launchpad.configTakeover') || '配置级'}
+                      </Text>
+                    </div>
+                  )
+                }}
+                maxTagCount={2}
+                maxTagPlaceholder={(omitted) => `+${omitted.length}`}
+                placeholder={t('apiKeys.selectClients') || '选择适用客户端'}
+                className={styles.clientSelect}
+                size='middle'
+              />
+            </Form.Item>
 
-          {/* The everyday form is the key value and its alias; everything
+            {/* The everyday form is the key value and its alias; everything
               else is reachable in one click without a second dialog. */}
-          <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
-            <Input
-              placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'}
-              size='large'
-            />
-          </Form.Item>
+            <Form.Item name='alias' label={t('apiKeys.keyName') || '密钥别名'}>
+              <Input
+                placeholder={t('apiKeys.keyNamePlaceholder') || '例如：主密钥、备用密钥'}
+                size='large'
+              />
+            </Form.Item>
 
-          <Form.Item
-            name='value'
-            label={t('apiKeys.apiKey') || 'API 密钥'}
-            rules={[{ required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' }]}
-          >
-            <Input.Password
-              placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
-              size='large'
-            />
-          </Form.Item>
-
-          <div className={styles.defaultsSummary}>
-            <Text type='secondary' style={{ fontSize: 12 }}>
-              {t('keys.defaultsSummary', {
-                clients: selectedTypes.length,
-                models: haikuModel || sonnetModel || opusModel ? 1 : 0,
-              }) || '默认配置来自供应商，可展开高级设置修改'}
-            </Text>
+            <Form.Item
+              name='value'
+              label={t('apiKeys.apiKey') || 'API 密钥'}
+              rules={[{ required: true, message: t('apiKeys.enterApiKey') || '请输入 API 密钥' }]}
+            >
+              <Input.Password
+                placeholder={t('apiKeys.apiKeyPlaceholder') || 'sk-xxx...'}
+                size='large'
+              />
+            </Form.Item>
           </div>
-
-          <Button
-            type='link'
-            size='small'
-            className={styles.advancedToggle}
-            onClick={() => setAdvancedOpen((open) => !open)}
-            icon={advancedOpen ? <DownOutlined /> : <RightOutlined />}
-          >
-            {t('keys.advancedSettings') || '高级设置'}
-          </Button>
-
-          {/* Kept mounted while collapsed: their values live in component
-              state, and an unmounted pane would still save correctly but could
-              not report a field error in place. */}
-          <div style={{ display: advancedOpen ? undefined : 'none' }}>
+          <div className={styles.configurationPane}>
             <Tabs
               activeKey={activeTab}
               onChange={setActiveTab}

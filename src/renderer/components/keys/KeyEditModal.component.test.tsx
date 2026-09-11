@@ -248,7 +248,7 @@ it('saves the copy as a new record without the source id', async () => {
   const onSave = await render('duplicate', buildDuplicatedKeyDraft(sourceKey()))
 
   const saveButton = Array.from(document.body.querySelectorAll('button')).find(
-    (button) => button.textContent === 'common.confirm',
+    (button) => button.textContent === 'common.save',
   )
   expect(saveButton).toBeDefined()
   await act(async () => {
@@ -271,7 +271,7 @@ it('saves an edit against the existing id', async () => {
   const onSave = await render('edit', source)
 
   const saveButton = Array.from(document.body.querySelectorAll('button')).find(
-    (button) => button.textContent === 'common.confirm',
+    (button) => button.textContent === 'common.save',
   )
   await act(async () => {
     saveButton!.click()
@@ -283,7 +283,7 @@ it('saves an edit against the existing id', async () => {
 
 async function submit() {
   const saveButton = Array.from(document.body.querySelectorAll('button')).find(
-    (button) => button.textContent === 'common.confirm',
+    (button) => button.textContent === 'common.save',
   )
   expect(saveButton).toBeDefined()
   await act(async () => {
@@ -352,7 +352,7 @@ it('seeds a new key from the provider defaults instead of a hardcoded template',
 
   // What was seeded is what gets saved.
   const saveButton = Array.from(document.body.querySelectorAll('button')).find(
-    (button) => button.textContent === 'common.confirm',
+    (button) => button.textContent === 'common.save',
   )
   await act(async () => {
     saveButton!.click()

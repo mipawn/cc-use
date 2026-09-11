@@ -1,5 +1,5 @@
 import styles from './ProviderUsageWindows.module.css'
-import { usageWindowLabel } from '../../utils/accountQuery'
+import { formatUsedPercent, orderUsageWindows, usageWindowLabel } from '../../utils/accountQuery'
 import { Progress, Typography, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { UsageGroup, UsageWindow } from '@shared/types'
@@ -45,14 +45,16 @@ export default function ProviderUsageWindows({
   function WindowList({ windows: list }: { windows: UsageWindow[] }) {
     return (
       <div className={styles.windows}>
-        {list.map((window) => (
+        {orderUsageWindows(list).map((window) => (
           <div key={window.id} className={styles.window}>
             <div className={styles.heading}>
               <Text>{usageWindowLabel(window, t)}</Text>
               <Text type='secondary' className={styles.percent}>
                 {window.usedPercent === null
                   ? t('providers.usageWindowUnknown')
-                  : t('providers.usageWindowUsed', { percent: window.usedPercent.toFixed(0) })}
+                  : t('providers.usageWindowUsed', {
+                      percent: formatUsedPercent(window.usedPercent),
+                    })}
               </Text>
             </div>
             <Progress
@@ -60,7 +62,7 @@ export default function ProviderUsageWindows({
               showInfo={false}
               size='small'
               strokeColor={progressColor(window.usedPercent, token.colorPrimary)}
-              trailColor={window.usedPercent === null ? 'transparent' : undefined}
+              railColor={window.usedPercent === null ? 'transparent' : undefined}
             />
             <Text type='secondary' className={styles.reset}>
               {resetLabel(window.resetsAt, t)}

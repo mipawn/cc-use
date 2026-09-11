@@ -1,15 +1,25 @@
 import { getApi } from '../../api'
 import { useEffect, useState, useRef } from 'react'
-import { Modal, Form, Input, Typography, Tooltip, Space, Collapse } from 'antd'
+import { Modal, Form, Input, Typography, Tooltip, Space, Collapse, Button, Dropdown } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import { UploadOutlined, LinkOutlined, SettingOutlined, WalletOutlined } from '@ant-design/icons'
+import {
+  UploadOutlined,
+  LinkOutlined,
+  SettingOutlined,
+  WalletOutlined,
+  DownOutlined,
+} from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { Provider, CreateProviderInput, ProviderPreset } from '@shared/types'
 import styles from './ProviderModal.module.css'
 
 import { PROVIDER_ICON_CHOICES, providerIconSrc } from '../../utils/providerIcon'
-import { STARTER_ACCOUNT_SCRIPT } from '../../utils/providerQueryDefaults'
+import ProviderIcon from './ProviderIcon'
+import {
+  ROLLING_WINDOW_ACCOUNT_SCRIPT,
+  STARTER_ACCOUNT_SCRIPT,
+} from '../../utils/providerQueryDefaults'
 
 const { Text } = Typography
 const { TextArea } = Input
@@ -84,8 +94,9 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           setSelectedIcon('')
           setCustomIconPath(null)
         }
-        // Show advanced if this provider actually queries something.
-        setShowAdvanced(Boolean(provider.walletBalanceScript?.trim()))
+        // Editing opens the advanced section: the account query and the proxy
+        // live there, and a provider that has one must not look like it has none.
+        setShowAdvanced(true)
       } else {
         form.resetFields()
         form.setFieldsValue({ walletBalanceUserId: undefined })
@@ -291,7 +302,10 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                   <div className={styles.iconGrid}>
                     {PROVIDER_ICON_CHOICES.map((item) => (
                       <Tooltip key={item.key} title={item.label}>
-                        <div
+                        <button
+                          type='button'
+                          aria-label={item.label}
+                          aria-pressed={selectedIcon === item.key}
                           className={`${styles.iconItem} ${selectedIcon === item.key ? styles.iconItemActive : ''}`}
                           onClick={() => {
                             setSelectedIcon(item.key)
@@ -299,7 +313,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                           }}
                         >
                           <img src={item.src} alt={item.label} className={styles.iconImg} />
-                        </div>
+                        </button>
                       </Tooltip>
                     ))}
                     {Array.from(
@@ -316,11 +330,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                           setCustomIconPath(icon)
                         }}
                       >
-                        <img
-                          src={providerIconSrc(icon) ?? undefined}
-                          alt={icon}
-                          className={styles.iconImg}
-                        />
+                        <ProviderIcon icon={icon} name={icon} className={styles.iconImg} />
                       </button>
                     ))}
                     <Tooltip title={t('providers.uploadIcon')}>
@@ -412,6 +422,41 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                       <div className={styles.queryBlock}>
                         <div className={styles.queryHeader}>
                           <Text strong>{t('providers.accountQuery') || '账户余额与用量'}</Text>
+                          <Dropdown
+                            trigger={['click']}
+                            menu={{
+                              items: [
+                                ...presets
+                                  .filter((item) => item.walletBalanceScript)
+                                  .map((item) => ({
+                                    key: item.id,
+                                    label: presetLabel(item.id, t),
+                                  })),
+                                { type: 'divider' },
+                                { key: 'example-balance', label: t('providers.balanceTemplate') },
+                                {
+                                  key: 'example-rolling',
+                                  label: t('providers.rollingWindowTemplate'),
+                                },
+                              ],
+                              onClick: ({ key }) => {
+                                const script =
+                                  key === 'example-rolling'
+                                    ? ROLLING_WINDOW_ACCOUNT_SCRIPT
+                                    : key === 'example-balance'
+                                      ? STARTER_ACCOUNT_SCRIPT
+                                      : presets.find((item) => item.id === key)?.walletBalanceScript
+                                if (script) {
+                                  setAccountScript(script)
+                                  setAccountError(null)
+                                }
+                              },
+                            }}
+                          >
+                            <Button size='small' icon={<DownOutlined />} iconPlacement='end'>
+                              {t('providers.queryTemplates')}
+                            </Button>
+                          </Dropdown>
                         </div>
                         <TextArea
                           value={accountScript}

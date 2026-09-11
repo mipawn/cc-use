@@ -241,8 +241,30 @@ pub fn run_extractor(
         ));
     }
 
-    serde_json::from_value(value)
-        .map_err(|error| QueryScriptError::Result(format!("unexpected field: {error}")))
+    let mut usage: AccountUsage = serde_json::from_value(value)
+        .map_err(|error| QueryScriptError::Result(format!("unexpected field: {error}")))?;
+    // Cache readers require a label, while scripts may provide just the id.
+    for window in &mut usage.windows {
+        if window
+            .label
+            .as_deref()
+            .is_none_or(|label| label.trim().is_empty())
+        {
+            window.label = Some(window.id.clone());
+        }
+    }
+    if usage.is_valid != Some(false)
+        && usage.remaining.is_none()
+        && usage.total.is_none()
+        && usage.used.is_none()
+        && usage.is_unlimited != Some(true)
+        && usage.windows.is_empty()
+    {
+        return Err(QueryScriptError::Result(
+            "查询未返回余额或用量，请检查查询脚本中的字段路径".to_string(),
+        ));
+    }
+    Ok(usage)
 }
 
 /// Evaluate one expression under the sandbox limits.
@@ -542,5 +564,39 @@ mod tests {
             Some("https://relay.example.com")
         );
         assert_eq!(origin_of("/api/user/self"), None);
+    }
+
+    #[test]
+    fn unlabeled_windows_survive_the_persisted_usage_contract() {
+        let usage = run_extractor(
+            "({extractor: () => ({windows: [{id: 'weekly', usedPercent: 25}]})})",
+            &ScriptVars::default(),
+            &serde_json::json!({}),
+            &ScriptLimits::default(),
+        )
+        .unwrap();
+        let cached: crate::models::UsageData =
+            serde_json::from_value(serde_json::to_value(usage).unwrap()).unwrap();
+        assert_eq!(cached.windows[0].label, "weekly");
+        assert_eq!(cached.windows[0].used_percent, Some(25.0));
+    }
+
+    #[test]
+    fn missing_balance_field_is_not_a_successful_empty_query() {
+        let result = run_extractor(
+            "({extractor: (response) => ({remaining: response.missing, unit: 'USD'})})",
+            &ScriptVars::default(),
+            &serde_json::json!({}),
+            &ScriptLimits::default(),
+        );
+        assert!(result.is_err());
+        let zero = run_extractor(
+            "({extractor: () => ({remaining: 0, unit: 'USD'})})",
+            &ScriptVars::default(),
+            &serde_json::json!({}),
+            &ScriptLimits::default(),
+        )
+        .unwrap();
+        assert_eq!(zero.remaining, Some(0.0));
     }
 }

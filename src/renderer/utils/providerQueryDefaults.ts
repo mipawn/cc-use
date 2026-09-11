@@ -21,3 +21,24 @@ export const STARTER_ACCOUNT_SCRIPT = `({
     }
   }
 })`
+
+/** Field names and endpoint are examples; map them to the provider's API. */
+export const ROLLING_WINDOW_ACCOUNT_SCRIPT = `({
+  request: {
+    url: "{{baseUrl}}/api/usage",
+    method: "GET",
+    headers: { Authorization: "Bearer {{apiKey}}" }
+  },
+  extractor: function (response) {
+    // Example response: data.five_hour = { used: 30, limit: 100, resets_at: "..." }
+    const window = response.data.five_hour;
+    return {
+      windows: [{
+        id: "rolling_5h",
+        label: "5h",
+        usedPercent: window.limit > 0 ? window.used / window.limit * 100 : null,
+        resetsAt: window.resets_at || null
+      }]
+    };
+  }
+})`

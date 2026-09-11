@@ -17,7 +17,11 @@ const iconList = vi.fn()
 vi.mock('../../api', () => ({
   getApi: () => ({
     provider: { presets },
-    icon: { upload: async () => '', list: iconList },
+    icon: {
+      upload: async () => '',
+      list: iconList,
+      read: async () => 'data:image/png;base64,aWNvbg==',
+    },
     balance: { checkScript },
   }),
 }))
@@ -416,9 +420,7 @@ it('reuses an uploaded icon from the local library', async () => {
   iconList.mockResolvedValue({ uploaded: ['saved-logo.png'] })
   const onSave = await render(providerFixture())
   const icon = document.body.querySelector<HTMLButtonElement>('button[aria-label="saved-logo.png"]')
-  expect(icon?.querySelector('img')?.getAttribute('src')).toBe(
-    'cc-use-icon://localhost/saved-logo.png',
-  )
+  expect(icon?.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,aWNvbg==')
   await act(async () => {
     icon!.click()
   })
@@ -432,4 +434,40 @@ it('persists an explicitly cleared account query', async () => {
   await submit()
   expect(onSave.mock.calls[0][0].walletBalanceScript).toBe('')
   expect(onSave.mock.calls[0][0].walletBalanceType).toBe('none')
+})
+
+it('adds a Go query to an existing provider without applying model defaults', async () => {
+  const goScript = '({request: {url: "{{baseUrl}}/v1/usage"}, extractor: r => ({windows: []})})'
+  presets.mockResolvedValue([{ ...deepseek, id: 'opencode-go', walletBalanceScript: goScript }])
+  const provider = providerFixture({ walletBalanceScript: null, presetId: 'custom' })
+  const onSave = await render(provider)
+  const button = Array.from(document.body.querySelectorAll('button')).find(
+    (element) => element.textContent === 'providers.queryTemplates',
+  )!
+  await act(async () => button.click())
+  const item = Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
+    (element) => element.textContent === 'opencode-go',
+  ) as HTMLElement
+  await act(async () => item.click())
+  await submit()
+  expect(onSave.mock.calls[0][0].name).toBe(provider.name)
+  expect(onSave.mock.calls[0][0].baseUrl).toBe(provider.baseUrl)
+  expect(onSave.mock.calls[0][0].walletBalanceScript).toBe(goScript)
+  expect(onSave.mock.calls[0][0].defaultKeyConfig).toEqual(provider.defaultKeyConfig ?? undefined)
+  expect(onSave.mock.calls[0][0].presetId).toBe('custom')
+})
+
+it('offers the rolling window example in one dropdown when creating or editing', async () => {
+  await render(providerFixture())
+  const buttons = Array.from(document.body.querySelectorAll('button')).filter(
+    (button) => button.textContent === 'providers.queryTemplates',
+  )
+  expect(buttons).toHaveLength(1)
+  await act(async () => buttons[0].click())
+  const item = Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
+    (element) => element.textContent === 'providers.rollingWindowTemplate',
+  ) as HTMLElement
+  await act(async () => item.click())
+  expect(scriptEditor().value).toContain('rolling_5h')
+  expect(scriptEditor().value).toContain('window.resets_at')
 })

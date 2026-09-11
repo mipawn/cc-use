@@ -41,11 +41,30 @@ pub(super) async fn run(
     let limits = ScriptLimits::default();
     let request = query_script::resolve_request(script, vars, &limits)
         .map_err(|error| error.message().to_string())?;
+    ensure_query_credentials(&request)?;
     query_script::is_permitted_target(&request.url, &provider.base_url)?;
 
     let response = send(provider, &request).await?;
     query_script::run_extractor(script, vars, &response, &limits)
         .map_err(|error| error.message().to_string())
+}
+
+fn ensure_query_credentials(request: &ScriptRequest) -> Result<(), String> {
+    for (placeholder, message) in [
+        ("{{apiKey}}", "添加并启用 API 密钥后可查询额度"),
+        ("{{accessToken}}", "请先配置账户访问令牌"),
+        ("{{userId}}", "请先配置账户用户 ID"),
+    ] {
+        if request.url.contains(placeholder)
+            || request
+                .headers
+                .values()
+                .any(|value| value.contains(placeholder))
+        {
+            return Err(message.to_string());
+        }
+    }
+    Ok(())
 }
 
 async fn send(provider: &Provider, request: &ScriptRequest) -> Result<Value, String> {
@@ -124,6 +143,27 @@ pub(super) fn pick_first_available_key(api_keys: &[ApiKey]) -> Option<String> {
 mod tests {
     use super::*;
     use crate::models::Provider;
+
+    #[tokio::test]
+    async fn a_query_without_its_required_key_stops_before_network_io() {
+        let mut provider = provider();
+        provider.token = None;
+        provider.wallet_balance_script = Some(
+            "({request:{url:'{{baseUrl}}/usage',headers:{Authorization:'Bearer {{apiKey}}'}},extractor:r=>({remaining:r.balance})})".into(),
+        );
+        let error = refresh_balance(&provider, &[]).await.unwrap_err();
+        assert_eq!(error, "添加并启用 API 密钥后可查询额度");
+    }
+
+    #[test]
+    fn an_account_token_query_does_not_require_an_inference_key() {
+        let request = query_script::resolve_request(
+            "({request:{url:'{{baseUrl}}/usage',headers:{Authorization:'{{accessToken}}'}},extractor:r=>({remaining:r.balance})})",
+            &ScriptVars { base_url: "https://example.com".into(), access_token: Some("fixture".into()), ..Default::default() },
+            &ScriptLimits::default(),
+        ).unwrap();
+        assert!(ensure_query_credentials(&request).is_ok());
+    }
 
     fn provider() -> Provider {
         Provider {
