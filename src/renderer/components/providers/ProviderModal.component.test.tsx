@@ -195,6 +195,41 @@ it('sends the template origin and its key defaults when creating', async () => {
   expect(input.defaultKeyConfig).toMatchObject({ types: ['claude_code', 'codex'] })
 })
 
+const newapi: ProviderPreset = {
+  id: 'newapi',
+  defaultName: '',
+  baseUrl: '',
+  icon: 'newapi',
+  requiresSiteAddress: true,
+  needsAccountCredential: true,
+  walletBalanceType: 'newapi',
+  walletBalanceUrl: '{baseUrl}/api/user/self',
+  walletBalanceHeaders: '{"Authorization": "{token}", "New-Api-User": "{userId}"}',
+  usageType: 'newapi',
+  usageUrl: '{baseUrl}/api/usage/token',
+  usageHeaders: '{"Authorization": "Bearer {key}"}',
+  requestAdapter: 'none',
+  defaultKeyConfig: { types: ['claude_code'] },
+}
+
+/** The editable request blocks, in the order they appear: balance, then usage. */
+function queryEditors(): HTMLTextAreaElement[] {
+  return Array.from(
+    document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]'),
+  )
+}
+
+async function typeInto(element: HTMLTextAreaElement, text: string) {
+  // React tracks the previous value on the node, so a plain assignment is
+  // swallowed; going through the native setter is what makes the change land.
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+  await act(async () => {
+    setter?.call(element, text)
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
 function providerFixture(overrides: Partial<Provider> = {}): Provider {
   return {
     id: 'provider-1',
@@ -248,4 +283,53 @@ it('shows nothing — rather than a broken path — when no mark was chosen', as
 
   expect(document.body.querySelector('img[src="file://custom"]')).toBeNull()
   expect(document.body.querySelectorAll('[class*="iconItemActive"]').length).toBe(0)
+})
+
+it('shows the request a chosen rule will send, headers and all', async () => {
+  await render(null)
+  await clickPreset(1) // deepseek
+
+  const [balance] = queryEditors()
+  expect(balance.value).toBe(
+    'GET https://api.deepseek.com/user/balance\nAuthorization: Bearer {key}',
+  )
+})
+
+it('saves the request as the user edited it, not as the preset shipped it', async () => {
+  const onSave = await render(null)
+  await clickPreset(1) // deepseek
+
+  const [balance] = queryEditors()
+  await typeInto(balance, 'GET {baseUrl}/user/balance\nAuthorization: Bearer {key}\n取值: data.total')
+  await submit()
+
+  expect(onSave.mock.calls[0][0]).toMatchObject({
+    walletBalanceType: 'deepseek',
+    walletBalanceUrl: '{baseUrl}/user/balance',
+    walletBalancePath: 'data.total',
+    walletBalanceHeaders: '{\n  "Authorization": "Bearer {key}"\n}',
+  })
+})
+
+it('refuses to save a request it cannot read, and says which line', async () => {
+  const onSave = await render(null)
+  await clickPreset(1) // deepseek
+
+  const [balance] = queryEditors()
+  await typeInto(balance, 'GET https://api.deepseek.com/user/balance\nnonsense')
+  await submit()
+
+  expect(onSave).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('第 2 行')
+})
+
+it('asks for the access token only when a request names it', async () => {
+  presets.mockResolvedValue([custom, deepseek, newapi])
+
+  await render(null)
+  await clickPreset(1) // deepseek: its request uses {key}, not {token}
+  expect(document.body.querySelector('input#token')).toBeNull()
+
+  await clickPreset(2) // newapi: {"Authorization": "{token}", ...}
+  expect(document.body.querySelector('input#token')).not.toBeNull()
 })

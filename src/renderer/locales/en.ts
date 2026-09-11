@@ -363,6 +363,24 @@ export default {
       newapi: 'New API',
       'opencode-go': 'OpenCode Go',
     },
+    balanceQuery: 'Account balance',
+    usageQuery: 'Account usage',
+    ruleNone: 'Do not query',
+    ruleCustom: 'Custom',
+    ruleNote: {
+      none: 'No query request is sent',
+      'opencode-go':
+        'Rolling windows are reported by the OpenCode Go adapter, which needs no request of its own',
+    },
+    restoreDefault: 'Restore default',
+    queryPlaceholder: 'GET {baseUrl}/api/...',
+    queryVars:
+      'Substituted on send: {baseUrl} provider address, {key} inference key, {token} access token, {userId} user ID',
+    queryHeadersUnreadable:
+      'The stored headers could not be read and are shown empty; saving replaces them with what is here',
+    queryNeedsUrl: 'A custom rule needs a request address',
+    userId: 'User ID',
+    userIdPlaceholder: 'The user ID from your NewAPI profile settings',
     deepseekBalanceUrlHint:
       'Leave empty to use the official DeepSeek balance endpoint; a third-party address here takes precedence.',
     accountCredentialHint:

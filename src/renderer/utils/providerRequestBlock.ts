@@ -13,17 +13,33 @@
  *     GET <url>
  *     <Header-Name>: <value>
  *     <Header-Name>: <value>
+ *     取值: <json path>
  *
  * The method is informational — every query here is a GET — but it is shown
- * because that is what the request actually is. A blank line ends the request,
- * so trailing whitespace does not become an empty header.
+ * because that is what the request actually is. `取值` is where the number is
+ * read from in the response; it is a line here rather than a separate field
+ * because it is the other half of the same instruction. A blank line is
+ * ignored, so it cannot become an empty header.
  */
 
 export interface ProviderRequest {
   url: string
   /** Ordered so the block round-trips without reshuffling what the user typed. */
   headers: { name: string; value: string }[]
+  /** JSON path to the value, for a rule that reads one. Empty when it does not. */
+  path: string
 }
+
+/** The keyword that introduces the value path. */
+const PATH_KEY = '取值'
+
+/**
+ * Words that introduce a URL rather than a header.
+ *
+ * Restricted to the real methods so a header written with a space instead of a
+ * colon reports "unreadable" rather than being mistaken for a verb.
+ */
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
 export type ParseResult =
   | { ok: true; request: ProviderRequest }
@@ -41,6 +57,9 @@ export function formatRequestBlock(request: ProviderRequest): string {
     if (!header.name.trim()) continue
     lines.push(`${header.name.trim()}: ${header.value.trim()}`)
   }
+  if (request.path.trim()) {
+    lines.push(`${PATH_KEY}: ${request.path.trim()}`)
+  }
   return lines.join('\n')
 }
 
@@ -52,6 +71,7 @@ export function formatRequestBlock(request: ProviderRequest): string {
 export function parseRequestBlock(text: string): ParseResult {
   const headers: { name: string; value: string }[] = []
   let url = ''
+  let path = ''
 
   const lines = text.split('\n')
   for (let index = 0; index < lines.length; index++) {
@@ -59,22 +79,32 @@ export function parseRequestBlock(text: string): ParseResult {
     if (!line) continue
     const lineNumber = index + 1
 
-    if (/^[A-Za-z]+:\/\//.test(line)) {
-      // A bare URL with no method, which the block writer never emits but a
-      // person editing by hand naturally writes.
-      if (url) return { ok: false, error: `第 ${lineNumber} 行：只能有一个 URL` }
-      url = line
+    const pathMatch = new RegExp(`^${PATH_KEY}\\s*[:：]\\s*(.*)$`).exec(line)
+    if (pathMatch) {
+      if (path) return { ok: false, error: `第 ${lineNumber} 行：只能有一个取值路径` }
+      path = pathMatch[1].trim()
       continue
     }
 
     const methodMatch = /^([A-Za-z]+)\s+(\S.*)$/.exec(line)
-    if (methodMatch && /^[A-Za-z]+:\/\//.test(methodMatch[2].trim())) {
+    if (methodMatch && HTTP_METHODS.includes(methodMatch[1].toUpperCase())) {
       const method = methodMatch[1].toUpperCase()
       if (method !== 'GET') {
         return { ok: false, error: `第 ${lineNumber} 行：只支持 GET，写的是 ${method}` }
       }
       if (url) return { ok: false, error: `第 ${lineNumber} 行：只能有一个 URL` }
+      // The rest is taken as written. A default request is templated, so it
+      // carries no scheme of its own — `{baseUrl}/api/user/self` — and
+      // demanding one here would reject the very request the dialog wrote.
       url = methodMatch[2].trim()
+      continue
+    }
+
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(line)) {
+      // A bare URL with no method, which the block writer never emits but a
+      // person editing by hand naturally writes.
+      if (url) return { ok: false, error: `第 ${lineNumber} 行：只能有一个 URL` }
+      url = line
       continue
     }
 
@@ -94,7 +124,7 @@ export function parseRequestBlock(text: string): ParseResult {
     }
   }
 
-  return { ok: true, request: { url, headers } }
+  return { ok: true, request: { url, headers, path } }
 }
 
 /** The request block as the stored `headers` column: a JSON object, or empty. */

@@ -16,6 +16,7 @@ describe('formatRequestBlock', () => {
           { name: 'Authorization', value: '{token}' },
           { name: 'New-Api-User', value: '{userId}' },
         ],
+        path: '',
       }),
     ).toBe(
       ['GET {baseUrl}/api/user/self', 'Authorization: {token}', 'New-Api-User: {userId}'].join(
@@ -24,8 +25,14 @@ describe('formatRequestBlock', () => {
     )
   })
 
+  it('writes the value path when the rule reads one', () => {
+    expect(
+      formatRequestBlock({ url: '{baseUrl}/api/usage/token/', headers: [], path: 'data.total_available' }),
+    ).toBe('GET {baseUrl}/api/usage/token/\n取值: data.total_available')
+  })
+
   it('writes nothing for a request that is not configured', () => {
-    expect(formatRequestBlock({ url: '', headers: [] })).toBe('')
+    expect(formatRequestBlock({ url: '', headers: [], path: '' })).toBe('')
   })
 })
 
@@ -34,6 +41,7 @@ describe('parseRequestBlock', () => {
     const block = formatRequestBlock({
       url: 'https://example.com/balance',
       headers: [{ name: 'Authorization', value: 'Bearer sk-1' }],
+      path: 'data.balance',
     })
 
     const parsed = parseRequestBlock(block)
@@ -42,13 +50,38 @@ describe('parseRequestBlock', () => {
       request: {
         url: 'https://example.com/balance',
         headers: [{ name: 'Authorization', value: 'Bearer sk-1' }],
+        path: 'data.balance',
       },
     })
   })
 
   it('accepts a bare URL, which is what a person types by hand', () => {
     const parsed = parseRequestBlock('https://example.com/balance')
-    expect(parsed).toEqual({ ok: true, request: { url: 'https://example.com/balance', headers: [] } })
+    expect(parsed).toEqual({
+      ok: true,
+      request: { url: 'https://example.com/balance', headers: [], path: '' },
+    })
+  })
+
+  /// A default request is templated, so it has no scheme of its own. Demanding
+  /// one would reject the very block the dialog wrote.
+  it('accepts a templated URL that carries no scheme', () => {
+    const parsed = parseRequestBlock('GET {baseUrl}/api/user/self\nAuthorization: {token}')
+    expect(parsed).toEqual({
+      ok: true,
+      request: {
+        url: '{baseUrl}/api/user/self',
+        headers: [{ name: 'Authorization', value: '{token}' }],
+        path: '',
+      },
+    })
+  })
+
+  /// A header written with a space instead of a colon must not be read as a verb.
+  it('reports a colon-less header as unreadable rather than as a method', () => {
+    const parsed = parseRequestBlock('GET {baseUrl}/x\nAuthorization Bearer sk-1')
+    expect(parsed.ok).toBe(false)
+    expect(parsed.ok === false && parsed.error).toContain('第 2 行')
   })
 
   it('keeps a header whose value is itself a URL', () => {
@@ -58,8 +91,21 @@ describe('parseRequestBlock', () => {
       request: {
         url: 'https://a.example.com',
         headers: [{ name: 'X-Target', value: 'https://b.example.com/x' }],
+        path: '',
       },
     })
+  })
+
+  it('reads the value path in either colon form', () => {
+    for (const line of ['取值: data.balance', '取值：data.balance']) {
+      const parsed = parseRequestBlock(`GET https://a.example.com\n${line}`)
+      expect(parsed.ok && parsed.request.path).toBe('data.balance')
+    }
+  })
+
+  it('refuses two value paths rather than silently keeping one', () => {
+    const parsed = parseRequestBlock('取值: a.b\n取值: c.d')
+    expect(parsed.ok).toBe(false)
   })
 
   it('ignores blank lines rather than turning them into headers', () => {

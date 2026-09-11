@@ -223,6 +223,34 @@
   margin-bottom: 16px;
 }
 
+/* Query Block */
+.queryBlock {
+  margin-bottom: 20px;
+}
+
+.queryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.queryEditor {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
+  font-size: 12px !important;
+}
+
+.queryEditorError {
+  border-color: var(--ant-color-error) !important;
+}
+
+.queryNote {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
 /* API Keys Section */
 .keysSection {
   margin-top: 24px;
