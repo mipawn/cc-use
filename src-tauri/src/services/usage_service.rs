@@ -1,6 +1,15 @@
 use crate::models::{ApiKey, Provider};
 use serde_json::Value;
 
+use super::query_request::{resolve_headers, stored_or, substitute, QueryVars};
+
+/// The requests these branches send when the provider has not written its own.
+/// They are shown in the settings dialog and are editable there, so they live
+/// here as the default that `恢复默认` restores rather than as hidden code.
+const NEWAPI_USAGE_PATH: &str = "/api/usage/token";
+const NEWAPI_KEY_USAGE_PATH: &str = "/api/usage/token/";
+const NEWAPI_USAGE_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
+
 pub async fn refresh_usage(
     provider: &Provider,
     fallback_api_keys: &[ApiKey],
@@ -11,7 +20,7 @@ pub async fn refresh_usage(
             "error": "Usage checking not configured",
         })),
         "newapi" => fetch_newapi_usage(provider, fallback_api_keys).await,
-        "custom" => fetch_custom_usage(provider).await,
+        "custom" => fetch_custom_usage(provider, fallback_api_keys).await,
         "opencode-go" => fetch_opencode_go_usage(provider, fallback_api_keys).await,
         _ => Err("Unknown usage type".to_string()),
     }
@@ -26,7 +35,7 @@ pub async fn refresh_key_usage(
             "usage": null,
             "error": "Usage checking not configured",
         })),
-        "newapi" => fetch_newapi_key_usage(provider, &key.value).await,
+        "newapi" => fetch_newapi_key_usage(key, provider).await,
         "custom" => fetch_custom_key_usage(key, provider).await,
         _ => Err("Unknown usage type".to_string()),
     }
@@ -44,17 +53,26 @@ async fn fetch_newapi_usage(
         .or_else(|| pick_first_available_key(fallback_api_keys))
         .ok_or_else(|| "No available token for usage query".to_string())?;
 
-    let url = format!(
-        "{}/api/usage/token",
-        provider.base_url.trim_end_matches('/')
+    let vars = QueryVars::for_provider(provider, Some(token.as_str()));
+    let default_url = format!("{}{}", vars.base_url, NEWAPI_USAGE_PATH);
+    let url = substitute(
+        stored_or(provider.usage_url.as_deref(), &default_url),
+        &vars,
     );
-    let resp = crate::services::http_client::outbound_client_for_provider(Some(provider))?
+    let headers = resolve_headers(
+        provider.usage_headers.as_deref(),
+        NEWAPI_USAGE_HEADERS,
+        &vars,
+    )?;
+
+    let mut request = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&url)
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+        .header("Content-Type", "application/json");
+    for (name, value) in &headers {
+        request = request.header(name, value);
+    }
+
+    let resp = request.send().await.map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
         return Err(format!(
@@ -98,26 +116,37 @@ async fn fetch_newapi_usage(
     }))
 }
 
-async fn fetch_custom_usage(provider: &Provider) -> Result<serde_json::Value, String> {
-    let url = provider
+async fn fetch_custom_usage(
+    provider: &Provider,
+    fallback_api_keys: &[ApiKey],
+) -> Result<serde_json::Value, String> {
+    let Some(raw_url) = provider
         .usage_url
         .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "Custom usage URL not configured".to_string())?;
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Err("Custom usage URL not configured".to_string());
+    };
     let path = provider
         .usage_path
         .as_deref()
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Custom usage path not configured".to_string())?;
 
+    // The dialog documents `{baseUrl}` and `{key}`; both have to resolve here,
+    // which they previously did not for a provider-level query.
+    let borrowed_key = super::balance_service::pick_first_available_key(fallback_api_keys);
+    let vars = QueryVars::for_provider(provider, borrowed_key.as_deref());
+    let url = substitute(raw_url, &vars);
+
     let mut req = crate::services::http_client::outbound_client_for_provider(Some(provider))?
-        .get(url)
+        .get(&url)
         .header("Content-Type", "application/json");
 
-    if let Some(headers_str) = provider.usage_headers.as_deref() {
-        for (k, v) in parse_headers(headers_str)? {
-            req = req.header(k, v);
-        }
+    let headers = resolve_headers(provider.usage_headers.as_deref(), "{}", &vars)?;
+    for (name, value) in &headers {
+        req = req.header(name, value);
     }
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
@@ -139,20 +168,22 @@ async fn fetch_custom_usage(provider: &Provider) -> Result<serde_json::Value, St
 }
 
 async fn fetch_newapi_key_usage(
+    key: &ApiKey,
     provider: &Provider,
-    key_value: &str,
 ) -> Result<serde_json::Value, String> {
-    let url = format!(
-        "{}/api/usage/token/",
-        provider.base_url.trim_end_matches('/')
-    );
-    let resp = crate::services::http_client::outbound_client_for_provider(Some(provider))?
+    let vars = QueryVars::for_key(key, provider);
+    let default_url = format!("{}{}", vars.base_url, NEWAPI_KEY_USAGE_PATH);
+    let url = substitute(stored_or(key.usage_url.as_deref(), &default_url), &vars);
+    let headers = resolve_headers(key.usage_headers.as_deref(), NEWAPI_USAGE_HEADERS, &vars)?;
+
+    let mut request = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&url)
-        .header("Authorization", format!("Bearer {}", key_value))
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+        .header("Content-Type", "application/json");
+    for (name, value) in &headers {
+        request = request.header(name, value);
+    }
+
+    let resp = request.send().await.map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
         return Err(format!(
@@ -204,22 +235,16 @@ async fn fetch_custom_key_usage(
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Custom usage path not configured".to_string())?;
 
-    let base_url = provider.base_url.trim_end_matches('/');
-    let resolved_url = usage_url
-        .replace("{baseUrl}", base_url)
-        .replace("{key}", &key.value);
+    let vars = QueryVars::for_key(key, provider);
+    let resolved_url = substitute(usage_url, &vars);
 
     let mut req = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&resolved_url)
         .header("Content-Type", "application/json");
 
-    if let Some(headers_raw) = key.usage_headers.as_deref() {
-        let resolved_headers = headers_raw
-            .replace("{baseUrl}", base_url)
-            .replace("{key}", &key.value);
-        for (k, v) in parse_headers(&resolved_headers)? {
-            req = req.header(k, v);
-        }
+    let headers = resolve_headers(key.usage_headers.as_deref(), "{}", &vars)?;
+    for (name, value) in &headers {
+        req = req.header(name, value);
     }
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
@@ -349,24 +374,6 @@ fn pick_first_available_key(api_keys: &[ApiKey]) -> Option<String> {
         .filter(|k| k.is_active && !k.is_exhausted && !k.value.trim().is_empty())
         .min_by_key(|k| k.priority)
         .map(|k| k.value.clone())
-}
-
-fn parse_headers(raw: &str) -> Result<Vec<(String, String)>, String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let value: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|_| "Invalid headers JSON format".to_string())?;
-    let obj = value
-        .as_object()
-        .ok_or_else(|| "Invalid headers JSON format".to_string())?;
-
-    Ok(obj
-        .iter()
-        .filter_map(|(k, v)| v.as_str().map(|vv| (k.clone(), vv.to_string())))
-        .collect())
 }
 
 fn to_number(v: Option<&Value>) -> Option<f64> {

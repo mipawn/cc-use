@@ -1,11 +1,20 @@
 use crate::models::{ApiKey, Provider};
 use serde_json::Value;
 
+use super::query_request::{has_stored, resolve_headers, stored_or, substitute, QueryVars};
+
 const QUOTA_PER_UNIT: f64 = 500000.0;
 /// Documented DeepSeek balance endpoint, used only when the saved address is
 /// empty.
 const DEEPSEEK_BALANCE_URL: &str = "https://api.deepseek.com/user/balance";
 const UNLIMITED_THRESHOLD: f64 = 99_999_999.0;
+
+/// The requests these branches send when the provider has not written its own.
+/// They are shown in the provider's settings and are editable there, so they
+/// live here as the default that `恢复默认` restores rather than as hidden code.
+const NEWAPI_ACCOUNT_PATH: &str = "/api/user/self";
+const NEWAPI_ACCOUNT_HEADERS: &str = r#"{"Authorization": "{token}", "New-Api-User": "{userId}"}"#;
+const DEEPSEEK_HEADERS: &str = r#"{"Authorization": "Bearer {key}"}"#;
 
 pub async fn refresh_balance(
     provider: &Provider,
@@ -21,7 +30,7 @@ pub async fn refresh_balance(
             "error": "Balance checking not configured",
         })),
         "newapi" => fetch_newapi_balance(provider, fallback_api_keys).await,
-        "custom" => fetch_custom_balance(provider).await,
+        "custom" => fetch_custom_balance(provider, fallback_api_keys).await,
         "deepseek" => fetch_deepseek_balance(provider, fallback_api_keys).await,
         _ => Err("Unknown balance type".to_string()),
     }
@@ -31,45 +40,54 @@ async fn fetch_newapi_balance(
     provider: &Provider,
     fallback_api_keys: &[ApiKey],
 ) -> Result<serde_json::Value, String> {
-    let base_url = provider.base_url.trim_end_matches('/');
+    let borrowed_key = pick_first_available_key(fallback_api_keys);
+    let vars = QueryVars::for_provider(provider, borrowed_key.as_deref());
     let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
+    let own_url = provider.wallet_balance_url.as_deref();
 
-    if let (Some(token), Some(user_id)) = (
-        provider.token.as_deref().filter(|s| !s.trim().is_empty()),
-        provider
-            .wallet_balance_user_id
-            .as_deref()
-            .filter(|s| !s.trim().is_empty()),
-    ) {
-        if let Some(result) =
-            fetch_newapi_balance_via_user_api(&client, base_url, token, user_id).await?
-        {
+    // The account endpoint reads a named account, so it needs a user id. With
+    // none, the key-scoped billing routes are the only thing left to ask.
+    if vars.user_id.is_some() {
+        let default_url = format!("{}{}", vars.base_url, NEWAPI_ACCOUNT_PATH);
+        let url = substitute(stored_or(own_url, &default_url), &vars);
+        let headers = resolve_headers(
+            provider.wallet_balance_headers.as_deref(),
+            NEWAPI_ACCOUNT_HEADERS,
+            &vars,
+        )?;
+
+        if let Some(result) = fetch_newapi_balance_via_user_api(&client, &url, &headers).await? {
             return Ok(result);
+        }
+
+        // A hand-written address is the user's own answer. Falling back to the
+        // vendor's billing routes would query an endpoint they never named.
+        if has_stored(own_url) {
+            return Err(format!(
+                "Account balance endpoint returned no usable data: {}",
+                url
+            ));
         }
     }
 
-    let key_token = pick_first_available_key(fallback_api_keys)
+    let key_token = borrowed_key
         .or_else(|| provider.token.as_deref().map(str::to_string))
         .ok_or_else(|| "No available API keys".to_string())?;
 
-    fetch_newapi_balance_via_billing_api(&client, base_url, &key_token).await
+    fetch_newapi_balance_via_billing_api(&client, &vars.base_url, &key_token).await
 }
 
 async fn fetch_newapi_balance_via_user_api(
     client: &reqwest::Client,
-    base_url: &str,
-    access_token: &str,
-    user_id: &str,
+    url: &str,
+    headers: &[(String, String)],
 ) -> Result<Option<serde_json::Value>, String> {
-    let url = format!("{}/api/user/self", base_url);
-    let resp = client
-        .get(&url)
-        .header("Authorization", access_token)
-        .header("New-Api-User", user_id)
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let mut request = client.get(url).header("Content-Type", "application/json");
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+
+    let resp = request.send().await.map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
         return Ok(None);
@@ -173,29 +191,36 @@ async fn fetch_newapi_balance_via_billing_api(
     }))
 }
 
-async fn fetch_custom_balance(provider: &Provider) -> Result<serde_json::Value, String> {
-    let raw_url = provider
+async fn fetch_custom_balance(
+    provider: &Provider,
+    fallback_api_keys: &[ApiKey],
+) -> Result<serde_json::Value, String> {
+    let Some(raw_url) = provider
         .wallet_balance_url
         .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "Custom balance URL not configured".to_string())?;
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Err("Custom balance URL not configured".to_string());
+    };
     let path = provider
         .wallet_balance_path
         .as_deref()
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Custom balance path not configured".to_string())?;
 
-    let base_url = provider.base_url.trim_end_matches('/');
-    let url = raw_url.replace("{baseUrl}", base_url);
+    // The balance dialog documents `{key}`, so it has to resolve here too; the
+    // key it names is the same one the other branches borrow.
+    let borrowed_key = pick_first_available_key(fallback_api_keys);
+    let vars = QueryVars::for_provider(provider, borrowed_key.as_deref());
+    let url = substitute(raw_url, &vars);
 
     let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
     let mut req = client.get(&url).header("Content-Type", "application/json");
 
-    if let Some(headers_str) = provider.wallet_balance_headers.as_deref() {
-        let resolved_headers = headers_str.replace("{baseUrl}", base_url);
-        for (k, v) in parse_headers(&resolved_headers)? {
-            req = req.header(k, v);
-        }
+    let headers = resolve_headers(provider.wallet_balance_headers.as_deref(), "{}", &vars)?;
+    for (name, value) in &headers {
+        req = req.header(name, value);
     }
 
     let resp = req.send().await.map_err(|e| e.to_string())?;
@@ -229,22 +254,26 @@ async fn fetch_deepseek_balance(
         .ok_or_else(|| "No available API keys for DeepSeek balance check".to_string())?;
 
     let client = crate::services::http_client::outbound_client_for_provider(Some(provider))?;
-    // The saved address wins. It is a visible, editable field, so a provider
-    // pointed at a relay never has its key sent back to the vendor endpoint;
-    // an empty value means "this account uses the documented official one".
-    let url = provider
-        .wallet_balance_url
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(DEEPSEEK_BALANCE_URL);
-    let resp = client
-        .get(url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let vars = QueryVars::for_provider(provider, Some(api_key.as_str()));
+    // The saved request wins. It is visible and editable in the provider's
+    // settings, so a provider pointed at a relay never has its key sent back to
+    // the vendor endpoint; an empty value means "use the documented official
+    // one". `{key}` is the key being borrowed for this check.
+    let url = substitute(
+        stored_or(provider.wallet_balance_url.as_deref(), DEEPSEEK_BALANCE_URL),
+        &vars,
+    );
+    let headers = resolve_headers(
+        provider.wallet_balance_headers.as_deref(),
+        DEEPSEEK_HEADERS,
+        &vars,
+    )?;
+
+    let mut request = client.get(&url).header("Content-Type", "application/json");
+    for (name, value) in &headers {
+        request = request.header(name, value);
+    }
+    let resp = request.send().await.map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status().as_u16()));
@@ -294,24 +323,6 @@ pub fn parse_deepseek_balance_response(
         "unlimited": false,
         "error": null,
     }))
-}
-
-fn parse_headers(raw: &str) -> Result<Vec<(String, String)>, String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let value: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|_| "Invalid headers JSON format".to_string())?;
-    let obj = value
-        .as_object()
-        .ok_or_else(|| "Invalid headers JSON format".to_string())?;
-
-    Ok(obj
-        .iter()
-        .filter_map(|(k, v)| v.as_str().map(|vv| (k.clone(), vv.to_string())))
-        .collect())
 }
 
 pub(super) fn pick_first_available_key(api_keys: &[ApiKey]) -> Option<String> {
