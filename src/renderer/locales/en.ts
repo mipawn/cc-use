@@ -582,7 +582,11 @@ export default {
     modelMapCodex: 'Upstream Model',
     modelMapCodexExtra:
       'Leave blank to use the model selected in Codex; when set, it only renames the request model and does not convert the Responses protocol',
-    modelMapCodexPlaceholder: 'e.g. deepseek-v4-pro',
+    modelMapCodexPlaceholder: 'Follows the client by default',
+    modelMapGrok: 'Upstream model',
+    modelMapGrokExtra:
+      'Empty uses the model Grok Build asks for; filling it only replaces the model name in the request',
+    modelMapGrokPlaceholder: 'Follows the client by default',
     // Model list
     viewModels: 'View Models',
     models: 'Available Models',

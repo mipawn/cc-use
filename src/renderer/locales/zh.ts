@@ -569,7 +569,10 @@ export default {
     modelMapCodex: '上游模型',
     modelMapCodexExtra:
       '留空时使用 Codex 里选择的模型；填写后只替换请求中的模型名称，不转换 Responses 协议',
-    modelMapCodexPlaceholder: '例如：deepseek-v4-pro',
+    modelMapCodexPlaceholder: '默认跟随客户端',
+    modelMapGrok: '上游模型',
+    modelMapGrokExtra: '留空时使用 Grok Build 自己请求的模型；填写后只替换请求中的模型名称',
+    modelMapGrokPlaceholder: '默认跟随客户端',
     // Model list
     viewModels: '查看模型',
     models: '可用模型',

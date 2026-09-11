@@ -713,7 +713,7 @@ export default function KeyEditModal({
                               value={codexModel}
                               onChange={(e) => setCodexModel(e.target.value)}
                               placeholder={
-                                t('keys.modelMapCodexPlaceholder') || '例如：deepseek-v4-pro'
+                                t('keys.modelMapCodexPlaceholder') || '默认跟随客户端'
                               }
                             />
                           </Form.Item>
@@ -724,11 +724,17 @@ export default function KeyEditModal({
                           <Text strong style={{ marginBottom: 12, display: 'block' }}>
                             Grok Build
                           </Text>
-                          <Form.Item label='上游模型' extra='仅改写 Grok Build 发给中转站的 model'>
+                          <Form.Item
+                            label={t('keys.modelMapGrok') || '上游模型'}
+                            extra={
+                              t('keys.modelMapGrokExtra') ||
+                              '留空时使用 Grok Build 自己请求的模型；填写后只替换请求中的模型名称'
+                            }
+                          >
                             <Input
                               value={grokModel}
                               onChange={(e) => setGrokModel(e.target.value)}
-                              placeholder='例如：grok-build-0.1'
+                              placeholder={t('keys.modelMapGrokPlaceholder') || '默认跟随客户端'}
                             />
                           </Form.Item>
                         </div>

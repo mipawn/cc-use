@@ -143,6 +143,19 @@ fn deepseek_preset() -> ProviderPreset {
                 })
                 .to_string(),
             ),
+            // DeepSeek's own Claude Code guide, minus the two lines cc-use
+            // sets itself: the endpoint and the credential are the local proxy
+            // and the session token, so carrying them here would be overwritten
+            // at launch anyway.
+            config: Some(serde_json::json!({
+                "ANTHROPIC_MODEL": "deepseek-flash[1m]",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-flash[1m]",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-flash[1m]",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-flash",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-flash",
+                "CLAUDE_CODE_EFFORT_LEVEL": "max",
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "786432",
+            })),
             ..DefaultKeyConfig::default()
         },
     }
@@ -541,6 +554,25 @@ mod tests {
             .collect();
 
         assert_eq!(silent, vec![PRESET_CUSTOM]);
+    }
+
+    /// DeepSeek's Claude Code guide, carried into the key defaults so a new
+    /// key is complete without anyone transcribing the page.
+    #[test]
+    fn deepseek_carries_the_documented_claude_code_environment() {
+        let preset = provider_preset(PRESET_DEEPSEEK).expect("deepseek preset");
+        let config = preset.default_key_config.config.expect("config preset");
+
+        assert_eq!(config["ANTHROPIC_MODEL"], "deepseek-flash[1m]");
+        assert_eq!(config["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-flash");
+        assert_eq!(config["CLAUDE_CODE_EFFORT_LEVEL"], "max");
+        assert_eq!(config["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "786432");
+
+        // These two are the proxy's to set: carrying the guide's values here
+        // would put a vendor address and a vendor token in the key's config,
+        // and both are overwritten at launch regardless.
+        assert!(config.get("ANTHROPIC_BASE_URL").is_none());
+        assert!(config.get("ANTHROPIC_AUTH_TOKEN").is_none());
     }
 
     /// New API's account balance is read with a separate account credential, so

@@ -70,7 +70,9 @@ fn an_unavailable_account_is_reported_as_such_rather_than_as_zero() {
 
     assert_eq!(usage["isValid"], json!(false));
     assert!(usage["remaining"].is_null());
-    assert!(usage["invalidMessage"].as_str().is_some_and(|m| !m.is_empty()));
+    assert!(usage["invalidMessage"]
+        .as_str()
+        .is_some_and(|m| !m.is_empty()));
 }
 
 #[test]
