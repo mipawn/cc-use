@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.10.1 更新**：补齐 3.10.0 的收尾——上传图标统一走 IPC、供应商与密钥列表重排、额度查询在缺凭据时不发请求且不再改写缓存与显示精度；同时补上 3.10.0 缺失的 Intel 构建。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.10.2 更新**：模型查询与代理转发可各自指定 User-Agent（内置 Claude Code / Codex App / Grok 预设，手填值可存入本地复用列表）；移除 Auto 专用审计入口与 OpenCode Go 自动补头，普通请求记录、用量统计与 Go 预设都保留；另修掉筛选 chip 图标被压扁的回归。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >

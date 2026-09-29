@@ -5,6 +5,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.10.2] - 2026-09-29
+
+本版把「客户端身份」变成可配置项：模型查询与代理转发可以各自指定 User-Agent，并移除两条不再需要的旧链路。
+
+### Added
+
+- **User-Agent 配置**：Key 编辑的「客户端配置」区与模型列表弹窗都能指定 UA——内置 Claude Code / Codex App / Grok 三条预设（选入后可编辑），也可直接手填；手填值可显式「保存到列表」，写入本地 SQLite `custom_user_agents` 表供两处入口复用，重启后仍在
+- 转发侧对 HTTP 与 WebSocket 握手都覆盖所选 UA，最终只发送一个；留空恢复客户端原值，模型查询留空仍用默认标识
+
+### Changed
+
+- **Auto 专用审计退场**：移除 Statistics 的「Auto 记录」按钮与抽屉、Console 请求详情里的审计加载。普通请求记录、用量与费用统计、模型旁的 Auto 标签以及既有 Auto 模型适配都保留，历史审计数据不做破坏性删除
+- **OpenCode Go 不再自动补 `x-opencode-session`**：旧配置与旧导入里的 `request_adapter = opencode-go` 按无适配处理，客户端自己发送的原生会话头照常转发；Go 预设、账户查询、模型清单与通用供应商请求头都保留
+- 请求学习功能整体移除：客户端分类、观察时间、后台写入线程、缓存与 daemon 清理接口。旧 `userAgentCandidate.*` 设置不再读取，也不迁移为自定义 UA
+
+### Fixed
+
+- 供应商筛选 chip 的图标被压扁：筛选行装不下时每个 chip 被压到最小内容宽度，图标随之被压窄（v3.10.1 重做列表时把该处渲染从 `cover` 换成 `contain`，压缩才显形）。现在 chip 保持固有宽度，由该行横向滚动承载
+
+### Compatibility
+
+- 代理转发由 daemon 承载：更新 daemon 二进制后需要重启对应进程，新的转发实现才会生效
+- `custom_user_agents` 表在升级时自动创建；不改写已保存的 Key 配置、模型映射或账户查询脚本
+
 ## [3.10.1] - 2026-09-11
 
 补齐 3.10.0 的收尾：图标读取、供应商列表与额度查询对齐到文档描述的行为，并补上 3.10.0 缺失的 Intel 构建。
