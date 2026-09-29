@@ -58,6 +58,9 @@
   user-select: none;
   transition: none;
   border: 1px solid transparent;
+  /* A squeezed tab shrinks its provider icon with it: keep the tab at its
+     natural width and let .filterBar scroll, as it already can. */
+  flex: 0 0 auto;
 }
 
 .filterTab:hover {
