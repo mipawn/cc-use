@@ -10,12 +10,7 @@ import {
 import { Button, Dropdown, Input, Space, Switch, Tabs, Tag, Tooltip, Typography, theme } from 'antd'
 import { ClearOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import type {
-  AutoModeAudit,
-  ConsoleEvent,
-  ConsoleLogEvent,
-  ConsoleRequestEvent,
-} from '@shared/types'
+import type { ConsoleEvent, ConsoleLogEvent, ConsoleRequestEvent } from '@shared/types'
 import {
   CONSOLE_BUFFER_LIMIT,
   clearConsoleHistory,
@@ -494,25 +489,9 @@ function RequestDetail({ event, onClose }: { event: ConsoleRequestEvent; onClose
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const [tab, setTab] = useState('summary')
-  const [audit, setAudit] = useState<AutoModeAudit | null>(null)
 
   useEffect(() => {
     setTab('summary')
-    setAudit(null)
-    if (event.requestKind !== 'auto_mode' || !event.requestId) return
-    let cancelled = false
-    // The audit is the record of what the classifier was asked and answered.
-    getApi()
-      .autoModeAudit.get(event.requestId)
-      .then((row) => {
-        if (!cancelled) setAudit(row)
-      })
-      .catch(() => {
-        if (!cancelled) setAudit(null)
-      })
-    return () => {
-      cancelled = true
-    }
   }, [event.requestId, event.requestKind])
 
   const hasDetail = Boolean(
@@ -593,30 +572,6 @@ function RequestDetail({ event, onClose }: { event: ConsoleRequestEvent; onClose
                   <div style={{ color: PALETTE.ws }}>
                     {t('console.wsUpgraded') ||
                       '连接已升级：这是代理建连成功，不代表一次模型生成已经完成'}
-                  </div>
-                )}
-                {audit && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ color: PALETTE.dim }}>
-                      {t('statistics.autoAuditAction') || '待审核动作'}
-                    </div>
-                    <div>
-                      {audit.actionSummary || t('statistics.autoAuditUnknownAction') || '未识别'}
-                    </div>
-                    <div style={{ color: PALETTE.dim }}>
-                      {t('statistics.autoAuditVerdict') || '模型返回'}
-                    </div>
-                    <div>
-                      {audit.parseOk && audit.verdict
-                        ? audit.verdict === 'block'
-                          ? t('statistics.verdictBlock')
-                          : t('statistics.verdictNoBlock')
-                        : t('statistics.verdictUnknown')}
-                    </div>
-                    <div style={{ color: PALETTE.dim }}>
-                      {t('statistics.autoAuditClient') || '客户端执行'}
-                    </div>
-                    <div>{audit.clientOutcome || t('statistics.autoAuditNotObserved')}</div>
                   </div>
                 )}
               </Space>

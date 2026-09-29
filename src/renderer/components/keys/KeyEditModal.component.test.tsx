@@ -16,6 +16,7 @@ vi.mock('../../api', () => ({
     terminal: { getLaunchPreview: async () => null },
     // The quota script is checked before saving; the mock accepts it.
     balance: { checkScript: async () => ({ url: '', method: 'GET', headers: {} }) },
+    userAgent: { list: async () => [], save: async (value: string) => [value] },
   }),
 }))
 vi.mock('react-i18next', () => ({

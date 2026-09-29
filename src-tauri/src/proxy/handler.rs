@@ -4,8 +4,8 @@ use crate::proxy::console::ConsoleEvent;
 use crate::proxy::usage_parser;
 use crate::proxy::{ProxyState, RequestPermits};
 use crate::shared_runtime::{
-    classify_request_auth, decide_route_plan, infer_upstream_family_from_path, RequestAuth,
-    RoutePlan, UpstreamFamily,
+    classify_request_auth, decide_route_plan, infer_upstream_family_from_path, user_agent,
+    RequestAuth, RoutePlan, UpstreamFamily,
 };
 
 use axum::{
@@ -42,6 +42,9 @@ struct RouteExecution {
     log_ctx: Option<ResolvedSessionContext>,
     provider: Option<Provider>,
     cli_type: Option<String>,
+    /// The User-Agent this key sends upstream, when one was chosen. `None`
+    /// leaves the client's own value alone.
+    user_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -482,14 +485,10 @@ pub async fn proxy_handler(
     } else {
         body_bytes
     };
-    // The provider's adapter shapes the request last, once the body is final.
-    apply_request_adapter(
-        &mut headers,
-        &route_execution,
-        request_json.as_ref(),
-        emit.request_id,
-    );
     apply_provider_headers(&mut headers, &route_execution);
+    // Last, and by replacement: a chosen UA is the final word on what the
+    // upstream sees, so a provider default must not survive it.
+    apply_chosen_user_agent(&mut headers, &route_execution, emit.request_id);
     let forwarded_request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
         .and_then(|value| {
@@ -578,11 +577,6 @@ pub async fn proxy_handler(
         request_model: request_model.clone(),
         request_kind: request_kind.clone(),
         request_id: request_id.clone(),
-        auto_mode_audit: auto_mode_audit_context(
-            request_kind.as_deref(),
-            request_json.as_ref(),
-            &route_execution,
-        ),
         status_code: None,
         start_time,
         path: req_path.clone(),
@@ -591,10 +585,6 @@ pub async fn proxy_handler(
         provider_name: ctx.provider_name.clone(),
         project_name: ctx.project_name.clone(),
     });
-
-    if let Some(ctx) = base_log_ctx.as_ref() {
-        start_auto_mode_audit(ctx);
-    }
 
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
@@ -797,19 +787,6 @@ pub async fn proxy_handler(
     } else {
         resp_bytes
     };
-    // The classifier's answer is read from this decoded body, before any header
-    // rewriting, so the audit records what the upstream actually returned.
-    if request_kind.as_deref() == Some("auto_mode") {
-        if let Some(ctx) = base_log_ctx.as_ref() {
-            if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&decoded) {
-                finish_auto_mode_audit_verdict(ctx, &parsed);
-            } else {
-                // The upstream answered with something that is not a Messages
-                // JSON; record that no verdict could be read.
-                finish_auto_mode_audit_verdict(ctx, &serde_json::json!({}));
-            }
-        }
-    }
 
     let mut outgoing_resp_headers = resp_headers.clone();
     let content_type = if request_kind.as_deref() == Some("auto_mode")
@@ -1018,6 +995,10 @@ fn build_route_execution(
                     provider_name: Some(provider.name.clone()),
                     project_name,
                 }),
+                user_agent: client_config
+                    .and_then(|config| config.get("proxyUserAgent"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string),
                 provider: Some(provider),
                 cli_type,
             })
@@ -1041,6 +1022,7 @@ fn build_route_execution(
                 auth_scheme: None,
                 log_ctx: None,
                 provider: None,
+                user_agent: None,
                 cli_type: None,
             })
         }
@@ -1642,209 +1624,22 @@ fn apply_upstream_auth_headers(
     Ok(())
 }
 
-/// Open an audit record for a recognized classifier request.
+/// Send the User-Agent this key chose, when it chose one.
 ///
-/// Written before the upstream call so an interrupted request is still visible
-/// as "we asked and never found out" rather than disappearing.
-fn start_auto_mode_audit(ctx: &LogContext) {
-    let Some(audit) = ctx.auto_mode_audit.as_ref() else {
-        return;
-    };
-    let now = chrono::Utc::now().to_rfc3339();
-    let row = crate::models::AutoModeAudit {
-        request_id: ctx.request_id.clone(),
-        created_at: now.clone(),
-        updated_at: now.clone(),
-        session_ref: audit.session_ref.clone(),
-        session_source: audit.session_source.clone(),
-        client_kind: audit.client_kind.clone(),
-        tool_name: audit.tool_name.clone(),
-        tool_use_id: audit.tool_use_id.clone(),
-        action_summary: audit.action_summary.clone(),
-        action_truncated: audit.action_truncated,
-        request_model: audit.request_model.clone(),
-        forwarded_model: ctx.request_model.clone(),
-        thinking: audit.thinking.clone(),
-        classifier_stage: None,
-        verdict: None,
-        verdict_reason: None,
-        parse_ok: false,
-        stop_reason: None,
-        request_state: "pending".to_string(),
-        status_code: None,
-        error_message: None,
-        client_outcome: None,
-        completed_at: None,
-    };
-
-    let Ok(db) = ctx.db.lock() else {
-        log::warn!("Could not lock the database to open an Auto mode audit");
-        return;
-    };
-    if let Err(error) = db.auto_mode_audit_upsert(&row) {
-        // Never fatal: the audit is an observation, not part of the request.
-        log::warn!("Failed to open an Auto mode audit: {}", error);
-    }
-}
-
-/// Record what the classifier answered.
-fn finish_auto_mode_audit_verdict(ctx: &LogContext, response: &serde_json::Value) {
-    if ctx.auto_mode_audit.is_none() {
-        return;
-    }
-    let (verdict, text, parse_ok) = super::auto_mode_audit::parse_verdict(response);
-    let stop_reason = response.get("stop_reason").and_then(|value| value.as_str());
-    let reason = text
-        .as_deref()
-        .map(super::auto_mode_audit::clamp_reason)
-        .map(|(clamped, _)| clamped);
-
-    let Ok(db) = ctx.db.lock() else {
-        log::warn!("Could not lock the database to record an Auto mode verdict");
-        return;
-    };
-    if let Err(error) = db.auto_mode_audit_set_verdict(
-        &ctx.request_id,
-        None,
-        ctx.request_model.as_deref(),
-        Some(verdict.as_str()),
-        reason.as_deref(),
-        parse_ok,
-        stop_reason,
-        &chrono::Utc::now().to_rfc3339(),
-    ) {
-        log::warn!("Failed to record an Auto mode verdict: {}", error);
-    }
-}
-
-/// Collect what a recognized classifier request is about.
-///
-/// Returns `None` for anything that is not a classifier request, so the audit
-/// table only ever holds requests that were actually identified as one.
-fn auto_mode_audit_context(
-    request_kind: Option<&str>,
-    request_json: Option<&serde_json::Value>,
-    route: &RouteExecution,
-) -> Option<AutoModeAuditContext> {
-    if request_kind != Some("auto_mode") {
-        return None;
-    }
-    let body = request_json?;
-    let session_token = route.log_ctx.as_ref().map(|ctx| ctx.session_token.as_str());
-    let session = session_token.map(crate::shared_runtime::session_reference);
-    let action = super::auto_mode_audit::parse_pending_action(body);
-    let thinking = route.model_mapping.as_deref().and_then(auto_mode_thinking);
-
-    Some(AutoModeAuditContext {
-        session_ref: session,
-        // No native conversation id is read here: this record names the CC Use
-        // session it belongs to, and says so rather than implying a finer
-        // granularity than the proxy can prove.
-        session_source: session_token.map(|_| "cc_use_session".to_string()),
-        client_kind: route.cli_type.clone(),
-        tool_name: action.as_ref().map(|action| action.tool_name.clone()),
-        tool_use_id: action
-            .as_ref()
-            .and_then(|action| action.tool_use_id.clone()),
-        action_summary: action.as_ref().map(|action| action.summary.clone()),
-        action_truncated: action.as_ref().is_some_and(|action| action.truncated),
-        request_model: body
-            .get("model")
-            .and_then(|model| model.as_str())
-            .map(str::to_string),
-        thinking,
-    })
-}
-
-/// The configured thinking mode from a key's model mapping, when set.
-fn auto_mode_thinking(mapping: &str) -> Option<String> {
-    let parsed: serde_json::Value = serde_json::from_str(mapping).ok()?;
-    parsed
-        .get("autoMode")?
-        .get("thinking")?
-        .as_str()
-        .map(str::to_string)
-}
-
-/// Let the provider's adapter shape the outgoing request.
-///
-/// Adapters are saved configuration, not a label: a provider whose adapter is
-/// `none` crosses untouched, and an id this build does not implement is
-/// reported rather than silently treated as `none`.
-///
-/// OpenCode Go routes on `x-opencode-session` and rejects a request without it,
-/// so the Go adapter supplies one when the client did not. Its own id is
-/// preferred and never rewritten; otherwise a native conversation id is used,
-/// and only then a value derived from the CC Use session. The local route token
-/// is an input to that digest and never appears in the result.
-fn apply_request_adapter(
-    headers: &mut HeaderMap,
-    route: &RouteExecution,
-    request_json: Option<&serde_json::Value>,
-    request_id: &str,
-) {
-    let Some(provider) = route.provider.as_ref() else {
-        return;
-    };
-    let adapter = provider.request_adapter.trim();
-    if adapter.is_empty() || adapter == crate::shared_runtime::ADAPTER_NONE_ID {
-        return;
-    }
-    if adapter != crate::shared_runtime::ADAPTER_OPENCODE_GO {
-        log::warn!(
-            "provider {} uses unknown request adapter {:?}; forwarding unchanged",
-            provider.id,
-            adapter
-        );
-        return;
-    }
-
-    let existing = headers
-        .get(crate::shared_runtime::OPENCODE_SESSION_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string);
-    let native = request_json.and_then(super::auto_mode::claude_session_id);
-    let Some(session_token) = route.log_ctx.as_ref().map(|ctx| ctx.session_token.clone()) else {
+/// Replacement, not default: a chosen UA is a decision about what the upstream
+/// should see, and it holds even when the caller is the real client. A value
+/// that cannot travel is reported and skipped — it was stored before this
+/// validation existed, and it must not take the request down with it.
+fn apply_chosen_user_agent(headers: &mut HeaderMap, route: &RouteExecution, request_id: &str) {
+    let Some(raw) = route.user_agent.as_deref() else {
         return;
     };
 
-    let Some(resolved) = crate::shared_runtime::resolve_upstream_session(
-        existing.as_deref(),
-        native.as_deref(),
-        &session_token,
-        &provider.id,
-        route.cli_type.as_deref().unwrap_or("claude_code"),
-    ) else {
+    let Some(value) = user_agent::parse_stored(Some(raw), request_id) else {
         return;
     };
 
-    // A value the client already sent stays exactly as sent.
-    if existing.is_none() {
-        match HeaderValue::from_str(&resolved.id) {
-            Ok(value) => {
-                headers.insert(
-                    axum::http::header::HeaderName::from_static(
-                        crate::shared_runtime::OPENCODE_SESSION_HEADER,
-                    ),
-                    value,
-                );
-            }
-            Err(_) => {
-                log::warn!(
-                    "request {}: derived upstream session id was not a valid header value",
-                    request_id
-                );
-                return;
-            }
-        }
-    }
-
-    // Recorded so a diagnosis can tell a real conversation id from a fallback.
-    log::debug!(
-        "request {}: upstream session source={:?}",
-        request_id,
-        resolved.source
-    );
+    user_agent::apply(headers, &value);
 }
 
 /// Add the headers the provider's configuration asks for.
@@ -2057,24 +1852,6 @@ fn decode_deflate_limited(data: &[u8], limit: usize) -> Result<Vec<u8>, String> 
         .or_else(|_| read_decoded_limited(flate2::read::DeflateDecoder::new(data), limit))
 }
 
-/// What a recognized Auto mode classifier request was asked to review.
-///
-/// Collected when the request is recognized so the terminal paths can record
-/// the outcome without re-parsing the body, and so the record survives a
-/// failure that never produced a response.
-#[derive(Clone)]
-struct AutoModeAuditContext {
-    session_ref: Option<String>,
-    session_source: Option<String>,
-    client_kind: Option<String>,
-    tool_name: Option<String>,
-    tool_use_id: Option<String>,
-    action_summary: Option<String>,
-    action_truncated: bool,
-    request_model: Option<String>,
-    thinking: Option<String>,
-}
-
 #[derive(Clone)]
 struct LogContext {
     db: Arc<Mutex<crate::db::Database>>,
@@ -2084,11 +1861,9 @@ struct LogContext {
     project_id: Option<String>,
     request_model: Option<String>,
     request_kind: Option<String>,
-    /// The proxy request id, shared with this request's console events and any
-    /// audit summary so the three can be joined later.
+    /// The proxy request id, shared with this request's console events so the
+    /// two can be joined later.
     request_id: String,
-    /// Present only for a recognized Auto mode classifier request.
-    auto_mode_audit: Option<AutoModeAuditContext>,
     status_code: Option<u16>,
     start_time: std::time::Instant,
     path: String,
@@ -2204,25 +1979,6 @@ fn record_usage(
 ) {
     let latency_ms = ctx.start_time.elapsed().as_millis() as i64;
     let model_name = model.or(ctx.request_model.as_deref()).unwrap_or("unknown");
-
-    if ctx.auto_mode_audit.is_some() {
-        let state = match outcome {
-            RequestOutcome::Success => "completed",
-            RequestOutcome::ClientError | RequestOutcome::UpstreamError => "http_error",
-            RequestOutcome::TransportError => "transport_error",
-        };
-        if let Ok(db) = ctx.db.lock() {
-            if let Err(error) = db.auto_mode_audit_set_state(
-                &ctx.request_id,
-                state,
-                ctx.status_code.map(i32::from),
-                error_message.as_deref(),
-                &chrono::Utc::now().to_rfc3339(),
-            ) {
-                log::warn!("Failed to record an Auto mode request state: {}", error);
-            }
-        }
-    }
 
     let log = RequestLog {
         id: nanoid::nanoid!(),
@@ -2588,6 +2344,8 @@ fn build_upstream_ws_request(
         forwarded_headers.remove(name);
     }
 
+    apply_chosen_user_agent(&mut forwarded_headers, route, "WebSocket handshake");
+
     let mut request = tungstenite::http::Request::builder()
         .uri(upstream_url)
         .header("Host", extract_host(upstream_url).unwrap_or_default())
@@ -2888,12 +2646,12 @@ fn extract_host(url: &str) -> Option<String> {
 mod tests {
     use super::{
         api_key_supports_session_client, append_bounded_tail, apply_model_mapping,
-        apply_request_adapter, build_upstream_ws_request, collect_response_body_limited,
+        build_upstream_ws_request, collect_response_body_limited,
         decompress_limited, effective_session_cli_type, extract_error_message, has_billable_usage,
         is_codex_responses_request_path, record_usage, route_plan_with_codex_takeover_fallback,
         route_uses_bearer_auth, session_client_config_key, should_forward_response_header,
         strip_hop_by_hop_headers, LogContext, RequestCancellationGuard, RequestOutcome,
-        ResolvedSessionContext, RouteExecution, SseModelNormalizingStream, StreamConsoleCtx,
+        RouteExecution, SseModelNormalizingStream, StreamConsoleCtx,
         UpstreamAuthScheme, UsageTrackingStream, MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
     };
     use crate::db::Database;
@@ -2901,7 +2659,6 @@ mod tests {
     use crate::proxy::console::ConsoleEvent;
     use crate::proxy::usage_parser;
     use crate::shared_runtime::{RequestAuth, RoutePlan, CODEX_SESSION_TOKEN_SETTING_KEY};
-    use axum::http::{HeaderMap, HeaderValue};
 
     #[test]
     fn response_header_filter_drops_hop_by_hop_headers() {
@@ -3086,6 +2843,7 @@ mod tests {
             auth_scheme: None,
             log_ctx: None,
             provider: None,
+            user_agent: None,
             cli_type: cli_type.map(str::to_string),
         }
     }
@@ -3266,6 +3024,20 @@ mod tests {
             request.headers()["sec-websocket-key"],
             headers["sec-websocket-key"]
         );
+    }
+
+    #[test]
+    fn websocket_handshake_applies_chosen_user_agent() {
+        let mut route = route_for_auth(Some("codex-app"), "https://gateway.example.com/v1/realtime");
+        route.user_agent = Some("custom-client/1.0".to_string());
+        let mut headers = hyper::HeaderMap::new();
+        headers.append("user-agent", "original/1.0".parse().unwrap());
+        headers.append("user-agent", "second/1.0".parse().unwrap());
+        let request = build_upstream_ws_request(
+            "wss://gateway.example.com/v1/realtime", &headers, &route, "/v1/realtime",
+        ).unwrap();
+        assert_eq!(request.headers()["user-agent"], "custom-client/1.0");
+        assert_eq!(request.headers().get_all("user-agent").iter().count(), 1);
     }
 
     #[test]
@@ -3477,7 +3249,6 @@ mod tests {
             request_model: Some("gpt-5.5".to_string()),
             request_kind: None,
             request_id: "test-request-id".to_string(),
-            auto_mode_audit: None,
             status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/responses".to_string(),
@@ -3596,7 +3367,6 @@ mod tests {
             request_model: Some("claude-3-5-sonnet".to_string()),
             request_kind: None,
             request_id: "test-request-id".to_string(),
-            auto_mode_audit: None,
             status_code: Some(200),
             start_time: std::time::Instant::now(),
             path: "/v1/messages".to_string(),
@@ -3876,149 +3646,5 @@ mod tests {
             }
             _ => panic!("expected request event"),
         }
-    }
-    // ---- Request adapters (v3.10.0) ----
-
-    /// A provider as the adapter would find it, saved and read back so the test
-    /// covers the persisted value rather than a hand-built struct.
-    fn provider_with_adapter(db: &Database, adapter: &str) -> crate::models::Provider {
-        db.provider_create(&CreateProviderInput {
-            request_headers: None,
-            wallet_balance_script: None,
-            name: "go".to_string(),
-            base_url: "https://opencode.ai/zen/go".to_string(),
-            http_proxy: None,
-            website: None,
-            remark: None,
-            token: None,
-            icon: None,
-            wallet_balance_type: None,
-            wallet_balance_url: None,
-            wallet_balance_path: None,
-            wallet_balance_headers: None,
-            wallet_balance_user_id: None,
-            usage_type: None,
-            usage_url: None,
-            usage_path: None,
-            usage_headers: None,
-            preset_id: Some("opencode-go".to_string()),
-            default_key_config: None,
-            request_adapter: Some(adapter.to_string()),
-        })
-        .unwrap()
-    }
-
-    fn adapter_route(provider: crate::models::Provider, cli_type: &str) -> RouteExecution {
-        RouteExecution {
-            upstream_url: "https://opencode.ai/zen/go/v1/messages".to_string(),
-            real_api_key: Some("sk-test".to_string()),
-            model_mapping: None,
-            auth_scheme: None,
-            log_ctx: Some(ResolvedSessionContext {
-                session_token: "session-abcdefghijklmnop".to_string(),
-                provider_id: provider.id.clone(),
-                api_key_id: "key-go".to_string(),
-                project_id: None,
-                key_alias: None,
-                provider_name: None,
-                project_name: None,
-            }),
-            provider: Some(provider),
-            cli_type: Some(cli_type.to_string()),
-        }
-    }
-
-    #[test]
-    fn the_go_adapter_supplies_the_session_header_it_requires() {
-        let db = Database::new_in_memory().unwrap();
-        let provider = provider_with_adapter(&db, "opencode-go");
-        let route = adapter_route(provider, "claude_code");
-        let mut headers = HeaderMap::new();
-
-        apply_request_adapter(&mut headers, &route, None, "req-1");
-
-        let value = headers
-            .get("x-opencode-session")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default();
-        assert!(
-            value.starts_with("cc-use-"),
-            "a derived id is labelled as one, got {:?}",
-            value
-        );
-        // The local route token authenticates the proxy; it is an input to the
-        // digest and must not appear in the header.
-        assert!(!value.contains("session-abcdefghijklmnop"));
-        assert!(!value.contains("abcdefghijklmnop"));
-    }
-
-    #[test]
-    fn the_go_adapter_never_rewrites_a_session_the_client_already_sent() {
-        let db = Database::new_in_memory().unwrap();
-        let provider = provider_with_adapter(&db, "opencode-go");
-        let route = adapter_route(provider, "claude_code");
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-opencode-session",
-            HeaderValue::from_static("client-conv-9"),
-        );
-
-        apply_request_adapter(&mut headers, &route, None, "req-1");
-
-        assert_eq!(
-            headers.get("x-opencode-session").unwrap().to_str().unwrap(),
-            "client-conv-9"
-        );
-    }
-
-    #[test]
-    fn the_go_adapter_prefers_a_native_conversation_id_over_its_fallback() {
-        let db = Database::new_in_memory().unwrap();
-        let provider = provider_with_adapter(&db, "opencode-go");
-        let route = adapter_route(provider, "claude_code");
-        let mut headers = HeaderMap::new();
-        let body = serde_json::json!({
-            "metadata": { "user_id": "{\"session_id\":\"conv-native-7\"}" }
-        });
-
-        apply_request_adapter(&mut headers, &route, Some(&body), "req-1");
-
-        assert_eq!(
-            headers.get("x-opencode-session").unwrap().to_str().unwrap(),
-            "conv-native-7"
-        );
-    }
-
-    #[test]
-    fn providers_without_the_go_adapter_cross_untouched() {
-        let db = Database::new_in_memory().unwrap();
-        for adapter in ["none", ""] {
-            let provider = provider_with_adapter(&db, adapter);
-            let route = adapter_route(provider, "claude_code");
-            let mut headers = HeaderMap::new();
-
-            apply_request_adapter(&mut headers, &route, None, "req-1");
-
-            assert!(
-                headers.get("x-opencode-session").is_none(),
-                "adapter {:?} must not add a session header",
-                adapter
-            );
-        }
-    }
-
-    #[test]
-    fn an_unknown_adapter_is_reported_and_changes_nothing() {
-        let db = Database::new_in_memory().unwrap();
-        let provider = provider_with_adapter(&db, "from-a-newer-build");
-        let route = adapter_route(provider, "claude_code");
-        let mut headers = HeaderMap::new();
-
-        apply_request_adapter(&mut headers, &route, None, "req-1");
-
-        assert!(headers.get("x-opencode-session").is_none());
-        assert!(!crate::shared_runtime::is_supported_request_adapter(
-            "from-a-newer-build"
-        ));
     }
 }

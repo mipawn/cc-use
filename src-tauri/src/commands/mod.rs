@@ -15,3 +15,4 @@ pub mod statistics;
 pub mod system;
 pub mod system_ext;
 pub mod terminal;
+pub mod user_agent;

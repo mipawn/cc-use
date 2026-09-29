@@ -77,6 +77,7 @@ pub async fn provider_model_list(
     db: State<'_, Arc<Mutex<Database>>>,
     provider_id: String,
     api_key_id: String,
+    user_agent: Option<String>,
 ) -> Result<Vec<String>, String> {
     let (provider, api_key) = {
         let db = db.lock().map_err(|e| e.to_string())?;
@@ -93,8 +94,12 @@ pub async fn provider_model_list(
         (provider, api_key)
     };
 
+    // Refused here, where the dialog can show it, rather than turning into a
+    // request that fails later for a reason that names something else.
+    let user_agent = crate::shared_runtime::user_agent::validate(user_agent.as_deref())?;
+
     let client_kind = preferred_model_list_client_kind(&api_key);
-    fetch_provider_model_ids(&provider, &api_key, client_kind).await
+    fetch_provider_model_ids(&provider, &api_key, client_kind, user_agent.as_deref()).await
 }
 
 /// The shared model-list dialog has no client selector. For a multi-client key,
@@ -106,13 +111,21 @@ fn preferred_model_list_client_kind(api_key: &ApiKey) -> Option<&str> {
         .find(|kind| api_key.types.iter().any(|value| value == kind))
 }
 
+/// What this app calls itself when no User-Agent was chosen.
+const DEFAULT_MODEL_LIST_USER_AGENT: &str = "cc-use/3.x";
+
 /// Fetch the real model ids exposed by a provider. Passing a client kind makes
 /// sure multi-client keys use that client's base URL and auth settings instead
 /// of whichever type happens to be first in the stored array.
+///
+/// `user_agent` arrives already validated; it replaces the default rather than
+/// joining it, because a gateway that answers only known clients is matching
+/// the whole value.
 pub(crate) async fn fetch_provider_model_ids(
     provider: &Provider,
     api_key: &ApiKey,
     client_kind: Option<&str>,
+    user_agent: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let (base_url, auth_scheme) = model_list_upstream_settings(provider, api_key, client_kind);
     let endpoint = build_model_list_endpoint(&base_url)?;
@@ -124,7 +137,9 @@ pub(crate) async fn fetch_provider_model_ids(
     .build()
     .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let mut request = client.get(endpoint).header("User-Agent", "cc-use/3.x");
+    let mut request = client
+        .get(endpoint)
+        .header("User-Agent", user_agent.unwrap_or(DEFAULT_MODEL_LIST_USER_AGENT));
     request = match auth_scheme.as_str() {
         "bearer" => request.header("Authorization", format!("Bearer {}", api_key.value)),
         "x-api-key" => request.header("x-api-key", &api_key.value),

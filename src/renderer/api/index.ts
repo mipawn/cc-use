@@ -27,8 +27,14 @@ function buildApi(): Api {
       update: (input) => invoke('provider_update', { input }),
       delete: (id) => invoke('provider_delete', { id }),
       reorder: (providerIds) => invoke('provider_reorder', { providerIds }),
-      modelList: (providerId, apiKeyId) => invoke('provider_model_list', { providerId, apiKeyId }),
+      modelList: (providerId, apiKeyId, userAgent) =>
+        invoke('provider_model_list', { providerId, apiKeyId, userAgent }),
       presets: () => invoke('provider_preset_list'),
+    },
+    userAgent: {
+      list: () => invoke('user_agent_custom_list'),
+      save: (value) => invoke('user_agent_custom_save', { value }),
+      delete: (value) => invoke('user_agent_custom_delete', { value }),
     },
     apiKey: {
       list: (providerId) => invoke('api_key_list', { providerId }),
@@ -151,12 +157,6 @@ function buildApi(): Api {
       getProviderGatewayMetrics: () => invoke('gateway_metrics_get_by_provider'),
       getMonthlyTrend: (year: number, month: number) =>
         invoke('request_log_get_monthly_trend', { year, month }),
-    },
-    autoModeAudit: {
-      list: ({ timeRange, tool, verdict, limit }) =>
-        invoke('auto_mode_audit_list', { timeRange, tool, verdict, limit }),
-      get: (requestId) => invoke('auto_mode_audit_get', { requestId }),
-      tools: (timeRange) => invoke('auto_mode_audit_tools', { timeRange }),
     },
     cliTool: {
       status: () => invoke('cli_tool_status'),

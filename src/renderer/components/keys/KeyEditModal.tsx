@@ -41,6 +41,7 @@ import type {
   UpstreamAuthScheme,
 } from '@shared/types'
 import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
+import UserAgentField from '../UserAgentField'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { newKeyDefaults, type ApiKeyEditorInput, type KeyEditMode } from '../../utils/apiKeyEditor'
 import {
@@ -50,6 +51,7 @@ import {
   type ModelMappingFields,
 } from '../../utils/modelMapping'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
+import { hasClientOverride, mergeClientConfig } from '../../utils/clientConfig'
 import { STARTER_ACCOUNT_SCRIPT } from '../../utils/providerQueryDefaults'
 import styles from './KeyEditModal.module.css'
 
@@ -120,7 +122,6 @@ export default function KeyEditModal({
   const [grokModel, setGrokModel] = useState('')
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
   const [activeTab, setActiveTab] = useState('usage')
-
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
     return pid ? providers.find((p) => p.id === pid) : null
@@ -131,21 +132,7 @@ export default function KeyEditModal({
     clientKind === 'codex' || clientKind === 'grok' ? 'Authorization: Bearer' : 'x-api-key'
 
   const updateClientConfig = (clientKind: ClientKind, patch: Partial<ClientConfig>) => {
-    setClientConfigs((prev) => {
-      const next = { ...prev }
-      const merged: ClientConfig = { ...(next[clientKind] || {}), ...patch }
-
-      if (!merged.baseUrl?.trim()) delete merged.baseUrl
-      if (!merged.authScheme) delete merged.authScheme
-
-      if (!merged.baseUrl && !merged.authScheme) {
-        delete next[clientKind]
-      } else {
-        next[clientKind] = merged
-      }
-
-      return next
-    })
+    setClientConfigs((prev) => mergeClientConfig(prev, clientKind, patch))
   }
 
   const claudeGlobalConfig = useMemo(
@@ -820,7 +807,8 @@ export default function KeyEditModal({
                           const config = getClientKindConfig(clientKind)
                           const currentValue = clientConfigs[clientKind]?.baseUrl || ''
                           const currentAuthScheme = clientConfigs[clientKind]?.authScheme
-                          const isOverridden = !!currentValue || !!currentAuthScheme
+                          const currentUserAgent = clientConfigs[clientKind]?.proxyUserAgent || ''
+                          const isOverridden = hasClientOverride(clientConfigs[clientKind])
                           return (
                             <div className={styles.clientRow} key={clientKind}>
                               <div className={styles.clientRowHead}>
@@ -870,6 +858,27 @@ export default function KeyEditModal({
                                   />
                                 </Form.Item>
                               </div>
+                              {/* Chosen identity. Unlike the two fields above,
+                                  this one replaces what the client sent rather
+                                  than deferring to it. */}
+                              <Form.Item
+                                label={t('keys.proxyUserAgent') || '转发 User-Agent'}
+                                extra={
+                                  t('keys.proxyUserAgentHint') ||
+                                  '留空保留客户端原值；选定后覆盖，即使请求来自真实 CLI'
+                                }
+                                style={{ marginBottom: 0, marginTop: 12 }}
+                              >
+                                <UserAgentField
+                                  value={currentUserAgent || ''}
+                                  placeholder={t('keys.proxyUserAgentDefault')}
+                                  onChange={(value) =>
+                                    updateClientConfig(clientKind, {
+                                      proxyUserAgent: value || undefined,
+                                    })
+                                  }
+                                />
+                              </Form.Item>
                             </div>
                           )
                         })}

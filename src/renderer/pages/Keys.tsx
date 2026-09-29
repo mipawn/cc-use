@@ -70,6 +70,7 @@ import {
 } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
+import UserAgentField from '../components/UserAgentField'
 import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import {
@@ -195,6 +196,10 @@ export default function Keys() {
   const [modelListLoading, setModelListLoading] = useState(false)
   const [modelListApiKeyId, setModelListApiKeyId] = useState<string | undefined>(undefined)
   const [modelListError, setModelListError] = useState(false)
+  // Query identity lives only for as long as the dialog is open: this is a
+  // "show me as that client" glance, not a property of the key.
+  const [modelListUa, setModelListUa] = useState('')
+  const modelListUserAgent = modelListUa.trim() || undefined
   const modelListRequestId = useRef(0)
 
   // Token stats per key (today and total)
@@ -488,19 +493,29 @@ export default function Keys() {
 
   // Handle edit key
   // Drag-and-drop reorder handlers
-  const loadModels = async (provider: Provider, apiKeyId: string) => {
+  const loadModels = async (provider: Provider, apiKeyId: string, userAgent?: string) => {
     const requestId = ++modelListRequestId.current
     setModelList([])
     setModelListError(false)
     setModelListLoading(true)
     try {
-      const models = await getApi().provider.modelList(provider.id, apiKeyId)
+      const models = await getApi().provider.modelList(provider.id, apiKeyId, userAgent)
       if (requestId === modelListRequestId.current) setModelList(models)
     } catch {
       if (requestId === modelListRequestId.current) setModelListError(true)
     } finally {
       if (requestId === modelListRequestId.current) setModelListLoading(false)
     }
+  }
+
+  /** Re-run the current query after the selection changed. */
+  const rerunModelList = (overrides: { userAgent?: string } = {}) => {
+    if (!modelListProvider || !modelListApiKeyId) return
+    void loadModels(
+      modelListProvider,
+      modelListApiKeyId,
+      'userAgent' in overrides ? overrides.userAgent : modelListUserAgent,
+    )
   }
 
   const handleViewModels = (provider: Provider) => {
@@ -512,6 +527,9 @@ export default function Keys() {
     setModelListApiKeyId(defaultKey?.id)
     setModelListError(false)
     setModelListLoading(false)
+    // Every opening starts clean: the identity belongs to this look, not to
+    // the key, so nothing carries over and nothing is written back.
+    setModelListUa('')
     if (defaultKey) void loadModels(provider, defaultKey.id)
   }
 
@@ -1289,7 +1307,8 @@ export default function Keys() {
               style={{ width: '100%' }}
               onChange={(apiKeyId) => {
                 setModelListApiKeyId(apiKeyId)
-                if (modelListProvider) void loadModels(modelListProvider, apiKeyId)
+                if (modelListProvider)
+                  void loadModels(modelListProvider, apiKeyId, modelListUserAgent)
               }}
               options={modelListKeys.map((key) => ({
                 value: key.id,
@@ -1297,6 +1316,17 @@ export default function Keys() {
                   key.isExhausted ? ` (${t('keys.exhausted')})` : ''
                 }`,
               }))}
+            />
+          </div>
+          <div>
+            <Text type='secondary' style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
+              {t('keys.modelListUserAgent') || 'User-Agent'}
+            </Text>
+            <UserAgentField
+              value={modelListUa}
+              placeholder={t('keys.modelListUaDefault')}
+              onChange={setModelListUa}
+              onApply={(value) => rerunModelList({ userAgent: value.trim() || undefined })}
             />
           </div>
           {modelListLoading ? (

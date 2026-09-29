@@ -843,6 +843,7 @@ pub async fn codex_config_takeover_inner(
             &provider,
             &api_key,
             Some("codex"),
+            None,
         )
         .await
         {

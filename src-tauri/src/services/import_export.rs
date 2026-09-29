@@ -178,7 +178,11 @@ pub fn import_all(
                     ep.usage_headers,
                     preset_id,
                     default_key_config,
-                    ep.request_adapter.as_deref().unwrap_or("none"),
+                    // An old export can name an adapter this build retired;
+                    // normalising here keeps the imported row editable.
+                    crate::shared_runtime::normalize_request_adapter(
+                        ep.request_adapter.as_deref().unwrap_or("none"),
+                    ),
                     ep.wallet_balance_script,
                     ep.request_headers,
                 ],

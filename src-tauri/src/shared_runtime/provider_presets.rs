@@ -21,8 +21,15 @@ pub const PRESET_NEWAPI: &str = "newapi";
 
 /// Request adapter ids. An adapter is saved configuration, not something the
 /// preset label forces: editing the provider keeps whichever one is stored.
-pub const ADAPTER_OPENCODE_GO: &str = "opencode-go";
 pub const ADAPTER_NONE: &str = crate::shared_runtime::ADAPTER_NONE_ID;
+
+/// A retired adapter id, kept only so stored values can still be recognised.
+///
+/// Until v3.10.2 this id made the proxy supply an `x-opencode-session` header
+/// whenever the client did not. OpenCode recognises native session headers, so
+/// the adapter is gone and the id now means nothing — but providers saved
+/// under it exist, and refusing the value would lock them out of being edited.
+const RETIRED_ADAPTER_OPENCODE_GO: &str = "opencode-go";
 
 /// Defaults a newly created key for this provider starts from.
 ///
@@ -208,7 +215,8 @@ fn opencode_go_preset() -> ProviderPreset {
         wallet_balance_script: Some(account_scripts::script_for(
             &account_scripts::for_legacy_kind("opencode-go").expect("go script"),
         )),
-        request_adapter: ADAPTER_OPENCODE_GO.to_string(),
+        // The Go adapter is gone; the preset no longer shapes the request.
+        request_adapter: ADAPTER_NONE.to_string(),
         default_key_config: DefaultKeyConfig {
             types: vec!["claude_code".to_string(), "codex".to_string()],
             // Model selection belongs to the user, including for Go.
@@ -267,9 +275,29 @@ pub fn provider_preset(id: &str) -> Option<ProviderPreset> {
 /// Adapter ids this build implements. Anything else is rejected on save rather
 /// than silently treated as `none`, so a provider imported from a newer build
 /// reports the problem instead of quietly losing its request shaping.
+///
+/// A retired id counts as supported because it is read back as `none` — see
+/// [`normalize_request_adapter`]. Rejecting it would fail the save of an
+/// untouched provider, which is a worse outcome than accepting a value that
+/// now means nothing.
 pub fn is_supported_request_adapter(id: &str) -> bool {
+    let id = normalize_request_adapter(id);
+    id.is_empty() || id == ADAPTER_NONE
+}
+
+/// The adapter id this build acts on.
+///
+/// A retired id maps onto the behaviour that replaced it instead of being
+/// rejected: a stored `opencode-go` used to add a session header and now adds
+/// nothing, which is exactly what `none` means. Called wherever a stored value
+/// is read, so a legacy row never has to be rewritten to keep working.
+pub fn normalize_request_adapter(id: &str) -> &str {
     let id = id.trim();
-    id.is_empty() || id == ADAPTER_NONE || id == ADAPTER_OPENCODE_GO
+    if id == RETIRED_ADAPTER_OPENCODE_GO {
+        ADAPTER_NONE
+    } else {
+        id
+    }
 }
 
 /// Preset id to record for a provider whose origin we do not know.
@@ -553,11 +581,13 @@ mod tests {
     }
 
     #[test]
-    fn opencode_go_selects_its_adapter_and_keeps_zen_in_the_path() {
+    fn opencode_go_keeps_zen_in_the_path_without_an_adapter() {
         let preset = provider_preset(PRESET_OPENCODE_GO).expect("go preset");
 
         assert_eq!(preset.base_url, "https://opencode.ai/zen/go");
-        assert_eq!(preset.request_adapter, ADAPTER_OPENCODE_GO);
+        // The Go adapter is retired: the preset still brings the endpoint and
+        // the account query, but no longer shapes the request.
+        assert_eq!(preset.request_adapter, ADAPTER_NONE);
         assert_eq!(preset.usage_type, "opencode-go");
 
         assert!(preset.default_key_config.model_mapping.is_none());
@@ -579,8 +609,27 @@ mod tests {
     fn only_implemented_adapter_ids_are_accepted() {
         assert!(is_supported_request_adapter(""));
         assert!(is_supported_request_adapter("none"));
-        assert!(is_supported_request_adapter("opencode-go"));
         assert!(!is_supported_request_adapter("from-a-newer-build"));
+    }
+
+    #[test]
+    fn a_retired_adapter_id_reads_as_none_rather_than_being_rejected() {
+        // Providers saved before the Go adapter was retired still carry this
+        // id. Refusing it would fail the save of an untouched provider, so it
+        // is accepted and read as the behaviour that replaced it.
+        assert!(is_supported_request_adapter(RETIRED_ADAPTER_OPENCODE_GO));
+        assert_eq!(
+            normalize_request_adapter(RETIRED_ADAPTER_OPENCODE_GO),
+            ADAPTER_NONE
+        );
+    }
+
+    #[test]
+    fn normalising_leaves_every_other_id_alone() {
+        assert_eq!(normalize_request_adapter("none"), "none");
+        assert_eq!(normalize_request_adapter("  none  "), "none");
+        assert_eq!(normalize_request_adapter("from-a-newer-build"), "from-a-newer-build");
+        assert_eq!(normalize_request_adapter(""), "");
     }
 
     #[test]

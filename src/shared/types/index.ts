@@ -65,6 +65,13 @@ export type UpstreamAuthScheme = 'x-api-key' | 'bearer' | 'none'
 export interface ClientConfig {
   baseUrl?: string // 覆盖 provider.baseUrl
   authScheme?: UpstreamAuthScheme // 覆盖上游认证头
+  /**
+   * 转发时使用的 User-Agent。留空表示保留客户端原值。
+   *
+   * 与 baseUrl / authScheme 的「只增不改」语义相反：此处是**覆盖**，
+   * 因为选定身份的目的就是说清上游该看到谁。
+   */
+  proxyUserAgent?: string
 }
 
 // 临时兼容: ProviderType -> ClientKind 映射
@@ -618,44 +625,6 @@ export interface ExportApiKey {
   value: string
   types?: ProviderType[]
   priority: number
-}
-
-/**
- * One Auto mode classifier request: what it was asked to review and what came
- * back. Transport success, the model's verdict and the client actually running
- * the tool are separate fields on purpose — the proxy only sees the first two.
- */
-export interface AutoModeAudit {
-  /** Proxy request id, shared with the request log and console events. */
-  requestId: string
-  createdAt: string
-  updatedAt: string
-  /** Non-credential reference to the conversation. */
-  sessionRef: string | null
-  /** `native` when the client sent a conversation id, `cc_use_session` otherwise. */
-  sessionSource: string | null
-  clientKind: string | null
-  toolName: string | null
-  toolUseId: string | null
-  /** Redacted, truncated description of the pending action. */
-  actionSummary: string | null
-  actionTruncated: boolean
-  requestModel: string | null
-  forwardedModel: string | null
-  thinking: string | null
-  classifierStage: string | null
-  /** `block` | `no_block` | `unknown`. */
-  verdict: string | null
-  verdictReason: string | null
-  parseOk: boolean
-  stopReason: string | null
-  /** `pending` | `completed` | `interrupted` | `transport_error` | `http_error`. */
-  requestState: string
-  statusCode: number | null
-  errorMessage: string | null
-  /** Only set from a reliable client receipt; otherwise unobserved. */
-  clientOutcome: string | null
-  completedAt: string | null
 }
 
 /** v3.7.0: request outcome recorded on every logged request. */

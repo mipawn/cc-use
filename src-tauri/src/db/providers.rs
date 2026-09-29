@@ -40,10 +40,18 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         default_key_config: crate::shared_runtime::parse_default_key_config(
             row.get::<_, Option<String>>(24)?.as_deref(),
         ),
-        request_adapter: row
-            .get::<_, Option<String>>(26)?
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(crate::shared_runtime::default_request_adapter_string),
+        // Normalised on the way out, so a provider saved under a retired
+        // adapter id reads as the behaviour that replaced it. Without this the
+        // stale value would be handed back to the editor and, on the next save,
+        // refused by the supported-id check.
+        request_adapter: {
+            let stored = row.get::<_, Option<String>>(26)?;
+            let stored = stored
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(crate::shared_runtime::ADAPTER_NONE_ID);
+            crate::shared_runtime::normalize_request_adapter(stored).to_string()
+        },
         wallet_balance_script: row
             .get::<_, Option<String>>(27)?
             .filter(|value| !value.trim().is_empty()),

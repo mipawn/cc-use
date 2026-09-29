@@ -16,7 +16,6 @@ import type {
   GlobalSettings,
   PresetIcon,
   ProviderPreset,
-  AutoModeAudit,
   UsageData,
   UsageWindow,
   ExportData,
@@ -55,9 +54,20 @@ export interface Api {
     update: (input: UpdateProviderInput) => Promise<Provider>
     delete: (id: string) => Promise<void>
     reorder: (providerIds: string[]) => Promise<Provider[]>
-    modelList: (providerId: string, apiKeyId: string) => Promise<string[]>
+    /**
+     * Read the models a key can see.
+     *
+     * `userAgent` is what the query calls itself; the client route and the
+     * credential are unchanged by it.
+     */
+    modelList: (providerId: string, apiKeyId: string, userAgent?: string) => Promise<string[]>
     /// The preset catalogue the add-provider flow fills from.
     presets: () => Promise<ProviderPreset[]>
+  }
+  userAgent: {
+    list: () => Promise<string[]>
+    save: (value: string) => Promise<string[]>
+    delete: (value: string) => Promise<string[]>
   }
   apiKey: {
     list: (providerId: string) => Promise<ApiKey[]>
@@ -136,8 +146,8 @@ export interface Api {
     }>
     /// Records this process failed to persist (queue overflow or write error).
     logStatus: () => Promise<{ dropped: number }>
-    /// Delete console history on disk for both processes. Statistics and Auto
-    /// mode audit rows live in the database and are not affected.
+    /// Delete console history on disk for both processes. Statistics rows live
+    /// in the database and are not affected.
     clearHistory: () => Promise<void>
   }
   balance: {
@@ -226,20 +236,6 @@ export interface Api {
     getGatewayMetrics: () => Promise<RecentGatewayMetrics>
     getProviderGatewayMetrics: () => Promise<ProviderGatewayMetrics[]>
     getMonthlyTrend: (year: number, month: number) => Promise<DailyTrendItem[]>
-  }
-  autoModeAudit: {
-    /// Newest first, filtered by the fields the audit page investigates by.
-    list: (params: {
-      timeRange: StatsTimeRange
-      tool?: string
-      verdict?: string
-      limit?: number
-    }) => Promise<AutoModeAudit[]>
-    /// The audit for one proxy request, so the console can follow the id it
-    /// already shows.
-    get: (requestId: string) => Promise<AutoModeAudit | null>
-    /// Tools seen in range, so the filter offers real values.
-    tools: (timeRange: StatsTimeRange) => Promise<string[]>
   }
   cliTool: {
     status: () => Promise<CliToolStatus>

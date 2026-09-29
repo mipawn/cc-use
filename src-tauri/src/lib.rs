@@ -40,6 +40,10 @@ pub fn run() {
             commands::providers::provider_reorder,
             commands::providers::provider_model_list,
             commands::providers::provider_preset_list,
+            // Observed User-Agent candidates
+            commands::user_agent::user_agent_custom_list,
+            commands::user_agent::user_agent_custom_save,
+            commands::user_agent::user_agent_custom_delete,
             // API Key commands
             commands::api_keys::api_key_list,
             commands::api_keys::api_key_create,
@@ -75,10 +79,6 @@ pub fn run() {
             commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_overview,
             commands::statistics::request_log_get_key_token_stats,
-            // Auto mode audit (v3.10.0)
-            commands::statistics::auto_mode_audit_list,
-            commands::statistics::auto_mode_audit_get,
-            commands::statistics::auto_mode_audit_tools,
             // CLI tool + statusline (v3.7.0)
             commands::cli_tool::cli_tool_status,
             commands::cli_tool::cli_tool_install,
@@ -315,16 +315,6 @@ pub fn run() {
                     let _ = db.proxy_session_cleanup_stale(30);
                     let _ = db.request_log_cleanup_old(90);
                     let _ = db.usage_log_cleanup_old(90);
-                    // Auto mode audits follow the request log's retention, and
-                    // anything still pending belongs to a process that is gone.
-                    let _ = db.auto_mode_audit_cleanup_old(
-                        &(chrono::Utc::now()
-                            - chrono::Duration::days(
-                                crate::db::auto_mode_audits::AUDIT_RETENTION_DAYS,
-                            ))
-                        .to_rfc3339(),
-                    );
-                    let _ = db.auto_mode_audit_mark_interrupted(&chrono::Utc::now().to_rfc3339());
                 }
 
                 let daemon_enabled = {
