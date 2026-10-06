@@ -12,6 +12,7 @@ import type { ApiKey, ClientKind, Provider } from '@shared/types'
 import { getClientKindLabel } from '@shared/types'
 import { supportsKeyClient } from '../../utils/clientSupport'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
+import { useTranslation } from 'react-i18next'
 import { parseModelMapping } from '../../utils/modelMapping'
 import ProviderIcon from '../providers/ProviderIcon'
 import { computeVisibleReorder } from '../launchpad/reorder'
@@ -23,19 +24,39 @@ function keyName(key: ApiKey) {
   return key.alias || `Key ${key.priority + 1}`
 }
 
-export function getRouteModelLabel(key: ApiKey, clientKind: ClientKind): string {
+export function getRouteModelLabel(
+  key: Pick<ApiKey, 'config' | 'modelMapping'>,
+  clientKind: ClientKind,
+  providerLabel = '跟随供应商',
+): string {
   const mapping = parseModelMapping(key.modelMapping)
-  switch (clientKind) {
-    case 'codex':
-      return mapping.codex || '跟随客户端'
-    case 'grok':
-      return mapping.grok || '跟随客户端'
-    case 'claude_code':
-    case 'claude_desktop': {
-      const models = [mapping.opus, mapping.sonnet, mapping.haiku].filter(Boolean)
-      return models.length > 0 ? Array.from(new Set(models)).join(' / ') : '跟随客户端'
-    }
-  }
+  const client = mapping.clients[clientKind]
+  const local =
+    clientKind === 'claude_code'
+      ? [
+          'ANTHROPIC_MODEL',
+          'ANTHROPIC_DEFAULT_OPUS_MODEL',
+          'ANTHROPIC_DEFAULT_SONNET_MODEL',
+          'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+        ]
+          .map((name) => key.config?.[name])
+          .filter((model): model is string => typeof model === 'string' && Boolean(model))
+      : clientKind === 'grok'
+        ? [client.defaultModel].filter(Boolean)
+        : client.catalogMode === 'provider'
+          ? []
+          : client.models.map((model) => model.displayName || model.id)
+  const upstream =
+    client.forwardMode === 'fixed'
+      ? [client.upstreamModel].filter(Boolean)
+      : client.forwardMode === 'family'
+        ? [client.opus, client.sonnet, client.haiku].filter(Boolean)
+        : []
+  const localLabel = Array.from(new Set(local)).join(' / ')
+  const upstreamLabel = Array.from(new Set(upstream)).join(' / ')
+  return localLabel && upstreamLabel && localLabel !== upstreamLabel
+    ? `${localLabel} → ${upstreamLabel}`
+    : upstreamLabel || localLabel || providerLabel
 }
 
 export interface RouteSelection {
@@ -68,6 +89,7 @@ export default function RoutePickerModal({
   onSelect,
   onReorderApiKeys,
 }: RoutePickerModalProps) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<'all' | 'official'>('all')
   const [providerId, setProviderId] = useState('')
@@ -95,14 +117,14 @@ export default function RoutePickerModal({
         ...group,
         keys: group.keys.filter((key) => {
           if (!normalizedQuery) return true
-          const model = getRouteModelLabel(key, clientKind)
+          const model = getRouteModelLabel(key, clientKind, t('keys.catalogProvider'))
           return [group.provider.name, group.provider.baseUrl, key.alias, key.value, model]
             .filter(Boolean)
             .some((value) => String(value).toLocaleLowerCase().includes(normalizedQuery))
         }),
       }))
       .filter(({ keys }) => keys.length > 0)
-  }, [clientKind, compatibleGroups, query, scope])
+  }, [clientKind, compatibleGroups, query, scope, t])
 
   useEffect(() => {
     if (!open) return
@@ -301,7 +323,7 @@ export default function RoutePickerModal({
                         )}
                       </span>
                       <Text type='secondary' className={styles.modelName}>
-                        {getRouteModelLabel(key, clientKind)}
+                        {getRouteModelLabel(key, clientKind, t('keys.catalogProvider'))}
                       </Text>
                     </span>
                     {onReorderApiKeys && !query && (

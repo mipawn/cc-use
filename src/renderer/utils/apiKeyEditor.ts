@@ -110,8 +110,9 @@ function newKeyMapping(json: string | null | undefined): ModelMappingFields {
 function statesAutoMode(json: string | null | undefined): boolean {
   if (!json) return false
   try {
-    const parsed = JSON.parse(json) as { autoMode?: { enabled?: unknown } } | null
-    return typeof parsed?.autoMode?.enabled === 'boolean'
+    const parsed = JSON.parse(json)
+    const mapping = parsed?.version === 2 ? parsed.clients?.claude_code?.upstream : parsed
+    return typeof mapping?.autoMode?.enabled === 'boolean'
   } catch {
     return false
   }

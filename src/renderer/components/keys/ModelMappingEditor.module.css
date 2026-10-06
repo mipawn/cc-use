@@ -1,0 +1,281 @@
+.editor {
+  padding: 2px 0 12px;
+}
+.clients {
+  background: transparent;
+  border-color: var(--border-default);
+  border-radius: 8px;
+}
+.clients :global(.ant-collapse-header) {
+  align-items: center !important;
+  padding: 14px 16px !important;
+}
+.clients :global(.ant-collapse-content-box) {
+  padding: 2px 16px 16px !important;
+}
+.clientHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.clientTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.summary {
+  color: var(--ant-color-text-tertiary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clientBody {
+  min-width: 0;
+}
+.clientSection {
+  padding-top: 2px;
+}
+.sectionHead,
+.viewHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.viewHead {
+  margin-bottom: 18px;
+}
+.backButton {
+  margin-bottom: 12px;
+  padding-inline: 0;
+}
+.queryIdentity {
+  margin-bottom: 16px;
+}
+.queryIdentityLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.pendingNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.viewHead > :last-child {
+  margin-left: auto;
+}
+.fieldRow {
+  display: grid;
+  grid-template-columns: 106px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.fieldRow > :first-child {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fullWidth {
+  width: 100%;
+  min-width: 0;
+}
+.gatewaySection {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+.disclosure {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.disclosure > summary {
+  cursor: pointer;
+  color: var(--ant-color-text-secondary);
+  padding: 4px 0;
+}
+.disclosure > summary:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 3px;
+}
+.aliasFields,
+.advancedFields {
+  padding-top: 14px;
+}
+.roleFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.roleSelect {
+  width: 100%;
+  min-width: 0;
+}
+.toggleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.familyFields {
+  margin: 12px 0 20px;
+}
+.secondaryActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+}
+.secondaryActions :global(.ant-btn) {
+  padding-inline: 0;
+  font-size: 12px;
+}
+.helpButton {
+  border: 0;
+  background: none;
+  color: var(--ant-color-text-tertiary);
+  padding: 2px;
+  cursor: pointer;
+  line-height: 1;
+}
+.helpButton:hover,
+.helpButton:focus-visible {
+  color: var(--ant-color-primary);
+}
+.helpButton:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  border-radius: 3px;
+}
+.inlineNotice {
+  display: block;
+  font-size: 12px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.discoveryNotice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 10px;
+}
+.manager {
+  padding: 2px 0 12px;
+}
+.managerToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.sourceButtons,
+.batchActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.catalogStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.cacheBadge {
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+  white-space: nowrap;
+}
+.warning {
+  font-size: 11px;
+  color: var(--ant-color-warning);
+}
+.catalogList {
+  max-height: 310px;
+  overflow-y: auto;
+  border-block: 1px solid var(--border-subtle);
+  margin-bottom: 12px;
+}
+.catalogRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.catalogRow:last-child {
+  border-bottom: 0;
+}
+.modelIdentity {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.modelIdentity code {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, monospace);
+}
+.modelIdentity :global(.ant-typography) {
+  font-size: 11px;
+}
+.empty {
+  display: block;
+  padding: 30px 8px;
+  text-align: center;
+  font-size: 12px;
+}
+.manualModelEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+.jsonEditor {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 760px) {
+  .clientHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .fieldRow {
+    grid-template-columns: 92px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .managerToolbar {
+    flex-wrap: wrap;
+  }
+  .sourceButtons {
+    flex: 1;
+  }
+}
+
+.poolSummary {
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

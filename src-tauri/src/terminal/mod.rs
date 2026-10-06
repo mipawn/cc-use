@@ -153,6 +153,34 @@ fn resolve_launch_preview(
         proxy_port,
     );
 
+    let mut preview = preview;
+    if matches!(cli_type, "claude" | "claude_code") {
+        // Both default on for a gateway route, and both stay overridable: the
+        // discovery flag fills the model menu from this app's catalog, and the
+        // effort flag keeps thinking levels selectable for the custom model
+        // ids that menu serves.
+        for default_key in [
+            "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+            "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT",
+        ] {
+            let explicit = api_key
+                .config
+                .as_ref()
+                .and_then(|config| config.get(default_key))
+                .or_else(|| {
+                    settings
+                        .claude_config
+                        .as_ref()
+                        .and_then(|config| config.get(default_key))
+                });
+            if explicit.is_none() {
+                preview
+                    .env
+                    .entry(default_key.into())
+                    .or_insert_with(|| "1".into());
+            }
+        }
+    }
     let preview = TerminalLaunchPreview {
         cli_type: preview.cli_type,
         command: preview.command,
@@ -225,25 +253,18 @@ fn resolve_project_launch_context(
     })
 }
 
-fn grok_upstream_model(db: &Database, api_key_id: &str) -> String {
+fn grok_startup_model(db: &Database, api_key_id: &str) -> String {
     db.api_key_get(api_key_id)
         .ok()
         .flatten()
         .and_then(|key| key.model_mapping)
-        .and_then(|mapping| serde_json::from_str::<serde_json::Value>(&mapping).ok())
-        .and_then(|mapping| {
-            mapping
-                .get("grok")
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-        })
-        .filter(|model| !model.trim().is_empty())
+        .and_then(|mapping| crate::shared_runtime::model_mapping::grok_client_model(Some(&mapping)))
         .unwrap_or_else(|| "grok-4.5".to_string())
 }
 
 pub fn prepare_grok_config(db: &Database, api_key_id: &str) -> Result<(), String> {
     let settings = db.settings_get().map_err(|error| error.to_string())?;
-    grok::ensure_user_config(settings.proxy_port, &grok_upstream_model(db, api_key_id))
+    grok::ensure_user_config(settings.proxy_port, &grok_startup_model(db, api_key_id))
 }
 
 fn write_managed_launch_script(
@@ -491,7 +512,7 @@ fn create_managed_launch(
 ) -> Result<PreparedManagedLaunch, String> {
     let settings = db.settings_get().map_err(|e| e.to_string())?;
     if cli_type == "grok" {
-        grok::ensure_user_config(settings.proxy_port, &grok_upstream_model(db, api_key_id))?;
+        grok::ensure_user_config(settings.proxy_port, &grok_startup_model(db, api_key_id))?;
     }
     let launched_at = chrono::Utc::now().to_rfc3339();
     let session_token = new_session_token();

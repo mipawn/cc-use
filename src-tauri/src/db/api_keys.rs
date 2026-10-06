@@ -9,10 +9,7 @@ fn non_empty(value: Option<&str>) -> Option<String> {
 }
 
 fn normalize_model_mapping(value: Option<&String>) -> Option<String> {
-    value
-        .map(|mapping| mapping.trim())
-        .filter(|mapping| !mapping.is_empty())
-        .map(str::to_string)
+    crate::shared_runtime::model_mapping::sanitize_mapping(value.map(String::as_str))
 }
 
 fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
@@ -51,7 +48,9 @@ fn row_to_api_key(row: &rusqlite::Row) -> Result<ApiKey, rusqlite::Error> {
             .get::<_, Option<String>>(12)?
             .and_then(|s| serde_json::from_str::<UsageData>(&s).ok()),
         last_usage_checked_at: row.get(13)?,
-        model_mapping: row.get(14)?,
+        model_mapping: crate::shared_runtime::model_mapping::sanitize_mapping(
+            row.get::<_, Option<String>>(14)?.as_deref(),
+        ),
         client_configs,
         usage_script: row
             .get::<_, Option<String>>(17)?
@@ -168,12 +167,12 @@ impl Database {
             sets,
             params
         );
-        if let Some(ref value) = input.model_mapping {
-            if value.trim().is_empty() {
-                sets.push("model_mapping = NULL".to_string());
-            } else {
+        if input.model_mapping.is_some() {
+            if let Some(value) = normalize_model_mapping(input.model_mapping.as_ref()) {
                 sets.push("model_mapping = ?".to_string());
-                params.push(Box::new(value.trim().to_string()));
+                params.push(Box::new(value));
+            } else {
+                sets.push("model_mapping = NULL".to_string());
             }
         }
         if input.usage_script.is_some() {
@@ -225,8 +224,21 @@ impl Database {
             params.iter().map(|p| p.as_ref()).collect();
         self.conn.execute(&sql, param_refs.as_slice())?;
 
-        self.api_key_get(&input.id)?
-            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+        let updated = self
+            .api_key_get(&input.id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        if input.model_mapping.is_some() {
+            if let Some(report) = self.settings_get_value("model-mapping-retired-api-key-ids")? {
+                if let Ok(mut ids) = serde_json::from_str::<Vec<String>>(&report) {
+                    ids.retain(|id| id != &input.id);
+                    self.settings_set_value(
+                        "model-mapping-retired-api-key-ids",
+                        &serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into()),
+                    )?;
+                }
+            }
+        }
+        Ok(updated)
     }
 
     pub fn api_key_delete(&self, id: &str) -> Result<(), rusqlite::Error> {

@@ -37,6 +37,7 @@ const WS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1
 struct RouteExecution {
     upstream_url: String,
     real_api_key: Option<String>,
+    api_key: Option<ApiKey>,
     model_mapping: Option<String>,
     auth_scheme: Option<UpstreamAuthScheme>,
     log_ctx: Option<ResolvedSessionContext>,
@@ -45,6 +46,8 @@ struct RouteExecution {
     /// The User-Agent this key sends upstream, when one was chosen. `None`
     /// leaves the client's own value alone.
     user_agent: Option<String>,
+    /// Exposed catalog id → provider model id, for the session's client kind.
+    aliases: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +98,30 @@ impl<'a> EmitCtx<'a> {
                 self.path,
                 self.elapsed_ms(),
                 reason,
+            )
+            .with_routing(self.model.as_deref(), self.request_kind.as_deref()),
+        );
+    }
+
+    /// A local answer stood in for the upstream's rejection.
+    fn estimated(
+        &self,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        detail: &str,
+    ) {
+        self.state.emit_console(
+            ConsoleEvent::estimated(
+                self.request_id,
+                self.method,
+                self.path,
+                200,
+                self.elapsed_ms(),
+                upstream,
+                provider,
+                key_alias,
+                detail,
             )
             .with_routing(self.model.as_deref(), self.request_kind.as_deref()),
         );
@@ -319,6 +346,80 @@ pub async fn proxy_handler(
         }
     };
 
+    // Model discovery uses the same authenticated route snapshot as inference,
+    // but never applies the inference model alias to directory IDs.
+    if req.method() == axum::http::Method::GET
+        && matches!(
+            req.uri().path(),
+            "/v1/models"
+                | "/models"
+                | "/claude-desktop/v1/models"
+                | "/claude/v1/models"
+                | "/openai/v1/models"
+        )
+    {
+        if let (Some(provider), Some(key), Some(kind)) = (
+            &route_execution.provider,
+            &route_execution.api_key,
+            route_execution.cli_type.as_deref(),
+        ) {
+            let kind = crate::shared_runtime::model_mapping::client_key(kind);
+            let snapshot = match crate::services::model_catalog::effective_catalog(
+                &state.db,
+                provider,
+                key,
+                kind,
+                Some(req.headers()),
+            )
+            .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    emit.upstream_error(
+                        &route_execution.upstream_url,
+                        Some(&provider.name),
+                        key.alias.as_deref(),
+                        &error,
+                    );
+                    return Err(error_response(StatusCode::BAD_GATEWAY, &error));
+                }
+            };
+            let source = if snapshot.from_cache {
+                "cache"
+            } else if crate::shared_runtime::model_mapping::catalog_mode(
+                key.model_mapping.as_deref(),
+                kind,
+            ) == "custom"
+            {
+                "custom"
+            } else {
+                "provider"
+            };
+            let mut response = axum::Json(snapshot.catalog).into_response();
+            response.headers_mut().insert(
+                "x-cc-use-model-catalog-source",
+                HeaderValue::from_static(source),
+            );
+            if let Ok(time) = HeaderValue::from_str(&snapshot.fetched_at) {
+                response
+                    .headers_mut()
+                    .insert("x-cc-use-model-catalog-fetched-at", time);
+            }
+            state.emit_console(ConsoleEvent::ok(
+                &request_id,
+                &method_str,
+                &req_path,
+                200,
+                start_time.elapsed().as_millis() as u64,
+                &route_execution.upstream_url,
+                Some(&provider.name),
+                key.alias.as_deref(),
+                false,
+            ));
+            return Ok(response);
+        }
+    }
+
     let is_ws_upgrade = req
         .headers()
         .get("upgrade")
@@ -407,7 +508,7 @@ pub async fn proxy_handler(
         return Ok(ws_upgrade
             .on_upgrade(move |socket| async move {
                 let _request_permits = request_permits;
-                ws_relay(socket, upstream).await;
+                ws_relay(socket, upstream, route_execution).await;
             })
             .into_response());
     }
@@ -618,6 +719,39 @@ pub async fn proxy_handler(
     };
 
     let status = upstream_resp.status();
+
+    // Some relays have no count_tokens route at all, and Claude Desktop asks
+    // for it on every turn. Answer locally with a labeled estimate instead of
+    // forwarding the 404: the response header and the console event both say
+    // the number was estimated.
+    if is_count_tokens_path(&req_path)
+        && matches!(status.as_u16(), 404 | 405 | 501)
+        && request_json.is_some()
+    {
+        if let Some(estimate) = request_json.as_ref().and_then(estimate_input_tokens) {
+            cancellation_guard.disarm();
+            let detail = format!(
+                "count_tokens 本地估算：{estimate}（上游不支持该接口，返回 {}）",
+                status.as_u16()
+            );
+            emit.estimated(
+                &route_execution.upstream_url,
+                provider_snapshot.as_deref(),
+                key_snapshot.as_deref(),
+                &detail,
+            );
+            drop(upstream_resp);
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
+                .header("x-cc-use-count-tokens", "estimated")
+                .body(Body::from(
+                    serde_json::json!({ "input_tokens": estimate }).to_string(),
+                ))
+                .unwrap_or_else(|_| Response::new(Body::from(r#"{"input_tokens":0}"#))));
+        }
+    }
+
     cancellation_guard.set_status(status.as_u16());
     let raw_resp_headers = upstream_resp.headers().clone();
     let mut resp_headers = raw_resp_headers.clone();
@@ -961,6 +1095,22 @@ fn build_route_execution(
                 .map(|p| p.name);
             let mapping = api_key.model_mapping.clone();
             let cli_type = effective_session_cli_type(session.cli_type.as_deref(), req_path);
+            // Written whenever this key's catalog was last served; it maps an
+            // exposed id (alias, role route) back to the provider's model id.
+            let aliases = cli_type
+                .as_deref()
+                .and_then(|kind| {
+                    db.settings_get_value(&crate::shared_runtime::model_mapping::alias_table_key(
+                        &api_key.id,
+                        kind,
+                    ))
+                    .ok()
+                    .flatten()
+                })
+                .and_then(|raw| {
+                    serde_json::from_str::<std::collections::BTreeMap<String, String>>(&raw).ok()
+                })
+                .unwrap_or_default();
             let upstream_req_path = if cli_type.as_deref() == Some("claude_desktop") {
                 strip_claude_desktop_prefix(req_path).to_string()
             } else {
@@ -984,6 +1134,7 @@ fn build_route_execution(
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
+                api_key: Some(api_key.clone()),
                 model_mapping: mapping,
                 auth_scheme: client_config.and_then(read_auth_scheme),
                 log_ctx: Some(ResolvedSessionContext {
@@ -1001,6 +1152,7 @@ fn build_route_execution(
                     .map(str::to_string),
                 provider: Some(provider),
                 cli_type,
+                aliases,
             })
         }
         RoutePlan::PassThrough => {
@@ -1018,12 +1170,14 @@ fn build_route_execution(
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: None,
+                api_key: None,
                 model_mapping: None,
                 auth_scheme: None,
                 log_ctx: None,
                 provider: None,
                 user_agent: None,
                 cli_type: None,
+                aliases: std::collections::BTreeMap::new(),
             })
         }
         RoutePlan::RejectMissingAuth => {
@@ -1310,7 +1464,49 @@ fn build_official_upstream_url(upstream_family: UpstreamFamily, req_path: &str) 
     }
 }
 
+/// Resolve an id the client picked from its model menu. Anything the served
+/// catalog contains — namespaced alias or provider id — is forwarded exactly
+/// as mapped, ahead of the family and fixed rules, because the person chose
+/// that model by name. Ids outside the catalog keep the configured rules.
+fn decode_catalog_alias(
+    body_bytes: axum::body::Bytes,
+    route: &RouteExecution,
+) -> (axum::body::Bytes, bool) {
+    if route.aliases.is_empty() {
+        return (body_bytes, false);
+    }
+    let Ok(mut json) = serde_json::from_slice::<serde_json::Value>(&body_bytes) else {
+        return (body_bytes, false);
+    };
+    let Some(model) = json
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .map(|model| model.trim().to_string())
+    else {
+        return (body_bytes, false);
+    };
+    let key = strip_one_m_model_suffix(&model);
+    let Some(upstream) = route.aliases.get(key).map(String::as_str) else {
+        return (body_bytes, false);
+    };
+    let target = upstream.trim();
+    if target.is_empty() {
+        return (body_bytes, false);
+    }
+    if key == target && model == target {
+        return (body_bytes, true);
+    }
+    json["model"] = serde_json::Value::String(target.to_string());
+    let rewritten =
+        axum::body::Bytes::from(serde_json::to_vec(&json).unwrap_or_else(|_| body_bytes.to_vec()));
+    (rewritten, true)
+}
+
 fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) -> axum::body::Bytes {
+    let (body_bytes, in_catalog) = decode_catalog_alias(body_bytes, route);
+    if in_catalog {
+        return body_bytes;
+    }
     let mapping_str = match route.model_mapping.as_deref() {
         Some(s) if !s.is_empty() => s,
         _ if route_uses_openai_payload(route) => return body_bytes,
@@ -1323,25 +1519,44 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
         haiku: Option<String>,
         sonnet: Option<String>,
         opus: Option<String>,
-        model_overrides: Option<std::collections::HashMap<String, String>>,
-        codex: Option<String>,
-        grok: Option<String>,
+        mode: Option<String>,
+        model: Option<String>,
     }
 
-    let mapping: ModelMapping = match serde_json::from_str(mapping_str) {
-        Ok(m) => m,
-        Err(_) if route_uses_openai_payload(route) => return body_bytes,
-        Err(_) => return strip_one_m_suffix(body_bytes),
-    };
-
-    if route_uses_openai_payload(route) {
-        // This is only a wire-level model-name alias. The request remains a
-        // Codex Responses request; no Chat/Claude protocol conversion happens.
-        let target_model = match route.cli_type.as_deref() {
-            Some("grok") => mapping.grok.as_deref(),
-            _ => mapping.codex.as_deref(),
+    let scoped_mapping = crate::shared_runtime::model_mapping::upstream_mapping(
+        mapping_str,
+        route.cli_type.as_deref().unwrap_or("claude_code"),
+    );
+    let mapping: ModelMapping =
+        match serde_json::from_str(scoped_mapping.as_deref().unwrap_or("{}")) {
+            Ok(m) => m,
+            Err(_) if route_uses_openai_payload(route) => return body_bytes,
+            Err(_) => return strip_one_m_suffix(body_bytes),
         };
-        return rewrite_request_model(body_bytes, target_model);
+
+    let mode = mapping.mode.as_deref().unwrap_or_else(|| {
+        if mapping.model.is_some() {
+            "fixed"
+        } else if matches!(route.cli_type.as_deref(), Some("claude" | "claude_code")) {
+            "family"
+        } else {
+            "follow"
+        }
+    });
+    if mode == "fixed" {
+        let rewritten = rewrite_request_model(body_bytes, mapping.model.as_deref());
+        return if route_uses_openai_payload(route) {
+            rewritten
+        } else {
+            strip_one_m_suffix(rewritten)
+        };
+    }
+    if mode != "family" || !matches!(route.cli_type.as_deref(), Some("claude" | "claude_code")) {
+        return if route_uses_openai_payload(route) {
+            body_bytes
+        } else {
+            strip_one_m_suffix(body_bytes)
+        };
     }
 
     let mut json: serde_json::Value = match serde_json::from_slice(&body_bytes) {
@@ -1355,14 +1570,6 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     };
 
     let model_without_context = strip_one_m_model_suffix(model.trim());
-    let exact_mapped = mapping.model_overrides.as_ref().and_then(|overrides| {
-        overrides
-            .get(model.trim())
-            .or_else(|| overrides.get(model_without_context))
-            .map(String::as_str)
-            .map(str::trim)
-            .filter(|mapped| !mapped.is_empty())
-    });
     let model_lower = model_without_context.to_lowercase();
 
     let family_mapped = if model_lower.contains("haiku") {
@@ -1374,9 +1581,8 @@ fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) ->
     } else {
         None
     };
-    let mapped = exact_mapped
-        .map(str::to_string)
-        .or_else(|| family_mapped.map(|mapped| mapped.trim().to_string()))
+    let mapped = family_mapped
+        .map(|mapped| mapped.trim().to_string())
         .filter(|mapped| !mapped.is_empty());
 
     if let Some(mapped) = mapped {
@@ -1720,6 +1926,38 @@ fn read_auth_scheme(config: &serde_json::Value) -> Option<UpstreamAuthScheme> {
 
 /// Strips the [1M] suffix that Claude Code appends to model names for 1M context.
 const ONE_M_MARKER: &str = "[1M]";
+
+/// `count_tokens` lives under the messages path, with or without a query.
+fn is_count_tokens_path(req_path: &str) -> bool {
+    req_path
+        .split('?')
+        .next()
+        .unwrap_or(req_path)
+        .trim_end_matches('/')
+        .ends_with("/messages/count_tokens")
+}
+
+/// A deliberately rough estimate for the count_tokens fallback: ASCII counts
+/// as a quarter token, everything else as one. Every surface that shows it
+/// labels it as an estimate.
+fn estimate_input_tokens(body: &serde_json::Value) -> Option<u64> {
+    let mut text = String::new();
+    for key in ["system", "messages", "tools"] {
+        if let Some(value) = body.get(key) {
+            if !value.is_null() {
+                text.push_str(&value.to_string());
+            }
+        }
+    }
+    if text.is_empty() {
+        return None;
+    }
+    let mut tokens = 0.0f64;
+    for ch in text.chars() {
+        tokens += if ch.is_ascii() { 0.25 } else { 1.0 };
+    }
+    Some((tokens.ceil() as u64).max(1))
+}
 
 fn strip_one_m_model_suffix(model: &str) -> &str {
     let trimmed = model.trim_end();
@@ -2549,7 +2787,7 @@ fn upstream_close_to_axum(
     })
 }
 
-async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket) {
+async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket, route: RouteExecution) {
     use tokio_tungstenite::tungstenite;
 
     let mut close_sent_to_client = false;
@@ -2560,10 +2798,13 @@ async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket) {
             msg = client.recv() => {
                 match msg {
                     Some(Ok(WsMessage::Text(t))) => {
-                        if upstream.send(tungstenite::Message::Text(t.to_string().into())).await.is_err() { break; }
+                        let bytes = apply_model_mapping(axum::body::Bytes::from(t.to_string()), &route);
+                        let text = String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| t.to_string());
+                        if upstream.send(tungstenite::Message::Text(text.into())).await.is_err() { break; }
                     }
                     Some(Ok(WsMessage::Binary(b))) => {
-                        if upstream.send(tungstenite::Message::Binary(b.to_vec().into())).await.is_err() { break; }
+                        let bytes = apply_model_mapping(axum::body::Bytes::from(b.to_vec()), &route);
+                        if upstream.send(tungstenite::Message::Binary(bytes.to_vec().into())).await.is_err() { break; }
                     }
                     Some(Ok(WsMessage::Ping(p))) => {
                         if upstream.send(tungstenite::Message::Ping(p.to_vec().into())).await.is_err() { break; }
@@ -2646,13 +2887,14 @@ fn extract_host(url: &str) -> Option<String> {
 mod tests {
     use super::{
         api_key_supports_session_client, append_bounded_tail, apply_model_mapping,
-        build_upstream_ws_request, collect_response_body_limited,
-        decompress_limited, effective_session_cli_type, extract_error_message, has_billable_usage,
-        is_codex_responses_request_path, record_usage, route_plan_with_codex_takeover_fallback,
-        route_uses_bearer_auth, session_client_config_key, should_forward_response_header,
-        strip_hop_by_hop_headers, LogContext, RequestCancellationGuard, RequestOutcome,
-        RouteExecution, SseModelNormalizingStream, StreamConsoleCtx,
-        UpstreamAuthScheme, UsageTrackingStream, MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
+        build_upstream_ws_request, collect_response_body_limited, decompress_limited,
+        effective_session_cli_type, estimate_input_tokens, extract_error_message,
+        has_billable_usage, is_codex_responses_request_path, is_count_tokens_path, record_usage,
+        route_plan_with_codex_takeover_fallback, route_uses_bearer_auth, session_client_config_key,
+        should_forward_response_header, strip_hop_by_hop_headers, LogContext,
+        RequestCancellationGuard, RequestOutcome, RouteExecution, SseModelNormalizingStream,
+        StreamConsoleCtx, UpstreamAuthScheme, UsageTrackingStream,
+        MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES,
     };
     use crate::db::Database;
     use crate::models::{CreateApiKeyInput, CreateProviderInput, ProxySession};
@@ -2839,12 +3081,14 @@ mod tests {
         RouteExecution {
             upstream_url: upstream_url.to_string(),
             real_api_key: Some("sk-test".to_string()),
+            api_key: None,
             model_mapping: None,
             auth_scheme: None,
             log_ctx: None,
             provider: None,
             user_agent: None,
             cli_type: cli_type.map(str::to_string),
+            aliases: Default::default(),
         }
     }
 
@@ -3028,14 +3272,19 @@ mod tests {
 
     #[test]
     fn websocket_handshake_applies_chosen_user_agent() {
-        let mut route = route_for_auth(Some("codex-app"), "https://gateway.example.com/v1/realtime");
+        let mut route =
+            route_for_auth(Some("codex-app"), "https://gateway.example.com/v1/realtime");
         route.user_agent = Some("custom-client/1.0".to_string());
         let mut headers = hyper::HeaderMap::new();
         headers.append("user-agent", "original/1.0".parse().unwrap());
         headers.append("user-agent", "second/1.0".parse().unwrap());
         let request = build_upstream_ws_request(
-            "wss://gateway.example.com/v1/realtime", &headers, &route, "/v1/realtime",
-        ).unwrap();
+            "wss://gateway.example.com/v1/realtime",
+            &headers,
+            &route,
+            "/v1/realtime",
+        )
+        .unwrap();
         assert_eq!(request.headers()["user-agent"], "custom-client/1.0");
         assert_eq!(request.headers().get_all("user-agent").iter().count(), 1);
     }
@@ -3646,5 +3895,25 @@ mod tests {
             }
             _ => panic!("expected request event"),
         }
+    }
+    #[test]
+    fn count_tokens_paths_are_recognized_with_prefixes_and_queries() {
+        assert!(is_count_tokens_path("/v1/messages/count_tokens"));
+        assert!(is_count_tokens_path(
+            "/claude-desktop/v1/messages/count_tokens?beta=true"
+        ));
+        assert!(is_count_tokens_path("/claude/v1/messages/count_tokens/"));
+        assert!(!is_count_tokens_path("/v1/messages"));
+        assert!(!is_count_tokens_path("/v1/messages/count_tokens_extra"));
+    }
+
+    #[test]
+    fn token_estimate_counts_wide_characters_as_one_token() {
+        let ascii = serde_json::json!({"messages": [{"content": "abcdefgh"}]});
+        let wide = serde_json::json!({"messages": [{"content": "中文内容"}]});
+        let ascii_tokens = estimate_input_tokens(&ascii).unwrap();
+        let wide_tokens = estimate_input_tokens(&wide).unwrap();
+        assert!(ascii_tokens < wide_tokens);
+        assert!(estimate_input_tokens(&serde_json::json!({})).is_none());
     }
 }

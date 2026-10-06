@@ -1,6 +1,7 @@
 pub mod account_scripts;
 pub mod launch_preview;
 pub mod management_token;
+pub mod model_mapping;
 pub mod project_session;
 pub mod provider_presets;
 pub mod request_headers;

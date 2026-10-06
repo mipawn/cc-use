@@ -10,9 +10,10 @@ interface Props {
   placeholder: string
   onChange: (value: string) => void
   onApply?: (value: string) => void
+  disabled?: boolean
 }
 
-export default function UserAgentField({ value, placeholder, onChange, onApply }: Props) {
+export default function UserAgentField({ value, placeholder, onChange, onApply, disabled = false }: Props) {
   const { t } = useTranslation()
   const message = useAppMessage()
   const [saved, setSaved] = useState<string[]>([])
@@ -67,6 +68,7 @@ export default function UserAgentField({ value, placeholder, onChange, onApply }
           aria-label='User-Agent'
           style={{ flex: '1 1 220px' }}
           value={value}
+          disabled={disabled}
           placeholder={placeholder}
           allowClear
           onChange={(event) => onChange(event.target.value)}
@@ -80,6 +82,7 @@ export default function UserAgentField({ value, placeholder, onChange, onApply }
           aria-label={t('keys.uaChoose')}
           style={{ width: 120 }}
           value={null}
+          disabled={disabled}
           placeholder={t('keys.uaChoose')}
           popupMatchSelectWidth={420}
           styles={{ popup: { root: { maxWidth: 'calc(100vw - 32px)' } } }}
@@ -102,7 +105,7 @@ export default function UserAgentField({ value, placeholder, onChange, onApply }
         <Button
           loading={saving}
           disabled={
-            deleting ||
+            disabled || deleting ||
             !value.trim() ||
             USER_AGENT_PRESETS.some((preset) => preset.value === value.trim()) ||
             saved.includes(value.trim())
@@ -112,7 +115,7 @@ export default function UserAgentField({ value, placeholder, onChange, onApply }
           {t('keys.uaSave')}
         </Button>
         {saved.includes(value.trim()) && (
-          <Button danger loading={deleting} disabled={saving} onClick={() => void remove()}>
+          <Button danger loading={deleting} disabled={disabled || saving} onClick={() => void remove()}>
             {t('keys.uaDelete')}
           </Button>
         )}

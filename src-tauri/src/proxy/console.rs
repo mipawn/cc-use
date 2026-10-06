@@ -388,6 +388,42 @@ impl ConsoleEvent {
         }
     }
 
+    /// The gateway answered a request locally instead of forwarding the
+    /// upstream's rejection — currently only `count_tokens` on relays that do
+    /// not implement it. The message names the fallback and the response
+    /// carries `x-cc-use-count-tokens: estimated`.
+    pub fn estimated(
+        request_id: impl Into<String>,
+        method: &str,
+        path: &str,
+        status: u16,
+        latency_ms: u64,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        detail: &str,
+    ) -> Self {
+        Self::Request {
+            request_id: Some(request_id.into()),
+            timestamp: now_timestamp(),
+            kind: "estimated".to_string(),
+            method: method.to_string(),
+            path: path.to_string(),
+            status: Some(status),
+            latency_ms: Some(latency_ms),
+            upstream: Some(upstream.to_string()),
+            provider: provider.map(String::from),
+            key_alias: key_alias.map(String::from),
+            message: Some(detail.to_string()),
+            model: None,
+            request_kind: None,
+            request_headers: None,
+            request_body: None,
+            response_headers: None,
+            response_body: None,
+        }
+    }
+
     /// Upstream contact failed or response could not be read.
     pub fn upstream_error(
         request_id: impl Into<String>,

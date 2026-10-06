@@ -39,13 +39,18 @@ pub fn run() {
             commands::providers::provider_delete,
             commands::providers::provider_reorder,
             commands::providers::provider_model_list,
+            commands::providers::provider_model_catalog,
+            commands::providers::provider_model_catalog_preview,
             commands::providers::provider_preset_list,
             // Observed User-Agent candidates
             commands::user_agent::user_agent_custom_list,
             commands::user_agent::user_agent_custom_save,
             commands::user_agent::user_agent_custom_delete,
+            commands::user_agent::user_agent_query_preference_get,
+            commands::user_agent::user_agent_query_preference_save,
             // API Key commands
             commands::api_keys::api_key_list,
+            commands::api_keys::api_key_retired_mapping_report,
             commands::api_keys::api_key_create,
             commands::api_keys::api_key_update,
             commands::api_keys::api_key_delete,
@@ -234,9 +239,8 @@ pub fn run() {
             );
 
             // Production upgrades keep the existing Desktop route token but
-            // rewrite CC Use's profile to the current schema. In particular,
-            // this removes the legacy fixed inferenceModels/labelOverride list
-            // and enables gateway model discovery.
+            // rewrite CC Use's profile to the current schema: the menu is the
+            // key's assigned role slots, expressed as canonical route ids.
             if !cfg!(debug_assertions) {
                 let db_state = handle.state::<Arc<Mutex<Database>>>();
                 if let Ok(db) = db_state.lock() {

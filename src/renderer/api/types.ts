@@ -60,7 +60,25 @@ export interface Api {
      * `userAgent` is what the query calls itself; the client route and the
      * credential are unchanged by it.
      */
-    modelList: (providerId: string, apiKeyId: string, userAgent?: string) => Promise<string[]>
+    modelList: (
+      providerId: string,
+      apiKeyId: string,
+      userAgent?: string,
+      clientKind?: ClientKind,
+    ) => Promise<string[]>
+    modelCatalog: (
+      providerId: string,
+      apiKeyId: string,
+      clientKind: ClientKind,
+    ) => Promise<import('../utils/modelMapping').ClientCatalog>
+    modelCatalogPreview: (input: {
+      providerId: string
+      apiKeyId?: string
+      keyValue: string
+      clientKind: ClientKind
+      userAgent?: string
+      clientConfigs?: Partial<Record<ClientKind, import('@shared/types').ClientConfig>>
+    }) => Promise<import('../utils/modelMapping').ClientCatalog>
     /// The preset catalogue the add-provider flow fills from.
     presets: () => Promise<ProviderPreset[]>
   }
@@ -68,9 +86,12 @@ export interface Api {
     list: () => Promise<string[]>
     save: (value: string) => Promise<string[]>
     delete: (value: string) => Promise<string[]>
+    getQueryPreference: (providerId: string, clientKind: ClientKind) => Promise<string | null>
+    saveQueryPreference: (providerId: string, clientKind: ClientKind, value: string) => Promise<void>
   }
   apiKey: {
     list: (providerId: string) => Promise<ApiKey[]>
+    retiredMappingReport: () => Promise<string[]>
     create: (input: CreateApiKeyInput) => Promise<ApiKey>
     update: (input: UpdateApiKeyInput) => Promise<ApiKey>
     delete: (id: string) => Promise<void>

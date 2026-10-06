@@ -73,104 +73,10 @@
   padding: 4px 0 12px;
 }
 
-.familyMappingGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
-  gap: 0 12px;
-}
-
-.exactMappingSection {
-  padding-top: 14px;
-  margin-top: 2px;
-  border-top: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
-}
-
-.exactMappingHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.exactMappingHint,
-.exactMappingEmpty {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-}
-
-.exactMappingEmpty {
-  padding: 12px 0 4px;
-  text-align: center;
-}
-
-.exactMappingList {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.exactMappingRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.mappingArrow {
-  color: var(--ant-color-text-tertiary);
-}
-
-.templateBtn {
-  padding: 0;
-  height: auto;
-}
-
-.configSection {
-  padding: 0;
-}
-
-.configHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.copyButton {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
-  border-radius: var(--radius-sm, 6px);
-  background: var(--surface-default, #fff);
-  color: var(--ant-color-text-secondary);
-  cursor: pointer;
-}
-
-.copyButton:hover {
-  color: var(--ant-color-primary);
-  border-color: var(--ant-color-primary);
-}
-
-.configTabs {
-  margin-bottom: 12px;
-}
-
 .jsonEditor {
   font-family: var(--font-mono, 'JetBrains Mono', monospace) !important;
   font-size: 12px !important;
   line-height: 1.6 !important;
-}
-
-.jsonEditorError {
-  border-color: var(--ant-color-error) !important;
-}
-
-.errorText {
-  display: block;
-  margin-top: 8px;
-  font-size: 12px;
 }
 
 /* Client overrides: one row per client, its two settings side by side. */

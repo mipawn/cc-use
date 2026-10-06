@@ -58,8 +58,10 @@ const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
 #[cfg(test)]
 const DEEPSEEK_CODEX_MODEL: &str = "deepseek-v4-flash";
 const DEEPSEEK_CODEX_CATALOG: &str = include_str!("../../resources/deepseek-codex-models.json");
+#[cfg(test)]
 const DEEPSEEK_FALLBACK_MODEL_IDS: [&str; 2] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 
+#[cfg(test)]
 fn is_official_deepseek_base_url(base_url: &str) -> bool {
     url::Url::parse(base_url)
         .ok()
@@ -67,10 +69,7 @@ fn is_official_deepseek_base_url(base_url: &str) -> bool {
         .is_some_and(|host| host.eq_ignore_ascii_case("api.deepseek.com"))
 }
 
-fn is_official_deepseek_provider(provider: &crate::models::Provider) -> bool {
-    is_official_deepseek_base_url(&provider.base_url)
-}
-
+#[cfg(test)]
 fn deepseek_fallback_model_ids() -> Vec<String> {
     DEEPSEEK_FALLBACK_MODEL_IDS
         .iter()
@@ -81,7 +80,10 @@ fn deepseek_fallback_model_ids() -> Vec<String> {
 fn is_deepseek_reasoning_model(model_id: &str) -> bool {
     let model_id = model_id.to_ascii_lowercase();
     let model_name = model_id.rsplit('/').next().unwrap_or(&model_id);
-    model_name.starts_with("deepseek-v4-") || model_name == "deepseek-reasoner"
+    matches!(
+        model_name,
+        "deepseek-v4-flash" | "deepseek-v4-pro" | "deepseek-reasoner"
+    )
 }
 
 fn is_deepseek_flash_model(model_id: &str) -> bool {
@@ -123,7 +125,7 @@ fn select_default_codex_model(model_ids: &[String]) -> Option<String> {
 }
 
 /// Build the catalog Codex Desktop reads at startup. Slugs are the provider's
-/// real model ids: selecting a row must never require rewriting `model` later.
+/// client-visible model ids. The proxy resolves upstream aliases separately.
 fn build_codex_model_catalog(provider_name: &str, model_ids: &[String]) -> Result<String, String> {
     if model_ids.is_empty() {
         return Err("供应商未返回可用模型".to_string());
@@ -200,6 +202,97 @@ fn build_codex_model_catalog(provider_name: &str, model_ids: &[String]) -> Resul
 
     serde_json::to_string_pretty(&serde_json::json!({ "models": models }))
         .map_err(|error| format!("生成 Codex 模型目录失败: {}", error))
+}
+
+fn build_configured_codex_catalog(
+    provider_name: &str,
+    models: &[crate::shared_runtime::model_mapping::ClientModel],
+) -> Result<String, String> {
+    let ids = models
+        .iter()
+        .map(|model| model.id.clone())
+        .collect::<Vec<_>>();
+    let catalog = build_codex_model_catalog(provider_name, &ids)?;
+    let mut value: serde_json::Value =
+        serde_json::from_str(&catalog).map_err(|error| error.to_string())?;
+    if let Some(entries) = value["models"].as_array_mut() {
+        for (entry, model) in entries.iter_mut().zip(models) {
+            entry["display_name"] = serde_json::Value::String(model.display_name.clone());
+        }
+    }
+    serde_json::to_string_pretty(&value).map_err(|error| error.to_string())
+}
+
+/// Preserve published native catalog capabilities when provider discovery
+/// supplies them. Friendly labels never determine model capabilities.
+fn preserve_provider_catalog_capabilities(
+    catalog: &str,
+    provider_catalog: &serde_json::Value,
+) -> Result<String, String> {
+    let mut catalog: serde_json::Value =
+        serde_json::from_str(catalog).map_err(|error| error.to_string())?;
+    if let Some(models) = catalog["models"].as_array_mut() {
+        for model in models {
+            let Some(source) = provider_catalog["data"]
+                .as_array()
+                .and_then(|items| items.iter().find(|entry| entry["id"] == model["slug"]))
+            else {
+                continue;
+            };
+            for key in ["context_window", "max_context_window"] {
+                if source[key].as_u64().is_some_and(|value| value > 0) {
+                    model[key] = source[key].clone();
+                }
+            }
+            for key in [
+                "supports_reasoning_summaries",
+                "support_verbosity",
+                "supports_parallel_tool_calls",
+                "supports_image_detail_original",
+            ] {
+                if source[key].is_boolean() {
+                    model[key] = source[key].clone();
+                }
+            }
+            if let Some(levels) = source["supported_reasoning_levels"].as_array() {
+                if levels.iter().all(|level| {
+                    level["effort"].as_str().is_some_and(|effort| {
+                        matches!(
+                            effort,
+                            "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+                        )
+                    }) && level["description"].is_string()
+                }) {
+                    model["supported_reasoning_levels"] =
+                        source["supported_reasoning_levels"].clone();
+                    if source["default_reasoning_level"]
+                        .as_str()
+                        .is_some_and(|effort| {
+                            levels
+                                .iter()
+                                .any(|level| level["effort"].as_str() == Some(effort))
+                        })
+                    {
+                        model["default_reasoning_level"] =
+                            source["default_reasoning_level"].clone();
+                    } else if let Some(object) = model.as_object_mut() {
+                        object.remove("default_reasoning_level");
+                    }
+                }
+            }
+            if source["input_modalities"].as_array().is_some_and(|values| {
+                !values.is_empty()
+                    && values.iter().all(|value| {
+                        value
+                            .as_str()
+                            .is_some_and(|kind| matches!(kind, "text" | "image"))
+                    })
+            }) {
+                model["input_modalities"] = source["input_modalities"].clone();
+            }
+        }
+    }
+    serde_json::to_string_pretty(&catalog).map_err(|error| error.to_string())
 }
 
 fn catalog_default_reasoning_effort(catalog: &str, model: &str) -> Option<String> {
@@ -835,33 +928,52 @@ pub async fn codex_config_takeover_inner(
         (provider, api_key)
     };
 
-    // The catalog comes from the provider's real model list. A key-level Codex
-    // alias remains optional and only renames `model` on the outgoing request;
-    // it does not change this catalog or select another wire protocol.
-    let (model_ids, used_deepseek_fallback) =
-        match crate::commands::providers::fetch_provider_model_ids(
-            &provider,
-            &api_key,
-            Some("codex"),
-            None,
-        )
-        .await
-        {
-            Ok(model_ids) => (model_ids, false),
-            Err(error) if is_official_deepseek_provider(&provider) => {
-                log::warn!(
-                    "DeepSeek model discovery failed; using the built-in Codex model catalog: {}",
-                    error
-                );
-                (deepseek_fallback_model_ids(), true)
-            }
-            Err(error) => {
-                return Err(format!("无法从所选 Codex 线路读取模型列表: {}", error));
-            }
-        };
-    let codex_model =
-        select_default_codex_model(&model_ids).ok_or_else(|| "供应商未返回可用模型".to_string())?;
-    let catalog = build_codex_model_catalog(&provider.name, &model_ids)?;
+    let snapshot =
+        crate::services::model_catalog::effective_catalog(db, &provider, &api_key, "codex", None)
+            .await
+            .map_err(|error| format!("无法生成所选 Codex 线路的模型目录: {error}"))?;
+    let source_hint = if snapshot.from_cache {
+        format!("（使用 {} 的同线路目录缓存）", snapshot.fetched_at)
+    } else {
+        String::new()
+    };
+    let effective = snapshot.catalog;
+    let configured_models = effective["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let id = entry["id"].as_str()?.to_string();
+            let display_name = entry["display_name"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| model_display_name(&id));
+            Some(crate::shared_runtime::model_mapping::ClientModel {
+                id,
+                display_name,
+                supports1m: false,
+            })
+        })
+        .collect::<Vec<_>>();
+    let model_ids = configured_models
+        .iter()
+        .map(|model| model.id.clone())
+        .collect::<Vec<_>>();
+    let default_model = crate::shared_runtime::model_mapping::client_default_model(
+        api_key.model_mapping.as_deref(),
+        "codex",
+    );
+    if default_model
+        .as_ref()
+        .is_some_and(|model| !model_ids.contains(model))
+    {
+        return Err("默认模型不在有效目录中，请在密钥的模型配置中重新选择".to_string());
+    }
+    let codex_model = default_model
+        .or_else(|| select_default_codex_model(&model_ids))
+        .ok_or("有效模型目录为空")?;
+    let catalog = build_configured_codex_catalog(&provider.name, &configured_models)?;
+    let catalog = preserve_provider_catalog_capabilities(&catalog, &effective)?;
 
     let (port, session_token) = {
         let db = db.lock().map_err(|e| e.to_string())?;
@@ -913,32 +1025,20 @@ pub async fn codex_config_takeover_inner(
         .matches_takeover_catalog(&session_token, port as u16, &codex_model, Some(&catalog))
         .map_err(|e| e.to_string())?;
     if already_current {
-        return if used_deepseek_fallback {
-            Ok(format!(
-                "已切换密钥，模型接口暂不可用，Codex 保持 {} 个 DeepSeek 预置模型",
-                model_ids.len()
-            ))
-        } else {
-            Ok(format!(
-                "已切换密钥，Codex 保持 {} 个真实模型",
-                model_ids.len()
-            ))
-        };
+        return Ok(format!(
+            "已切换密钥，Codex 保持 {} 个模型{}",
+            model_ids.len(),
+            source_hint
+        ));
     }
 
     mgr.takeover_with_catalog(&session_token, port as u16, &codex_model, &catalog)
         .map_err(|e| e.to_string())?;
-    if used_deepseek_fallback {
-        Ok(format!(
-            "接管完成，模型接口暂不可用，已加载 {} 个 DeepSeek 预置模型；请完全退出并重新打开 Codex Desktop",
-            model_ids.len()
-        ))
-    } else {
-        Ok(format!(
-            "接管完成，已加载 {} 个真实模型；请完全退出并重新打开 Codex Desktop",
-            model_ids.len()
-        ))
-    }
+    Ok(format!(
+        "接管完成，已加载 {} 个模型{}；请完全退出并重新打开 Codex Desktop",
+        model_ids.len(),
+        source_hint
+    ))
 }
 
 #[tauri::command]
@@ -973,6 +1073,22 @@ pub fn codex_config_list_backups() -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn configured_model_catalog_keeps_client_ids_and_labels_independent_of_aliases() {
+        let mapping = serde_json::json!({"version":2,"clients":{"codex":{
+            "models":[{"id":"visible-model","displayName":"My model"}],
+            "upstream":{"model":"actual-model"}
+        }}})
+        .to_string();
+        let models =
+            crate::shared_runtime::model_mapping::client_models(Some(&mapping), "codex-app");
+        let catalog = build_configured_codex_catalog("Example", &models).unwrap();
+        let catalog: serde_json::Value = serde_json::from_str(&catalog).unwrap();
+        assert_eq!(catalog["models"][0]["slug"], "visible-model");
+        assert_eq!(catalog["models"][0]["display_name"], "My model");
+        assert!(!catalog.to_string().contains("actual-model"));
+    }
 
     #[test]
     fn generated_catalog_keeps_real_model_ids_and_deepseek_efforts() {

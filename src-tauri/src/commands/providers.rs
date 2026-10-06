@@ -78,6 +78,7 @@ pub async fn provider_model_list(
     provider_id: String,
     api_key_id: String,
     user_agent: Option<String>,
+    client_kind: Option<String>,
 ) -> Result<Vec<String>, String> {
     let (provider, api_key) = {
         let db = db.lock().map_err(|e| e.to_string())?;
@@ -98,8 +99,175 @@ pub async fn provider_model_list(
     // request that fails later for a reason that names something else.
     let user_agent = crate::shared_runtime::user_agent::validate(user_agent.as_deref())?;
 
-    let client_kind = preferred_model_list_client_kind(&api_key);
+    let client_kind = client_kind
+        .as_deref()
+        .or_else(|| preferred_model_list_client_kind(&api_key));
     fetch_provider_model_ids(&provider, &api_key, client_kind, user_agent.as_deref()).await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCatalogResult {
+    models: Vec<crate::shared_runtime::model_mapping::ClientModel>,
+    from_cache: bool,
+    fetched_at: String,
+    error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn provider_model_catalog(
+    db: State<'_, Arc<Mutex<Database>>>,
+    provider_id: String,
+    api_key_id: String,
+    client_kind: String,
+) -> Result<ModelCatalogResult, String> {
+    if !matches!(
+        client_kind.as_str(),
+        "claude_code" | "claude_desktop" | "codex" | "grok"
+    ) {
+        return Err("不支持的启动台".into());
+    }
+    let (provider, key) = {
+        let db = db.lock().map_err(|error| error.to_string())?;
+        let provider = db
+            .provider_get(&provider_id)
+            .map_err(|error| error.to_string())?
+            .ok_or("供应商不存在")?;
+        let key = db
+            .api_key_get(&api_key_id)
+            .map_err(|error| error.to_string())?
+            .ok_or("密钥不存在")?;
+        if key.provider_id != provider_id
+            || !key.types.iter().any(|kind| {
+                kind == &client_kind || kind == "claude" && client_kind == "claude_code"
+            })
+        {
+            return Err("密钥不支持所选启动台".into());
+        }
+        (provider, key)
+    };
+    let snapshot = crate::services::model_catalog::provider_catalog(
+        db.inner(),
+        &provider,
+        &key,
+        &client_kind,
+        false,
+        None,
+    )
+    .await?;
+    Ok(catalog_result(snapshot))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCatalogPreviewInput {
+    provider_id: String,
+    api_key_id: Option<String>,
+    key_value: String,
+    client_kind: String,
+    client_configs: Option<serde_json::Value>,
+    user_agent: Option<String>,
+}
+
+#[tauri::command]
+pub async fn provider_model_catalog_preview(
+    db: State<'_, Arc<Mutex<Database>>>,
+    input: ModelCatalogPreviewInput,
+) -> Result<ModelCatalogResult, String> {
+    if !matches!(
+        input.client_kind.as_str(),
+        "claude_code" | "claude_desktop" | "codex" | "grok"
+    ) {
+        return Err("Unsupported launchpad".into());
+    }
+    if input.key_value.trim().is_empty() {
+        return Err("Enter an API key before querying models".into());
+    }
+    let provider = {
+        let db = db.lock().map_err(|error| error.to_string())?;
+        let provider = db
+            .provider_get(&input.provider_id)
+            .map_err(|error| error.to_string())?
+            .ok_or("Provider not found")?;
+        if let Some(id) = input.api_key_id.as_deref() {
+            let key = db
+                .api_key_get(id)
+                .map_err(|error| error.to_string())?
+                .ok_or("API key not found")?;
+            if key.provider_id != input.provider_id {
+                return Err("API key does not belong to this provider".into());
+            }
+        }
+        provider
+    };
+    let mut client_configs = input.client_configs;
+    if let Some(raw) = input.user_agent.as_deref() {
+        let ua = crate::shared_runtime::user_agent::validate(Some(raw))?;
+        let configs = client_configs.get_or_insert_with(|| serde_json::json!({}));
+        let configs = configs
+            .as_object_mut()
+            .ok_or("Invalid client connections")?;
+        let config = configs
+            .entry(input.client_kind.clone())
+            .or_insert_with(|| serde_json::json!({}));
+        let config = config.as_object_mut().ok_or("Invalid client connection")?;
+        if let Some(ua) = ua {
+            config.insert("proxyUserAgent".into(), serde_json::json!(ua));
+        } else {
+            config.remove("proxyUserAgent");
+        }
+    }
+    let key = ApiKey {
+        id: input.api_key_id.unwrap_or_else(|| "__preview__".into()),
+        provider_id: input.provider_id,
+        alias: None,
+        value: input.key_value,
+        types: vec![input.client_kind.clone()],
+        priority: 0,
+        is_exhausted: false,
+        is_active: true,
+        config: None,
+        usage_type: "none".into(),
+        usage_url: None,
+        usage_path: None,
+        usage_headers: None,
+        cached_usage: None,
+        last_usage_checked_at: None,
+        model_mapping: None,
+        client_configs,
+        usage_script: None,
+    };
+    let snapshot = crate::services::model_catalog::preview_catalog(
+        db.inner(),
+        &provider,
+        &key,
+        &input.client_kind,
+    )
+    .await?;
+    Ok(catalog_result(snapshot))
+}
+
+fn catalog_result(snapshot: crate::services::model_catalog::CatalogSnapshot) -> ModelCatalogResult {
+    let models = snapshot.catalog["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let id = entry["id"].as_str()?.to_string();
+            let display_name = entry["display_name"].as_str().unwrap_or(&id).to_string();
+            Some(crate::shared_runtime::model_mapping::ClientModel {
+                id,
+                display_name,
+                supports1m: entry["supports1m"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect();
+    ModelCatalogResult {
+        models,
+        from_cache: snapshot.from_cache,
+        fetched_at: snapshot.fetched_at,
+        error: snapshot.error,
+    }
 }
 
 /// The shared model-list dialog has no client selector. For a multi-client key,
@@ -121,12 +289,13 @@ const DEFAULT_MODEL_LIST_USER_AGENT: &str = "cc-use/3.x";
 /// `user_agent` arrives already validated; it replaces the default rather than
 /// joining it, because a gateway that answers only known clients is matching
 /// the whole value.
-pub(crate) async fn fetch_provider_model_ids(
+pub(crate) async fn fetch_provider_model_catalog(
     provider: &Provider,
     api_key: &ApiKey,
     client_kind: Option<&str>,
     user_agent: Option<&str>,
-) -> Result<Vec<String>, String> {
+    request_headers: Option<&std::collections::BTreeMap<String, String>>,
+) -> Result<serde_json::Value, String> {
     let (base_url, auth_scheme) = model_list_upstream_settings(provider, api_key, client_kind);
     let endpoint = build_model_list_endpoint(&base_url)?;
 
@@ -137,51 +306,126 @@ pub(crate) async fn fetch_provider_model_ids(
     .build()
     .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let mut request = client
-        .get(endpoint)
-        .header("User-Agent", user_agent.unwrap_or(DEFAULT_MODEL_LIST_USER_AGENT));
-    request = match auth_scheme.as_str() {
-        "bearer" => request.header("Authorization", format!("Bearer {}", api_key.value)),
-        "x-api-key" => request.header("x-api-key", &api_key.value),
-        "none" => request,
-        _ => return Err("Unsupported authentication scheme".to_string()),
-    };
-
-    let resp = request
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch models: {}", e))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("API returned {}: {}", status, body));
+    let mut entries = Vec::new();
+    let mut cursor: Option<String> = None;
+    let mut cursors = std::collections::HashSet::new();
+    for _ in 0..10 {
+        let mut request = client.get(&endpoint).query(&[("limit", "1000")]).header(
+            "User-Agent",
+            user_agent.unwrap_or(DEFAULT_MODEL_LIST_USER_AGENT),
+        );
+        if let Some(cursor) = &cursor {
+            request = request.query(&[("after_id", cursor)]);
+        }
+        let mut extra_headers = request_headers.cloned().unwrap_or_default();
+        for (name, value) in
+            crate::shared_runtime::request_headers::parse(provider.request_headers.as_deref())
+        {
+            if !matches!(
+                name.to_ascii_lowercase().as_str(),
+                "authorization" | "x-api-key" | "user-agent" | "host" | "content-length"
+            ) {
+                extra_headers
+                    .entry(name.to_ascii_lowercase())
+                    .or_insert_with(|| {
+                        crate::shared_runtime::request_headers::resolve(&value, &base_url)
+                    });
+            }
+        }
+        let kind = client_kind.or_else(|| api_key.types.first().map(String::as_str));
+        if matches!(kind, Some("claude" | "claude_code" | "claude_desktop")) {
+            extra_headers
+                .entry("anthropic-version".into())
+                .or_insert_with(|| "2023-06-01".into());
+        }
+        for (name, value) in extra_headers {
+            request = request.header(name, value);
+        }
+        request = match auth_scheme.as_str() {
+            "bearer" => request.header("Authorization", format!("Bearer {}", api_key.value)),
+            "x-api-key" => request.header("x-api-key", &api_key.value),
+            "none" => request,
+            _ => return Err("Unsupported authentication scheme".to_string()),
+        };
+        let mut response = request
+            .send()
+            .await
+            .map_err(|error| format!("Failed to fetch models: {error}"))?;
+        if !response.status().is_success() {
+            return Err(format!("Model discovery returned {}", response.status()));
+        }
+        const MAX_CATALOG_BYTES: usize = 8 * 1024 * 1024;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|error| format!("Failed to read model catalog: {error}"))?
+        {
+            if bytes.len().saturating_add(chunk.len()) > MAX_CATALOG_BYTES {
+                return Err("供应商模型目录超出大小限制".into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let body: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Failed to parse model catalog: {error}"))?;
+        let models = body["data"]
+            .as_array()
+            .ok_or("供应商模型目录缺少 data 数组")?;
+        if entries.len().saturating_add(models.len()) > 10_000 {
+            return Err("供应商模型目录超出模型数量限制".into());
+        }
+        entries.extend(
+            models
+                .iter()
+                .filter(|model| model["id"].as_str().is_some_and(|id| !id.trim().is_empty()))
+                .cloned(),
+        );
+        if body["has_more"].as_bool() != Some(true) {
+            let mut result = body;
+            result["data"] = serde_json::Value::Array(entries);
+            result["has_more"] = serde_json::json!(false);
+            if !result["data"]
+                .as_array()
+                .is_some_and(|models| !models.is_empty())
+            {
+                return Err("供应商未返回有效模型目录".to_string());
+            }
+            return Ok(result);
+        }
+        let next = body["last_id"]
+            .as_str()
+            .or_else(|| models.last().and_then(|model| model["id"].as_str()))
+            .filter(|id| !id.is_empty())
+            .ok_or("供应商分页模型目录缺少游标")?
+            .to_string();
+        if !cursors.insert(next.clone()) {
+            return Err("供应商模型目录分页重复".to_string());
+        }
+        cursor = Some(next);
     }
-
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-    let models = body["data"]
-        .as_array()
-        .ok_or_else(|| "Unexpected response format: missing 'data' array".to_string())?;
-
-    let mut model_ids: Vec<String> = models
-        .iter()
-        .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
-        .collect();
-    model_ids.sort();
-    model_ids.dedup();
-
-    if model_ids.is_empty() {
-        return Err("No models found".to_string());
-    }
-
-    Ok(model_ids)
+    Err("供应商模型目录超出分页读取限制".to_string())
 }
 
-fn model_list_upstream_settings(
+pub(crate) async fn fetch_provider_model_ids(
+    provider: &Provider,
+    api_key: &ApiKey,
+    client_kind: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let catalog =
+        fetch_provider_model_catalog(provider, api_key, client_kind, user_agent, None).await?;
+    let mut ids = catalog["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+pub(crate) fn model_list_upstream_settings(
     provider: &Provider,
     api_key: &ApiKey,
     requested_client_kind: Option<&str>,

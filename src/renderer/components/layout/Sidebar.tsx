@@ -58,7 +58,7 @@ export default function Sidebar() {
     {
       key: '/keys',
       icon: <KeyOutlined />,
-      label: '供应商密钥',
+      label: t('keys.title'),
     },
     {
       key: '/stats',

@@ -71,6 +71,7 @@ import {
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
 import UserAgentField from '../components/UserAgentField'
+import { modelQueryClientKind, readQueryUserAgent, rememberQueryUserAgent } from '../utils/modelQueryUserAgent'
 import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import {
@@ -199,6 +200,7 @@ export default function Keys() {
   // Query identity lives only for as long as the dialog is open: this is a
   // "show me as that client" glance, not a property of the key.
   const [modelListUa, setModelListUa] = useState('')
+  const [modelListUaLoading, setModelListUaLoading] = useState(false)
   const modelListUserAgent = modelListUa.trim() || undefined
   const modelListRequestId = useRef(0)
 
@@ -493,18 +495,31 @@ export default function Keys() {
 
   // Handle edit key
   // Drag-and-drop reorder handlers
-  const loadModels = async (provider: Provider, apiKeyId: string, userAgent?: string) => {
+  const loadModels = async (provider: Provider, apiKeyId: string, userAgent?: string, restoreAgent = false) => {
     const requestId = ++modelListRequestId.current
     setModelList([])
     setModelListError(false)
     setModelListLoading(true)
+    setModelListUaLoading(restoreAgent)
     try {
-      const models = await getApi().provider.modelList(provider.id, apiKeyId, userAgent)
+      const key = (apiKeys[provider.id] || []).find((key) => key.id === apiKeyId)
+      if (!key) throw new Error('API key not found')
+      const kind = modelQueryClientKind(key)
+      const agent = restoreAgent ? await readQueryUserAgent(provider.id, kind, key.clientConfigs?.[kind]?.proxyUserAgent) : userAgent ?? ''
+      if (requestId !== modelListRequestId.current) return
+      if (restoreAgent) setModelListUa(agent)
+      setModelListUaLoading(false)
+      await rememberQueryUserAgent(provider.id, kind, agent)
+      if (requestId !== modelListRequestId.current) return
+      const models = await getApi().provider.modelList(provider.id, apiKeyId, agent || undefined, kind)
       if (requestId === modelListRequestId.current) setModelList(models)
     } catch {
       if (requestId === modelListRequestId.current) setModelListError(true)
     } finally {
-      if (requestId === modelListRequestId.current) setModelListLoading(false)
+      if (requestId === modelListRequestId.current) {
+        setModelListLoading(false)
+        setModelListUaLoading(false)
+      }
     }
   }
 
@@ -527,10 +542,8 @@ export default function Keys() {
     setModelListApiKeyId(defaultKey?.id)
     setModelListError(false)
     setModelListLoading(false)
-    // Every opening starts clean: the identity belongs to this look, not to
-    // the key, so nothing carries over and nothing is written back.
     setModelListUa('')
-    if (defaultKey) void loadModels(provider, defaultKey.id)
+    if (defaultKey) void loadModels(provider, defaultKey.id, undefined, true)
   }
 
   // dnd-kit sensors — require 8px drag threshold so clicks pass through
@@ -1290,6 +1303,7 @@ export default function Keys() {
           setModelListApiKeyId(undefined)
           setModelListError(false)
           setModelListLoading(false)
+          setModelListUaLoading(false)
         }}
         footer={null}
         width={500}
@@ -1308,7 +1322,7 @@ export default function Keys() {
               onChange={(apiKeyId) => {
                 setModelListApiKeyId(apiKeyId)
                 if (modelListProvider)
-                  void loadModels(modelListProvider, apiKeyId, modelListUserAgent)
+                  void loadModels(modelListProvider, apiKeyId, undefined, true)
               }}
               options={modelListKeys.map((key) => ({
                 value: key.id,
@@ -1325,7 +1339,14 @@ export default function Keys() {
             <UserAgentField
               value={modelListUa}
               placeholder={t('keys.modelListUaDefault')}
-              onChange={setModelListUa}
+              disabled={modelListUaLoading}
+              onChange={(value) => {
+                modelListRequestId.current += 1
+                setModelListUa(value)
+                setModelList([])
+                setModelListLoading(false)
+                setModelListError(false)
+              }}
               onApply={(value) => rerunModelList({ userAgent: value.trim() || undefined })}
             />
           </div>

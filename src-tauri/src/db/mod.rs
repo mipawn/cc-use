@@ -15,6 +15,7 @@ pub mod gateway_metrics;
 mod go_preset_cleanup;
 mod keychain_migration;
 pub mod managed_instances;
+mod model_config_cleanup;
 pub mod projects;
 pub mod providers;
 pub mod proxy_sessions;
@@ -284,6 +285,7 @@ impl Database {
         // Run ALTER TABLE migrations for backward compatibility with existing databases
         self.run_alter_migrations();
         self.clear_shipped_go_model_defaults()?;
+        self.clear_retired_model_overrides()?;
         self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
 
         Ok(())

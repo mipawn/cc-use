@@ -42,7 +42,7 @@
 - **系统托盘** - 关闭窗口时最小化到托盘，daemon 服务持续运行；托盘徽章显示今日 Token，菜单支持服务控制和最近项目快速启动
 - **Auto mode 分类器适配（实验性）** - 在 Key 的模型映射中启用，可跟随当前 Claude 会话或指定分类器模型，支持低思考与关闭思考；默认关闭。修复部分网关的分类器响应头兼容问题，并在用量统计中标记 Auto mode 请求。详见 [v3.9.1 使用说明](https://github.com/mipawn/cc-use-docs/blob/main/v3.9.1/README.md)。
 - **自动更新** - 应用内检测并下载新版本，支持下载进度显示（`tauri-plugin-updater` 签名校验）
-- **Claude Code 配置管理** - 支持全局配置和密钥级别局部配置（JSON），启动时自动合并注入；配置编辑入口位于 Claude Code 页面
+- **Claude Code 配置管理** - 支持全局配置与密钥级启动变量，启动时自动合并注入；密钥模型控件归入客户端模型，其他变量按需编辑 JSON
 - **国际化** - 中文 / 英文界面
 - **深色模式** - 亮色 / 深色主题切换
 
@@ -62,7 +62,7 @@
 
 1. 点击「添加供应商」，填写名称、Base URL，选择图标，可选配置 Token 和余额查询
 2. 在供应商分组下点击「添加密钥」，填写密钥值，选择适用客户端（Claude Code / Grok Build / Codex Desktop / Claude Desktop）
-3. 按需配置额度查询和模型映射；只有 Claude Code 会展示局部 CLI 配置
+3. 按需配置额度查询与模型映射。每个启动台默认收起，分别设置客户端模型和网关转发；目录选择供应商模型或指定列表，在管理视图中补充或勾选。仅 Claude Code 提供其他启动设置与启动预览入口
 
 ### 2. 使用 Claude Code / Grok Build
 
@@ -83,7 +83,7 @@ Claude Code 启动时会设置 `ANTHROPIC_BASE_URL`；Grok Build 会在 `~/.grok
 2. 点击接管，CC Use 会读取该密钥的 Codex 模型列表，写入 `~/.codex/config.toml` 与本地模型目录，并备份原配置
 3. 首次接管或恢复官方配置后，重启 Codex Desktop 让配置生效
 
-接管不会改写 `auth.json`，会保留官方 ChatGPT 登录和插件能力。内置 DeepSeek 在模型接口不可用时回退到 Flash / Pro 预置目录；Flash 提供 `low / high / xhigh`，Pro 提供 `high / xhigh`。密钥编辑页仍可填写 Codex 上游模型映射，它只替换请求中的模型名称。模型目录或默认模型变化后需要完全退出并重新打开 Codex Desktop。
+接管不会改写 `auth.json`，会保留官方 ChatGPT 登录和插件能力。模型目录可选择跟随供应商、补充模型或自定义列表；发现失败时仅使用明确标识的同线路缓存，也可显式配置真实模型 ID 的自定义列表。已知 DeepSeek Flash 提供 `low / high / xhigh`，Pro 提供 `high / xhigh`。密钥编辑页仍可填写 Codex 上游模型映射，它只替换请求中的模型名称。模型目录或默认模型变化后需要完全退出并重新打开 Codex Desktop。
 
 ### 4. 接管 Claude Desktop
 
@@ -93,7 +93,7 @@ Claude Code 启动时会设置 `ANTHROPIC_BASE_URL`；Grok Build 会在 `~/.grok
 2. 点击接管，CC Use 会写入 Claude 3P profile、`_meta.json` 和对应配置文件
 3. 可随时查看配置预览或恢复官方配置
 
-Claude Desktop 接管前会探测本地 daemon 的模型列表接口；模型映射会同步到 Claude Desktop 的 inference model 展示。
+Claude Desktop 接管后通过本地 daemon 发现模型列表。「模型映射」按启动台分为客户端模型和上游映射：Claude Desktop 可选择目录来源并填写真实模型 ID 与显示名称，列表通过本地 `/v1/models` 提供；上游映射只改变实际转发的模型名。保存后重新执行配置接管并重开客户端。
 
 ### 5. daemon 服务
 

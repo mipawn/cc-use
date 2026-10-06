@@ -175,10 +175,11 @@ describe('new key defaults', () => {
       false,
     )
 
-    expect(defaults.mapping).toMatchObject({
+    expect(defaults.mapping.clients.claude_code).toMatchObject({
       haiku: 'fast',
       sonnet: 'big',
-      autoMode: { enabled: true },
+      forwardMode: 'family',
     })
+    expect(defaults.mapping.autoMode.enabled).toBe(true)
   })
 })

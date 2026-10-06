@@ -27,17 +27,28 @@ function buildApi(): Api {
       update: (input) => invoke('provider_update', { input }),
       delete: (id) => invoke('provider_delete', { id }),
       reorder: (providerIds) => invoke('provider_reorder', { providerIds }),
-      modelList: (providerId, apiKeyId, userAgent) =>
-        invoke('provider_model_list', { providerId, apiKeyId, userAgent }),
+      modelList: (providerId, apiKeyId, userAgent, clientKind) =>
+        invoke('provider_model_list', {
+          providerId,
+          apiKeyId,
+          userAgent,
+          ...(clientKind ? { clientKind } : {}),
+        }),
+      modelCatalog: (providerId, apiKeyId, clientKind) =>
+        invoke('provider_model_catalog', { providerId, apiKeyId, clientKind }),
+      modelCatalogPreview: (input) => invoke('provider_model_catalog_preview', { input }),
       presets: () => invoke('provider_preset_list'),
     },
     userAgent: {
       list: () => invoke('user_agent_custom_list'),
       save: (value) => invoke('user_agent_custom_save', { value }),
       delete: (value) => invoke('user_agent_custom_delete', { value }),
+      getQueryPreference: (providerId, clientKind) => invoke('user_agent_query_preference_get', { providerId, clientKind }),
+      saveQueryPreference: (providerId, clientKind, value) => invoke('user_agent_query_preference_save', { providerId, clientKind, value }),
     },
     apiKey: {
       list: (providerId) => invoke('api_key_list', { providerId }),
+      retiredMappingReport: () => invoke('api_key_retired_mapping_report'),
       create: (input) => invoke('api_key_create', { input }),
       update: (input) => invoke('api_key_update', { input }),
       delete: (id) => invoke('api_key_delete', { id }),

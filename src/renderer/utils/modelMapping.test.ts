@@ -1,107 +1,113 @@
-import { describe, expect, it } from 'vitest'
+import { expect, it } from 'vitest'
 import {
   EMPTY_MODEL_MAPPING,
-  modelMappingValueForSave,
   parseModelMapping,
   serializeModelMapping,
+  modelMappingValueForSave,
+  validateModelMapping,
 } from './modelMapping'
 
-describe('model mapping serialization', () => {
-  it('parses Claude and Codex mappings from the same JSON value', () => {
-    expect(
-      parseModelMapping(
-        JSON.stringify({
-          haiku: 'claude-haiku-upstream',
-          sonnet: 'claude-sonnet-upstream',
-          default: 'legacy-fallback',
-          modelOverrides: {
-            'claude-opus-4-8': 'claude-opus-4-6',
-          },
-          codex: 'deepseek-chat',
-          grok: 'grok-build-0.1',
-        }),
-      ),
-    ).toEqual({
-      ...EMPTY_MODEL_MAPPING,
-      haiku: 'claude-haiku-upstream',
-      sonnet: 'claude-sonnet-upstream',
-      modelOverrides: [
-        {
-          source: 'claude-opus-4-8',
-          target: 'claude-opus-4-6',
-        },
-      ],
-      codex: 'deepseek-chat',
-      grok: 'grok-build-0.1',
-    })
+it('reads legacy family settings only into Code and keeps empty scoped clients independent', () => {
+  const legacy = parseModelMapping('{"haiku":"fast","sonnet":"pro","grok":"grok-real"}')
+  expect(legacy.clients.claude_code).toMatchObject({
+    forwardMode: 'family',
+    haiku: 'fast',
+    sonnet: 'pro',
   })
-
-  it('serializes non-empty Claude and Codex mappings after trimming values', () => {
-    expect(
-      serializeModelMapping({
-        ...EMPTY_MODEL_MAPPING,
-        sonnet: ' claude-sonnet-upstream ',
-        modelOverrides: [
-          {
-            source: ' claude-opus-4-8 ',
-            target: ' claude-opus-4-6 ',
-          },
-        ],
-        codex: ' deepseek-chat ',
-        grok: ' grok-build-0.1 ',
-      }),
-    ).toBe(
-      '{"sonnet":"claude-sonnet-upstream","modelOverrides":{"claude-opus-4-8":"claude-opus-4-6"},"codex":"deepseek-chat","grok":"grok-build-0.1"}',
-    )
+  expect(legacy.clients.claude_desktop.forwardMode).toBe('follow')
+  expect(legacy.clients.grok).toMatchObject({
+    defaultModel: 'grok-real',
+    upstreamModel: 'grok-real',
   })
-
-  it('ignores the legacy default fallback and omits all-empty mappings', () => {
-    expect(parseModelMapping('{"default":"legacy-fallback"}')).toEqual(EMPTY_MODEL_MAPPING)
-    expect(parseModelMapping('{invalid')).toEqual(EMPTY_MODEL_MAPPING)
-    expect(serializeModelMapping(EMPTY_MODEL_MAPPING)).toBeUndefined()
-  })
-
-  it('drops incomplete exact mappings and lets the last duplicate win', () => {
-    expect(
-      serializeModelMapping({
-        ...EMPTY_MODEL_MAPPING,
-        modelOverrides: [
-          { source: 'claude-opus-4-8', target: '' },
-          { source: '', target: 'unused' },
-          { source: 'claude-opus-4-8', target: 'first-target' },
-          { source: 'claude-opus-4-8', target: 'final-target' },
-        ],
-      }),
-    ).toBe('{"modelOverrides":{"claude-opus-4-8":"final-target"}}')
-  })
-
-  it('sends an explicit clear signal only when editing an existing key', () => {
-    expect(modelMappingValueForSave(EMPTY_MODEL_MAPPING, true)).toBe('')
-    expect(modelMappingValueForSave(EMPTY_MODEL_MAPPING, false)).toBeUndefined()
-  })
+  const scoped = parseModelMapping(
+    '{"version":2,"clients":{"claude_code":{"upstream":{"mode":"follow","sonnet":"ignored"}}}}',
+  )
+  expect(scoped.clients.claude_code.forwardMode).toBe('follow')
+  expect(scoped.clients.claude_desktop.models).toEqual([])
 })
 
-it('round-trips auto mode alongside model mappings and clears it when disabled', () => {
-  const fields = {
-    ...EMPTY_MODEL_MAPPING,
-    opus: 'glm-5',
-    autoMode: { enabled: true, model: ' glm-4.7 ', thinking: 'disabled' as const },
-  }
-  const saved = serializeModelMapping(fields)
-  expect(parseModelMapping(saved)).toEqual({
-    ...fields,
-    autoMode: { enabled: true, model: 'glm-4.7', thinking: 'disabled' },
+it('preserves catalog modes and fixed forwarding as separate choices', () => {
+  const fields = parseModelMapping(
+    '{"version":2,"clients":{"codex":{"catalog":{"mode":"custom","models":[{"id":" real ","displayName":" Work "}],"defaultModel":"real"},"upstream":{"mode":"fixed","model":" target "}}}}',
+  )
+  const saved = JSON.parse(serializeModelMapping(fields)!)
+  expect(saved.clients.codex.catalog).toEqual({
+    mode: 'custom',
+    models: [{ id: 'real', displayName: 'Work' }],
+    defaultModel: 'real',
   })
-  expect(
-    serializeModelMapping({ ...fields, autoMode: { ...fields.autoMode, enabled: false } }),
-  ).toBe('{"opus":"glm-5"}')
+  expect(saved.clients.codex.upstream).toEqual({ mode: 'fixed', model: 'target' })
 })
 
-it('defaults auto mode to low thinking and omits a blank follow-session model', () => {
-  const fields = parseModelMapping('{"autoMode":{"enabled":true,"model":"  "}}')
-  expect(fields.autoMode.thinking).toBe('low')
-  expect(JSON.parse(serializeModelMapping(fields)!)).toEqual({
-    autoMode: { enabled: true, thinking: 'low' },
+it('keeps an empty custom directory invalid instead of falling back to provider discovery', () => {
+  const fields = parseModelMapping(
+    '{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"custom","models":[]}}}}',
+  )
+  expect(validateModelMapping(fields)).toEqual({
+    key: 'clientModelsRequired',
+    clientKind: 'claude_desktop',
   })
-  expect(parseModelMapping('{"autoMode":null}').autoMode.enabled).toBe(false)
+  expect(serializeModelMapping(fields)).toBeDefined()
+  expect(modelMappingValueForSave(EMPTY_MODEL_MAPPING, true)).toBe('')
+  expect(modelMappingValueForSave(EMPTY_MODEL_MAPPING, false)).toBeUndefined()
+})
+
+it('keeps classifier configuration in Code and ignores malformed mapping JSON', () => {
+  const fields = parseModelMapping('{"autoMode":{"enabled":true,"thinking":"disabled"}}')
+  expect(JSON.parse(serializeModelMapping(fields)!).clients.claude_code.upstream.autoMode).toEqual({
+    enabled: true,
+    thinking: 'disabled',
+  })
+  for (const raw of ['null', '[]', '{bad'])
+    expect(parseModelMapping(raw)).toEqual(EMPTY_MODEL_MAPPING)
+})
+
+it('round-trips 1M flags and Desktop role slots, and keeps roles off other clients', () => {
+  const fields = parseModelMapping(
+    '{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"custom","models":[{"id":"glm-5.2","displayName":"GLM 5.2","supports1m":true},{"id":"deepseek-v4.1-flash","displayName":"V4"}],"roles":{"sonnet":"glm-5.2","opus":"deepseek-v4.1-flash"}},"upstream":{"mode":"follow"}}}}',
+  )
+  expect(fields.clients.claude_desktop.roles).toEqual({
+    sonnet: 'glm-5.2',
+    opus: 'deepseek-v4.1-flash',
+    haiku: '',
+    fable: '',
+  })
+  const saved = JSON.parse(serializeModelMapping(fields)!)
+  expect(saved.clients.claude_desktop.catalog).toEqual({
+    mode: 'custom',
+    models: [
+      { id: 'glm-5.2', displayName: 'GLM 5.2', supports1m: true },
+      { id: 'deepseek-v4.1-flash', displayName: 'V4' },
+    ],
+    roles: { sonnet: 'glm-5.2', opus: 'deepseek-v4.1-flash' },
+  })
+  // Roles are a Claude-client concept; Codex keeps its own catalog shape.
+  expect(saved.clients.codex.catalog?.roles).toBeUndefined()
+})
+
+it('seeds role slots from the catalog ids for Claude Desktop and drops orphaned ones', () => {
+  const seeded = parseModelMapping(
+    '{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"custom","models":[{"id":"claude-opus-4-8"},{"id":"claude-haiku-4-5"}]},"upstream":{"mode":"follow"}}}}',
+  )
+  expect(seeded.clients.claude_desktop.roles).toMatchObject({
+    opus: 'claude-opus-4-8',
+    haiku: 'claude-haiku-4-5',
+  })
+  const code = parseModelMapping(
+    '{"version":2,"clients":{"claude_code":{"catalog":{"mode":"custom","models":[{"id":"claude-opus-4-8"}]},"upstream":{"mode":"follow"}}}}',
+  )
+  expect(code.clients.claude_code.roles.opus).toBe('')
+  // Codex and Grok have no roles.
+  const codex = parseModelMapping(
+    '{"version":2,"clients":{"codex":{"catalog":{"mode":"custom","models":[{"id":"claude-opus-4-8"}]},"upstream":{"mode":"follow"}}}}',
+  )
+  expect(codex.clients.codex.roles.opus).toBe('')
+
+  const orphaned = parseModelMapping(
+    '{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"custom","models":[{"id":"glm-5.2"}],"roles":{"sonnet":"removed-model"}},"upstream":{"mode":"follow"}}}}',
+  )
+  expect(validateModelMapping(orphaned, ['claude_desktop'])).toEqual({
+    key: 'clientRoleModelInvalid',
+    clientKind: 'claude_desktop',
+  })
 })

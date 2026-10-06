@@ -256,63 +256,6 @@ async fn legacy_default_is_ignored_and_unknown_model_passes_through() {
 }
 
 #[tokio::test]
-async fn exact_model_override_wins_over_family_mapping_for_claude_desktop() {
-    let mock = start_mock_upstream().await;
-    let mapping = r#"{
-        "opus":"anthropic.claude-opus-family",
-        "modelOverrides":{
-            "claude-opus-4-8":"anthropic.claude-opus-4-6"
-        }
-    }"#;
-    let (state, session_token) =
-        setup_provider_with_mapping(mock.port, "claude_desktop", Some(mapping));
-
-    let request = Request::builder()
-        .method("POST")
-        .uri("/claude-desktop/v1/messages")
-        .header("authorization", format!("Bearer {}", session_token))
-        .header("content-type", "application/json")
-        .body(Body::from(r#"{"model":"claude-opus-4-8","messages":[]}"#))
-        .unwrap();
-
-    let response = proxy_handler(AxumState(state), request).await;
-    assert!(response.is_ok());
-
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let body = mock.received_body.lock().unwrap();
-    assert_eq!(extract_model(&body), "anthropic.claude-opus-4-6");
-}
-
-#[tokio::test]
-async fn exact_model_override_applies_to_claude_code_with_one_m_suffix() {
-    let mock = start_mock_upstream().await;
-    let mapping = r#"{
-        "opus":"anthropic.claude-opus-family",
-        "modelOverrides":{
-            "claude-opus-4-8":"anthropic.claude-opus-4-6"
-        }
-    }"#;
-    let (state, session_token) = setup_provider_with_mapping(mock.port, "claude", Some(mapping));
-
-    let request = Request::builder()
-        .method("POST")
-        .uri("/v1/messages")
-        .header("authorization", format!("Bearer {}", session_token))
-        .header("content-type", "application/json")
-        .body(Body::from(
-            r#"{"model":"claude-opus-4-8[1M]","messages":[]}"#,
-        ))
-        .unwrap();
-
-    let response = proxy_handler(AxumState(state), request).await;
-    assert!(response.is_ok());
-
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let body = mock.received_body.lock().unwrap();
-    assert_eq!(extract_model(&body), "anthropic.claude-opus-4-6");
-}
-
-#[tokio::test]
 async fn case_insensitive_matching() {
     let mock = start_mock_upstream().await;
     let mapping = r#"{"sonnet":"anthropic.claude-sonnet-4-6"}"#;
@@ -830,4 +773,366 @@ async fn auto_mode_does_not_relabel_errors_invalid_envelopes_or_regular_requests
         }
         server.abort();
     }
+}
+
+#[tokio::test]
+async fn v2_claude_clients_rewrite_independently_and_empty_scope_clears_legacy() {
+    let mock = start_mock_upstream().await;
+    let mapping = serde_json::json!({
+        "version": 2, "opus": "legacy-must-not-apply",
+        "clients": {
+            "claude_code": {"upstream": {"opus": "code-target"}},
+            "claude_desktop": {"upstream": {"mode":"fixed", "model": "desktop-target"}},
+        }
+    })
+    .to_string();
+    for (kind, path, expected) in [
+        ("claude_code", "/v1/messages", "code-target"),
+        (
+            "claude_desktop",
+            "/claude-desktop/v1/messages",
+            "desktop-target",
+        ),
+    ] {
+        let (state, token) = setup_provider_with_mapping(mock.port, kind, Some(&mapping));
+        let request = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::from(r#"{"model":"claude-opus-4-6","messages":[]}"#))
+            .unwrap();
+        proxy_handler(AxumState(state), request).await.unwrap();
+        assert_eq!(extract_model(&mock.received_body.lock().unwrap()), expected);
+    }
+    let empty_desktop = serde_json::json!({"version":2,"opus":"legacy", "clients":{"claude_code":{"upstream":{"opus":"code"}}, "claude_desktop":{"upstream":{}}}}).to_string();
+    let (state, token) =
+        setup_provider_with_mapping(mock.port, "claude_desktop", Some(&empty_desktop));
+    let request = Request::builder()
+        .method("POST")
+        .uri("/claude-desktop/v1/messages")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(r#"{"model":"claude-opus-4-6","messages":[]}"#))
+        .unwrap();
+    proxy_handler(AxumState(state), request).await.unwrap();
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "claude-opus-4-6"
+    );
+}
+
+#[tokio::test]
+async fn catalog_override_does_not_require_upstream_and_still_requires_session_auth() {
+    let mapping = r#"{"version":2,"clients":{"claude_desktop":{"models":[{"id":"local","displayName":"Local"}],"upstream":{}}}}"#;
+    let (state, token) = setup_provider_with_mapping(0, "claude_desktop", Some(mapping));
+    let request = Request::builder()
+        .uri("/claude-desktop/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        proxy_handler(AxumState(state.clone()), request)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let request = Request::builder()
+        .uri("/claude-desktop/v1/models")
+        .header("authorization", "Bearer session-invalid")
+        .body(Body::empty())
+        .unwrap();
+    assert!(proxy_handler(AxumState(state), request).await.is_err());
+}
+
+#[tokio::test]
+async fn v2_codex_catalog_does_not_apply_its_upstream_alias_to_list_ids() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{"version":2,"clients":{"codex":{"models":[{"id":"visible-codex","displayName":"My Codex"}],"upstream":{"model":"actual-codex"}}}}"#;
+    let (state, token) = setup_provider_with_mapping(mock.port, "codex", Some(mapping));
+    let request = Request::builder()
+        .uri("/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = proxy_handler(AxumState(state.clone()), request)
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(catalog["object"], "list");
+    assert_eq!(catalog["data"][0]["id"], "visible-codex");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/responses")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(r#"{"model":"visible-codex","input":[]}"#))
+        .unwrap();
+    proxy_handler(AxumState(state), request).await.unwrap();
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "actual-codex"
+    );
+}
+
+// ── gateway namespacing: the served catalog is Claude-shaped, the provider
+// still receives its own ids ──
+
+#[tokio::test]
+async fn claude_discovery_namespaces_ids_and_requests_decode_back() {
+    let mock = start_mock_upstream().await;
+    let (state, token) = setup_provider_with_mapping(mock.port, "claude", None);
+
+    let request = Request::builder()
+        .uri("/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = proxy_handler(AxumState(state.clone()), request)
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(catalog["data"][0]["id"], "claude-company-opus-4-6");
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"claude-company-opus-4-6","messages":[]}"#,
+        ))
+        .unwrap();
+    proxy_handler(AxumState(state), request).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "company-opus-4-6"
+    );
+}
+
+#[tokio::test]
+async fn custom_catalog_exposes_a_1m_entry_only_and_decodes_it() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{"version":2,"clients":{"claude_code":{"catalog":{"mode":"custom","models":[{"id":"deepseek-v4.1-flash","displayName":"V4 Flash","supports1m":true}]},"upstream":{"mode":"follow"}}}}"#;
+    let (state, token) = setup_provider_with_mapping(mock.port, "claude", Some(mapping));
+
+    let request = Request::builder()
+        .uri("/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = proxy_handler(AxumState(state.clone()), request)
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let ids = catalog["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    // A 1M model is offered as the 1M entry only.
+    assert_eq!(ids, vec!["claude-deepseek-v4.1-flash[1m]".to_string()]);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"claude-deepseek-v4.1-flash[1m]","messages":[]}"#,
+        ))
+        .unwrap();
+    proxy_handler(AxumState(state), request).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "deepseek-v4.1-flash"
+    );
+}
+
+#[tokio::test]
+async fn catalog_ids_win_over_family_forwarding() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{"version":2,"clients":{"claude_code":{"catalog":{"mode":"custom","models":[{"id":"claude-sonnet-4-5","displayName":"Relay Sonnet"}]},"upstream":{"mode":"family","sonnet":"claude-sonnet-4-6"}}}}"#;
+    let (state, token) = setup_provider_with_mapping(mock.port, "claude", Some(mapping));
+
+    let request = Request::builder()
+        .uri("/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    proxy_handler(AxumState(state.clone()), request)
+        .await
+        .unwrap();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"claude-sonnet-4-5","messages":[]}"#))
+        .unwrap();
+    proxy_handler(AxumState(state), request).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "claude-sonnet-4-5"
+    );
+}
+
+#[tokio::test]
+async fn role_slots_are_served_without_the_provider_model_list() {
+    // Nothing listens on this port: the role-slot menu must not depend on the
+    // provider's model-list endpoint, which is exactly the endpoint that
+    // rejects credentials on some relays.
+    let dead_port = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let mapping = r#"{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"custom","models":[{"id":"deepseek-v4.1-flash","displayName":"V4 Flash","supports1m":true},{"id":"glm-5.2","displayName":"GLM 5.2"}],"roles":{"opus":"glm-5.2","sonnet":"deepseek-v4.1-flash"}},"upstream":{"mode":"follow"}}}}"#;
+    let (state, token) = setup_provider_with_mapping(dead_port, "claude_desktop", Some(mapping));
+
+    let request = Request::builder()
+        .uri("/claude-desktop/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = proxy_handler(AxumState(state), request).await.unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let served = catalog["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["id"].as_str().unwrap().to_string(),
+                entry["display_name"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        served,
+        vec![
+            (
+                "claude-sonnet-5[1m]".to_string(),
+                "V4 Flash · 1M".to_string()
+            ),
+            ("claude-opus-5".to_string(), "GLM 5.2".to_string()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn role_route_ids_decode_to_the_assigned_models() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"custom","models":[{"id":"glm-5.2","displayName":"GLM 5.2"}],"roles":{"opus":"glm-5.2"}},"upstream":{"mode":"follow"}}}}"#;
+    let (state, token) = setup_provider_with_mapping(mock.port, "claude_desktop", Some(mapping));
+
+    let request = Request::builder()
+        .uri("/claude-desktop/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    proxy_handler(AxumState(state.clone()), request)
+        .await
+        .unwrap();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/claude-desktop/v1/messages")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"claude-opus-5","messages":[]}"#))
+        .unwrap();
+    proxy_handler(AxumState(state), request).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "glm-5.2"
+    );
+}
+
+#[tokio::test]
+async fn roles_pointing_at_one_model_are_listed_once_but_all_routes_resolve() {
+    let mock = start_mock_upstream().await;
+    let mapping = r#"{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"custom","models":[{"id":"glm-5.2","displayName":"GLM 5.2"}],"roles":{"sonnet":"glm-5.2","opus":"glm-5.2"}},"upstream":{"mode":"follow"}}}}"#;
+    let (state, token) = setup_provider_with_mapping(mock.port, "claude_desktop", Some(mapping));
+
+    let request = Request::builder()
+        .uri("/claude-desktop/v1/models")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = proxy_handler(AxumState(state.clone()), request)
+        .await
+        .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let ids = catalog["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["claude-sonnet-5".to_string()]);
+
+    // The opus route is not in the menu, but a request naming it still
+    // reaches the model behind it.
+    let request = Request::builder()
+        .method("POST")
+        .uri("/claude-desktop/v1/messages")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"claude-opus-5","messages":[]}"#))
+        .unwrap();
+    proxy_handler(AxumState(state), request).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "glm-5.2"
+    );
+}
+
+#[tokio::test]
+async fn count_tokens_is_answered_locally_when_the_upstream_lacks_the_route() {
+    let mock = start_mock_upstream().await;
+    let (state, token) = setup_provider_with_mapping(mock.port, "claude", None);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/messages/count_tokens")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"count-me","messages":[{"role":"user","content":"hello world"}]}"#,
+        ))
+        .unwrap();
+    let response = proxy_handler(AxumState(state), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("x-cc-use-count-tokens")
+            .and_then(|value| value.to_str().ok()),
+        Some("estimated")
+    );
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(body["input_tokens"].as_u64().unwrap_or(0) > 0);
 }

@@ -1,34 +1,13 @@
 /**
  * KeyEditModal - 密钥编辑弹窗
  * 统一新增和编辑体验
- * 支持多选类型，当前仅持久化一份局部配置
+ * 各启动台独立模型配置，仅 Claude Code 提供局部配置
  */
 import { useEffect, useMemo, useState } from 'react'
 import { getApi } from '../../api'
-import {
-  Modal,
-  Form,
-  Input,
-  Typography,
-  Space,
-  Segmented,
-  theme,
-  Tooltip,
-  Select,
-  Tabs,
-  Button,
-  Switch,
-} from 'antd'
+import { Button, Modal, Form, Input, Typography, Space, Select, Tabs, Switch } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
-import {
-  SettingOutlined,
-  CopyOutlined,
-  CheckOutlined,
-  DesktopOutlined,
-  CodeOutlined,
-  DeleteOutlined,
-  PlusOutlined,
-} from '@ant-design/icons'
+import { DesktopOutlined, CodeOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type {
@@ -47,12 +26,16 @@ import { newKeyDefaults, type ApiKeyEditorInput, type KeyEditMode } from '../../
 import {
   modelMappingValueForSave,
   parseModelMapping,
-  type ExactModelMapping,
+  EMPTY_MODEL_MAPPING,
+  validateModelMapping,
   type ModelMappingFields,
 } from '../../utils/modelMapping'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
 import { hasClientOverride, mergeClientConfig } from '../../utils/clientConfig'
 import { STARTER_ACCOUNT_SCRIPT } from '../../utils/providerQueryDefaults'
+import ModelMappingEditor from './ModelMappingEditor'
+import { readClaudeConfig } from '../../utils/claudeConfig'
+import type { ModelEditorActions } from './ModelEditorView'
 import styles from './KeyEditModal.module.css'
 
 const { Text } = Typography
@@ -72,15 +55,6 @@ interface KeyEditModalProps {
   onSave: (input: ApiKeyEditorInput) => Promise<void>
 }
 
-type ModelOverrideRow = ExactModelMapping & { id: number }
-
-let nextModelOverrideRowId = 1
-
-const createModelOverrideRow = (entry: ExactModelMapping = { source: '', target: '' }) => ({
-  ...entry,
-  id: nextModelOverrideRowId++,
-})
-
 export default function KeyEditModal({
   open,
   mode,
@@ -92,15 +66,14 @@ export default function KeyEditModal({
 }: KeyEditModalProps) {
   const { t } = useTranslation()
   const message = useAppMessage()
-  const { token } = theme.useToken()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [editorActions, setEditorActions] = useState<ModelEditorActions | null>(null)
+  const [hasPendingModelDraft, setHasPendingModelDraft] = useState(false)
+  const watchedKeyValue = Form.useWatch('value', form)
 
   const [selectedTypes, setSelectedTypes] = useState<ClientKind[]>(['claude_code'])
   const [claudeConfigJson, setClaudeConfigJson] = useState('{}')
-  const [configMode, setConfigMode] = useState<'preview' | 'edit'>('preview')
-  const [jsonError, setJsonError] = useState<string | null>(null)
-  const [configCopied, setConfigCopied] = useState(false)
   const [launchPreview, setLaunchPreview] = useState<TerminalLaunchPreview | null>(null)
   const { globalSettings } = useSettingsStore()
 
@@ -109,19 +82,11 @@ export default function KeyEditModal({
   // query is never asked by accident because a field happened to have text.
   const [usageEnabled, setUsageEnabled] = useState(false)
   const [usageScript, setUsageScript] = useState(STARTER_ACCOUNT_SCRIPT)
-  const [haikuModel, setHaikuModel] = useState('')
-  const [sonnetModel, setSonnetModel] = useState('')
-  const [opusModel, setOpusModel] = useState('')
-  const [autoMode, setAutoMode] = useState<ModelMappingFields['autoMode']>({
-    enabled: false,
-    model: '',
-    thinking: 'low',
-  })
-  const [modelOverrides, setModelOverrides] = useState<ModelOverrideRow[]>([])
-  const [codexModel, setCodexModel] = useState('')
-  const [grokModel, setGrokModel] = useState('')
+  const [mapping, setMapping] = useState<ModelMappingFields>(EMPTY_MODEL_MAPPING)
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
   const [activeTab, setActiveTab] = useState('usage')
+  const [errorClientKind, setErrorClientKind] = useState<ClientKind>()
+  const [retiredMapping, setRetiredMapping] = useState(false)
   const currentProvider = useMemo(() => {
     const pid = defaultProviderId || apiKey?.providerId
     return pid ? providers.find((p) => p.id === pid) : null
@@ -139,13 +104,7 @@ export default function KeyEditModal({
     () => globalSettings.claudeConfig || {},
     [globalSettings.claudeConfig],
   )
-  const parseConfig = (json: string): CliConfig => {
-    try {
-      return JSON.parse(json) as CliConfig
-    } catch {
-      return {}
-    }
-  }
+  const parseConfig = (json: string): CliConfig => readClaudeConfig(json).config
 
   useEffect(() => {
     if (!open) return
@@ -180,34 +139,22 @@ export default function KeyEditModal({
       setClaudeConfigJson(defaults.claudeConfigJson)
       setUsageScript(defaults.usageScript)
       setUsageEnabled(false)
-      setHaikuModel(defaults.mapping.haiku)
-      setSonnetModel(defaults.mapping.sonnet)
-      setOpusModel(defaults.mapping.opus)
-      setAutoMode(defaults.mapping.autoMode)
-      setModelOverrides(defaults.mapping.modelOverrides.map(createModelOverrideRow))
-      setCodexModel(defaults.mapping.codex)
-      setGrokModel(defaults.mapping.grok)
+      setMapping(defaults.mapping)
       setClientConfigs(defaults.clientConfigs)
     }
-    setConfigMode('preview')
 
     if (source) {
       setUsageScript(source.usageScript || STARTER_ACCOUNT_SCRIPT)
       setUsageEnabled(Boolean(source.usageScript?.trim()))
-      const mapping = parseModelMapping(source.modelMapping)
-      setHaikuModel(mapping.haiku)
-      setSonnetModel(mapping.sonnet)
-      setOpusModel(mapping.opus)
-      setAutoMode(mapping.autoMode)
-      setModelOverrides(mapping.modelOverrides.map(createModelOverrideRow))
-      setCodexModel(mapping.codex)
-      setGrokModel(mapping.grok)
+      setMapping(parseModelMapping(source.modelMapping))
       setClientConfigs(source.clientConfigs || {})
     }
 
     // A copy exists to be re-pointed at another model mapping, so start there.
     setActiveTab(mode === 'duplicate' ? 'modelMapping' : 'usage')
-    setJsonError(null)
+    setErrorClientKind(undefined)
+    setEditorActions(null)
+    setHasPendingModelDraft(false)
     // `currentProvider` carries the saved key defaults a create inherits, so a
     // provider swap has to re-seed the draft.
   }, [open, mode, apiKey, form, isOfficialDeepSeek, currentProvider])
@@ -229,27 +176,28 @@ export default function KeyEditModal({
       .catch(() => setLaunchPreview(null))
   }, [open, apiKey, defaultProviderId, selectedTypes])
 
+  useEffect(() => {
+    let active = true
+    setRetiredMapping(false)
+    if (open && apiKey?.id) {
+      getApi()
+        .apiKey.retiredMappingReport()
+        .then((ids) => {
+          if (active) setRetiredMapping(ids.includes(apiKey.id))
+        })
+        .catch(() => {})
+    }
+    return () => {
+      active = false
+    }
+  }, [open, apiKey?.id])
+
   const handleTypesChange = (types: ClientKind[]) => {
     if (types.length === 0) {
       message.warning(t('apiKeys.selectAtLeastOne') || '至少选择一种类型')
       return
     }
     setSelectedTypes(types)
-  }
-
-  const buildModelMappingJson = (): string | undefined => {
-    return modelMappingValueForSave(
-      {
-        haiku: haikuModel,
-        sonnet: sonnetModel,
-        opus: opusModel,
-        autoMode,
-        modelOverrides,
-        codex: codexModel,
-        grok: grokModel,
-      },
-      mode !== 'create',
-    )
   }
 
   const handleSubmit = async () => {
@@ -263,30 +211,61 @@ export default function KeyEditModal({
         return
       }
 
-      try {
-        if (selectedTypes.includes('claude_code')) JSON.parse(claudeConfigJson)
-      } catch {
-        setJsonError('JSON 格式错误')
-        message.error('JSON 格式错误')
+      if (selectedTypes.includes('claude_code') && !readClaudeConfig(claudeConfigJson).valid) {
+        setActiveTab('modelMapping')
+        setErrorClientKind('claude_code')
+        message.error(t('keys.processModelsInvalidConfig'))
         return
       }
-
+      const invalidEnvNames = selectedTypes.includes('claude_code')
+        ? Object.keys(parseConfig(claudeConfigJson)).filter(
+            (key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key),
+          )
+        : []
+      if (invalidEnvNames.length) {
+        setActiveTab('modelMapping')
+        setErrorClientKind('claude_code')
+        message.error(t('keys.invalidEnvNames', { fields: invalidEnvNames.join(', ') }))
+        return
+      }
+      const nativeFields = selectedTypes.includes('claude_code')
+        ? ['modelPicker', 'modelOverrides', 'availableModels'].filter(
+            (key) => key in parseConfig(claudeConfigJson),
+          )
+        : []
+      if (nativeFields.length) {
+        setActiveTab('modelMapping')
+        setErrorClientKind('claude_code')
+        message.error(t('keys.nativeSettingsUnsupported', { fields: nativeFields.join(', ') }))
+        return
+      }
       const localConfig = selectedTypes.includes('claude_code')
         ? parseConfig(claudeConfigJson)
         : undefined
       if (localConfig) {
         delete localConfig.prelaunchCommand
       }
-      const incompleteOverride = modelOverrides.some(
-        ({ source, target }) => Boolean(source.trim()) !== Boolean(target.trim()),
-      )
-      if (incompleteOverride) {
-        message.error(t('keys.modelOverrideIncomplete') || '精确映射的原模型和上游模型必须同时填写')
+      const mappingError = validateModelMapping(mapping, selectedTypes)
+      if (mappingError) {
+        setActiveTab('modelMapping')
+        setErrorClientKind(mappingError.clientKind)
+        message.error(
+          `${getClientKindConfig(mappingError.clientKind).label}: ${t(`keys.${mappingError.key}`)}`,
+        )
         return
       }
-      const overrideSources = modelOverrides.map(({ source }) => source.trim()).filter(Boolean)
-      if (new Set(overrideSources).size !== overrideSources.length) {
-        message.error(t('keys.modelOverrideDuplicate') || '精确映射的原模型不能重复')
+      const codeModel = localConfig?.ANTHROPIC_MODEL
+      if (
+        selectedTypes.includes('claude_code') &&
+        mapping.clients.claude_code.catalogMode === 'custom' &&
+        typeof codeModel === 'string' &&
+        codeModel &&
+        !['haiku', 'sonnet', 'opus'].includes(codeModel) &&
+        !mapping.clients.claude_code.models.some((model) => model.id === codeModel)
+      ) {
+        setActiveTab('modelMapping')
+        setErrorClientKind('claude_code')
+        message.error(t('keys.clientDefaultInvalid'))
         return
       }
       // Evaluated before saving, so a typo is caught here rather than on the
@@ -305,7 +284,7 @@ export default function KeyEditModal({
         }
       }
 
-      const serializedModelMapping = buildModelMappingJson()
+      const serializedModelMapping = modelMappingValueForSave(mapping, mode !== 'create')
       await onSave({
         id: mode === 'edit' ? apiKey?.id : undefined,
         mode,
@@ -344,35 +323,54 @@ export default function KeyEditModal({
     return currentProvider ? `${baseTitle} - ${currentProvider.name}` : baseTitle
   }, [mode, currentProvider, t])
 
-  const mergedConfigJson = useMemo(
-    () => JSON.stringify({ ...claudeGlobalConfig, ...parseConfig(claudeConfigJson) }, null, 2),
-    [claudeGlobalConfig, claudeConfigJson],
-  )
-
   const previewJson = useMemo(() => {
-    if (launchPreview) {
-      return JSON.stringify(
-        {
-          ...launchPreview.env,
-          __command: launchPreview.command,
-        },
-        null,
-        2,
-      )
+    const local = parseConfig(claudeConfigJson)
+    const merged = { ...claudeGlobalConfig, ...local }
+    const env: Record<string, string> = { ...(launchPreview?.env ?? {}) }
+    const protectedKeys = new Set([
+      'ANTHROPIC_BASE_URL',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_API_KEY',
+      'prelaunchCommand',
+      'modelPicker',
+      'modelOverrides',
+      'availableModels',
+    ])
+    for (const key of new Set([
+      ...Object.keys(apiKey?.config ?? {}),
+      ...Object.keys(claudeGlobalConfig),
+      ...Object.keys(local),
+    ])) {
+      if (protectedKeys.has(key)) continue
+      const value = merged[key]
+      if (value === undefined || value === null) delete env[key]
+      else env[key] = typeof value === 'string' ? value : JSON.stringify(value)
     }
-    return mergedConfigJson
-  }, [launchPreview, mergedConfigJson])
-
-  const handleCopyConfig = async () => {
-    try {
-      await navigator.clipboard.writeText(configMode === 'preview' ? previewJson : claudeConfigJson)
-      setConfigCopied(true)
-      setTimeout(() => setConfigCopied(false), 2000)
-      message.success(t('common.copied') || '已复制')
-    } catch {
-      message.error(t('messages.error') || '复制失败')
+    for (const [key, fallback] of Object.entries({
+      API_TIMEOUT_MS: '3000000',
+      CLAUDE_CODE_ATTRIBUTION_HEADER: '0',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: '1',
+    })) {
+      if (key === 'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY' ? !(key in merged) : !(key in env))
+        env[key] = fallback
     }
-  }
+    env.ANTHROPIC_BASE_URL =
+      launchPreview?.env.ANTHROPIC_BASE_URL ??
+      `http://localhost:${globalSettings.proxyPort ?? 12345}`
+    env.ANTHROPIC_AUTH_TOKEN =
+      launchPreview?.env.ANTHROPIC_AUTH_TOKEN ?? t('keys.generatedAtLaunch')
+    delete env.ANTHROPIC_API_KEY
+    for (const key of ['modelPicker', 'modelOverrides', 'availableModels']) delete env[key]
+    return JSON.stringify({ ...env, __command: launchPreview?.command ?? 'claude' }, null, 2)
+  }, [
+    launchPreview,
+    claudeConfigJson,
+    claudeGlobalConfig,
+    globalSettings.proxyPort,
+    apiKey?.config,
+    t,
+  ])
 
   return (
     <Modal
@@ -383,6 +381,17 @@ export default function KeyEditModal({
       okText={t('common.save')}
       cancelText={t('common.cancel')}
       confirmLoading={loading}
+      okButtonProps={{ disabled: hasPendingModelDraft }}
+      footer={
+        activeTab === 'modelMapping' && editorActions ? (
+          editorActions.confirm ? <>
+            <Button onClick={onClose}>{t('common.cancel')}</Button>
+            <Button type='primary' onClick={editorActions.confirm}>
+              {editorActions.confirmText}
+            </Button>
+          </> : null
+        ) : undefined
+      }
       width={960}
       destroyOnHidden
       className={styles.modal}
@@ -455,9 +464,18 @@ export default function KeyEditModal({
             </Form.Item>
           </div>
           <div className={styles.configurationPane}>
-            <Tabs
+            {retiredMapping && (
+              <Text type='warning' className={styles.hintLine}>
+                {t('keys.retiredMappingNotice')}
+              </Text>
+            )}
+          {hasPendingModelDraft && activeTab !== 'modelMapping' && <div className={styles.hintLine}><Text type='warning'>{t('keys.pendingModelDraft')}</Text><Button type='link' size='small' onClick={() => setActiveTab('modelMapping')}>{t('keys.backToModels')}</Button></div>}
+          <Tabs
               activeKey={activeTab}
-              onChange={setActiveTab}
+              onChange={(key) => {
+                editorActions?.back()
+                setActiveTab(key)
+              }}
               destroyOnHidden={false}
               className={styles.tabs}
               items={[
@@ -494,310 +512,37 @@ export default function KeyEditModal({
                 },
                 {
                   key: 'modelMapping',
-                  label: '模型映射',
+                  label: t('keys.modelConfiguration'),
                   children: (
-                    <div className={styles.tabPane}>
-                      <Text
-                        type='secondary'
-                        style={{ marginBottom: 12, display: 'block', fontSize: 12 }}
-                      >
-                        {t('keys.modelMappingHint') || '只改写实际发送给上游的模型名称'}
-                      </Text>
-                      {selectedTypes.some(
-                        (type) => type === 'claude_code' || type === 'claude_desktop',
-                      ) && (
-                        <>
-                          <Text strong style={{ marginBottom: 12, display: 'block' }}>
-                            Claude
-                          </Text>
-                          <div className={styles.familyMappingGrid}>
-                            <Form.Item
-                              label='Haiku'
-                              extra={t('keys.modelMapHaikuExtra') || '包含 haiku 的模型 →'}
-                            >
-                              <Input
-                                value={haikuModel}
-                                onChange={(e) => setHaikuModel(e.target.value)}
-                                placeholder='claude-haiku-4-5'
-                              />
-                            </Form.Item>
-                            <Form.Item
-                              label='Sonnet'
-                              extra={t('keys.modelMapSonnetExtra') || '包含 sonnet 的模型 →'}
-                            >
-                              <Input
-                                value={sonnetModel}
-                                onChange={(e) => setSonnetModel(e.target.value)}
-                                placeholder='claude-sonnet-4-5'
-                              />
-                            </Form.Item>
-                            <Form.Item
-                              label='Opus'
-                              extra={t('keys.modelMapOpusExtra') || '包含 opus 的模型 →'}
-                            >
-                              <Input
-                                value={opusModel}
-                                onChange={(e) => setOpusModel(e.target.value)}
-                                placeholder='claude-opus-4-7'
-                              />
-                            </Form.Item>
-                          </div>
-                          <Form.Item label={t('keys.autoMode')} extra={t('keys.autoModeHint')}>
-                            <Switch
-                              checked={autoMode.enabled}
-                              onChange={(enabled) =>
-                                setAutoMode((current) => ({ ...current, enabled }))
-                              }
-                              aria-label={t('keys.autoMode')}
-                            />
-                          </Form.Item>
-                          {autoMode.enabled && (
-                            <>
-                              <Form.Item
-                                label={t('keys.autoModeModel')}
-                                extra={t('keys.autoModeModelHint')}
-                              >
-                                <Input
-                                  value={autoMode.model}
-                                  onChange={(event) =>
-                                    setAutoMode((current) => ({
-                                      ...current,
-                                      model: event.target.value,
-                                    }))
-                                  }
-                                  placeholder={t('keys.autoModeModelPlaceholder')}
-                                  aria-label={t('keys.autoModeModel')}
-                                />
-                              </Form.Item>
-                              <Form.Item
-                                label={t('keys.autoModeThinking')}
-                                extra={t('keys.autoModeThinkingHint')}
-                              >
-                                <Select
-                                  value={autoMode.thinking}
-                                  onChange={(
-                                    thinking: ModelMappingFields['autoMode']['thinking'],
-                                  ) => setAutoMode((current) => ({ ...current, thinking }))}
-                                  aria-label={t('keys.autoModeThinking')}
-                                  options={[
-                                    { value: 'low', label: t('keys.autoModeThinkingLow') },
-                                    {
-                                      value: 'disabled',
-                                      label: t('keys.autoModeThinkingDisabled'),
-                                    },
-                                    {
-                                      value: 'preserve',
-                                      label: t('keys.autoModeThinkingPreserve'),
-                                    },
-                                  ]}
-                                />
-                              </Form.Item>
-                            </>
-                          )}
-                          <div className={styles.exactMappingSection}>
-                            <div className={styles.exactMappingHeader}>
-                              <div>
-                                <Text strong>{t('keys.modelOverrides') || '精确映射（高级）'}</Text>
-                                <Text type='secondary' className={styles.exactMappingHint}>
-                                  {t('keys.modelOverridesHint') ||
-                                    '具体模型优先于上方家族映射；全部未命中时保持原模型'}
-                                </Text>
-                              </div>
-                              <Button
-                                type='dashed'
-                                size='small'
-                                icon={<PlusOutlined />}
-                                onClick={() =>
-                                  setModelOverrides((current) => [
-                                    ...current,
-                                    createModelOverrideRow(),
-                                  ])
-                                }
-                              >
-                                {t('keys.modelOverrideAdd') || '添加'}
-                              </Button>
-                            </div>
-                            {modelOverrides.length === 0 ? (
-                              <Text type='secondary' className={styles.exactMappingEmpty}>
-                                {t('keys.modelOverridesEmpty') || '暂无精确映射'}
-                              </Text>
-                            ) : (
-                              <div className={styles.exactMappingList}>
-                                {modelOverrides.map((entry) => (
-                                  <div className={styles.exactMappingRow} key={entry.id}>
-                                    <Input
-                                      value={entry.source}
-                                      onChange={(event) =>
-                                        setModelOverrides((current) =>
-                                          current.map((item) =>
-                                            item.id === entry.id
-                                              ? { ...item, source: event.target.value }
-                                              : item,
-                                          ),
-                                        )
-                                      }
-                                      placeholder={
-                                        t('keys.modelOverrideSourcePlaceholder') ||
-                                        '原模型，如 claude-opus-4-8'
-                                      }
-                                      aria-label={t('keys.modelOverrideSource') || '原模型'}
-                                    />
-                                    <span className={styles.mappingArrow}>→</span>
-                                    <Input
-                                      value={entry.target}
-                                      onChange={(event) =>
-                                        setModelOverrides((current) =>
-                                          current.map((item) =>
-                                            item.id === entry.id
-                                              ? { ...item, target: event.target.value }
-                                              : item,
-                                          ),
-                                        )
-                                      }
-                                      placeholder={
-                                        t('keys.modelOverrideTargetPlaceholder') ||
-                                        '上游模型，如 claude-opus-4-6'
-                                      }
-                                      aria-label={t('keys.modelOverrideTarget') || '上游模型'}
-                                    />
-                                    <Button
-                                      type='text'
-                                      danger
-                                      icon={<DeleteOutlined />}
-                                      aria-label={t('common.delete') || '删除'}
-                                      onClick={() =>
-                                        setModelOverrides((current) =>
-                                          current.filter((item) => item.id !== entry.id),
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      )}
-                      {selectedTypes.includes('codex') && (
-                        <div>
-                          <Text strong style={{ marginBottom: 12, display: 'block' }}>
-                            Codex Desktop
-                          </Text>
-                          <Form.Item
-                            label={t('keys.modelMapCodex') || '上游模型'}
-                            extra={
-                              t('keys.modelMapCodexExtra') ||
-                              '留空时使用 Codex 里选择的模型；填写后只替换请求中的模型名称，不转换 Responses 协议'
-                            }
-                          >
-                            <Input
-                              value={codexModel}
-                              onChange={(e) => setCodexModel(e.target.value)}
-                              placeholder={t('keys.modelMapCodexPlaceholder') || '默认跟随客户端'}
-                            />
-                          </Form.Item>
-                        </div>
-                      )}
-                      {selectedTypes.includes('grok') && (
-                        <div>
-                          <Text strong style={{ marginBottom: 12, display: 'block' }}>
-                            Grok Build
-                          </Text>
-                          <Form.Item
-                            label={t('keys.modelMapGrok') || '上游模型'}
-                            extra={
-                              t('keys.modelMapGrokExtra') ||
-                              '留空时使用 Grok Build 自己请求的模型；填写后只替换请求中的模型名称'
-                            }
-                          >
-                            <Input
-                              value={grokModel}
-                              onChange={(e) => setGrokModel(e.target.value)}
-                              placeholder={t('keys.modelMapGrokPlaceholder') || '默认跟随客户端'}
-                            />
-                          </Form.Item>
-                        </div>
-                      )}
-                    </div>
+                    <ModelMappingEditor
+                      types={selectedTypes}
+                      value={mapping}
+                      onChange={setMapping}
+                      claudeConfigJson={claudeConfigJson}
+                      onClaudeConfigChange={setClaudeConfigJson}
+                      globalClaudeConfig={claudeGlobalConfig}
+                      previewJson={previewJson}
+                      providerId={currentProvider?.id}
+                      apiKeyId={mode === 'edit' ? apiKey?.id : undefined}
+                      errorClientKind={errorClientKind}
+                      draftKeyValue={
+                        typeof watchedKeyValue === 'string'
+                          ? watchedKeyValue
+                          : (apiKey?.value ?? '')
+                      }
+                      clientConfigs={clientConfigs}
+                      onEditorActionsChange={setEditorActions}
+                      onPendingDraftChange={setHasPendingModelDraft}
+                    />
                   ),
                 },
-                ...(selectedTypes.includes('claude_code')
-                  ? [
-                      {
-                        key: 'claudeConfig',
-                        label: '局部配置',
-                        children: (
-                          <div className={styles.tabPane}>
-                            <div className={styles.configSection}>
-                              <div className={styles.configHeader}>
-                                <Space>
-                                  <SettingOutlined style={{ color: token.colorPrimary }} />
-                                  <Text strong>Claude Code 局部配置</Text>
-                                </Space>
-                                <Tooltip
-                                  title={configCopied ? t('common.copied') : t('common.copy')}
-                                >
-                                  <button
-                                    type='button'
-                                    className={styles.copyButton}
-                                    onClick={handleCopyConfig}
-                                  >
-                                    {configCopied ? (
-                                      <CheckOutlined style={{ color: token.colorSuccess }} />
-                                    ) : (
-                                      <CopyOutlined />
-                                    )}
-                                  </button>
-                                </Tooltip>
-                              </div>
-
-                              <Segmented
-                                value={configMode}
-                                onChange={(value) => setConfigMode(value as 'preview' | 'edit')}
-                                options={[
-                                  { value: 'preview', label: '预览' },
-                                  { value: 'edit', label: '编辑局部' },
-                                ]}
-                                block
-                                className={styles.configTabs}
-                              />
-
-                              <TextArea
-                                value={configMode === 'preview' ? previewJson : claudeConfigJson}
-                                readOnly={configMode === 'preview'}
-                                onChange={(e) => {
-                                  setClaudeConfigJson(e.target.value)
-                                  if (jsonError) setJsonError(null)
-                                }}
-                                className={`${styles.jsonEditor} ${jsonError ? styles.jsonEditorError : ''}`}
-                                autoSize={{ minRows: 8, maxRows: 16 }}
-                                placeholder='{}'
-                              />
-
-                              <Text type='secondary' className={styles.errorText}>
-                                {configMode === 'preview'
-                                  ? '预览态展示 Claude Code 全局配置、局部配置和启动注入环境合并后的结果。'
-                                  : '这里只编辑这把密钥自己的局部配置；全局配置在 Claude Code 页面维护。'}
-                              </Text>
-
-                              {jsonError && (
-                                <Text type='danger' className={styles.errorText}>
-                                  {jsonError}
-                                </Text>
-                              )}
-                            </div>
-                          </div>
-                        ),
-                      },
-                    ]
-                  : []),
                 {
                   key: 'clientConfigs',
-                  label: '客户端配置',
+                  label: t('keys.connectionConfig'),
                   children: (
                     <div className={styles.tabPane}>
                       <Text type='secondary' className={styles.hintLine}>
-                        为不同客户端指定专用 URL 和上游认证方式，留空则使用默认配置
+                        {t('keys.connectionConfigHint')}
                       </Text>
                       {/* One row per client, its two controls side by side: a
                           stacked pair per client reads as four unrelated
@@ -815,14 +560,16 @@ export default function KeyEditModal({
                                 <Text strong>{config.label}</Text>
                                 {isOverridden && (
                                   <Text type='secondary' className={styles.clientRowBadge}>
-                                    已覆盖
+                                    {t('keys.configOverride')}
                                   </Text>
                                 )}
                               </div>
                               <div className={styles.clientRowFields}>
                                 <Form.Item
                                   label='Base URL'
-                                  extra={`默认 ${currentProvider?.baseUrl || '未设置'}`}
+                                  extra={t('keys.connectionDefault', {
+                                    value: currentProvider?.baseUrl || t('keys.connectionUnset'),
+                                  })}
                                   style={{ marginBottom: 0 }}
                                 >
                                   <Input
@@ -838,8 +585,10 @@ export default function KeyEditModal({
                                   />
                                 </Form.Item>
                                 <Form.Item
-                                  label='上游认证方式'
-                                  extra={`默认 ${getDefaultAuthSchemeLabel(clientKind)}`}
+                                  label={t('keys.connectionAuth')}
+                                  extra={t('keys.connectionDefault', {
+                                    value: getDefaultAuthSchemeLabel(clientKind),
+                                  })}
                                   style={{ marginBottom: 0 }}
                                 >
                                   <Select
@@ -850,10 +599,10 @@ export default function KeyEditModal({
                                       })
                                     }}
                                     options={[
-                                      { label: '默认', value: 'default' },
+                                      { label: t('keys.connectionUseDefault'), value: 'default' },
                                       { label: 'x-api-key', value: 'x-api-key' },
                                       { label: 'Authorization: Bearer', value: 'bearer' },
-                                      { label: '不发认证头', value: 'none' },
+                                      { label: t('keys.connectionNoAuth'), value: 'none' },
                                     ]}
                                   />
                                 </Form.Item>

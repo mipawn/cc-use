@@ -100,7 +100,8 @@ pub(super) fn is_message_response(bytes: &[u8]) -> bool {
 
 impl AutoModeState {
     pub(super) fn adapt(&mut self, bytes: Bytes, mapping: &str, route_scope: &str) -> Bytes {
-        let Some(config) = serde_json::from_str::<Mapping>(mapping)
+        let scoped = crate::shared_runtime::model_mapping::upstream_mapping(mapping, "claude_code");
+        let Some(config) = serde_json::from_str::<Mapping>(scoped.as_deref().unwrap_or("{}"))
             .ok()
             .and_then(|mapping| mapping.auto_mode)
             .filter(|config| config.enabled)
@@ -195,6 +196,29 @@ impl AutoModeState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v2_classifier_model_uses_only_the_claude_code_scope() {
+        let classifier = Bytes::from(
+            json!({"model":"original", "system":CLASSIFIER_PREFIX,
+            "messages":[{"role":"user","content":"<transcript>test</transcript>"}]})
+            .to_string(),
+        );
+        let mapping = json!({"version":2,"clients":{
+            "claude_code":{"upstream":{"autoMode":{"enabled":true,"model":"code-classifier","thinking":"preserve"}}},
+            "claude_desktop":{"upstream":{"autoMode":{"enabled":true,"model":"desktop-classifier"}}}
+        }}).to_string();
+        let adapted = AutoModeState::default().adapt(classifier.clone(), &mapping, "route");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&adapted).unwrap()["model"],
+            "code-classifier"
+        );
+        let disabled = json!({"version":2,"clients":{"claude_desktop":{"upstream":{"autoMode":{"enabled":true,"model":"desktop-classifier"}}}}}).to_string();
+        assert_eq!(
+            AutoModeState::default().adapt(classifier.clone(), &disabled, "route"),
+            classifier
+        );
+    }
 
     #[test]
     fn string_prompts_follow_only_the_same_route_and_identified_session() {

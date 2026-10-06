@@ -4,16 +4,19 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
-import type { ApiKey, Provider } from '@shared/types'
+import type { ApiKey, Provider, TerminalLaunchPreview } from '@shared/types'
 import KeyEditModal from './KeyEditModal'
 import { buildDuplicatedKeyDraft, type KeyEditMode } from '../../utils/apiKeyEditor'
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
 
+const apiMock = vi.hoisted(() => ({ preview: null as TerminalLaunchPreview | null }))
+
 vi.mock('../../api', () => ({
   getApi: () => ({
-    terminal: { getLaunchPreview: async () => null },
+    terminal: { getLaunchPreview: async () => apiMock.preview },
+    apiKey: { retiredMappingReport: async () => [] },
     // The quota script is checked before saving; the mock accepts it.
     balance: { checkScript: async () => ({ url: '', method: 'GET', headers: {} }) },
     userAgent: { list: async () => [], save: async (value: string) => [value] },
@@ -60,6 +63,7 @@ afterEach(async () => {
     mounted = null
   }
   document.body.innerHTML = ''
+  apiMock.preview = null
   vi.clearAllMocks()
 })
 
@@ -208,6 +212,46 @@ async function openTab(label: string) {
   })
 }
 
+async function openCode() {
+  const header = Array.from(document.body.querySelectorAll('.ant-collapse-header')).find((node) =>
+    node.textContent?.includes('Claude Code'),
+  ) as HTMLElement
+  expect(header).toBeDefined()
+  if (header.getAttribute('aria-expanded') !== 'true') {
+    await act(async () => {
+      header.click()
+    })
+  }
+}
+
+async function clickButton(text: string) {
+  const button = Array.from(document.body.querySelectorAll('button')).find(
+    (node) => node.textContent === text,
+  )!
+  expect(button).toBeDefined()
+  await act(async () => {
+    button.click()
+  })
+}
+
+async function chooseCodeModel(value: string) {
+  const select = document.body
+    .querySelector('[aria-label="Claude Code ANTHROPIC_MODEL"]')
+    ?.closest('.ant-select')
+  expect(select).not.toBeNull()
+  await act(async () => {
+    select!
+      .querySelector('input[role="combobox"]')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', keyCode: 40, bubbles: true }))
+  })
+  await fillInput('input[aria-label="keys.processDefaultModel keys.manualEntry"]', value)
+  await act(async () => {
+    ;(
+      document.body.querySelector('button[aria-label="keys.useEnteredModel"]') as HTMLButtonElement
+    ).click()
+  })
+}
+
 it('fills every tab from the source key when duplicating', async () => {
   await render('duplicate', buildDuplicatedKeyDraft(sourceKey(), '（副本）'))
 
@@ -221,16 +265,26 @@ it('fills every tab from the source key when duplicating', async () => {
   expect(fieldValues).toContain(SOURCE_QUOTA_SCRIPT)
 
   // The copy opens on the model mapping so it can be re-pointed immediately.
-  expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain('模型映射')
-  expect(query('input[placeholder="claude-haiku-4-5"]')?.value).toBe('source-haiku')
-  expect(query('input[placeholder="claude-sonnet-4-5"]')?.value).toBe('source-sonnet')
+  expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain(
+    'keys.modelConfiguration',
+  )
+  await openCode()
+  expect(query('input[aria-label="Claude Code haiku keys.upstreamModel"]')?.value).toBe(
+    'source-haiku',
+  )
+  expect(query('input[aria-label="Claude Code sonnet keys.upstreamModel"]')?.value).toBe(
+    'source-sonnet',
+  )
 })
 
 it('keeps provider defaults out of the duplicated draft', async () => {
   await render('duplicate', buildDuplicatedKeyDraft(sourceKey()))
+  await openCode()
 
-  expect(query('input[placeholder="claude-haiku-4-5"]')?.value).not.toBe('deepseek-v4-flash')
-  expect(query('input[placeholder="claude-opus-4-7"]')?.value).toBe('')
+  expect(query('input[aria-label="Claude Code haiku keys.upstreamModel"]')?.value).not.toBe(
+    'deepseek-v4-flash',
+  )
+  expect(query('input[aria-label="Claude Code opus keys.upstreamModel"]')?.value).toBe('')
 })
 
 it('still starts a plain create from provider defaults', async () => {
@@ -241,8 +295,11 @@ it('still starts a plain create from provider defaults', async () => {
     'keys.usageConfig',
   )
 
-  await openTab('模型映射')
-  expect(query('input[placeholder="claude-haiku-4-5"]')?.value).toBe('deepseek-v4-flash')
+  await openTab('keys.modelConfiguration')
+  await openCode()
+  expect(query('input[aria-label="Claude Code haiku keys.upstreamModel"]')?.value).toBe(
+    'deepseek-v4-flash',
+  )
 })
 
 it('saves the copy as a new record without the source id', async () => {
@@ -347,9 +404,14 @@ it('seeds a new key from the provider defaults instead of a hardcoded template',
   )
   expect(seeded).toContain(PRESET_QUOTA_SCRIPT)
 
-  await openTab('模型映射')
-  expect(query('input[placeholder="claude-haiku-4-5"]')?.value).toBe('preset-haiku')
-  expect(query('input[placeholder="claude-sonnet-4-5"]')?.value).toBe('preset-sonnet')
+  await openTab('keys.modelConfiguration')
+  await openCode()
+  expect(query('input[aria-label="Claude Code haiku keys.upstreamModel"]')?.value).toBe(
+    'preset-haiku',
+  )
+  expect(query('input[aria-label="Claude Code sonnet keys.upstreamModel"]')?.value).toBe(
+    'preset-sonnet',
+  )
 
   // What was seeded is what gets saved.
   const saveButton = Array.from(document.body.querySelectorAll('button')).find(
@@ -367,4 +429,99 @@ it('clears a previously configured quota script when the switch is turned off', 
   await toggleQuota()
   await submit()
   expect(onSave.mock.calls[0][0].usageScript).toBe('')
+})
+
+async function fillInput(selector: string, value: string) {
+  const field = query(selector)
+  expect(field).not.toBeNull()
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  await act(async () => {
+    setter?.call(field, value)
+    field!.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+async function openClient(label: string) {
+  const header = Array.from(document.body.querySelectorAll('.ant-collapse-header')).find((node) =>
+    node.textContent?.includes(label),
+  ) as HTMLElement
+  expect(header).toBeDefined()
+  await act(async () => {
+    header.click()
+  })
+}
+
+it('gives Desktop its own catalog and fixed forwarding without changing Code', async () => {
+  const source = {
+    ...sourceKey(),
+    types: ['claude_code', 'claude_desktop'] as ApiKey['types'],
+    modelMapping: JSON.stringify({
+      version: 2,
+      clients: {
+        claude_code: { upstream: { mode: 'family', haiku: 'source-haiku' } },
+        claude_desktop: {
+          catalog: {
+            mode: 'custom',
+            models: [{ id: 'desktop-real', displayName: 'Desktop label' }],
+          },
+          upstream: { mode: 'fixed', model: 'old-desktop' },
+        },
+      },
+    }),
+  }
+  const onSave = await render('duplicate', buildDuplicatedKeyDraft(source))
+  expect(document.body.querySelectorAll('.ant-collapse-header')).toHaveLength(2)
+  await openClient('Claude Desktop')
+  await fillInput('input[aria-label="Claude Desktop keys.upstreamModel"]', 'desktop-target')
+  await submit()
+  const clients = JSON.parse(onSave.mock.calls[0][0].modelMapping).clients
+  expect(clients.claude_code.upstream.haiku).toBe('source-haiku')
+  expect(clients.claude_desktop.upstream).toEqual({ mode: 'fixed', model: 'desktop-target' })
+  expect(clients.claude_desktop.catalog.models).toEqual([
+    { id: 'desktop-real', displayName: 'Desktop label' },
+  ])
+  expect(clients.claude_desktop.upstream.autoMode).toBeUndefined()
+})
+
+it('edits process models through the same local config and preserves other variables', async () => {
+  const source = { ...sourceKey(), config: { OTHER_OPTION: 'keep', ANTHROPIC_MODEL: 'old' } }
+  const onSave = await render('duplicate', buildDuplicatedKeyDraft(source))
+  await openCode()
+  await chooseCodeModel('new-process-model')
+  await clickButton('keys.otherStartupSettings…')
+  const local = Array.from(document.body.querySelectorAll('textarea')).find((field) =>
+    field.value.includes('OTHER_OPTION'),
+  )!
+  expect(JSON.parse(local.value)).toEqual({
+    OTHER_OPTION: 'keep',
+  })
+  await clickButton('keys.applyModelDraft')
+  await submit()
+  expect(onSave.mock.calls[0][0].config).toEqual({
+    OTHER_OPTION: 'keep',
+    ANTHROPIC_MODEL: 'new-process-model',
+  })
+  expect(JSON.parse(onSave.mock.calls[0][0].modelMapping).clients.claude_code.upstream.haiku).toBe(
+    'source-haiku',
+  )
+})
+
+it('previews unsaved process model changes while retaining gateway credentials', async () => {
+  apiMock.preview = {
+    cliType: 'claude_code',
+    command: 'claude',
+    env: { ANTHROPIC_MODEL: 'old', ANTHROPIC_AUTH_TOKEN: 'session-preview' },
+  }
+  await render('edit', { ...sourceKey(), config: { ANTHROPIC_MODEL: 'old' } })
+  await openTab('keys.modelConfiguration')
+  await openCode()
+  await chooseCodeModel('draft-model')
+  await clickButton('keys.viewLaunchPreview')
+  const preview = Array.from(document.body.querySelectorAll('textarea')).find((field) =>
+    field.value.includes('__command'),
+  )!
+  expect(JSON.parse(preview.value)).toMatchObject({
+    ANTHROPIC_MODEL: 'draft-model',
+    ANTHROPIC_AUTH_TOKEN: 'session-preview',
+  })
 })

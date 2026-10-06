@@ -65,7 +65,18 @@ pub fn resolve_launch_preview_from_configs(
     let mut env = EnvObject::new();
 
     for (key, value) in merged.iter() {
-        if key == "prelaunchCommand" {
+        if key.is_empty()
+            || key.as_bytes()[0].is_ascii_digit()
+            || !key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            continue;
+        }
+        if matches!(
+            key.as_str(),
+            "prelaunchCommand" | "modelPicker" | "modelOverrides" | "availableModels"
+        ) {
             continue;
         }
         if let Some(env_value) = json_value_to_env_string(value) {

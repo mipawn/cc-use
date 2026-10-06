@@ -307,7 +307,12 @@ pub fn default_preset_id() -> String {
 
 /// Serialise a key-defaults object for storage.
 pub fn serialize_default_key_config(config: &DefaultKeyConfig) -> Option<String> {
-    serde_json::to_string(config).ok()
+    let mut value = serde_json::to_value(config).ok()?;
+    value["modelMapping"] =
+        crate::shared_runtime::model_mapping::sanitize_mapping(config.model_mapping.as_deref())
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null);
+    serde_json::to_string(&value).ok()
 }
 
 /// Read a stored key-defaults object. An unreadable value yields `None`, which
@@ -317,7 +322,10 @@ pub fn parse_default_key_config(raw: Option<&str>) -> Option<DefaultKeyConfig> {
     if raw.trim().is_empty() {
         return None;
     }
-    serde_json::from_str(raw).ok()
+    let mut config: DefaultKeyConfig = serde_json::from_str(raw).ok()?;
+    config.model_mapping =
+        crate::shared_runtime::model_mapping::sanitize_mapping(config.model_mapping.as_deref());
+    Some(config)
 }
 
 #[cfg(test)]
@@ -628,7 +636,10 @@ mod tests {
     fn normalising_leaves_every_other_id_alone() {
         assert_eq!(normalize_request_adapter("none"), "none");
         assert_eq!(normalize_request_adapter("  none  "), "none");
-        assert_eq!(normalize_request_adapter("from-a-newer-build"), "from-a-newer-build");
+        assert_eq!(
+            normalize_request_adapter("from-a-newer-build"),
+            "from-a-newer-build"
+        );
         assert_eq!(normalize_request_adapter(""), "");
     }
 

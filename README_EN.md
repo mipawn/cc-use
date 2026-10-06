@@ -42,7 +42,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 - **System Tray** - Minimize to tray on close while the daemon keeps running; tray menu supports service control and quick-launching recent projects
 - **Auto mode classifier adaptation (experimental)** - Enable per key to follow the Claude session model or choose a classifier model, with low or disabled thinking. Off by default. Includes classifier response header compatibility fixes and Auto mode labels in usage statistics; see the [v3.9.1 guide](https://github.com/mipawn/cc-use-docs/blob/main/v3.9.1/README.md).
 - **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
-- **Claude Code Config Management** - Global and per-key local configuration (JSON), automatically merged and injected at launch; the editor now lives on the Claude Code page
+- **Claude Code Config Management** - Global and per-key startup variables merge at launch. Key-level model controls live with client models; other variables are edited in JSON on demand
 - **Internationalization** - Chinese and English UI
 - **Dark Mode** - Light/dark theme switching
 
@@ -62,7 +62,7 @@ Go to the Provider Keys page:
 
 1. Click "Add Provider" - fill in name, Base URL, choose an icon, optionally configure token and balance query
 2. Click "Add Key" under a provider - enter the key value and select target clients (Claude Code / Grok Build / Codex Desktop / Claude Desktop)
-3. Configure usage queries and model mapping as needed; only Claude Code shows local CLI config
+3. Configure usage queries and model configuration as needed. Launchpads start collapsed and separate client models from gateway forwarding. Choose provider models or a specified list, then add or select models in the manager. Only Claude Code offers other startup settings and a launch preview.
 
 ### 2. Use Claude Code / Grok Build
 
@@ -83,7 +83,7 @@ Go to the Codex Desktop page:
 2. Apply takeover; CC Use reads that key's Codex model list, writes `~/.codex/config.toml` plus a local model catalog, and backs up the original config
 3. Restart Codex Desktop after first takeover or official restore
 
-Takeover does not rewrite `auth.json`, so official ChatGPT login and plugin capability are preserved. Built-in DeepSeek falls back to its bundled Flash / Pro catalog when model discovery is unavailable. Flash exposes `low / high / xhigh`; Pro exposes `high / xhigh`. The optional Codex model mapping only renames the model sent upstream. Fully quit and reopen Codex Desktop whenever the catalog or default model changes.
+Takeover does not rewrite `auth.json`, so official ChatGPT login and plugin capability are preserved. Choose provider, appended, or custom catalogs. Failed discovery can use an explicitly identified cache from the same route; use real model IDs for a custom list. Flash exposes `low / high / xhigh`; Pro exposes `high / xhigh`. The optional Codex model mapping only renames the model sent upstream. Fully quit and reopen Codex Desktop whenever the catalog or default model changes.
 
 ### 4. Take Over Claude Desktop
 
@@ -93,7 +93,7 @@ Go to the Claude Desktop page:
 2. Apply takeover; CC Use writes the Claude 3P profile, `_meta.json`, and the related config files
 3. Preview the generated config or restore official config at any time
 
-Before takeover, CC Use probes the local daemon's model-list endpoint. Model mapping is also reflected in Claude Desktop's inference model list.
+Model configuration has separate client-model and upstream-alias sections for each launchpad. Claude Desktop supports explicit catalog modes, real model IDs, and display names served through the local `/v1/models` endpoint. Upstream aliases only rename forwarded models. Reapply takeover and reopen the client after saving.
 
 ### 5. Daemon Service
 
