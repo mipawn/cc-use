@@ -2,9 +2,8 @@
 /**
  * Own the complete Tauri development process tree.
  *
- * Sidecars are prepared before Tauri starts so their Cargo build cannot race
- * the app build for the shared target lock. Tauri then runs in its own process
- * group, allowing one Ctrl+C to stop Tauri, Vite, Cargo and the desktop app.
+ * Tauri's Cargo runner builds the app and sidecars together. Tauri runs in its
+ * own process group, allowing one Ctrl+C to stop the complete dev process tree.
  */
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
@@ -13,7 +12,6 @@ import { fileURLToPath } from 'node:url'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const workspaceRoot = dirname(scriptDir)
-const prepareScript = join(scriptDir, 'prepare-daemon.mjs')
 const tauriBin = join(workspaceRoot, 'node_modules', '.bin', 'tauri')
 
 let activeProcess = null
@@ -38,29 +36,13 @@ function spawnOwned(command, args) {
   })
 }
 
-function waitFor(child, label) {
-  return new Promise((resolve, reject) => {
-    child.once('error', reject)
-    child.once('exit', (code, signal) => {
-      if (code === 0) resolve()
-      else {
-        reject(
-          new Error(
-            signal ? `${label} was terminated by ${signal}` : `${label} exited with ${code}`,
-          ),
-        )
-      }
-    })
-  })
-}
-
 async function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
   terminateProcessGroup(activeProcess)
   await new Promise((resolve) => setTimeout(resolve, 400))
   terminateProcessGroup(activeProcess, 'SIGKILL')
-  process.exit(exitCode)
+  if (!shuttingDown) process.exit(exitCode)
 }
 
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
@@ -70,11 +52,6 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 }
 
 async function main() {
-  console.log('dev: preparing daemon and CLI before Tauri starts')
-  activeProcess = spawnOwned(process.execPath, [prepareScript, '--profile=debug'])
-  await waitFor(activeProcess, 'prepare-daemon')
-
-  if (shuttingDown) return
   console.log('dev: starting Tauri (Ctrl+C stops the complete dev process tree)')
   activeProcess = spawnOwned(tauriBin, ['dev', '--config', 'src-tauri/tauri.dev.conf.json'])
   const exitCode = await new Promise((resolve, reject) => {

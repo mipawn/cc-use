@@ -4,10 +4,12 @@
   "version": "3.10.2",
   "identifier": "com.mipawn.cc-use",
   "build": {
+    "runner": "../scripts/cargo-build.mjs",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "exec node scripts/dev-server.mjs",
-    "beforeBuildCommand": "node scripts/prepare-daemon.mjs && pnpm vite build"
+    "beforeBuildCommand": "pnpm build:frontend",
+    "additionalWatchFolders": ["../crates/cc-use-daemon", "../crates/cc-use-cli"]
   },
   "app": {
     "withGlobalTauri": true,

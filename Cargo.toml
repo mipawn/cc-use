@@ -1,3 +1,10 @@
 [workspace]
 members = ["src-tauri", "crates/cc-use-daemon", "crates/cc-use-cli"]
 resolver = "2"
+
+# Keep useful backtrace locations without macOS's unpacked debug objects.
+# Tests inherit this profile, so repeated builds do not leave thousands of
+# old .rcgu.o files in target/debug/deps.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "off"
