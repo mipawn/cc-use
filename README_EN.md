@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.10.2 Update**: Model-list queries and proxied requests can each pick their own User-Agent (built-in Claude Code / Codex App / Grok presets, with hand-typed values saveable to a local reuse list). The Auto-mode audit view and the OpenCode Go header shim are gone, while regular request logs, usage stats, and the Go preset stay. Also fixes filter chips squashing their provider icons. See [CHANGELOG](./CHANGELOG.md).
+> **3.11.0 Update**: Model configuration is rebuilt into two layers per launchpad — client models and gateway forwarding — with explicit catalog sources (provider models or a specified list), defaults, and forwarding rules. Claude Code tiers now write local startup variables, and Claude Desktop takeover writes a role-based model list. Exact-ID mapping and the separate local-config tab are gone, replaced by catalog preview, remembered query User-Agents, and a local count_tokens fallback. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >

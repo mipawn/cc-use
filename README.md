@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.10.2 更新**：模型查询与代理转发可各自指定 User-Agent（内置 Claude Code / Codex App / Grok 预设，手填值可存入本地复用列表）；移除 Auto 专用审计入口与 OpenCode Go 自动补头，普通请求记录、用量统计与 Go 预设都保留；另修掉筛选 chip 图标被压扁的回归。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.11.0 更新**：模型映射重建为「客户端模型 / 网关转发」两层——每个启动台独立选择目录来源（供应商模型或指定列表）、默认模型与转发方式，Claude Code 档位写入局部启动变量，Claude Desktop 接管列表按角色档生成；删除精确映射与独立局部配置页签，新增目录预览、查询 UA 记忆与 count_tokens 本地兜底。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >
