@@ -1,105 +1,53 @@
-import { useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Menu, theme } from 'antd'
+import { Link, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import {
-  HomeOutlined,
-  BarChartOutlined,
-  SettingOutlined,
-  MonitorOutlined,
-  CodeOutlined,
-  DesktopOutlined,
-  RocketOutlined,
-  AppstoreOutlined,
-  KeyOutlined,
-  ThunderboltOutlined,
-} from '@ant-design/icons'
-
-const { Sider } = Layout
+import type { ReactNode } from 'react'
+import { HomeOutlined, BarChartOutlined, SettingOutlined, KeyOutlined } from '@ant-design/icons'
+import { clientWorkspaces } from './workspaceNavigation'
+import styles from './WorkspaceLayout.module.css'
+import appLogo from '../../assets/icon.svg'
 
 export default function Sidebar() {
-  const navigate = useNavigate()
-  const location = useLocation()
   const { t } = useTranslation()
-  const { token } = theme.useToken()
-
-  const menuItems = [
-    {
-      key: '/',
-      icon: <HomeOutlined />,
-      label: t('common.dashboard'),
-    },
-    {
-      key: 'launch',
-      icon: <RocketOutlined />,
-      label: t('launchpad.title') || '启动台',
-      children: [
-        {
-          key: '/claude-code',
-          icon: <CodeOutlined />,
-          label: 'Claude Code',
-        },
-        {
-          key: '/grok-build',
-          icon: <ThunderboltOutlined />,
-          label: 'Grok Build',
-        },
-        {
-          key: '/codex',
-          icon: <AppstoreOutlined />,
-          label: 'Codex Desktop',
-        },
-        {
-          key: '/claude-desktop',
-          icon: <DesktopOutlined />,
-          label: 'Claude Desktop',
-        },
-      ],
-    },
-    {
-      key: '/keys',
-      icon: <KeyOutlined />,
-      label: t('keys.title'),
-    },
-    {
-      key: '/stats',
-      icon: <BarChartOutlined />,
-      label: t('statistics.title') || '用量统计',
-    },
-    {
-      key: '/console',
-      icon: <MonitorOutlined />,
-      label: t('console.title') || '控制台',
-    },
-    {
-      key: '/settings',
-      icon: <SettingOutlined />,
-      label: t('common.settings'),
-    },
-  ]
-
-  const selectedKey = location.pathname
+  const { pathname } = useLocation()
+  const link = (path: string, label: string, icon: ReactNode, activePaths = [path]) => (
+    <Link
+      key={path}
+      to={path}
+      className={styles.navItem}
+      title={label}
+      aria-label={label}
+      aria-current={activePaths.includes(pathname) ? 'page' : undefined}
+    >
+      <span className={styles.navIcon}>{icon}</span>
+      <span className={styles.navLabel}>{label}</span>
+    </Link>
+  )
 
   return (
-    <Sider
-      width={220}
-      style={{
-        background: token.colorBgContainer,
-        borderRight: `1px solid ${token.colorBorderSecondary}`,
-      }}
-    >
-      <div data-tauri-drag-region style={{ height: 52, flexShrink: 0 }} />
-      <Menu
-        mode='inline'
-        selectedKeys={[selectedKey]}
-        items={menuItems}
-        onClick={({ key }) => {
-          if (key !== 'launch') navigate(key)
-        }}
-        style={{
-          background: 'transparent',
-          borderRight: 'none',
-        }}
-      />
-    </Sider>
+    <aside className={styles.sidebar} aria-label={t('workspace.navigation')}>
+      <div className={styles.trafficSpace} data-tauri-drag-region />
+      <div className={styles.brand} data-tauri-drag-region>
+        <img className={styles.brandMark} src={appLogo} alt='' />
+        <span className={styles.brandName}>cc-use</span>
+      </div>
+      <nav className={styles.navigation}>
+        {link('/', t('workspace.home'), <HomeOutlined />)}
+        <div className={styles.group}>
+          <span className={styles.groupLabel}>{t('workspace.clients')}</span>
+          {clientWorkspaces.map((client) => link(client.path, client.name, client.icon))}
+        </div>
+        <div className={styles.group}>
+          <span className={styles.groupLabel}>{t('workspace.manage')}</span>
+          {link('/keys', t('keys.title'), <KeyOutlined />)}
+          {link('/stats', t('workspace.activityTitle'), <BarChartOutlined />, [
+            '/stats',
+            '/console',
+          ])}
+        </div>
+      </nav>
+      <div className={styles.footer}>
+        {link('/settings', t('common.settings'), <SettingOutlined />)}
+      </div>
+    </aside>
   )
 }

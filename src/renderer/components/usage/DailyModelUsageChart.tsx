@@ -23,16 +23,16 @@ import styles from './DailyModelUsageChart.module.css'
  * interaction.
  */
 const MODEL_PALETTE = [
-  '#1677ff',
-  '#52c41a',
-  '#722ed1',
-  '#d48806',
-  '#13a8a8',
-  '#eb2f96',
-  '#fa541c',
-  '#2f54eb',
-  '#a0d911',
-  '#cf1322',
+  '#69b1ff',
+  '#5cdb9f',
+  '#b37feb',
+  '#ffc53d',
+  '#36cfc9',
+  '#ff85c0',
+  '#ff9c6e',
+  '#85a5ff',
+  '#95de64',
+  '#ff7875',
 ]
 
 interface DailyModelUsageChartProps {
@@ -74,9 +74,7 @@ function DailyModelUsageChart({
       datum[model] = ((datum[model] as number | undefined) ?? 0) + item.tokens
       byDate.set(item.date, datum)
     }
-    const models = [...totals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([model]) => model)
+    const models = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([model]) => model)
     const chartData = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
     return { models, chartData }
   }, [data, unknownModelLabel])
@@ -97,9 +95,7 @@ function DailyModelUsageChart({
 
   const renderTooltip = ({ active, payload, label }: TooltipContentProps<number, string>) => {
     if (!active || !payload?.length) return null
-    const entries = payload.filter(
-      (entry) => typeof entry.value === 'number' && entry.value > 0,
-    )
+    const entries = payload.filter((entry) => typeof entry.value === 'number' && entry.value > 0)
     if (entries.length === 0) return null
     return (
       <div className={styles.tooltip} role='tooltip' data-testid='daily-model-chart-tooltip'>

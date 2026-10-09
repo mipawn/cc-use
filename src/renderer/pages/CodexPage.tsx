@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Typography, Button, message } from 'antd'
-import { AppstoreOutlined, ReloadOutlined } from '@ant-design/icons'
+import { ReloadOutlined } from '@ant-design/icons'
+import { useTranslation } from 'react-i18next'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import TakeoverConfigTab, { type TakeoverStatus } from '../components/launchpad/TakeoverConfigTab'
@@ -10,6 +11,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh'
 const { Title, Text } = Typography
 
 export default function CodexPage() {
+  const { t } = useTranslation()
   const [, setLoading] = useState(true)
   const [takenOver, setTakenOver] = useState(false)
   const [selectedKeyId, setSelectedKeyId] = useState<string>('')
@@ -98,10 +100,9 @@ export default function CodexPage() {
       <div className='page-header'>
         <div>
           <Title level={3} className='m-0! mb-1!'>
-            <AppstoreOutlined style={{ marginRight: 8 }} />
             Codex Desktop
           </Title>
-          <Text type='secondary'>配置级接管 — 选择密钥接管 ~/.codex/config.toml</Text>
+          <Text type='secondary'>{t('workspace.codexDescription')}</Text>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <ConfigPreviewButton clientKind='codex' />

@@ -1,12 +1,12 @@
 const usageChartColors = {
   input: '#1677ff',
-  output: '#52c41a',
-  cacheRead: '#13a8a8',
-  cacheCreation: '#d48806',
-  cacheRate: '#722ed1',
-  success: '#389e0d',
-  latency: '#cf1322',
-  firstToken: '#08979c',
+  output: '#5cdb9f',
+  cacheRead: '#36cfc9',
+  cacheCreation: '#ffc53d',
+  cacheRate: '#b37feb',
+  success: '#52c41a',
+  latency: '#ff7875',
+  firstToken: '#5cdbd3',
 } as const
 
 export default usageChartColors

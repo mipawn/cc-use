@@ -87,9 +87,9 @@ export default function TerminalToolsPanel() {
     switch (statusline.state) {
       case 'enabled':
         return statusline.current ? (
-          <Tag color='green'>{t('terminalTools.stateEnabled')}</Tag>
+          <Tag color='success'>{t('terminalTools.stateEnabled')}</Tag>
         ) : (
-          <Tag color='orange'>{t('terminalTools.stateStale')}</Tag>
+          <Tag color='warning'>{t('terminalTools.stateStale')}</Tag>
         )
       case 'thirdParty':
         return <Tag color='default'>{t('terminalTools.stateThirdParty')}</Tag>

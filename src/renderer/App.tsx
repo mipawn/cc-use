@@ -1,11 +1,12 @@
 import { getApi } from './api'
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
-import { Layout, theme, App as AntdApp, Alert, Button, Modal } from 'antd'
+import { theme, App as AntdApp, Alert, Button, Modal } from 'antd'
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar from './components/layout/Sidebar'
 import TitleBar from './components/layout/TitleBar'
 import Dashboard from './pages/Dashboard'
 import Statistics from './pages/Statistics'
+import ActivityPage from './pages/ActivityPage'
 import Settings from './pages/Settings'
 import Console from './pages/Console'
 import Keys from './pages/Keys'
@@ -19,7 +20,7 @@ import AppErrorBoundary from './components/common/AppErrorBoundary'
 import { refreshCurrentPage } from './api/pageRefresh'
 import { reloadMigratedStores } from './stores/reloadStores'
 
-const { Content } = Layout
+import layoutStyles from './components/layout/WorkspaceLayout.module.css'
 
 /**
  * Fault recovery and development only: rebuilds the whole WebView, discarding
@@ -43,33 +44,55 @@ function UpdateBanner() {
     const lastCheckRef = { time: 0 }
     const timer = setTimeout(() => {
       lastCheckRef.time = Date.now()
-      getApi().app.checkUpdate().then((result) => {
-        if (result.available) setUpdateInfo(result)
-      }).catch(() => {})
+      getApi()
+        .app.checkUpdate()
+        .then((result) => {
+          if (result.available) setUpdateInfo(result)
+        })
+        .catch(() => {})
     }, 5000)
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         if (Date.now() - lastCheckRef.time >= 24 * 60 * 60 * 1000) {
           lastCheckRef.time = Date.now()
-          getApi().app.checkUpdate().then((result) => {
-            if (result.available) setUpdateInfo(result)
-          }).catch(() => {})
+          getApi()
+            .app.checkUpdate()
+            .then((result) => {
+              if (result.available) setUpdateInfo(result)
+            })
+            .catch(() => {})
         }
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibilityChange) }
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [])
 
   if (!updateInfo) return null
 
   return (
     <Alert
-      message={t('settings.newVersionAvailable')}
+      title={t('settings.newVersionAvailable')}
       description={t('settings.newVersionDesc', { version: updateInfo.version })}
-      type='info' showIcon closable onClose={() => setUpdateInfo(null)}
-      action={<Button size='small' type='primary' onClick={() => { navigate('/settings'); setUpdateInfo(null) }}>{t('settings.goToDownload')}</Button>}
+      type='info'
+      showIcon
+      closable={{ onClose: () => setUpdateInfo(null) }}
+      action={
+        <Button
+          size='small'
+          type='primary'
+          onClick={() => {
+            navigate('/settings')
+            setUpdateInfo(null)
+          }}
+        >
+          {t('settings.goToDownload')}
+        </Button>
+      }
       style={{ marginBottom: 16 }}
     />
   )
@@ -84,24 +107,50 @@ function MigrationModal() {
   useEffect(() => {
     let unlisten: (() => void) | null = null
     import('@tauri-apps/api/event').then(({ listen }) => {
-      listen<boolean>('app:migrationAvailable', () => setVisible(true)).then((fn) => { unlisten = fn })
+      listen<boolean>('app:migrationAvailable', () => setVisible(true)).then((fn) => {
+        unlisten = fn
+      })
     })
-    return () => { unlisten?.() }
+    return () => {
+      unlisten?.()
+    }
   }, [])
 
   const handleMigrate = useCallback(async () => {
     setMigrating(true)
     try {
       const result = await getApi().importExport.migrateFromElectron()
-      if (result.success) { message.success(t('migration.successDetail', { providers: result.providers, apiKeys: result.apiKeys, projects: result.projects })); setVisible(false); await reloadMigratedStores() }
-    } catch (e) { message.error(`${t('migration.failed')}: ${e}`) }
-    finally { setMigrating(false) }
+      if (result.success) {
+        message.success(
+          t('migration.successDetail', {
+            providers: result.providers,
+            apiKeys: result.apiKeys,
+            projects: result.projects,
+          }),
+        )
+        setVisible(false)
+        await reloadMigratedStores()
+      }
+    } catch (e) {
+      message.error(`${t('migration.failed')}: ${e}`)
+    } finally {
+      setMigrating(false)
+    }
   }, [message, t])
 
   return (
-    <Modal title={t('migration.title')} open={visible} onOk={handleMigrate} onCancel={() => setVisible(false)}
-      okText={t('migration.confirm')} cancelText={t('migration.cancel')} confirmLoading={migrating}
-      closable={!migrating} maskClosable={!migrating} focusable={{ focusTriggerAfterClose: false }}>
+    <Modal
+      title={t('migration.title')}
+      open={visible}
+      onOk={handleMigrate}
+      onCancel={() => setVisible(false)}
+      okText={t('migration.confirm')}
+      cancelText={t('migration.cancel')}
+      confirmLoading={migrating}
+      closable={!migrating}
+      maskClosable={!migrating}
+      focusable={{ focusTriggerAfterClose: false }}
+    >
       <p>{t('migration.description')}</p>
     </Modal>
   )
@@ -111,6 +160,9 @@ function AppContent() {
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const { message } = AntdApp.useApp()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('sidebarCollapsed') === 'true',
+  )
   useAntdTokenSync()
   setGlobalMessage(message)
 
@@ -133,11 +185,18 @@ function AppContent() {
   }, [message, t])
 
   return (
-    <Layout className='min-h-screen'>
+    <div className={`${layoutStyles.shell} ${sidebarCollapsed ? layoutStyles.collapsed : ''}`}>
       <Sidebar />
-      <Layout style={{ background: token.colorBgLayout }}>
-        <TitleBar />
-        <Content style={{ padding: 24, overflow: 'hidden', height: 'calc(100vh - 36px)', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div className={layoutStyles.main}>
+        <TitleBar
+          collapsed={sidebarCollapsed}
+          onToggleSidebar={() => {
+            const next = !sidebarCollapsed
+            setSidebarCollapsed(next)
+            localStorage.setItem('sidebarCollapsed', String(next))
+          }}
+        />
+        <main className={layoutStyles.content}>
           <UpdateBanner />
           <MigrationModal />
           <Routes>
@@ -153,17 +212,39 @@ function AppContent() {
             <Route path='/codex' element={<CodexPage />} />
             <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
             <Route path='/keys' element={<Keys />} />
-            <Route path='/stats' element={<Statistics />} />
-            <Route path='/console' element={<Console />} />
+            <Route element={<ActivityPage />}>
+              <Route path='/stats' element={<Statistics embedded />} />
+              <Route path='/console' element={<Console />} />
+            </Route>
             <Route path='/settings' element={<Settings />} />
             <Route path='*' element={<Navigate to='/' replace />} />
           </Routes>
-        </Content>
-      </Layout>
+        </main>
+      </div>
       {import.meta.env.DEV && (
-        <div style={{ position: 'fixed', right: 12, bottom: 12, padding: '2px 8px', fontSize: 11, fontWeight: 600, fontFamily: 'JetBrains Mono, monospace', color: '#fff', background: token.colorPrimary, borderRadius: 4, opacity: 0.75, zIndex: 9999, pointerEvents: 'none', userSelect: 'none', letterSpacing: 0.5 }}>DEV</div>
+        <div
+          style={{
+            position: 'fixed',
+            right: 12,
+            bottom: 12,
+            padding: '2px 8px',
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: 'JetBrains Mono, monospace',
+            color: '#fff',
+            background: token.colorPrimary,
+            borderRadius: 4,
+            opacity: 0.75,
+            zIndex: 9999,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            letterSpacing: 0.5,
+          }}
+        >
+          DEV
+        </div>
       )}
-    </Layout>
+    </div>
   )
 }
 

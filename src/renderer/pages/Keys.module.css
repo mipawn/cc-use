@@ -14,7 +14,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 16px;
+  padding-bottom: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
   flex-shrink: 0;
 }
 
@@ -32,7 +34,7 @@
 
 /* Filter Section */
 .filterSection {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
   flex-shrink: 0;
 }
 
@@ -42,9 +44,8 @@
   gap: 8px;
   overflow-x: auto;
   overflow-y: hidden;
-  background: var(--surface-sunken);
-  padding: 4px;
-  border-radius: var(--radius-ant);
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .filterTab {
@@ -64,13 +65,12 @@
 }
 
 .filterTab:hover {
-  background: var(--surface-elevated);
+  background: var(--surface-sunken);
 }
 
 .filterTabActive {
-  background: var(--surface-default) !important;
-  border-color: var(--border-subtle) !important;
-  box-shadow: var(--shadow-sm);
+  background: var(--surface-sunken) !important;
+  border-color: var(--border-default) !important;
 }
 
 /* Draggable tabs */
@@ -99,17 +99,22 @@
 .keyGroups {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
   padding-bottom: 24px;
+}
+.keyGroup {
+  padding: 18px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--surface-default);
 }
 
 .groupHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: var(--surface-sunken);
-  border-radius: var(--radius-ant);
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--border-default);
   margin-bottom: 0;
   gap: 12px;
   flex-wrap: wrap;
@@ -119,6 +124,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  line-height: 24px;
 }
 
 .groupName {
@@ -160,8 +166,7 @@
 }
 
 .keyCard:hover {
-  border-color: var(--color-accent-primary) !important;
-  box-shadow: var(--shadow-sm);
+  border-color: var(--border-strong) !important;
 }
 
 .keyCard.exhausted {
@@ -341,9 +346,8 @@
 
 /* A provider groups independent key cards, matching the original page. */
 .providerSummary {
-  background: var(--surface-sunken);
-  border-radius: var(--radius-ant);
-  margin-bottom: 14px;
+  background: transparent;
+  margin-bottom: 16px;
 }
 .groupInfo {
   min-width: 0;
@@ -354,6 +358,8 @@
 }
 .providerIdentity {
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
 }
 .accountAmount {
   display: inline-flex;
@@ -416,6 +422,8 @@
   gap: 5px;
   color: var(--ant-color-text-secondary);
   font-size: 11px;
+  min-height: 22px;
+  line-height: 22px;
 }
 .keyQuota {
   margin-bottom: 16px;
@@ -449,7 +457,10 @@
     display: none;
   }
   .groupHeader {
-    padding: 12px;
+    padding: 0 0 12px;
+  }
+  .keyGroup {
+    padding: 14px;
   }
   .keyCard :global(.ant-card-body) {
     padding: 16px;

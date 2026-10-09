@@ -18,12 +18,7 @@ import {
   Statistic,
   Tooltip,
 } from 'antd'
-import {
-  BarChartOutlined,
-  KeyOutlined,
-  FolderOpenOutlined,
-  RobotOutlined,
-} from '@ant-design/icons'
+import { BarChartOutlined, KeyOutlined, FolderOpenOutlined, RobotOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { usePageRefresh } from '../hooks/usePageRefresh'
@@ -64,7 +59,7 @@ const OUTCOME_COLORS: Record<string, string> = {
   transport_error: 'volcano',
 }
 
-export default function Statistics() {
+export default function Statistics({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation()
   const { token } = theme.useToken()
   const language = i18n.resolvedLanguage || i18n.language
@@ -329,14 +324,16 @@ export default function Statistics() {
   return (
     <div className={styles.container}>
       {/* Header */}
-      <div className={styles.header}>
-        <div>
-          <Title level={3} className='!m-0 !mb-1'>
-            {t('statistics.title')}
-          </Title>
-          <Text type='secondary'>{t('statistics.subtitle')}</Text>
+      {!embedded && (
+        <div className={styles.header}>
+          <div>
+            <Title level={3} className='!m-0 !mb-1'>
+              {t('statistics.title')}
+            </Title>
+            <Text type='secondary'>{t('statistics.subtitle')}</Text>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Time Range Filter */}
       <div className={styles.filterSection}>

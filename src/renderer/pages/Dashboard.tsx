@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Typography, Card, theme, Popover, Tooltip } from 'antd'
+import { Link } from 'react-router-dom'
 import {
   ThunderboltOutlined,
   DatabaseOutlined,
   WarningOutlined,
   LeftOutlined,
   RightOutlined,
+  ArrowRightOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
@@ -24,6 +26,7 @@ export default function Dashboard() {
 
   const currentYear = new Date().getFullYear()
   const [overview, setOverview] = useState<UsageOverview | null>(null)
+  const [overviewFailed, setOverviewFailed] = useState(false)
   const [calYear, setCalYear] = useState(() => new Date().getFullYear())
   const [yearPickerOpen, setYearPickerOpen] = useState(false)
   const language = i18n.resolvedLanguage || i18n.language
@@ -33,10 +36,12 @@ export default function Dashboard() {
       const data = await getApi().requestLog.getOverview()
       if (!isCancelled?.()) {
         setOverview(data)
+        setOverviewFailed(false)
       }
     } catch (error) {
       if (!isCancelled?.()) {
         console.error('Failed to fetch usage overview:', error)
+        setOverviewFailed(true)
       }
     }
   }, [])
@@ -64,74 +69,91 @@ export default function Dashboard() {
       <div className={styles.header}>
         <div className={styles.headerContent}>
           <Title level={2} className={styles.title}>
-            {t('dashboard.title')}
+            {t('workspace.home')}
           </Title>
           <Text type='secondary' className={styles.subtitle}>
-            {t('dashboard.subtitle')}
+            {t('workspace.overviewSubtitle')}
           </Text>
         </div>
       </div>
 
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-          {/* 今日概况 */}
-          <div className={styles.statsRow}>
-            <Card className={styles.statCard} variant='outlined'>
-              <div className={styles.statContent}>
-                <DatabaseOutlined
-                  className={styles.statIcon}
-                  style={{ color: token.colorPrimary }}
-                />
-                <div className={styles.statInfo}>
-                  <Text type='secondary' className={styles.statLabel}>
-                    {t('dashboard.todayTokens')}
-                  </Text>
-                  <Text strong className={styles.statValue}>
-                    {renderTokenValue(overview?.todayTokens || 0)}
-                  </Text>
-                </div>
+          <section aria-labelledby='today-overview-title'>
+            <div className={styles.sectionHeading}>
+              <h3 id='today-overview-title'>{t('workspace.todayOverview')}</h3>
+              <Link to='/stats'>
+                {t('workspace.viewStatistics')}
+                <ArrowRightOutlined />
+              </Link>
+            </div>
+            {overviewFailed && (
+              <div className={styles.loadError}>
+                {t('workspace.overviewUnavailable')}
+                <button type='button' onClick={() => void fetchOverview()}>
+                  {t('common.retry')}
+                </button>
               </div>
-            </Card>
+            )}
+            {/* 今日概况 */}
+            <div className={styles.statsRow}>
+              <Card className={styles.statCard} variant='outlined'>
+                <div className={styles.statContent}>
+                  <DatabaseOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorPrimary }}
+                  />
+                  <div className={styles.statInfo}>
+                    <Text type='secondary' className={styles.statLabel}>
+                      {t('dashboard.todayTokens')}
+                    </Text>
+                    <Text strong className={styles.statValue}>
+                      {overview ? renderTokenValue(overview.todayTokens) : '—'}
+                    </Text>
+                  </div>
+                </div>
+              </Card>
 
-            <Card className={styles.statCard} variant='outlined'>
-              <div className={styles.statContent}>
-                <ThunderboltOutlined
-                  className={styles.statIcon}
-                  style={{ color: token.colorPrimary }}
-                />
-                <div className={styles.statInfo}>
-                  <Text type='secondary' className={styles.statLabel}>
-                    {t('dashboard.todayRequests')}
-                  </Text>
-                  <Text strong className={styles.statValue}>
-                    {overview?.todayRequests || 0}
-                  </Text>
+              <Card className={styles.statCard} variant='outlined'>
+                <div className={styles.statContent}>
+                  <ThunderboltOutlined
+                    className={styles.statIcon}
+                    style={{ color: token.colorPrimary }}
+                  />
+                  <div className={styles.statInfo}>
+                    <Text type='secondary' className={styles.statLabel}>
+                      {t('dashboard.todayRequests')}
+                    </Text>
+                    <Text strong className={styles.statValue}>
+                      {overview?.todayRequests ?? '—'}
+                    </Text>
+                  </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
 
-            <Card className={styles.statCard} variant='outlined'>
-              <div className={styles.statContent}>
-                <WarningOutlined
-                  className={styles.statIcon}
-                  style={{
-                    color:
-                      (overview?.todayFailedRequests || 0) > 0
-                        ? token.colorError
-                        : token.colorTextSecondary,
-                  }}
-                />
-                <div className={styles.statInfo}>
-                  <Text type='secondary' className={styles.statLabel}>
-                    {t('dashboard.todayFailures')}
-                  </Text>
-                  <Text strong className={styles.statValue}>
-                    {overview?.todayFailedRequests || 0}
-                  </Text>
+              <Card className={styles.statCard} variant='outlined'>
+                <div className={styles.statContent}>
+                  <WarningOutlined
+                    className={styles.statIcon}
+                    style={{
+                      color:
+                        (overview?.todayFailedRequests || 0) > 0
+                          ? token.colorError
+                          : token.colorTextSecondary,
+                    }}
+                  />
+                  <div className={styles.statInfo}>
+                    <Text type='secondary' className={styles.statLabel}>
+                      {t('dashboard.todayFailures')}
+                    </Text>
+                    <Text strong className={styles.statValue}>
+                      {overview?.todayFailedRequests ?? '—'}
+                    </Text>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          </div>
+              </Card>
+            </div>
+          </section>
 
           {/* Token 活动热力图 */}
           <Card
@@ -145,6 +167,7 @@ export default function Dashboard() {
                     <button
                       type='button'
                       className={styles.calendarNavButton}
+                      aria-label={t('workspace.previousYear')}
                       onClick={() => setCalYear((y) => y - 1)}
                     >
                       <LeftOutlined style={{ fontSize: 10 }} />
@@ -180,6 +203,7 @@ export default function Dashboard() {
                     <button
                       type='button'
                       className={styles.calendarNavButton}
+                      aria-label={t('workspace.nextYear')}
                       onClick={() => setCalYear((y) => y + 1)}
                       disabled={calYear >= currentYear}
                     >
@@ -192,6 +216,9 @@ export default function Dashboard() {
           >
             <UsageHeatmap year={calYear} />
           </Card>
+          <div className={styles.workspaceNote}>
+            <span>{t('workspace.routingHint')}</span>
+          </div>
         </SimpleBar>
       </div>
     </div>

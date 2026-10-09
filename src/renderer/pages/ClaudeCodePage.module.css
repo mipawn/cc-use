@@ -8,10 +8,58 @@
 }
 
 .tabs {
-  height: 100%;
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.workspaceHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  flex-shrink: 0;
+}
+.workspaceIdentity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.workspaceHeader > :global(.ant-btn) {
+  flex-shrink: 0;
+}
+@media (max-width: 700px) {
+  .workspaceHeader {
+    flex-wrap: wrap;
+  }
+}
+.workspaceHeader h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+.workspaceHeader p {
+  margin: 0;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+.clientIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  border: 1px solid var(--border-subtle);
+  font-size: 21px;
+  background: var(--surface-default);
+}
+.clientIcon img {
+  width: 24px;
+  height: 24px;
 }
 
 .tabs :global(.ant-tabs-nav) {

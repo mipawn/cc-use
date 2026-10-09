@@ -24,7 +24,6 @@ import {
   Switch,
   Popconfirm,
   Badge,
-  Avatar,
   Modal,
   Divider,
   Dropdown,
@@ -71,7 +70,11 @@ import {
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
 import UserAgentField from '../components/UserAgentField'
-import { modelQueryClientKind, readQueryUserAgent, rememberQueryUserAgent } from '../utils/modelQueryUserAgent'
+import {
+  modelQueryClientKind,
+  readQueryUserAgent,
+  rememberQueryUserAgent,
+} from '../utils/modelQueryUserAgent'
 import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import {
@@ -133,28 +136,9 @@ function SortableTab({
 }
 
 // Import provider type icons
-import claudeIcon from '../assets/provider-icons/claude.svg'
-import openaiIcon from '../assets/provider-icons/openai.svg'
+import ClientIcon from '../components/common/ClientIcon'
 
 const { Title, Text } = Typography
-
-// Type icon mapping (compatible with legacy ProviderType)
-const TYPE_ICONS: Record<string, string> = {
-  claude: claudeIcon,
-  claude_code: claudeIcon,
-  codex: openaiIcon,
-  grok: openaiIcon,
-  claude_desktop: claudeIcon,
-}
-
-const clientIconType = (clientKind: string) =>
-  clientKind === 'codex'
-    ? 'codex'
-    : clientKind === 'grok'
-      ? 'grok'
-      : clientKind === 'claude_desktop'
-        ? 'claude_desktop'
-        : 'claude_code'
 
 export default function Keys() {
   const { t, i18n } = useTranslation()
@@ -495,7 +479,12 @@ export default function Keys() {
 
   // Handle edit key
   // Drag-and-drop reorder handlers
-  const loadModels = async (provider: Provider, apiKeyId: string, userAgent?: string, restoreAgent = false) => {
+  const loadModels = async (
+    provider: Provider,
+    apiKeyId: string,
+    userAgent?: string,
+    restoreAgent = false,
+  ) => {
     const requestId = ++modelListRequestId.current
     setModelList([])
     setModelListError(false)
@@ -505,13 +494,20 @@ export default function Keys() {
       const key = (apiKeys[provider.id] || []).find((key) => key.id === apiKeyId)
       if (!key) throw new Error('API key not found')
       const kind = modelQueryClientKind(key)
-      const agent = restoreAgent ? await readQueryUserAgent(provider.id, kind, key.clientConfigs?.[kind]?.proxyUserAgent) : userAgent ?? ''
+      const agent = restoreAgent
+        ? await readQueryUserAgent(provider.id, kind, key.clientConfigs?.[kind]?.proxyUserAgent)
+        : (userAgent ?? '')
       if (requestId !== modelListRequestId.current) return
       if (restoreAgent) setModelListUa(agent)
       setModelListUaLoading(false)
       await rememberQueryUserAgent(provider.id, kind, agent)
       if (requestId !== modelListRequestId.current) return
-      const models = await getApi().provider.modelList(provider.id, apiKeyId, agent || undefined, kind)
+      const models = await getApi().provider.modelList(
+        provider.id,
+        apiKeyId,
+        agent || undefined,
+        kind,
+      )
       if (requestId === modelListRequestId.current) setModelList(models)
     } catch {
       if (requestId === modelListRequestId.current) setModelListError(true)
@@ -605,7 +601,7 @@ export default function Keys() {
             type='primary'
             icon={<CloudServerOutlined />}
             onClick={handleAddProvider}
-            size='large'
+            size='middle'
           >
             {t('providers.addProvider')}
           </Button>
@@ -680,8 +676,10 @@ export default function Keys() {
           ) : (
             <div className={styles.keyGroups}>
               {groupedKeys.map(({ provider, keys, balance }) => (
-                <div
+                <section
                   key={provider.id}
+                  aria-label={provider.name}
+                  data-provider-group={provider.id}
                   className={`${styles.keyGroup} ${!provider.isActive ? styles.providerInactive : ''}`}
                 >
                   <div className={styles.providerSummary}>
@@ -700,11 +698,7 @@ export default function Keys() {
                           </span>
                         )}
                         {!provider.isActive && <Tag>{t('common.inactive')}</Tag>}
-                        {isOfficialDeepSeekProvider(provider) && (
-                          <Tag color='blue' variant='filled'>
-                            官方
-                          </Tag>
-                        )}
+                        {isOfficialDeepSeekProvider(provider) && <Tag variant='filled'>官方</Tag>}
                         {providerMetrics[provider.name] ? (
                           <div className={styles.providerHealth}>
                             <div className={styles.providerHealthText}>
@@ -875,11 +869,7 @@ export default function Keys() {
                                       title={getClientKindLabel(clientKind)}
                                     >
                                       <span className={styles.clientLabel}>
-                                        <Avatar
-                                          src={TYPE_ICONS[clientIconType(clientKind)]}
-                                          size={14}
-                                          style={{ background: 'transparent' }}
-                                        />
+                                        <ClientIcon kind={clientKind} size={14} />
                                         {getClientKindLabel(clientKind)}
                                       </span>
                                     </Tooltip>
@@ -992,7 +982,7 @@ export default function Keys() {
                               </Button>
                             </Tooltip>
                           ) : (
-                            <Tag color='blue'>配置接管</Tag>
+                            <Tag>配置接管</Tag>
                           )}
                           <Space size={4}>
                             <Tooltip title={t('usageDetail.openKey')}>
@@ -1078,7 +1068,7 @@ export default function Keys() {
                       <span>{t('apiKeys.addKey')}</span>
                     </button>
                   </div>
-                </div>
+                </section>
               ))}
             </div>
           )}
@@ -1129,7 +1119,7 @@ export default function Keys() {
         title={
           <Space>
             {t('keys.commandList') || '终端命令'}
-            <Tag color='blue'>{TERMINAL_TYPE_LABELS[terminalType]}</Tag>
+            <Tag>{TERMINAL_TYPE_LABELS[terminalType]}</Tag>
           </Space>
         }
         open={copyCommandModalOpen}
@@ -1181,11 +1171,7 @@ export default function Keys() {
                         <div key={`proxy-${clientKind}`} className={styles.commandItem}>
                           <div className={styles.commandHeader}>
                             <Space>
-                              <Avatar
-                                src={TYPE_ICONS[clientIconType(clientKind)]}
-                                size={20}
-                                style={{ background: 'transparent' }}
-                              />
+                              <ClientIcon kind={clientKind} size={20} />
                               <Text strong>{getClientKindLabel(clientKind)}</Text>
                             </Space>
                             <Button
@@ -1240,11 +1226,7 @@ export default function Keys() {
                     <div key={`direct-${clientKind}`} className={styles.commandItem}>
                       <div className={styles.commandHeader}>
                         <Space>
-                          <Avatar
-                            src={TYPE_ICONS[clientIconType(clientKind)]}
-                            size={20}
-                            style={{ background: 'transparent' }}
-                          />
+                          <ClientIcon kind={clientKind} size={20} />
                           <Text strong>{getClientKindLabel(clientKind)}</Text>
                         </Space>
                         <Button
@@ -1321,8 +1303,7 @@ export default function Keys() {
               style={{ width: '100%' }}
               onChange={(apiKeyId) => {
                 setModelListApiKeyId(apiKeyId)
-                if (modelListProvider)
-                  void loadModels(modelListProvider, apiKeyId, undefined, true)
+                if (modelListProvider) void loadModels(modelListProvider, apiKeyId, undefined, true)
               }}
               options={modelListKeys.map((key) => ({
                 value: key.id,

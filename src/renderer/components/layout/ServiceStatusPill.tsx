@@ -20,7 +20,6 @@ export default function ServiceStatusPill() {
     : status.isRunning
       ? token.colorSuccess
       : token.colorTextDisabled
-  const bg = status.isRunning ? token.colorSuccessBg : token.colorFillTertiary
 
   const statusText = hasError
     ? status.lastError || t('dashboard.proxyStopped') || '已停止'
@@ -38,7 +37,7 @@ export default function ServiceStatusPill() {
         height: 24,
         padding: '0 10px',
         borderRadius: 12,
-        background: bg,
+        background: 'var(--surface-nav-hover)',
         fontSize: 12,
         color: token.colorText,
         lineHeight: 1,
@@ -47,20 +46,22 @@ export default function ServiceStatusPill() {
       <Tooltip title={statusText}>
         <span
           style={{
-            width: 8,
-            height: 8,
+            width: 6,
+            height: 6,
             borderRadius: '50%',
             background: dotColor,
             display: 'inline-block',
           }}
         />
       </Tooltip>
+      <span style={{ color: token.colorTextSecondary }}>{t('workspace.gateway')}</span>
       <span style={{ fontVariantNumeric: 'tabular-nums' }}>:{status.port}</span>
       <Tooltip title={t('settings.proxyRestart')}>
         <button
           type='button'
           onClick={restart}
           disabled={loading}
+          aria-label={t('settings.proxyRestart')}
           data-tauri-drag-region='false'
           style={{
             border: 'none',

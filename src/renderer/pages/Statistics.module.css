@@ -147,7 +147,7 @@
   grid-template-columns: 1.35fr repeat(4, minmax(0, 1fr));
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-ant-lg);
-  background: var(--surface-default);
+  background: var(--surface-elevated);
   overflow: hidden;
 }
 

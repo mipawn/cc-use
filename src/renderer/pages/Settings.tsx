@@ -207,8 +207,12 @@ export default function Settings() {
     // Load launch-at-login + show-window-shortcut state in parallel with the
     // other settings so the toggles are populated by the time the page renders.
     Promise.all([
-      getApi().systemExt.autoLaunchIsEnabled().catch(() => false),
-      getApi().systemExt.showWindowGetShortcut().catch(() => ''),
+      getApi()
+        .systemExt.autoLaunchIsEnabled()
+        .catch(() => false),
+      getApi()
+        .systemExt.showWindowGetShortcut()
+        .catch(() => ''),
     ]).then(([enabled, combo]) => {
       setLaunchAtLogin(enabled)
       setShortcutCombo(combo || '')
@@ -652,10 +656,7 @@ export default function Settings() {
                     style={{ width: 180 }}
                   />
                   {shortcutCombo && !recording && (
-                    <Button
-                      size='small'
-                      onClick={() => void commitCombo('')}
-                    >
+                    <Button size='small' onClick={() => void commitCombo('')}>
                       {t('settings.shortcutClear')}
                     </Button>
                   )}
@@ -725,10 +726,10 @@ export default function Settings() {
                 </Space>
                 <Space>
                   {cliToolStatus?.installed && cliToolStatus.current && (
-                    <Tag color='green'>{t('settings.cliToolInstalled')}</Tag>
+                    <Tag color='success'>{t('settings.cliToolInstalled')}</Tag>
                   )}
                   {cliToolStatus?.installed && !cliToolStatus.current && (
-                    <Tag color='orange'>{t('settings.cliToolOutdated')}</Tag>
+                    <Tag color='warning'>{t('settings.cliToolOutdated')}</Tag>
                   )}
                   {(!cliToolStatus?.installed || !cliToolStatus.current) && (
                     <Button
@@ -806,7 +807,7 @@ export default function Settings() {
               open={backupModalOpen}
               onCancel={() => setBackupModalOpen(false)}
               footer={null}
-              destroyOnClose
+              destroyOnHidden
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>

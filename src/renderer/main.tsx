@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
-import { ConfigProvider, theme, App as AntdApp } from 'antd'
+import { ConfigProvider, App as AntdApp } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
@@ -12,6 +12,8 @@ import { installRendererConsoleTap } from './api/consoleBus'
 import { installConsoleStore } from './api/consoleStore'
 import './locales'
 import './styles/global.css'
+import { createWorkspaceTheme } from './styles/workspaceTheme'
+import { useReducedMotion } from './hooks/useReducedMotion'
 
 // Install the console tap as early as possible so every `console.*` call
 // from React / stores / app bootstrap is already funneled into the Console
@@ -22,6 +24,7 @@ installRendererConsoleTap()
 installConsoleStore()
 
 function Root() {
+  const reducedMotion = useReducedMotion()
   const { language, resolvedTheme, initSettings } = useSettingsStore()
   const isChinese = language.toLowerCase().startsWith('zh')
 
@@ -37,25 +40,7 @@ function Root() {
     <StyleProvider layer>
       <ConfigProvider
         locale={isChinese ? zhCN : enUS}
-        theme={{
-          algorithm: resolvedTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
-          token: {
-            colorPrimary: '#1677ff',
-            borderRadius: 8,
-            fontFamily:
-              "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'",
-          },
-          components: {
-            Layout: {
-              bodyBg: resolvedTheme === 'dark' ? '#141414' : '#f5f5f5',
-              headerBg: resolvedTheme === 'dark' ? '#1f1f1f' : '#ffffff',
-              siderBg: resolvedTheme === 'dark' ? '#1f1f1f' : '#ffffff',
-            },
-            Card: {
-              colorBgContainer: resolvedTheme === 'dark' ? '#1f1f1f' : '#ffffff',
-            },
-          },
-        }}
+        theme={createWorkspaceTheme(resolvedTheme === 'dark', reducedMotion)}
       >
         <AntdApp message={{ maxCount: 3, top: 60 }}>
           <App />

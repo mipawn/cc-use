@@ -31,26 +31,25 @@ function eventRowKey(event: ConsoleEvent, index: number): string {
   return event.id ?? `log-${index}`
 }
 
-/// Terminal palette (VS Code Dark+ inspired). Intentionally not tied to
-/// AntD tokens — the console should read like a real terminal regardless
-/// of the app's light/dark theme.
+/// A dark terminal surface with the workspace's fresh accent and status colors.
+/// Kept dark in both app themes so request traces remain easy to scan.
 const PALETTE = {
-  bg: '#1e1e1e',
-  border: '#2d2d2d',
-  dim: '#8a8a8a',
-  text: '#e5e5e5',
-  ok: '#4ec9b0',
-  cancelled: '#d7ba7d',
-  rejected: '#dcdcaa',
-  upstreamError: '#f48771',
-  ws: '#4fc1ff',
-  note: '#ce9178',
-  accent: '#9cdcfe',
-  prompt: '#6a9955',
-  logError: '#f48771',
-  logWarn: '#dcdcaa',
-  logInfo: '#9cdcfe',
-  logDebug: '#8a8a8a',
+  bg: '#17212b',
+  border: '#334155',
+  dim: '#8fa0b3',
+  text: '#e6edf5',
+  ok: '#5de0af',
+  cancelled: '#ffd580',
+  rejected: '#ffd580',
+  upstreamError: '#ff9f89',
+  ws: '#91d5ff',
+  note: '#ffbb96',
+  accent: '#b4e8d4',
+  prompt: '#95de64',
+  logError: '#ff9f89',
+  logWarn: '#ffd580',
+  logInfo: '#b4e8d4',
+  logDebug: '#8fa0b3',
 }
 
 /** Kind labels live in the locale files like every other user-facing string. */
@@ -411,7 +410,7 @@ function RequestRow({
         cursor: 'pointer',
         padding: '1px 4px',
         borderRadius: 3,
-        background: selected ? 'rgba(156, 220, 254, 0.15)' : undefined,
+        background: selected ? 'rgba(166, 200, 173, 0.12)' : undefined,
         borderLeft: isProblem ? `2px solid ${PALETTE.upstreamError}` : '2px solid transparent',
       }}
     >

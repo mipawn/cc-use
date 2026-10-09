@@ -14,9 +14,12 @@
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-body);
+  background: var(--surface-sidebar);
   overflow: hidden;
+}
+[data-theme='dark'] img[data-monochrome] {
+  filter: invert(1);
 }
 
 /* Tauri drag region for custom titlebar */
@@ -28,6 +31,10 @@ body {
 *[data-tauri-drag-region] button,
 *[data-tauri-drag-region] a,
 *[data-tauri-drag-region] input {
+  app-region: no-drag;
+}
+
+*[data-tauri-drag-region='false'] {
   app-region: no-drag;
 }
 
@@ -109,10 +116,11 @@ body {
 /* Custom utility classes - full width containers */
 .page-container {
   width: 100%;
-  padding: 0 24px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -132,10 +140,12 @@ body {
   align-items: center;
   padding-bottom: 1rem;
   flex-shrink: 0;
+  gap: 16px;
 }
 
 .page-content {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -161,11 +171,55 @@ body {
   border-radius: var(--radius-ant-lg);
 }
 
-/* Remove focus outline from Modal close button */
-.ant-modal-close:focus-visible {
-  outline: none;
+/* Desktop controls remain discoverable when navigating with the keyboard. */
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+.ant-typography h2,
+h2.ant-typography,
+h3.ant-typography {
+  letter-spacing: -0.6px;
+  font-weight: 600;
 }
 
-.ant-modal-close:focus {
-  outline: none;
+/* Mixed text, tags and icons share a flex center instead of SVG baselines. */
+.anticon svg {
+  display: block;
+}
+.ant-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.ant-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+}
+.ant-space-horizontal > .ant-space-item {
+  display: inline-flex;
+  align-items: center;
+}
+.ant-space-horizontal > .ant-space-item > span.ant-typography {
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .page-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

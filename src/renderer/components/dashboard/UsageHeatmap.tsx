@@ -196,7 +196,7 @@ export default function UsageHeatmap({ year }: Props) {
     return 1
   }
 
-  const heatColor = token.colorPrimary
+  const heatColor = 'var(--color-heatmap)'
   const heatmapBackgrounds = [
     token.colorFillQuaternary,
     `color-mix(in srgb, ${heatColor} 18%, ${token.colorBgContainer})`,

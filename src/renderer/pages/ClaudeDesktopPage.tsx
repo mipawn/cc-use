@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Typography, Button, message } from 'antd'
-import { DesktopOutlined, ReloadOutlined } from '@ant-design/icons'
+import { ReloadOutlined } from '@ant-design/icons'
+import { useTranslation } from 'react-i18next'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import TakeoverConfigTab, { type TakeoverStatus } from '../components/launchpad/TakeoverConfigTab'
@@ -10,6 +11,7 @@ import { usePageRefresh } from '../hooks/usePageRefresh'
 const { Title, Text } = Typography
 
 export default function ClaudeDesktopPage() {
+  const { t } = useTranslation()
   const [, setLoading] = useState(true)
   const [status, setStatus] = useState<TakeoverStatus>('unknown')
   const [selectedKeyId, setSelectedKeyId] = useState<string>('')
@@ -107,20 +109,12 @@ export default function ClaudeDesktopPage() {
 
   return (
     <div className='page-container'>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
-        }}
-      >
+      <div className='page-header'>
         <div>
           <Title level={3} className='m-0! mb-1!'>
-            <DesktopOutlined style={{ marginRight: 8 }} />
             Claude Desktop
           </Title>
-          <Text type='secondary'>配置级接管 — 选择密钥接管 Claude Desktop 配置</Text>
+          <Text type='secondary'>{t('workspace.desktopDescription')}</Text>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <ConfigPreviewButton clientKind='claude_desktop' />

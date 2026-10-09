@@ -32,13 +32,12 @@ import {
   FolderAddOutlined,
   ClockCircleOutlined,
   SwapOutlined,
-  ThunderboltOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons'
 
 // Import provider icons
-import claudeIcon from '../assets/provider-icons/claude.svg'
-import openaiIcon from '../assets/provider-icons/openai.svg'
+import ClientIcon from '../components/common/ClientIcon'
+import { normalizeClientKind } from '@shared/types'
 
 import { useTranslation } from 'react-i18next'
 import { useProjectStore } from '../stores/projectStore'
@@ -55,16 +54,9 @@ const { Title, Text } = Typography
 const { TextArea } = Input
 
 // CLI type icon component
-const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => {
-  if (type === 'grok') {
-    return <ThunderboltOutlined aria-label='Grok Build' style={{ fontSize: size }} />
-  }
-  const icon =
-    type === 'claude' || type === 'claude_code' || type === 'claude_desktop'
-      ? claudeIcon
-      : openaiIcon
-  return <img src={icon} alt={type} style={{ width: size, height: size }} />
-}
+const CliTypeIcon = ({ type, size = 14 }: { type: string; size?: number }) => (
+  <ClientIcon kind={normalizeClientKind(type)} size={size} />
+)
 
 type CliProjectKind = Extract<ClientKind, 'claude_code' | 'grok'>
 
@@ -106,9 +98,13 @@ export function groupProjectsByCustomGroup(projects: Project[], ungroupedLabel: 
 
 interface ProjectsProps {
   defaultCliType?: CliProjectKind
+  embedded?: boolean
 }
 
-export default function Projects({ defaultCliType = 'claude_code' }: ProjectsProps) {
+export default function Projects({
+  defaultCliType = 'claude_code',
+  embedded = false,
+}: ProjectsProps) {
   const { t } = useTranslation()
   const { token } = theme.useToken()
   const message = useAppMessage()
@@ -364,9 +360,11 @@ export default function Projects({ defaultCliType = 'claude_code' }: ProjectsPro
       {/* Header - Fixed */}
       <div className={styles.header}>
         <div>
-          <Title level={3} className='!m-0 !mb-1'>
-            {t('projects.title')}
-          </Title>
+          {!embedded && (
+            <Title level={3} className='!m-0 !mb-1'>
+              {t('projects.title')}
+            </Title>
+          )}
           <Text type='secondary'>{t('projects.subtitle')}</Text>
         </div>
         <Space size='middle' align='center'>

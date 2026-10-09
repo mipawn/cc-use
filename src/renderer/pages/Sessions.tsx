@@ -1,5 +1,18 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Card, Table, Button, Space, Tag, Modal, Input, Select, Popconfirm, Tooltip, Alert } from 'antd'
+import {
+  Card,
+  Table,
+  Button,
+  Space,
+  Tag,
+  Modal,
+  Input,
+  Select,
+  Popconfirm,
+  Tooltip,
+  Alert,
+  Dropdown,
+} from 'antd'
 import { DeleteOutlined, CopyOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useAppMessage } from '../hooks/useAppMessage'
@@ -48,22 +61,23 @@ export default function Sessions() {
 
     if (searchText) {
       const keyword = searchText.toLowerCase()
-      filtered = filtered.filter(s =>
-        s.projectPath.toLowerCase().includes(keyword) ||
-        s.sessionId.toLowerCase().includes(keyword) ||
-        (s.firstMessage || '').toLowerCase().includes(keyword)
+      filtered = filtered.filter(
+        (s) =>
+          s.projectPath.toLowerCase().includes(keyword) ||
+          s.sessionId.toLowerCase().includes(keyword) ||
+          (s.firstMessage || '').toLowerCase().includes(keyword),
       )
     }
 
     if (sizeFilter !== 'all') {
       const size = parseInt(sizeFilter)
-      filtered = filtered.filter(s => s.totalSize > size * 1024 * 1024)
+      filtered = filtered.filter((s) => s.totalSize > size * 1024 * 1024)
     }
 
     if (timeFilter !== 'all') {
       const days = parseInt(timeFilter)
       const cutoff = Date.now() / 1000 - days * 86400
-      filtered = filtered.filter(s => s.lastModified < cutoff)
+      filtered = filtered.filter((s) => s.lastModified < cutoff)
     }
 
     return filtered
@@ -171,12 +185,8 @@ export default function Sessions() {
       onFilter: (value: any, record: ClaudeSession) => record.projectPath === value,
       render: (path: string, record: ClaudeSession) => (
         <Tooltip title={path}>
-          <span
-            style={{ cursor: 'pointer' }}
-            onClick={() => copyToClipboard(path)}
-          >
-            {getProjectName(path)}
-            {' '}<CopyOutlined style={{ fontSize: 11, color: '#999' }} />
+          <span style={{ cursor: 'pointer' }} onClick={() => copyToClipboard(path)}>
+            {getProjectName(path)} <CopyOutlined style={{ fontSize: 11, color: '#999' }} />
           </span>
           <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
             {buildSessionShortCode(record.sessionId)}
@@ -204,7 +214,8 @@ export default function Sessions() {
       render: (size: number, record: ClaudeSession) => {
         const parts: string[] = []
         if (record.jsonlSize > 0) parts.push(`JSONL: ${formatSize(record.jsonlSize)}`)
-        if (record.dirSize > 0) parts.push(`${t('sessions.attachment')}: ${formatSize(record.dirSize)}`)
+        if (record.dirSize > 0)
+          parts.push(`${t('sessions.attachment')}: ${formatSize(record.dirSize)}`)
         return (
           <Tooltip title={parts.join('\n')}>
             <Tag color={size > 1024 * 1024 ? 'red' : size > 100 * 1024 ? 'orange' : 'default'}>
@@ -220,7 +231,7 @@ export default function Sessions() {
       key: 'messageCount',
       width: 70,
       sorter: (a: ClaudeSession, b: ClaudeSession) => a.messageCount - b.messageCount,
-      render: (count: number) => count > 0 ? count : <span style={{ color: '#ccc' }}>-</span>,
+      render: (count: number) => (count > 0 ? count : <span style={{ color: '#ccc' }}>-</span>),
     },
     {
       title: t('sessions.columnLastModified'),
@@ -241,7 +252,7 @@ export default function Sessions() {
           description={t('sessions.confirmDeleteSingleDesc')}
           onConfirm={() => handleDelete([record.sessionId])}
         >
-          <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+          <Button type='link' size='small' danger icon={<DeleteOutlined />} />
         </Popconfirm>
       ),
     },
@@ -250,28 +261,31 @@ export default function Sessions() {
   const totalSize = filteredSessions.reduce((sum, s) => sum + s.totalSize, 0)
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', padding: 24 }}>
+    <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {showInfo && (
         <Alert
-          type="info"
+          type='info'
           showIcon
-          closable
-          onClose={() => setShowInfo(false)}
+          closable={{ onClose: () => setShowInfo(false) }}
           style={{ marginBottom: 16 }}
-          message={t('sessions.infoTitle')}
+          title={t('sessions.infoTitle')}
           description={
             <div style={{ fontSize: 13, lineHeight: 1.8 }}>
               <p style={{ margin: '4px 0' }}>
-                <strong>{t('sessions.infoScopeLabel')}</strong>{t('sessions.infoScope')}
+                <strong>{t('sessions.infoScopeLabel')}</strong>
+                {t('sessions.infoScope')}
               </p>
               <p style={{ margin: '4px 0' }}>
-                <strong>{t('sessions.infoNoPreviewLabel')}</strong>{t('sessions.infoNoPreview')}
+                <strong>{t('sessions.infoNoPreviewLabel')}</strong>
+                {t('sessions.infoNoPreview')}
               </p>
               <p style={{ margin: '4px 0' }}>
-                <strong>{t('sessions.infoNoCodexLabel')}</strong>{t('sessions.infoNoCodex')}
+                <strong>{t('sessions.infoNoCodexLabel')}</strong>
+                {t('sessions.infoNoCodex')}
               </p>
               <p style={{ margin: '4px 0' }}>
-                <strong>{t('sessions.infoNoHistoryLabel')}</strong>{t('sessions.infoNoHistory')}
+                <strong>{t('sessions.infoNoHistoryLabel')}</strong>
+                {t('sessions.infoNoHistory')}
               </p>
             </div>
           }
@@ -282,11 +296,11 @@ export default function Sessions() {
         title={
           <Space>
             {t('sessions.title')}
-            <Tag color="blue">{t('sessions.sessionCount', { count: filteredSessions.length })}</Tag>
-            <Tag color="orange">{formatSize(totalSize)}</Tag>
+            <Tag>{t('sessions.sessionCount', { count: filteredSessions.length })}</Tag>
+            <Tag>{formatSize(totalSize)}</Tag>
             <Button
-              type="text"
-              size="small"
+              type='text'
+              size='small'
               icon={<InfoCircleOutlined />}
               onClick={() => setShowInfo(!showInfo)}
             />
@@ -294,10 +308,35 @@ export default function Sessions() {
         }
         extra={
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={loadSessions} loading={loading}>{t('sessions.refresh')}</Button>
-            <Button onClick={() => handleKeepRecent(10)}>{t('sessions.keepPerProject', { count: 10 })}</Button>
-            <Button onClick={() => handleCleanOld(30)}>{t('sessions.cleanOlderThan', { days: 30 })}</Button>
-            <Button onClick={() => handleCleanOld(60)}>{t('sessions.cleanOlderThan', { days: 60 })}</Button>
+            <Button icon={<ReloadOutlined />} onClick={loadSessions} loading={loading}>
+              {t('sessions.refresh')}
+            </Button>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'keep-recent',
+                    label: t('sessions.keepPerProject', { count: 10 }),
+                    onClick: () => void handleKeepRecent(10),
+                  },
+                  {
+                    key: 'clean-30',
+                    label: t('sessions.cleanOlderThan', { days: 30 }),
+                    danger: true,
+                    onClick: () => void handleCleanOld(30),
+                  },
+                  {
+                    key: 'clean-60',
+                    label: t('sessions.cleanOlderThan', { days: 60 }),
+                    danger: true,
+                    onClick: () => void handleCleanOld(60),
+                  },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Button>{t('workspace.sessionCleanup')}</Button>
+            </Dropdown>
           </Space>
         }
         style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
@@ -307,7 +346,7 @@ export default function Sessions() {
           <Search
             placeholder={t('sessions.searchPlaceholder')}
             style={{ width: 280 }}
-            onChange={e => setSearchText(e.target.value)}
+            onChange={(e) => setSearchText(e.target.value)}
             allowClear
           />
           <Select
@@ -333,22 +372,18 @@ export default function Sessions() {
             ]}
           />
           {selectedRowKeys.length > 0 && (
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              onClick={handleBatchDelete}
-            >
+            <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>
               {t('sessions.deleteSelected', { count: selectedRowKeys.length })}
             </Button>
           )}
         </Space>
 
         <Table
-          rowKey="sessionId"
+          rowKey='sessionId'
           columns={columns}
           dataSource={filteredSessions}
           loading={loading}
-          size="small"
+          size='small'
           rowSelection={{
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys as string[]),

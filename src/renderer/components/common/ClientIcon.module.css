@@ -1,0 +1,49 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  line-height: 1;
+  color: var(--ant-color-text-secondary);
+  vertical-align: middle;
+}
+.mark,
+.monochrome {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.monochrome {
+  background: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+.badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  width: 48%;
+  height: 48%;
+  min-width: 7px;
+  min-height: 7px;
+  max-width: 14px;
+  max-height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border-default);
+  background: var(--surface-elevated);
+  color: var(--ant-color-text-secondary);
+}
+.badge svg {
+  width: 85%;
+  height: 85%;
+  display: block;
+}

@@ -264,11 +264,7 @@ export default function RoutePickerModal({
                       <Text strong ellipsis>
                         {provider.name}
                       </Text>
-                      {isOfficialDeepSeekProvider(provider) && (
-                        <Tag color='blue' variant='filled'>
-                          官方
-                        </Tag>
-                      )}
+                      {isOfficialDeepSeekProvider(provider) && <Tag variant='filled'>官方</Tag>}
                     </span>
                     <Text type='secondary' className={styles.providerMeta}>
                       {keys.length} 个兼容密钥
@@ -312,7 +308,7 @@ export default function RoutePickerModal({
                       <span className={styles.keyNameLine}>
                         <Text strong>{keyName(key)}</Text>
                         {current && (
-                          <Tag icon={<StarOutlined />} color='green' variant='filled'>
+                          <Tag icon={<StarOutlined />} color='success' variant='filled'>
                             当前
                           </Tag>
                         )}

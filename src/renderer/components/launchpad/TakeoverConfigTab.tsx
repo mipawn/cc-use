@@ -39,12 +39,12 @@ function statusBadge(status: TakeoverStatus) {
   switch (status) {
     case 'taken_over':
       return (
-        <Tag color='green' icon={<CheckCircleOutlined />}>
+        <Tag color='success' icon={<CheckCircleOutlined />}>
           已接管
         </Tag>
       )
     case 'official':
-      return <Tag color='blue'>官方配置</Tag>
+      return <Tag>官方配置</Tag>
     case 'not_found':
       return <Tag icon={<QuestionCircleOutlined />}>配置不存在</Tag>
     case 'error':
@@ -105,11 +105,7 @@ export default function TakeoverConfigTab({
               <span className={styles.nodeBody}>
                 <span className={styles.nodeTitleLine}>
                   <Text type='secondary'>供应商</Text>
-                  {isOfficialDeepSeekProvider(activeProvider) && (
-                    <Tag color='blue' variant='filled'>
-                      官方
-                    </Tag>
-                  )}
+                  {isOfficialDeepSeekProvider(activeProvider) && <Tag variant='filled'>官方</Tag>}
                 </span>
                 <Text strong>{activeProvider.name}</Text>
               </span>

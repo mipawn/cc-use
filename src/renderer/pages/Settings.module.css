@@ -11,7 +11,7 @@
 }
 
 .header {
-  padding-bottom: 16px;
+  padding-bottom: 24px;
   flex-shrink: 0;
 }
 
@@ -44,11 +44,12 @@
   align-items: center;
   gap: 16px;
   width: 100%;
+  flex-wrap: wrap;
 }
 
 .iconBox {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -57,7 +58,7 @@
 }
 
 .settingIcon {
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .settingDesc {

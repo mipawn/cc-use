@@ -1,0 +1,241 @@
+.shell {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--surface-sidebar);
+  color: var(--ant-color-text);
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 228px;
+  flex: 0 0 228px;
+  min-height: 0;
+  padding: 0 12px 14px;
+}
+.trafficSpace {
+  height: 48px;
+  flex-shrink: 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 24px;
+}
+.brandMark {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.brandName {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.5px;
+}
+.navigation {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.group {
+  margin-top: 25px;
+}
+.groupLabel {
+  display: block;
+  padding: 0 12px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ant-color-text-tertiary);
+}
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  margin-bottom: 3px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--ant-color-text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  line-height: 22px;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
+}
+.navItem:hover {
+  background: var(--surface-nav-hover);
+  color: var(--ant-color-text);
+}
+.navItem[aria-current='page'] {
+  background: var(--surface-nav-active);
+  color: var(--color-nav-active);
+  font-weight: 600;
+}
+.navIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  font-size: 15px;
+}
+.navLabel {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  line-height: 22px;
+}
+.navIcon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.footer {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.titlebar {
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px 0 12px;
+  gap: 12px;
+  user-select: none;
+}
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+.breadcrumbTitle {
+  color: var(--ant-color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.separator {
+  color: var(--ant-color-text-quaternary);
+}
+.iconButton {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  cursor: pointer;
+}
+.iconButton:hover {
+  background: var(--surface-nav-active);
+  color: var(--ant-color-text);
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  margin: 0 10px 10px 0;
+  padding: 28px 32px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-elevated);
+}
+.collapsed .sidebar {
+  width: 64px;
+  flex-basis: 64px;
+  padding-inline: 8px;
+}
+.collapsed .brand {
+  padding: 6px 9px 24px;
+}
+.collapsed .brandName,
+.collapsed .navLabel,
+.collapsed .groupLabel {
+  display: none;
+}
+.collapsed .navItem {
+  justify-content: center;
+  padding-inline: 8px;
+}
+.collapsed .group {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.navItem:focus-visible,
+.iconButton:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+@media (max-width: 1000px) {
+  .sidebar {
+    width: 204px;
+    flex-basis: 204px;
+  }
+  .content {
+    padding: 22px;
+  }
+}
+@media (max-width: 700px) {
+  .iconButton {
+    display: none;
+  }
+  .sidebar {
+    width: 60px;
+    flex-basis: 60px;
+    padding-inline: 6px;
+  }
+  .brand {
+    padding: 6px 9px 24px;
+  }
+  .brandName,
+  .navLabel,
+  .groupLabel {
+    display: none;
+  }
+  .navItem {
+    justify-content: center;
+    padding-inline: 8px;
+  }
+  .group {
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .content {
+    padding: 18px 16px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+  }
+  .breadcrumb > span:first-of-type,
+  .separator {
+    display: none;
+  }
+  .titlebar {
+    padding-right: 12px;
+  }
+}

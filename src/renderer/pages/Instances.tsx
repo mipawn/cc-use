@@ -49,9 +49,10 @@ export function isApiKeyCompatibleWithCliType(key: Pick<ApiKey, 'types'>, cliTyp
 
 interface InstancesProps {
   clientKind: Extract<ClientKind, 'claude_code' | 'grok'>
+  embedded?: boolean
 }
 
-export default function Instances({ clientKind }: InstancesProps) {
+export default function Instances({ clientKind, embedded = false }: InstancesProps) {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [instances, setInstances] = useState<ManagedInstance[]>([])
@@ -309,9 +310,11 @@ export default function Instances({ clientKind }: InstancesProps) {
       style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}
     >
       <div>
-        <Title level={3} className='m-0! mb-1!'>
-          {t('instances.title')}
-        </Title>
+        {!embedded && (
+          <Title level={3} className='m-0! mb-1!'>
+            {t('instances.title')}
+          </Title>
+        )}
         <Text type='secondary'>
           {t('instances.subtitle')}
           {' · '}

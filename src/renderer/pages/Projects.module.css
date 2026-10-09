@@ -46,11 +46,9 @@
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
-  padding: 12px 14px;
+  padding: 10px 2px;
   margin-top: 4px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-ant);
-  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .projectGroupTitle {
@@ -68,8 +66,7 @@
 }
 
 .projectCard:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
+  border-color: var(--border-strong);
 }
 
 .projectCardHeader {
@@ -255,7 +252,7 @@
 
 .keySwitchMenu :global(.ant-dropdown-menu-item:hover),
 .keySwitchMenu :global(.ant-dropdown-menu-item-active) {
-  background: rgba(59, 130, 246, 0.08) !important;
+  background: var(--surface-sunken) !important;
 }
 
 .keySwitchMenu :global(.ant-dropdown-menu-item-disabled) {
@@ -338,11 +335,7 @@
 }
 
 .keySwitchMenuItemCurrent {
-  background: linear-gradient(
-    90deg,
-    rgba(59, 130, 246, 0.12) 0%,
-    rgba(59, 130, 246, 0.04) 100%
-  ) !important;
+  background: var(--ant-color-primary-bg) !important;
   box-shadow: inset 2px 0 0 var(--color-accent-primary);
 }
 
