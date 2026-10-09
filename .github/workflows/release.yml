@@ -13,6 +13,9 @@ jobs:
   release:
     strategy:
       fail-fast: false
+      # tauri-action creates the shared Release and merges latest.json.
+      # Serialize uploads to avoid racing over the same release/tag/assets.
+      max-parallel: 1
       matrix:
         include:
           # macOS ARM (Apple Silicon)
