@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.11.0 Update**: Model configuration is rebuilt into two layers per launchpad — client models and gateway forwarding — with explicit catalog sources (provider models or a specified list), defaults, and forwarding rules. Claude Code tiers now write local startup variables, and Claude Desktop takeover writes a role-based model list. Exact-ID mapping and the separate local-config tab are gone, replaced by catalog preview, remembered query User-Agents, and a local count_tokens fallback. See [CHANGELOG](./CHANGELOG.md).
+> **3.12.0 Update**: A redesigned desktop workspace with a bright blue theme, consistent brand icons, and a collapsible sidebar. Usage and Console now share “Usage & logs”; Claude Code launch defaults and the status line live in “Client settings”. Provider groups and all README screenshots are updated. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
@@ -14,17 +14,19 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 ## Screenshots
 
-|                 Dashboard                 |               Key Management               |
-| :---------------------------------------: | :----------------------------------------: |
-| ![Dashboard](./screenshots/dashboard.png) | ![Key Management](./screenshots/token.png) |
+These screenshots show the current UI using demo data.
 
-|                Project Management                |               Statistics                |
-| :----------------------------------------------: | :-------------------------------------: |
-| ![Project Management](./screenshots/project.png) | ![Statistics](./screenshots/statis.png) |
+|                    Workspace                    |                      Providers & Keys                      |
+| :---------------------------------------------: | :--------------------------------------------------------: |
+| ![Workspace](./screenshots/workspace-light.png) | ![Providers & Keys](./screenshots/workspace-providers.png) |
 
-|                Settings                 |                Instances                 |
-| :-------------------------------------: | :--------------------------------------: |
-| ![Settings](./screenshots/settings.png) | ![Instances](./screenshots/instance.png) |
+|                    Client Projects                     |                     Usage & Logs                      |
+| :----------------------------------------------------: | :---------------------------------------------------: |
+| ![Client Projects](./screenshots/workspace-client.png) | ![Usage & Logs](./screenshots/workspace-activity.png) |
+
+|                     Settings                      |                      Running Instances                      |
+| :-----------------------------------------------: | :---------------------------------------------------------: |
+| ![Settings](./screenshots/workspace-settings.png) | ![Running Instances](./screenshots/workspace-instances.png) |
 
 ## Features
 
@@ -71,7 +73,7 @@ Open either the Claude Code or Grok Build page from the sidebar:
 1. Create a project from the Projects tab and select a custom group, project folder, and the current client's provider and key
 2. Click the project launch button to open a terminal and create a managed instance
 3. Use the current launchpad's Instances tab to inspect runtime state or switch to a compatible key; instances from the other CLI are not mixed in
-4. Claude Code also provides a Global Config tab
+4. In Claude Code, open “Client settings” in the upper right to edit “Launch defaults” or configure the optional status line
 
 Claude Code launches with `ANTHROPIC_BASE_URL`; Grok Build maintains a `cc-use` custom model in `~/.grok/config.toml`, injects its session token through `CC_USE_GROK_TOKEN`, and runs as the foreground TUI. Both connect only to the local daemon, while the real key stays inside it. See the [Grok Build integration guide](./guides/GROK_BUILD_EN.md) for configuration and troubleshooting.
 
@@ -107,7 +109,7 @@ Check service status and port on the Settings page; click "Restart Service" if a
 
 ### 6. Optional Claude Code Status Line
 
-The “Status Line” tab on the Claude Code page lets the user opt into a colored two-line status line. It shows
+Open “Client settings” on the Claude Code page, then “Status Line”, to enable the optional colored two-line status line. It shows
 the CC Use instance, provider, and key on the first line, then model, Git branch, and context
 usage on the second. An ordinary Claude Code session keeps the general information and labels the
 CC Use route as unmanaged.
@@ -116,6 +118,10 @@ This is not enabled by default and does not require the global `cc-use` command.
 another third-party `statusLine` already exists, cc-use asks whether to keep it or back it up and
 replace it. Restore puts the previous configuration back. Claude Code refreshes the change on the
 next interaction.
+
+### 7. Workspace and usage
+
+Workspace shows today’s tokens, requests, failures, and yearly activity. Open “Usage & logs” from the sidebar to switch between historical usage statistics and the live console’s requests, problems, and runtime logs. See the [workspace UI guide](./guides/UI_WORKSPACE.md).
 
 ## How It Works
 

@@ -46,7 +46,7 @@
 
 ## 验证范围
 
-发布说明与版本验证见 [v3.12.0](../docs/v3.12.0/README.md)。
+发布说明与版本验证见 [v3.12.0](https://github.com/mipawn/cc-use-docs/blob/main/v3.12.0/README.md)。
 
 - 类型检查、ESLint 和前端生产构建通过。ESLint 有 3 条既有 Hook warning。
 - 现有 161 项前端测试及发布说明、构建脚本各 6 项测试通过。

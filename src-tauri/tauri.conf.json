@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CC Use",
-  "version": "3.11.0",
+  "version": "3.12.0",
   "identifier": "com.mipawn.cc-use",
   "build": {
     "runner": "../scripts/cargo-build.mjs",
@@ -66,7 +66,8 @@
       "icons/tray@2x.png",
       "icons/trayTemplate.png",
       "icons/trayTemplate@2x.png",
-      "icons/icon.png"
+      "icons/icon.png",
+      "../src/renderer/assets/licenses/cc-switch-MIT.txt"
     ],
     "macOS": {
       "minimumSystemVersion": "10.15"
