@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.12.1 Update**: Model usage charts now use a muted palette across legends, stacked bars, and tooltips in both light and dark themes. See [CHANGELOG](./CHANGELOG.md).
+> **3.12.1 Update**: Model usage charts restore the palette used before the UI redesign across legends, stacked bars, and tooltips in both light and dark themes. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >

@@ -22,18 +22,18 @@ import styles from './DailyModelUsageChart.module.css'
  * composition per model. Mirrors the supplier trend chart's tooltip and legend
  * interaction.
  */
-// Muted midtones keep large stacks comfortable on both light and dark surfaces.
+// Restore the stronger model colors used before the v3.12 workspace redesign.
 const MODEL_PALETTE = [
-  '#6384b0',
-  '#5e9388',
-  '#8c7cab',
-  '#ad8c5d',
-  '#5b929e',
-  '#ad7f91',
-  '#af866e',
-  '#7e86ac',
-  '#889568',
-  '#ab7775',
+  '#1677ff',
+  '#52c41a',
+  '#722ed1',
+  '#d48806',
+  '#13a8a8',
+  '#eb2f96',
+  '#fa541c',
+  '#2f54eb',
+  '#a0d911',
+  '#cf1322',
 ]
 
 interface DailyModelUsageChartProps {
