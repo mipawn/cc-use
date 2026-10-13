@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.12.1 更新**：模型用量图恢复界面改版前的配色，图例、柱图和悬浮提示保持一致，兼顾浅色与深色主题。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.13.0 更新**：Claude Code 状态栏新增实时缓存命中率，随最近一次请求更新，无有效数据时显示 `Cache —`。详见 [CHANGELOG](./CHANGELOG.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >
@@ -110,12 +110,17 @@ Claude Desktop 接管后通过本地 daemon 发现模型列表。「模型映射
 ### 6. 可选的 Claude Code 状态栏
 
 Claude Code 页右上角「客户端设置」中的「状态栏」可以由用户主动启用彩色双行状态栏。第一行显示当前 CC Use
-实例、供应商和 Key，第二行显示模型、Git 分支与上下文占用。普通 Claude Code 会
+实例、供应商和 Key，第二行显示模型、Git 分支、上下文占用与缓存命中率。普通 Claude Code 会
 保留通用信息，并把 CC Use 线路标记为 `unmanaged`。
 
 该功能不是默认安装项，也不要求安装 `cc-use` 命令。若检测到 claude-hud 等第三方
 `statusLine`，cc-use 会让用户选择保留还是备份并覆盖；恢复时会还原原第三方配置。
 配置修改会在 Claude Code 下一次交互时自动刷新。
+
+`Cache 85.0%` 表示最近一次 API 请求的缓存命中率：缓存读取 Token ÷（普通输入 + 缓存读取 + 缓存创建 Token），不计输出 Token。
+它随 Claude Code 的状态栏刷新更新，不是会话累计值；首次响应前、压缩上下文后或缓存数据缺失时显示 `Cache —`，有效输入但没有缓存命中时显示 `Cache 0.0%`。
+升级后，已启用的状态栏会在下一次交互时使用新显示；应用路径变更时，在「客户端设置 → 状态栏」点击「更新路径」。
+完整设计与验证记录见 [v3.13.0 功能文档](https://github.com/mipawn/cc-use-docs/blob/main/v3.13.0/statusline-cache-rate.md)。
 
 ### 7. 工作台与用量观测
 

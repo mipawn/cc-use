@@ -534,6 +534,8 @@ struct StatuslineInput {
     /// `workspace.project_dir` — where the session was started.
     workspace_project_dir: Option<PathBuf>,
     context_percentage: Option<f64>,
+    /// Input-side cache hit percentage from the most recent API response.
+    cache_hit_percentage: Option<f64>,
 }
 
 impl Default for StatuslineInput {
@@ -544,6 +546,7 @@ impl Default for StatuslineInput {
             top_cwd: None,
             workspace_project_dir: None,
             context_percentage: None,
+            cache_hit_percentage: None,
         }
     }
 }
@@ -575,7 +578,20 @@ fn parse_statusline_input(raw: &str) -> StatuslineInput {
         context_percentage: value
             .pointer("/context_window/used_percentage")
             .and_then(|v| v.as_f64()),
+        cache_hit_percentage: value
+            .pointer("/context_window/current_usage")
+            .and_then(cache_hit_percentage),
     }
+}
+
+fn cache_hit_percentage(usage: &serde_json::Value) -> Option<f64> {
+    // Require all three counts: absent or malformed cache data must not look
+    // like a real 0% hit rate. Sum as f64 to avoid overflowing integer counts.
+    let input = usage.get("input_tokens")?.as_u64()? as f64;
+    let read = usage.get("cache_read_input_tokens")?.as_u64()? as f64;
+    let creation = usage.get("cache_creation_input_tokens")?.as_u64()? as f64;
+    let total = input + read + creation;
+    (total > 0.0).then(|| read / total * 100.0)
 }
 
 fn git_status(project_dir: &Path) -> Option<(String, bool)> {
@@ -642,6 +658,17 @@ fn context_meter(percentage: Option<f64>) -> String {
         ansi(STATUS_BLUE, "Context"),
         ansi(color, &bar),
         ansi(color, &format!("{:.0}%", percentage))
+    )
+}
+
+fn cache_indicator(percentage: Option<f64>) -> String {
+    let value = percentage
+        .map(|value| format!("{:.1}%", value))
+        .unwrap_or_else(|| "—".to_string());
+    format!(
+        "{} {}",
+        ansi(STATUS_BLUE, "Cache"),
+        ansi(STATUS_GREEN, &value)
     )
 }
 
@@ -787,6 +814,7 @@ pub fn statusline() -> CmdResult {
         ));
     }
     line_two.push(context_meter(input.context_percentage));
+    line_two.push(cache_indicator(input.cache_hit_percentage));
 
     println!("{}", line_one);
     println!(
@@ -953,7 +981,15 @@ mod tests {
                     "current_dir": "/tmp/cc-use",
                     "project_dir": "/tmp/cc-use-start"
                 },
-                "context_window": {"used_percentage": 42.4}
+                "context_window": {
+                    "used_percentage": 42.4,
+                    "current_usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 9000,
+                        "cache_read_input_tokens": 850,
+                        "cache_creation_input_tokens": 50
+                    }
+                }
             }"#,
         );
         assert_eq!(input.model, "Opus 4.1");
@@ -964,6 +1000,65 @@ mod tests {
             Some(PathBuf::from("/tmp/cc-use-start"))
         );
         assert_eq!(input.context_percentage, Some(42.4));
+        assert_eq!(input.cache_hit_percentage, Some(85.0));
+    }
+
+    #[test]
+    fn cache_rate_counts_only_input_side_tokens() {
+        for (usage, expected) in [
+            (
+                serde_json::json!({"input_tokens": 100, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 900}),
+                0.0,
+            ),
+            (
+                serde_json::json!({"input_tokens": 0, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 0}),
+                100.0,
+            ),
+            (
+                serde_json::json!({"input_tokens": 100, "cache_read_input_tokens": 200, "cache_creation_input_tokens": 700, "output_tokens": 5000}),
+                20.0,
+            ),
+            (
+                serde_json::json!({"input_tokens": u64::MAX, "cache_read_input_tokens": u64::MAX, "cache_creation_input_tokens": 0}),
+                50.0,
+            ),
+        ] {
+            assert_eq!(cache_hit_percentage(&usage), Some(expected));
+        }
+    }
+
+    #[test]
+    fn cache_rate_distinguishes_unavailable_from_zero_hits() {
+        for usage in [
+            serde_json::Value::Null,
+            serde_json::json!({}),
+            serde_json::json!({"input_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}),
+            serde_json::json!({"input_tokens": 100, "cache_read_input_tokens": 50}),
+            serde_json::json!({"input_tokens": 100, "cache_read_input_tokens": null, "cache_creation_input_tokens": 0}),
+            serde_json::json!({"input_tokens": 100, "cache_read_input_tokens": "50", "cache_creation_input_tokens": 0}),
+            serde_json::json!({"input_tokens": -1, "cache_read_input_tokens": 50, "cache_creation_input_tokens": 0}),
+            serde_json::json!({"input_tokens": 1.5, "cache_read_input_tokens": 50, "cache_creation_input_tokens": 0}),
+        ] {
+            assert_eq!(cache_hit_percentage(&usage), None, "usage: {usage}");
+        }
+        for raw in [
+            "",
+            "invalid",
+            "{}",
+            r#"{"context_window":{"current_usage":null}}"#,
+        ] {
+            assert_eq!(parse_statusline_input(raw).cache_hit_percentage, None);
+        }
+    }
+
+    #[test]
+    fn cache_indicator_shows_a_percentage_or_placeholder() {
+        assert!(cache_indicator(Some(85.0)).contains("85.0%"));
+        assert!(cache_indicator(Some(0.0)).contains("0.0%"));
+        assert!(cache_indicator(Some(100.0)).contains("100.0%"));
+        assert!(cache_indicator(Some(200.0 / 3.0)).contains("66.7%"));
+        assert!(cache_indicator(None).contains("—"));
+        assert!(!cache_indicator(None).contains('%'));
     }
 
     #[test]

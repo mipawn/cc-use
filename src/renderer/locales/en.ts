@@ -971,7 +971,7 @@ export default {
     stateNotConfigured: 'Not configured',
     statuslineTitle: 'Claude Code Status Line',
     statuslineDesc:
-      'An optional colored two-line status line for the model, Git branch, context usage, plus the active CC Use instance, provider, and key. It is never enabled automatically and does not require a global cc-use command.',
+      'An optional colored two-line status line for the model, Git branch, context usage, and cache hit rate of the latest request, plus the active CC Use instance, provider, and key. Shows Cache — when cache data is unavailable. It is never enabled automatically and does not require a global cc-use command.',
     statuslineEnable: 'Enable',
     statuslineDisable: 'Restore',
     statuslineUpdate: 'Update path',

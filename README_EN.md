@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.12.1 Update**: Model usage charts restore the palette used before the UI redesign across legends, stacked bars, and tooltips in both light and dark themes. See [CHANGELOG](./CHANGELOG.md).
+> **3.13.0 Update**: The Claude Code status line now shows a live cache hit rate from the latest request, with `Cache —` when data is unavailable. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
@@ -110,14 +110,19 @@ Check service status and port on the Settings page; click "Restart Service" if a
 ### 6. Optional Claude Code Status Line
 
 Open “Client settings” on the Claude Code page, then “Status Line”, to enable the optional colored two-line status line. It shows
-the CC Use instance, provider, and key on the first line, then model, Git branch, and context
-usage on the second. An ordinary Claude Code session keeps the general information and labels the
+the CC Use instance, provider, and key on the first line, then model, Git branch, context
+usage, and cache hit rate on the second. An ordinary Claude Code session keeps the general information and labels the
 CC Use route as unmanaged.
 
 This is not enabled by default and does not require the global `cc-use` command. If claude-hud or
 another third-party `statusLine` already exists, cc-use asks whether to keep it or back it up and
 replace it. Restore puts the previous configuration back. Claude Code refreshes the change on the
 next interaction.
+
+`Cache 85.0%` is the latest API request's cache hit rate: cache read tokens ÷ (regular input + cache read + cache creation tokens), excluding output tokens.
+It updates with Claude Code's status line rather than showing a session aggregate. Before the first response, after context compaction, or when cache data is unavailable, it shows `Cache —`; valid input with no cache hits shows `Cache 0.0%`.
+An enabled status line picks up the new display on the next interaction after upgrading. If the app path changes, click “Update path” under “Client settings → Status Line”.
+See the [v3.13.0 feature documentation](https://github.com/mipawn/cc-use-docs/blob/main/v3.13.0/statusline-cache-rate.md) for the design and verification record.
 
 ### 7. Workspace and usage
 

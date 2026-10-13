@@ -4,7 +4,68 @@
 use cc_use_cli::cmds::{self, Ctx};
 use cc_use_lib::db::Database;
 use cc_use_lib::models::{CreateApiKeyInput, CreateProjectInput, CreateProviderInput};
+use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+
+#[test]
+fn statusline_refreshes_cache_rate_from_each_payload() {
+    // Child processes use a temporary home, never the user's application DB.
+    let task_home = tempfile::tempdir().unwrap();
+    for (usage, expected) in [
+        (
+            serde_json::json!({"input_tokens": 100, "cache_read_input_tokens": 850, "cache_creation_input_tokens": 50, "output_tokens": 5000}),
+            "Cache 85.0%",
+        ),
+        (
+            serde_json::json!({"input_tokens": 100, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 900}),
+            "Cache 0.0%",
+        ),
+        (
+            serde_json::json!({"input_tokens": 0, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 0}),
+            "Cache 100.0%",
+        ),
+        (serde_json::Value::Null, "Cache —"),
+        (serde_json::json!({"input_tokens": 1000}), "Cache —"),
+        (
+            serde_json::json!({"input_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}),
+            "Cache —",
+        ),
+    ] {
+        let payload = serde_json::json!({
+            "model": {"display_name": "Sonnet"},
+            "context_window": {"used_percentage": 42, "current_usage": usage}
+        });
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cc-use-cli"))
+            .arg("statusline")
+            .env("HOME", task_home.path())
+            .env("NO_COLOR", "1")
+            .env_remove("CC_USE_INSTANCE_ID")
+            .current_dir(task_home.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("run statusline");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(payload.to_string().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(text.lines().count(), 2, "{text}");
+        assert!(text.lines().next().unwrap().ends_with("│ unmanaged"));
+        let details = text.lines().nth(1).unwrap();
+        assert!(details.starts_with("[Sonnet] │ Context "), "{text}");
+        assert!(details.contains("42%"), "{text}");
+        assert!(details.ends_with(expected), "{text}");
+        assert!(!text.contains('\x1b'), "NO_COLOR must be respected");
+    }
+}
 
 #[test]
 fn public_help_only_exposes_launch_commands() {
