@@ -7,6 +7,7 @@ const usageChartColors = {
   success: '#52c41a',
   latency: '#ff7875',
   firstToken: '#5cdbd3',
+  outputSpeed: '#597ef7',
 } as const
 
 export default usageChartColors

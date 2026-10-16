@@ -14,6 +14,10 @@ describe('usage chart locales', () => {
       expect(locale.usageDetail.firstTokenLatency).toBeTruthy()
       expect(locale.usageDetail.usageTrend).toBeTruthy()
       expect(locale.usageDetail.qualityTrend).toBeTruthy()
+      expect(locale.usageDetail.speedTrend).toBeTruthy()
+      expect(locale.statistics.outputSpeed).toBeTruthy()
+      expect(locale.statistics.outputSpeedHint).toBeTruthy()
+      expect(locale.statistics.avgOutputSpeedHint).toBeTruthy()
     }
   })
 

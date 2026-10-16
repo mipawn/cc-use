@@ -19,6 +19,8 @@ vi.mock('../api', () => ({
           failedRequests: 1,
           cacheHitRate: 0,
           avgLatencyMs: 100,
+          avgFirstTokenMs: 20,
+          avgOutputTokensPerSecond: 62.5,
         },
         dailyModelUsage: [],
         keyUsage: [],
@@ -26,7 +28,13 @@ vi.mock('../api', () => ({
       }),
       getRecentPaginated: async () => ({
         items: [
-          { id: 'auto', requestKind: 'auto_mode', outcome: 'success' },
+          {
+            id: 'auto',
+            requestKind: 'auto_mode',
+            outcome: 'success',
+            firstTokenMs: 20,
+            outputTokensPerSecond: 62.5,
+          },
           { id: 'failed', requestKind: 'auto_mode', outcome: 'upstream_error', statusCode: 503 },
           { id: 'ordinary', requestKind: null, outcome: 'success' },
           { id: 'legacy', outcome: 'success' },
@@ -37,6 +45,8 @@ vi.mock('../api', () => ({
           cacheReadTokens: 0,
           cacheCreationTokens: 0,
           latencyMs: 100,
+          firstTokenMs: null,
+          outputTokensPerSecond: null,
           createdAt: '2026-09-08T00:00:00Z',
           ...row,
         })),
@@ -116,7 +126,7 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
-    // Seven columns: the detail drawer holds the rest.
+    // Request timing and output rate are visible without opening details.
     const headers = Array.from(container.querySelectorAll('th')).map(
       (cell) => cell.textContent ?? '',
     )
@@ -125,6 +135,8 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
       'statistics.model',
       'statistics.route',
       'statistics.tokens',
+      'statistics.outputSpeed',
+      'statistics.firstTokenLatency',
       'statistics.latency',
       'statistics.status',
       'statistics.detail',
@@ -140,6 +152,25 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
     const modelCell = autoRow?.querySelectorAll('td')[1]
     expect(modelCell?.textContent).toContain('deepseek-v4-flash')
     expect(modelCell?.textContent).toContain('Auto')
+
+    const cells = autoRow?.querySelectorAll('td')
+    expect(cells?.[4].textContent).toContain('62.5 t/s')
+    expect(cells?.[5].textContent).toContain('20 ms')
+    expect(cells?.[6].textContent).toContain('100 ms')
+    const legacyCells = container.querySelector('[data-row-key="legacy"]')?.querySelectorAll('td')
+    expect(legacyCells?.[4].textContent).toBe('—')
+    expect(legacyCells?.[5].textContent).toBe('—')
+    expect(
+      container.querySelector('[data-row-key="failed"]')?.querySelectorAll('td')[4].textContent,
+    ).toBe('—')
+
+    await act(async () => {
+      ;(autoRow?.querySelector('button') as HTMLButtonElement).click()
+    })
+    const drawer = document.querySelector('.ant-drawer-body')
+    expect(drawer?.textContent).toContain('statistics.outputSpeed')
+    expect(drawer?.textContent).toContain('62.5 t/s')
+    expect(drawer?.textContent).toContain('20 ms')
   } finally {
     await act(async () => {
       root.unmount()

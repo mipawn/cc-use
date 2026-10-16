@@ -682,6 +682,7 @@ pub async fn proxy_handler(
         start_time,
         path: req_path.clone(),
         response_content_type: String::new(),
+        first_token_ms: None,
         key_alias: ctx.key_alias.clone(),
         provider_name: ctx.provider_name.clone(),
         project_name: ctx.project_name.clone(),
@@ -2106,6 +2107,8 @@ struct LogContext {
     start_time: std::time::Instant,
     path: String,
     response_content_type: String,
+    /// First generated content observed live; absent for buffered responses.
+    first_token_ms: Option<i64>,
     // Snapshot names for request_logs persistence
     key_alias: Option<String>,
     provider_name: Option<String>,
@@ -2233,7 +2236,7 @@ fn record_usage(
         cache_read_tokens: usage.cache_read_tokens,
         cache_creation_tokens: usage.cache_creation_tokens,
         latency_ms: Some(latency_ms),
-        first_token_ms: None,
+        first_token_ms: ctx.first_token_ms,
         status_code: ctx.status_code.map(i32::from),
         error_message,
         outcome: Some(outcome.as_str().to_string()),
@@ -2276,6 +2279,7 @@ struct UsageTrackingStream<S> {
 impl<S> UsageTrackingStream<S> {
     fn finalize_usage(&mut self, transport_error: Option<String>) -> bool {
         self.accumulator.flush();
+        self.observe_first_token();
         let Some(log_ctx) = self.log_ctx.take() else {
             return false;
         };
@@ -2322,6 +2326,18 @@ impl<S> UsageTrackingStream<S> {
             Some("Stream ended without reporting usage".to_string()),
         );
         false
+    }
+
+    fn observe_first_token(&mut self) {
+        // Compressed streams are decoded only at completion, so their true
+        // first-output time cannot be recovered from the final capture.
+        if self.content_encoding.is_empty() && self.accumulator.has_output() {
+            if let Some(ctx) = self.log_ctx.as_mut() {
+                if ctx.first_token_ms.is_none() {
+                    ctx.first_token_ms = Some(ctx.start_time.elapsed().as_millis() as i64);
+                }
+            }
+        }
     }
 
     fn parse_compressed_capture(&mut self) {
@@ -2389,6 +2405,7 @@ where
                 if this.content_encoding.is_empty() {
                     if this.log_ctx.is_some() {
                         this.accumulator.process_bytes(&bytes);
+                        this.observe_first_token();
                     }
                     if this.detail_capture {
                         append_bounded_tail(
@@ -3502,6 +3519,7 @@ mod tests {
             start_time: std::time::Instant::now(),
             path: "/v1/responses".to_string(),
             response_content_type: "text/event-stream".to_string(),
+            first_token_ms: None,
             key_alias: Some("codex-key".to_string()),
             provider_name: Some("codex-provider".to_string()),
             project_name: None,
@@ -3620,6 +3638,7 @@ mod tests {
             start_time: std::time::Instant::now(),
             path: "/v1/messages".to_string(),
             response_content_type: "text/event-stream".to_string(),
+            first_token_ms: None,
             key_alias: Some("claude-key".to_string()),
             provider_name: Some("claude-provider".to_string()),
             project_name: None,
@@ -3751,6 +3770,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn streaming_first_token_waits_for_content_and_is_persisted_once() {
+        use futures::StreamExt as _;
+        let (db, provider_id, api_key_id) = billing_db();
+        let mut ctx = streaming_log_ctx(&db, &provider_id, &api_key_id);
+        ctx.start_time = std::time::Instant::now() - std::time::Duration::from_secs(2);
+        let chunks = [
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100}}}\n\n: ping\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hello\"}}\n\n",
+            "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"world\"}}\n\n",
+            "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":50}}\n\n",
+        ];
+        let mut stream = UsageTrackingStream {
+            inner: futures::stream::iter(chunks.into_iter().map(|chunk| {
+                Ok::<_, reqwest::Error>(axum::body::Bytes::from_static(chunk.as_bytes()))
+            })),
+            accumulator: usage_parser::StreamUsageAccumulator::new(),
+            log_ctx: Some(ctx),
+            console_ctx: None,
+            finished: false,
+            content_encoding: String::new(),
+            detail_capture: false,
+            capture_buffer: Vec::new(),
+            capture_truncated: false,
+            _request_permits: None,
+        };
+        stream.next().await.unwrap().unwrap();
+        assert_eq!(stream.log_ctx.as_ref().unwrap().first_token_ms, None);
+        stream.next().await.unwrap().unwrap();
+        let first = stream.log_ctx.as_ref().unwrap().first_token_ms.unwrap();
+        assert!(first >= 2_000);
+        while stream.next().await.is_some() {}
+        let rows = db.lock().unwrap().request_log_list_all().unwrap();
+        assert_eq!(rows[0].first_token_ms, Some(first));
+        assert!(rows[0].latency_ms.unwrap() >= first);
+        assert_eq!(rows[0].output_tokens, 50);
+    }
+
+    #[tokio::test]
     async fn streaming_records_usage_for_plain_sse_split_across_utf8_boundaries() {
         let (db, provider_id, api_key_id) = billing_db();
         let sample = claude_sse_sample();
@@ -3767,6 +3824,7 @@ mod tests {
         assert_eq!(rows.len(), 1, "expected one billed row");
         assert_eq!(rows[0].input_tokens, 1234);
         assert_eq!(rows[0].output_tokens, 567);
+        assert!(rows[0].first_token_ms.is_some());
     }
 
     #[tokio::test]
@@ -3786,6 +3844,10 @@ mod tests {
         assert_eq!(rows.len(), 1, "expected one billed row from gzip stream");
         assert_eq!(rows[0].input_tokens, 1234);
         assert_eq!(rows[0].output_tokens, 567);
+        assert_eq!(
+            rows[0].first_token_ms, None,
+            "buffered decode has no live timing"
+        );
     }
 
     #[tokio::test]

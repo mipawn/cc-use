@@ -31,6 +31,7 @@ import type {
   RecentRequestLogDisplay,
 } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
+import { formatOutputSpeed, formatRequestDuration } from '../utils/formatPerformance'
 import UsageTimeRangePicker from '../components/usage/UsageTimeRangePicker'
 import DailyModelUsageChart from '../components/usage/DailyModelUsageChart'
 import styles from './Statistics.module.css'
@@ -178,7 +179,7 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
   usePageRefresh(refresh)
 
   /**
-   * Seven columns: the ones a user reads while scanning. Everything that is
+   * Request performance stays visible while scanning. Everything that is
    * only consulted when something looks wrong — the full model id, the token
    * breakdown, the error text — lives in the detail drawer.
    */
@@ -243,13 +244,37 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
       render: (_: number, record: RecentRequestLogDisplay) => renderTokens(totalTokens(record)),
     },
     {
+      title: (
+        <Tooltip title={t('statistics.outputSpeedHint')}>
+          <span>{t('statistics.outputSpeed')}</span>
+        </Tooltip>
+      ),
+      dataIndex: 'outputTokensPerSecond',
+      key: 'outputTokensPerSecond',
+      width: 105,
+      align: 'right' as const,
+      render: (value: number | null) => <span>{formatOutputSpeed(value)}</span>,
+    },
+    {
+      title: (
+        <Tooltip title={t('statistics.firstTokenHint')}>
+          <span>{t('statistics.firstTokenLatency')}</span>
+        </Tooltip>
+      ),
+      dataIndex: 'firstTokenMs',
+      key: 'firstTokenMs',
+      width: 110,
+      align: 'right' as const,
+      render: (value: number | null) => <span>{formatRequestDuration(value)}</span>,
+    },
+    {
       title: t('statistics.latency'),
       dataIndex: 'latencyMs',
       key: 'latencyMs',
-      width: 80,
+      width: 100,
       align: 'right' as const,
       render: (value: number | null) => (
-        <span style={{ fontSize: 12 }}>{value != null ? `${value}ms` : '—'}</span>
+        <span style={{ fontSize: 12 }}>{formatRequestDuration(value)}</span>
       ),
     },
     {
@@ -349,9 +374,7 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
             </div>
           ) : hasData && summary ? (
             <div className={styles.statsContent}>
-              {/* The numbers a user checks first, cache rate and latency among
-                  them. Equal cells in a grid rather than a divided row: five
-                  figures wrap badly when the dividers wrap with them. */}
+              {/* Usage and observed request performance in the selected range. */}
               <div className={styles.summaryBar}>
                 <Statistic
                   title={t('statistics.totalTokens')}
@@ -385,6 +408,22 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                   value={summary.avgLatencyMs ?? undefined}
                   suffix={summary.avgLatencyMs != null ? 'ms' : undefined}
                   precision={0}
+                />
+                <Statistic
+                  title={
+                    <Tooltip title={t('statistics.firstTokenHint')}>
+                      <span>{t('usageDetail.avgFirstToken')}</span>
+                    </Tooltip>
+                  }
+                  value={formatRequestDuration(summary.avgFirstTokenMs)}
+                />
+                <Statistic
+                  title={
+                    <Tooltip title={t('statistics.avgOutputSpeedHint')}>
+                      <span>{t('statistics.avgOutputSpeed')}</span>
+                    </Tooltip>
+                  }
+                  value={formatOutputSpeed(summary.avgOutputTokensPerSecond)}
                 />
               </div>
 
@@ -432,6 +471,7 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                   rowKey='id'
                   size='small'
                   loading={recentLoading}
+                  scroll={{ x: 1120 }}
                   onChange={handleRecentTableChange}
                   pagination={{
                     current: recentRequests?.page || recentPage,

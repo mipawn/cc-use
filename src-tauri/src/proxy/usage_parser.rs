@@ -130,6 +130,7 @@ pub struct StreamUsageAccumulator {
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub model: Option<String>,
+    has_output: bool,
     data_event_count: usize,
     invalid_json_count: usize,
     event_types: Vec<String>,
@@ -148,6 +149,7 @@ impl StreamUsageAccumulator {
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
             model: None,
+            has_output: false,
             data_event_count: 0,
             invalid_json_count: 0,
             event_types: Vec::new(),
@@ -217,6 +219,8 @@ impl StreamUsageAccumulator {
                 return;
             }
         };
+
+        self.has_output |= contains_generated_output(&data);
 
         if let Some(obj) = data.as_object() {
             for key in obj.keys() {
@@ -322,6 +326,11 @@ impl StreamUsageAccumulator {
         }
     }
 
+    /// Metadata, usage summaries and heartbeat events are not generated output.
+    pub fn has_output(&self) -> bool {
+        self.has_output
+    }
+
     pub fn get_usage(&self) -> Option<TokenUsage> {
         if self.input_tokens == 0
             && self.output_tokens == 0
@@ -347,6 +356,55 @@ impl StreamUsageAccumulator {
             self.top_level_keys.join(","),
             self.model.as_deref().unwrap_or("")
         )
+    }
+}
+
+fn contains_generated_output(data: &serde_json::Value) -> bool {
+    let nonempty = |value: Option<&serde_json::Value>| {
+        value
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty())
+    };
+    match data.get("type").and_then(|v| v.as_str()) {
+        Some("content_block_delta") => {
+            let delta = &data["delta"];
+            ["text", "thinking", "partial_json"]
+                .iter()
+                .any(|key| nonempty(delta.get(key)))
+        }
+        Some("content_block_start") => {
+            let block = &data["content_block"];
+            nonempty(block.get("text"))
+                || nonempty(block.get("thinking"))
+                || (block["type"] == "tool_use" && nonempty(block.get("name")))
+        }
+        Some(
+            "response.output_text.delta"
+            | "response.refusal.delta"
+            | "response.reasoning_text.delta"
+            | "response.reasoning_summary_text.delta"
+            | "response.function_call_arguments.delta",
+        ) => nonempty(data.get("delta")),
+        Some("response.output_item.added") => {
+            let item = &data["item"];
+            item["type"] == "function_call" && nonempty(item.get("name"))
+        }
+        _ => data["choices"].as_array().is_some_and(|choices| {
+            choices.iter().any(|choice| {
+                let delta = &choice["delta"];
+                ["content", "reasoning_content", "reasoning", "refusal"]
+                    .iter()
+                    .any(|key| nonempty(delta.get(key)))
+                    || delta["tool_calls"].as_array().is_some_and(|calls| {
+                        calls.iter().any(|call| {
+                            nonempty(call["function"].get("name"))
+                                || nonempty(call["function"].get("arguments"))
+                        })
+                    })
+                    || nonempty(delta["function_call"].get("name"))
+                    || nonempty(delta["function_call"].get("arguments"))
+            })
+        }),
     }
 }
 

@@ -1,14 +1,15 @@
-import { Descriptions, Drawer, Space, Tag, Typography } from 'antd'
+import { Descriptions, Drawer, Space, Tag, Tooltip, Typography } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { RecentRequestLogDisplay } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../../utils/formatTokens'
+import { formatOutputSpeed, formatRequestDuration } from '../../utils/formatPerformance'
 
 const { Text } = Typography
 
 /**
  * One request in full.
  *
- * The list shows seven columns; everything a user only needs once something
+ * The list shows the main signals; everything a user only needs once something
  * looks wrong is here: the complete model id, the token breakdown and the full
  * error text. The proxy's route token is not a request identifier and is not
  * shown; no API key material appears either.
@@ -44,10 +45,23 @@ export default function RecentRequestDetailDrawer({
             </Tag>
             <Text strong>{record.model || '—'}</Text>
             {record.requestKind === 'auto_mode' && <Tag color='gold'>Auto mode</Tag>}
-            <Text type='secondary'>{record.latencyMs != null ? `${record.latencyMs}ms` : '—'}</Text>
+            <Text type='secondary'>{formatRequestDuration(record.latencyMs)}</Text>
           </Space>
 
           <Descriptions column={1} size='small' bordered>
+            <Descriptions.Item label={t('statistics.outputSpeed')}>
+              <Tooltip title={t('statistics.outputSpeedHint')}>
+                <span>{formatOutputSpeed(record.outputTokensPerSecond)}</span>
+              </Tooltip>
+            </Descriptions.Item>
+            <Descriptions.Item label={t('statistics.firstTokenLatency')}>
+              <Tooltip title={t('statistics.firstTokenHint')}>
+                <span>{formatRequestDuration(record.firstTokenMs)}</span>
+              </Tooltip>
+            </Descriptions.Item>
+            <Descriptions.Item label={t('statistics.latency')}>
+              {formatRequestDuration(record.latencyMs)}
+            </Descriptions.Item>
             <Descriptions.Item label={t('statistics.time')}>
               {new Date(record.createdAt).toLocaleString()}
             </Descriptions.Item>

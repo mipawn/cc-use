@@ -540,6 +540,10 @@ pub struct UsageStatsSummary {
     /// cache_read / (input + cache_read + cache_creation); 0 when no input side.
     pub cache_hit_rate: f64,
     pub avg_latency_ms: Option<f64>,
+    #[serde(default)]
+    pub avg_first_token_ms: Option<f64>,
+    #[serde(default)]
+    pub avg_output_tokens_per_second: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -591,6 +595,10 @@ pub struct RecentRequestLogDisplay {
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub latency_ms: Option<i64>,
+    #[serde(default)]
+    pub first_token_ms: Option<i64>,
+    #[serde(default)]
+    pub output_tokens_per_second: Option<f64>,
     pub status_code: Option<i32>,
     pub outcome: Option<String>,
     pub error_message: Option<String>,
@@ -630,6 +638,8 @@ pub struct ResourceUsageSummary {
     pub cache_hit_rate: f64,
     pub avg_latency_ms: Option<f64>,
     pub avg_first_token_ms: Option<f64>,
+    #[serde(default)]
+    pub avg_output_tokens_per_second: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -647,6 +657,8 @@ pub struct ResourceUsageTrendItem {
     pub cache_hit_rate: f64,
     pub avg_latency_ms: Option<f64>,
     pub avg_first_token_ms: Option<f64>,
+    #[serde(default)]
+    pub avg_output_tokens_per_second: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

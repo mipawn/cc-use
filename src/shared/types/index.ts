@@ -775,6 +775,8 @@ export interface UsageStatsSummary {
   /** cache_read / (input + cache_read + cache_creation) */
   cacheHitRate: number
   avgLatencyMs: number | null
+  avgFirstTokenMs: number | null
+  avgOutputTokensPerSecond: number | null
 }
 
 export interface DailyTrendItem {
@@ -802,6 +804,8 @@ export interface RecentRequestLogDisplay {
   cacheReadTokens: number
   cacheCreationTokens: number
   latencyMs: number | null
+  firstTokenMs: number | null
+  outputTokensPerSecond: number | null
   statusCode: number | null
   outcome: RequestOutcome | null
   errorMessage: string | null
@@ -847,6 +851,7 @@ export interface ResourceUsageSummary {
   cacheHitRate: number
   avgLatencyMs: number | null
   avgFirstTokenMs: number | null
+  avgOutputTokensPerSecond: number | null
 }
 
 export interface ResourceUsageTrendItem {
@@ -862,6 +867,7 @@ export interface ResourceUsageTrendItem {
   cacheHitRate: number
   avgLatencyMs: number | null
   avgFirstTokenMs: number | null
+  avgOutputTokensPerSecond: number | null
 }
 
 export interface ResourceUsageStatistics {

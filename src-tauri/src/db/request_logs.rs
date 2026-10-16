@@ -10,6 +10,18 @@ use crate::models::{
 /// share under Claude Code; hiding them made totals unexplainable.
 const TOKEN_SUM: &str = "input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens";
 
+/// Per-request observed output rate. Never infer a first-token time for old,
+/// buffered or unsuccessful requests; AVG ignores their NULL measurements.
+fn output_speed_sql(prefix: &str) -> String {
+    format!(
+        "CASE WHEN {p}is_streaming = 1 AND COALESCE({p}outcome, 'success') = 'success'
+             AND {p}output_tokens > 0 AND {p}first_token_ms >= 0
+             AND {p}latency_ms > {p}first_token_ms
+         THEN {p}output_tokens * 1000.0 / ({p}latency_ms - {p}first_token_ms) END",
+        p = prefix
+    )
+}
+
 impl Database {
     fn trend_granularity(time_range: &str) -> &'static str {
         match time_range {
@@ -243,12 +255,15 @@ impl Database {
             total_cache_read_tokens,
             total_cache_creation_tokens,
             avg_latency_ms,
+            avg_first_token_ms,
+            avg_output_tokens_per_second,
         ) = self.conn.query_row(
             &format!(
                 "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                         COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
-                        AVG(latency_ms)
+                        AVG(latency_ms), AVG(first_token_ms), AVG({})
                  FROM request_logs {}",
+                output_speed_sql(""),
                 where_clause
             ),
             [],
@@ -260,6 +275,8 @@ impl Database {
                     row.get::<_, i64>(3)?,
                     row.get::<_, i64>(4)?,
                     row.get::<_, Option<f64>>(5)?,
+                    row.get::<_, Option<f64>>(6)?,
+                    row.get::<_, Option<f64>>(7)?,
                 ))
             },
         )?;
@@ -302,6 +319,8 @@ impl Database {
                 + total_cache_creation_tokens,
             cache_hit_rate,
             avg_latency_ms,
+            avg_first_token_ms,
+            avg_output_tokens_per_second,
         };
 
         let dimension_where =
@@ -427,15 +446,16 @@ impl Database {
             cache_creation_tokens,
             avg_latency_ms,
             avg_first_token_ms,
+            avg_output_tokens_per_second,
         ) = self.conn.query_row(
             &format!(
                 "SELECT COALESCE(SUM({}), 0), COUNT(*),
                         COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') = 'success' THEN 1 ELSE 0 END), 0),
                         COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
                         COALESCE(SUM(input_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
-                        COALESCE(SUM(cache_creation_tokens), 0), AVG(latency_ms), AVG(first_token_ms)
+                        COALESCE(SUM(cache_creation_tokens), 0), AVG(latency_ms), AVG(first_token_ms), AVG({})
                  FROM request_logs {}",
-                TOKEN_SUM, scoped_where
+                TOKEN_SUM, output_speed_sql(""), scoped_where
             ),
             rusqlite::params![provider_id, api_key_id],
             |row| {
@@ -449,6 +469,7 @@ impl Database {
                     row.get::<_, i64>(6)?,
                     row.get::<_, Option<f64>>(7)?,
                     row.get::<_, Option<f64>>(8)?,
+                    row.get::<_, Option<f64>>(9)?,
                 ))
             },
         )?;
@@ -474,6 +495,7 @@ impl Database {
             cache_hit_rate,
             avg_latency_ms,
             avg_first_token_ms,
+            avg_output_tokens_per_second,
         };
 
         let created_date = Self::local_date_expr("created_at");
@@ -484,9 +506,9 @@ impl Database {
                     COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
                     COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                     COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
-                    AVG(latency_ms), AVG(first_token_ms)
+                    AVG(latency_ms), AVG(first_token_ms), AVG({})
              FROM request_logs {} GROUP BY d ORDER BY d ASC",
-            trend_bucket, TOKEN_SUM, scoped_where
+            trend_bucket, TOKEN_SUM, output_speed_sql(""), scoped_where
         ))?;
         let daily_trend = stmt
             .query_map(rusqlite::params![provider_id, api_key_id], |row| {
@@ -518,6 +540,7 @@ impl Database {
                     },
                     avg_latency_ms: row.get(8)?,
                     avg_first_token_ms: row.get(9)?,
+                    avg_output_tokens_per_second: row.get(10)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -562,14 +585,14 @@ impl Database {
                         r.input_tokens, r.output_tokens,
                         r.cache_read_tokens, r.cache_creation_tokens,
                         r.latency_ms, r.status_code, r.outcome, r.error_message, r.created_at, r.request_kind,
-                        r.request_id
+                        r.request_id, r.first_token_ms, {}
                  FROM request_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
                  {} ORDER BY r.created_at DESC LIMIT ?1 OFFSET ?2",
-            where_clause
+            output_speed_sql("r."), where_clause
         ))?;
         let items: Vec<RecentRequestLogDisplay> = stmt
             .query_map([page_size, offset], |row| {
@@ -590,6 +613,8 @@ impl Database {
                     created_at: row.get(13)?,
                     request_kind: row.get(14)?,
                     request_id: row.get(15)?,
+                    first_token_ms: row.get(16)?,
+                    output_tokens_per_second: row.get(17)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -1026,6 +1051,7 @@ mod tests {
         selected.cache_creation_tokens = 0;
         selected.latency_ms = Some(800);
         selected.first_token_ms = Some(200);
+        selected.is_streaming = true;
         db.request_log_create(&selected).unwrap();
 
         let mut failed = mk_failed_log("failed", now.clone(), 502, "upstream_error");
@@ -1055,12 +1081,20 @@ mod tests {
         assert!((key_stats.summary.cache_hit_rate - 0.75).abs() < 1e-9);
         assert_eq!(key_stats.summary.avg_latency_ms, Some(1_000.0));
         assert_eq!(key_stats.summary.avg_first_token_ms, Some(200.0));
+        assert!(
+            (key_stats.summary.avg_output_tokens_per_second.unwrap() - 50_000.0 / 600.0).abs()
+                < 1e-9
+        );
         assert_eq!(key_stats.daily_trend.len(), 1);
         assert_eq!(key_stats.daily_trend[0].failed_requests, 1);
         assert_eq!(key_stats.daily_trend[0].input_tokens, 100);
         assert_eq!(key_stats.daily_trend[0].output_tokens, 50);
         assert_eq!(key_stats.daily_trend[0].cache_read_tokens, 300);
         assert_eq!(key_stats.daily_trend[0].cache_creation_tokens, 0);
+        assert_eq!(
+            key_stats.daily_trend[0].avg_output_tokens_per_second,
+            key_stats.summary.avg_output_tokens_per_second
+        );
         assert_eq!(key_stats.trend_granularity, "month");
 
         let provider_stats = db
@@ -1068,6 +1102,93 @@ mod tests {
             .unwrap();
         assert_eq!(provider_stats.summary.total_requests, 3);
         assert_eq!(provider_stats.summary.total_tokens, 480);
+    }
+
+    #[test]
+    fn output_speed_uses_only_valid_successful_streams_and_excludes_input_tokens() {
+        let db = Database::new_in_memory().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        for (id, streaming, first, latency, output, outcome) in [
+            ("fast", true, Some(2_000), 12_000, 1_000, "success"),
+            ("faster", true, Some(1_000), 3_000, 400, "success"),
+            ("historical", true, None, 12_000, 1_000, "success"),
+            ("buffered", false, Some(2_000), 12_000, 1_000, "success"),
+            ("failed", true, Some(2_000), 12_000, 1_000, "upstream_error"),
+            (
+                "cancelled",
+                true,
+                Some(2_000),
+                12_000,
+                1_000,
+                "transport_error",
+            ),
+            ("empty", true, Some(2_000), 12_000, 0, "success"),
+            ("zero-duration", true, Some(2_000), 2_000, 1_000, "success"),
+            (
+                "negative-duration",
+                true,
+                Some(2_000),
+                1_000,
+                1_000,
+                "success",
+            ),
+            ("negative-first", true, Some(-1), 12_000, 1_000, "success"),
+        ] {
+            let mut log = mk_billable_log(id, now.clone());
+            log.is_streaming = streaming;
+            log.first_token_ms = first;
+            log.latency_ms = Some(latency);
+            log.input_tokens = 1_000_000;
+            log.cache_read_tokens = 2_000_000;
+            log.output_tokens = output;
+            log.outcome = Some(outcome.into());
+            db.request_log_create(&log).unwrap();
+        }
+        let recent = db.request_log_get_recent_paginated("all", 1, 20).unwrap();
+        assert_eq!(recent.items.len(), 10);
+        for row in recent.items {
+            assert_eq!(
+                row.output_tokens_per_second,
+                match row.id.as_str() {
+                    "fast" => Some(100.0),
+                    "faster" => Some(200.0),
+                    _ => None,
+                },
+                "{}",
+                row.id
+            );
+        }
+        let stats = db.request_log_get_statistics("all").unwrap();
+        assert_eq!(stats.summary.avg_output_tokens_per_second, Some(150.0));
+        let resource = db
+            .request_log_get_resource_statistics("all", None, None)
+            .unwrap();
+        assert_eq!(resource.summary.avg_output_tokens_per_second, Some(150.0));
+        assert_eq!(
+            resource.daily_trend[0].avg_output_tokens_per_second,
+            Some(150.0)
+        );
+
+        db.conn
+            .execute(
+                "DELETE FROM request_logs WHERE id IN ('fast', 'faster')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            db.request_log_get_statistics("all")
+                .unwrap()
+                .summary
+                .avg_output_tokens_per_second,
+            None
+        );
+        assert_eq!(
+            db.request_log_get_resource_statistics("all", None, None)
+                .unwrap()
+                .summary
+                .avg_output_tokens_per_second,
+            None
+        );
     }
 
     #[test]

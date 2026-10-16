@@ -3,6 +3,49 @@ use cc_use_lib::proxy::usage_parser::{
 };
 
 #[test]
+fn first_output_ignores_metadata_heartbeats_and_usage() {
+    let mut acc = StreamUsageAccumulator::new();
+    for event in [
+        r#": keepalive"#,
+        r#"data: {"type":"ping"}"#,
+        r#"data: {"type":"message_start","message":{"usage":{"output_tokens":1}}}"#,
+        r#"data: {"type":"content_block_start","content_block":{"type":"text","text":""}}"#,
+        r#"data: {"choices":[{"delta":{"role":"assistant","content":""}}]}"#,
+        r#"data: {"type":"response.created","response":{"status":"in_progress"}}"#,
+        r#"data: {"type":"response.completed","response":{"usage":{"output_tokens":50}}}"#,
+        r#"data: [DONE]"#,
+    ] {
+        acc.process_chunk(&format!("{event}\n\n"));
+        assert!(!acc.has_output(), "metadata must not count: {event}");
+    }
+}
+
+#[test]
+fn first_output_recognizes_text_reasoning_and_tool_calls_across_protocols() {
+    for event in [
+        r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"你好"}}"#,
+        r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"let me think"}}"#,
+        r#"{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{"}}"#,
+        r#"{"type":"content_block_start","content_block":{"type":"tool_use","name":"read_file"}}"#,
+        r#"{"choices":[{"delta":{"content":"hello"}}]}"#,
+        r#"{"choices":[{"delta":{"reasoning_content":"thinking"}}]}"#,
+        r#"{"choices":[{"delta":{"tool_calls":[{"function":{"name":"read_file"}}]}}]}"#,
+        r#"{"type":"response.output_text.delta","delta":"hello"}"#,
+        r#"{"type":"response.reasoning_summary_text.delta","delta":"thinking"}"#,
+        r#"{"type":"response.function_call_arguments.delta","delta":"{"}"#,
+        r#"{"type":"response.output_item.added","item":{"type":"function_call","name":"read_file"}}"#,
+    ] {
+        let mut acc = StreamUsageAccumulator::new();
+        let line = format!("data: {event}\n\n");
+        // Transport chunks may split JSON, including UTF-8 codepoints.
+        for chunk in line.as_bytes().chunks(3) {
+            acc.process_bytes(chunk);
+        }
+        assert!(acc.has_output(), "missing output: {event}");
+    }
+}
+
+#[test]
 fn parse_claude_response() {
     let body = r#"{"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":10,"cache_creation_input_tokens":5},"model":"claude-sonnet-4"}"#;
     let (usage, model) = parse_usage_from_response(body);
