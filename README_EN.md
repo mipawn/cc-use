@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.13.0 Update**: The Claude Code status line now shows a live cache hit rate from the latest request, with `Cache —` when data is unavailable. See [CHANGELOG](./CHANGELOG.md).
+> **3.14.0 Update**: Usage statistics now show output speed (t/s), time to first token, and route speed trends, separating the initial wait from output generation. See [CHANGELOG](./CHANGELOG.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
@@ -40,7 +40,7 @@ These screenshots show the current UI using demo data.
 - **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, routing by session token to the current provider/key and enabling usage tracking and hot-switching
 - **Instance Management** - Each launchpad's Instances tab only shows managed instances from that client and only allows hot-switching to compatible keys
 - **Token Tracking** - Logs token usage, including both cache buckets, plus failure details; Chinese uses ten-thousand/hundred-million units, English uses `K / M / B`, and tooltips show exact counts
-- **Statistics** - Dashboard shows today's tokens, requests, failures, and a daily heatmap; Statistics provides custom date queries, token composition, trends, key/project usage, failures, and request history
+- **Statistics** - Dashboard shows today's tokens, requests, failures, and a daily heatmap; Statistics provides custom date queries, token composition, trends, key/project usage, failures, output speed, time to first token, and total request time
 - **System Tray** - Minimize to tray on close while the daemon keeps running; tray menu supports service control and quick-launching recent projects
 - **Auto mode classifier adaptation (experimental)** - Enable per key to follow the Claude session model or choose a classifier model, with low or disabled thinking. Off by default. Includes classifier response header compatibility fixes and Auto mode labels in usage statistics; see the [v3.9.1 guide](https://github.com/mipawn/cc-use-docs/blob/main/v3.9.1/README.md).
 - **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
@@ -127,6 +127,8 @@ See the [v3.13.0 feature documentation](https://github.com/mipawn/cc-use-docs/bl
 ### 7. Workspace and usage
 
 Workspace shows today’s tokens, requests, failures, and yearly activity. Open “Usage & logs” from the sidebar to switch between historical usage statistics and the live console’s requests, problems, and runtime logs. See the [workspace UI guide](./guides/UI_WORKSPACE.md).
+
+Request history and details show output speed (t/s), time to first token, and total time separately. Provider/key usage details include a “Response Speed” trend view. After updating, restart the local service in Settings to measure new requests; historical or unmeasurable values show `—`. See [request performance](./guides/REQUEST_PERFORMANCE.md) for metric definitions.
 
 ## How It Works
 
