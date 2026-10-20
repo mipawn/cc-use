@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.14.2] - 2026-10-20
+
+### Changed
+
+- **状态栏布局**：受管理实例的输出速度和 TTFT 移至独立第三行，第二行保留模型、Git、上下文与缓存信息，减少横向拥挤
+
+### Compatibility
+
+- 已启用的状态栏在升级应用后的下一次 Claude Code 交互时刷新，无需重新启用；普通非托管会话继续显示两行
+
 ## [3.14.1] - 2026-10-20
 
 ### Fixed

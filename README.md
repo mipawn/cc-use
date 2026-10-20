@@ -34,7 +34,7 @@
 - **独立 CLI 工作区** - Claude Code 与 Grok Build 在侧边栏分别拥有启动台；项目目录可复用，但供应商、密钥、启动命令和运行实例按客户端隔离
 - **自定义项目分组** - 创建或编辑项目时可输入新分组或复用已有分组；历史项目自动归入「未分组」，不再根据文件系统上级目录强制分组
 - **CLI 一键启动** - 点击项目即启动终端，wrapper 自动注入 session token、实例标识和本地 daemon 地址，真实密钥不会进入终端环境
-- **命令行工具与状态栏** - `cc-use claude` / `cc-use grok` 每次用方向键选择线路并预选 GUI 默认项；Claude Code 可选彩色双行 HUD，详见 [CLI 使用指南](./guides/CLI.md)
+- **命令行工具与状态栏** - `cc-use claude` / `cc-use grok` 每次用方向键选择线路并预选 GUI 默认项；Claude Code 可选彩色三行 HUD，详见 [CLI 使用指南](./guides/CLI.md)
 - **Codex Desktop 配置接管** - 保留 `auth.json` 和官方登录，加载所选线路的真实模型目录；DeepSeek 可选择 Flash / Pro 与对应思考强度，密钥级模型映射只替换上游模型名，不转换 Responses 协议
 - **Claude Desktop 配置接管** - 写入 Claude 3P profile 和 configLibrary，网关地址指向 `http://127.0.0.1:<port>/claude-desktop`，支持配置预览、恢复官方配置和模型列表接管
 - **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，按 session token 路由到当前供应商/密钥，支持用量追踪与热切换
@@ -109,8 +109,8 @@ Claude Desktop 接管后通过本地 daemon 发现模型列表。「模型映射
 
 ### 6. 可选的 Claude Code 状态栏
 
-Claude Code 页右上角「客户端设置」中的「状态栏」可以由用户主动启用彩色双行状态栏。第一行显示当前 CC Use
-实例、供应商和 Key，第二行显示模型、Git 分支、上下文占用、缓存命中率，以及当前实例最近请求的速度（`tok/s`）和首 Token 延迟（TTFT）。普通 Claude Code 会
+Claude Code 页右上角「客户端设置」中的「状态栏」可以由用户主动启用彩色状态栏。第一行显示当前 CC Use
+实例、供应商和 Key，第二行显示模型、Git 分支、上下文占用与缓存命中率；受管理实例的第三行显示最近请求的速度（`tok/s`）和首 Token 延迟（TTFT）。普通 Claude Code 会
 保留通用信息，并把 CC Use 线路标记为 `unmanaged`。
 
 该功能不是默认安装项，也不要求安装 `cc-use` 命令。若检测到 claude-hud 等第三方

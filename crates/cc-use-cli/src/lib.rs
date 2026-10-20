@@ -31,7 +31,7 @@ enum Command {
     /// 选择一条线路，在当前终端启动 Grok Build
     Grok,
 
-    /// 供 Claude Code statusLine 调用，从 stdin 读取 JSON 并输出彩色双行 HUD
+    /// 供 Claude Code statusLine 调用，从 stdin 读取 JSON 并输出彩色 HUD；受管理实例的测速独占第三行
     #[command(hide = true)]
     Statusline,
 

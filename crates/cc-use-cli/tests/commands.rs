@@ -141,13 +141,22 @@ fn statusline_shows_only_the_current_instances_last_request() {
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
         let text = String::from_utf8(output.stdout).unwrap();
-        assert_eq!(text.lines().count(), 2);
         assert!(!text.contains('\x1b'));
         text
     };
-    assert!(render("i-current").ends_with("Last 100.0 tok/s │ TTFT 2.00s\n"));
-    assert!(render("i-other").contains("Last 900.0 tok/s"));
+    let current = render("i-current");
+    let lines = current.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[1].starts_with("[Claude] │ Context "));
+    assert!(lines[1].ends_with("Cache —"));
+    assert!(!lines[1].contains("tok/s"));
+    assert!(!lines[1].contains("TTFT"));
+    assert_eq!(lines[2], "Last 100.0 tok/s │ TTFT 2.00s");
+    let other = render("i-other");
+    assert_eq!(other.lines().count(), 3);
+    assert_eq!(other.lines().nth(2), Some("Last 900.0 tok/s │ TTFT 2.00s"));
     let unmanaged = render("unknown");
+    assert_eq!(unmanaged.lines().count(), 2);
     assert!(unmanaged.contains("unmanaged"));
     assert!(!unmanaged.contains("tok/s"));
     db.conn
@@ -156,7 +165,18 @@ fn statusline_shows_only_the_current_instances_last_request() {
             [],
         )
         .unwrap();
-    assert!(render("i-current").ends_with("Last — tok/s │ TTFT 2.00s\n"));
+    let unavailable = render("i-current");
+    assert_eq!(unavailable.lines().count(), 3);
+    assert_eq!(
+        unavailable.lines().nth(2),
+        Some("Last — tok/s │ TTFT 2.00s")
+    );
+    db.conn
+        .execute("DELETE FROM request_logs WHERE id = 'i-current'", [])
+        .unwrap();
+    let no_requests = render("i-current");
+    assert_eq!(no_requests.lines().count(), 3);
+    assert_eq!(no_requests.lines().nth(2), Some("Last — tok/s │ TTFT —"));
 }
 
 #[test]

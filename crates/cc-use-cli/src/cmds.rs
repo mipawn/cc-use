@@ -815,6 +815,7 @@ pub fn statusline() -> CmdResult {
     }
     line_two.push(context_meter(input.context_percentage));
     line_two.push(cache_indicator(input.cache_hit_percentage));
+    let mut line_three = Vec::new();
     if let Some(instance) = instance.as_ref() {
         let performance = (|| {
             db.as_ref()?
@@ -828,13 +829,13 @@ pub fn statusline() -> CmdResult {
         })();
         let (speed, first_token_ms) = performance.unwrap_or((None, None));
         // This is the last settled request, not a token-by-token live estimate.
-        line_two.push(ansi(
+        line_three.push(ansi(
             STATUS_GREEN,
             &speed
                 .map(|value| format!("Last {value:.1} tok/s"))
                 .unwrap_or_else(|| "Last — tok/s".to_string()),
         ));
-        line_two.push(ansi(
+        line_three.push(ansi(
             STATUS_BLUE,
             &first_token_ms
                 .map(|value| format!("TTFT {:.2}s", value as f64 / 1000.0))
@@ -842,11 +843,12 @@ pub fn statusline() -> CmdResult {
         ));
     }
 
+    let separator = format!(" {} ", ansi(STATUS_BLUE, "│"));
     println!("{}", line_one);
-    println!(
-        "{}",
-        line_two.join(&format!(" {} ", ansi(STATUS_BLUE, "│")))
-    );
+    println!("{}", line_two.join(&separator));
+    if !line_three.is_empty() {
+        println!("{}", line_three.join(&separator));
+    }
     Ok(())
 }
 

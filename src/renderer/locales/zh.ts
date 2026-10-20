@@ -955,7 +955,7 @@ export default {
     stateNotConfigured: '未配置',
     statuslineTitle: 'Claude Code 状态栏',
     statuslineDesc:
-      '可选的彩色双行状态栏：显示模型、Git 分支、上下文占用、最近一次请求的缓存命中率，以及当前 CC Use 实例、供应商和 Key。无缓存数据时显示 Cache —。不会自动启用，也不依赖全局安装 cc-use 命令。',
+      '可选的彩色状态栏：前两行显示当前 CC Use 实例、供应商、Key、模型、Git 分支、上下文占用与缓存命中率；受管理实例的第三行显示最近请求的输出速度和首 Token 延迟（TTFT）。无缓存数据时显示 Cache —。不会自动启用，也不依赖全局安装 cc-use 命令。',
     statuslineEnable: '一键启用',
     statuslineDisable: '恢复',
     statuslineUpdate: '更新路径',

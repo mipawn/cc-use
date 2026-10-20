@@ -34,7 +34,7 @@ These screenshots show the current UI using demo data.
 - **Separate CLI Workspaces** - Claude Code and Grok Build each have their own launchpad in the sidebar; project directories can be reused, while provider, key, pre-launch command, and runtime instances stay isolated per client
 - **Custom Project Groups** - Create or reuse named groups when editing a project; legacy projects fall back to Ungrouped instead of being forced into filesystem parent-directory groups
 - **CLI Launch** - Click a project to launch a terminal; the wrapper injects a session token, instance metadata, and the local daemon URL while keeping the real key out of the terminal environment
-- **Command & Optional Status Line** - `cc-use claude` and `cc-use grok` show an arrow-key route picker with the GUI default preselected; users may opt into a two-line color Claude Code HUD
+- **Command & Optional Status Line** - `cc-use claude` and `cc-use grok` show an arrow-key route picker with the GUI default preselected; users may opt into a three-line color Claude Code HUD for managed sessions
 - **Codex Desktop Config Takeover** - Preserves `auth.json` and official login while loading the selected route's real model catalog; DeepSeek exposes Flash / Pro and their reasoning levels, while key-level model mapping only renames the upstream model and never converts the Responses protocol
 - **Claude Desktop Config Takeover** - Writes a Claude 3P profile and configLibrary entries pointing to `http://127.0.0.1:<port>/claude-desktop`, with config preview, official restore, and model-list takeover
 - **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, routing by session token to the current provider/key and enabling usage tracking and hot-switching
@@ -109,9 +109,9 @@ Check service status and port on the Settings page; click "Restart Service" if a
 
 ### 6. Optional Claude Code Status Line
 
-Open “Client settings” on the Claude Code page, then “Status Line”, to enable the optional colored two-line status line. It shows
+Open “Client settings” on the Claude Code page, then “Status Line”, to enable the optional colored status line. It shows
 the CC Use instance, provider, and key on the first line, then model, Git branch, context
-usage, cache hit rate, and the current instance's last request speed (`tok/s`) and time to first token (TTFT) on the second. An ordinary Claude Code session keeps the general information and labels the
+usage and cache hit rate on the second. Managed sessions show their last request speed (`tok/s`) and time to first token (TTFT) on a third line. An ordinary Claude Code session keeps the general information and labels the
 CC Use route as unmanaged.
 
 This is not enabled by default and does not require the global `cc-use` command. If claude-hud or
