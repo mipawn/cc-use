@@ -154,7 +154,7 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
     expect(modelCell?.textContent).toContain('Auto')
 
     const cells = autoRow?.querySelectorAll('td')
-    expect(cells?.[4].textContent).toContain('62.5 t/s')
+    expect(cells?.[4].textContent).toContain('62.5 tok/s')
     expect(cells?.[5].textContent).toContain('20 ms')
     expect(cells?.[6].textContent).toContain('100 ms')
     const legacyCells = container.querySelector('[data-row-key="legacy"]')?.querySelectorAll('td')
@@ -169,7 +169,7 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
     })
     const drawer = document.querySelector('.ant-drawer-body')
     expect(drawer?.textContent).toContain('statistics.outputSpeed')
-    expect(drawer?.textContent).toContain('62.5 t/s')
+    expect(drawer?.textContent).toContain('62.5 tok/s')
     expect(drawer?.textContent).toContain('20 ms')
   } finally {
     await act(async () => {

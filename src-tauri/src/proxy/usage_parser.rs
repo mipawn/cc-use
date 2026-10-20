@@ -130,7 +130,7 @@ pub struct StreamUsageAccumulator {
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub model: Option<String>,
-    has_output: bool,
+    output_event_count: usize,
     data_event_count: usize,
     invalid_json_count: usize,
     event_types: Vec<String>,
@@ -149,7 +149,7 @@ impl StreamUsageAccumulator {
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
             model: None,
-            has_output: false,
+            output_event_count: 0,
             data_event_count: 0,
             invalid_json_count: 0,
             event_types: Vec::new(),
@@ -220,7 +220,9 @@ impl StreamUsageAccumulator {
             }
         };
 
-        self.has_output |= contains_generated_output(&data);
+        if contains_generated_output(&data) {
+            self.output_event_count += 1;
+        }
 
         if let Some(obj) = data.as_object() {
             for key in obj.keys() {
@@ -328,7 +330,11 @@ impl StreamUsageAccumulator {
 
     /// Metadata, usage summaries and heartbeat events are not generated output.
     pub fn has_output(&self) -> bool {
-        self.has_output
+        self.output_event_count > 0
+    }
+
+    pub fn output_event_count(&self) -> usize {
+        self.output_event_count
     }
 
     pub fn get_usage(&self) -> Option<TokenUsage> {

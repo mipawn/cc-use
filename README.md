@@ -110,7 +110,7 @@ Claude Desktop 接管后通过本地 daemon 发现模型列表。「模型映射
 ### 6. 可选的 Claude Code 状态栏
 
 Claude Code 页右上角「客户端设置」中的「状态栏」可以由用户主动启用彩色双行状态栏。第一行显示当前 CC Use
-实例、供应商和 Key，第二行显示模型、Git 分支、上下文占用与缓存命中率。普通 Claude Code 会
+实例、供应商和 Key，第二行显示模型、Git 分支、上下文占用、缓存命中率，以及当前实例最近请求的速度（`tok/s`）和首 Token 延迟（TTFT）。普通 Claude Code 会
 保留通用信息，并把 CC Use 线路标记为 `unmanaged`。
 
 该功能不是默认安装项，也不要求安装 `cc-use` 命令。若检测到 claude-hud 等第三方

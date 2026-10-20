@@ -683,6 +683,8 @@ pub async fn proxy_handler(
         path: req_path.clone(),
         response_content_type: String::new(),
         first_token_ms: None,
+        last_token_ms: None,
+        last_chunk_ms: None,
         key_alias: ctx.key_alias.clone(),
         provider_name: ctx.provider_name.clone(),
         project_name: ctx.project_name.clone(),
@@ -2109,6 +2111,10 @@ struct LogContext {
     response_content_type: String,
     /// First generated content observed live; absent for buffered responses.
     first_token_ms: Option<i64>,
+    /// Updated only by new generated content, never by heartbeats or usage.
+    last_token_ms: Option<i64>,
+    /// Arrival time of the last bytes, including an SSE line flushed at EOF.
+    last_chunk_ms: Option<i64>,
     // Snapshot names for request_logs persistence
     key_alias: Option<String>,
     provider_name: Option<String>,
@@ -2237,6 +2243,7 @@ fn record_usage(
         cache_creation_tokens: usage.cache_creation_tokens,
         latency_ms: Some(latency_ms),
         first_token_ms: ctx.first_token_ms,
+        last_token_ms: ctx.last_token_ms,
         status_code: ctx.status_code.map(i32::from),
         error_message,
         outcome: Some(outcome.as_str().to_string()),
@@ -2278,8 +2285,9 @@ struct UsageTrackingStream<S> {
 
 impl<S> UsageTrackingStream<S> {
     fn finalize_usage(&mut self, transport_error: Option<String>) -> bool {
+        let previous = self.accumulator.output_event_count();
         self.accumulator.flush();
-        self.observe_first_token();
+        self.observe_output(previous);
         let Some(log_ctx) = self.log_ctx.take() else {
             return false;
         };
@@ -2328,13 +2336,16 @@ impl<S> UsageTrackingStream<S> {
         false
     }
 
-    fn observe_first_token(&mut self) {
+    fn observe_output(&mut self, previous_output_events: usize) {
         // Compressed streams are decoded only at completion, so their true
         // first-output time cannot be recovered from the final capture.
-        if self.content_encoding.is_empty() && self.accumulator.has_output() {
+        if self.content_encoding.is_empty()
+            && self.accumulator.output_event_count() > previous_output_events
+        {
             if let Some(ctx) = self.log_ctx.as_mut() {
-                if ctx.first_token_ms.is_none() {
-                    ctx.first_token_ms = Some(ctx.start_time.elapsed().as_millis() as i64);
+                if let Some(elapsed_ms) = ctx.last_chunk_ms {
+                    ctx.first_token_ms.get_or_insert(elapsed_ms);
+                    ctx.last_token_ms = Some(elapsed_ms);
                 }
             }
         }
@@ -2403,9 +2414,11 @@ where
         match Pin::new(&mut this.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(bytes))) => {
                 if this.content_encoding.is_empty() {
-                    if this.log_ctx.is_some() {
+                    if let Some(ctx) = this.log_ctx.as_mut() {
+                        ctx.last_chunk_ms = Some(ctx.start_time.elapsed().as_millis() as i64);
+                        let previous = this.accumulator.output_event_count();
                         this.accumulator.process_bytes(&bytes);
-                        this.observe_first_token();
+                        this.observe_output(previous);
                     }
                     if this.detail_capture {
                         append_bounded_tail(
@@ -3520,6 +3533,8 @@ mod tests {
             path: "/v1/responses".to_string(),
             response_content_type: "text/event-stream".to_string(),
             first_token_ms: None,
+            last_token_ms: None,
+            last_chunk_ms: None,
             key_alias: Some("codex-key".to_string()),
             provider_name: Some("codex-provider".to_string()),
             project_name: None,
@@ -3639,6 +3654,8 @@ mod tests {
             path: "/v1/messages".to_string(),
             response_content_type: "text/event-stream".to_string(),
             first_token_ms: None,
+            last_token_ms: None,
+            last_chunk_ms: None,
             key_alias: Some("claude-key".to_string()),
             provider_name: Some("claude-provider".to_string()),
             project_name: None,
@@ -3800,11 +3817,81 @@ mod tests {
         stream.next().await.unwrap().unwrap();
         let first = stream.log_ctx.as_ref().unwrap().first_token_ms.unwrap();
         assert!(first >= 2_000);
+        // Advance the request clock without sleeping: two seconds of output,
+        // then twenty seconds of trailing usage/connection wait.
+        stream.log_ctx.as_mut().unwrap().start_time -= std::time::Duration::from_secs(2);
+        stream.next().await.unwrap().unwrap();
+        let last = stream.log_ctx.as_ref().unwrap().last_token_ms.unwrap();
+        assert!(last >= first + 2_000);
+        stream.log_ctx.as_mut().unwrap().start_time -= std::time::Duration::from_secs(20);
         while stream.next().await.is_some() {}
         let rows = db.lock().unwrap().request_log_list_all().unwrap();
         assert_eq!(rows[0].first_token_ms, Some(first));
+        assert_eq!(rows[0].last_token_ms, Some(last));
+        assert!(rows[0].latency_ms.unwrap() >= last + 20_000);
         assert!(rows[0].latency_ms.unwrap() >= first);
         assert_eq!(rows[0].output_tokens, 50);
+    }
+
+    #[tokio::test]
+    async fn final_sse_line_uses_byte_arrival_time_even_when_flushed_at_eof() {
+        use futures::StreamExt as _;
+        let (db, provider_id, api_key_id) = billing_db();
+        let mut ctx = streaming_log_ctx(&db, &provider_id, &api_key_id);
+        ctx.start_time -= std::time::Duration::from_secs(2);
+        let chunks = [
+            "data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"last\"}}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":50}}",
+        ];
+        let mut stream = UsageTrackingStream {
+            inner: futures::stream::iter(chunks.into_iter().map(|chunk| {
+                Ok::<_, reqwest::Error>(axum::body::Bytes::from_static(chunk.as_bytes()))
+            })),
+            accumulator: usage_parser::StreamUsageAccumulator::new(),
+            log_ctx: Some(ctx),
+            console_ctx: None,
+            finished: false,
+            content_encoding: String::new(),
+            detail_capture: false,
+            capture_buffer: Vec::new(),
+            capture_truncated: false,
+            _request_permits: None,
+        };
+        stream.next().await.unwrap().unwrap();
+        let first = stream.log_ctx.as_ref().unwrap().first_token_ms.unwrap();
+        stream.log_ctx.as_mut().unwrap().start_time -= std::time::Duration::from_secs(2);
+        stream.next().await.unwrap().unwrap();
+        let last_arrival = stream.log_ctx.as_ref().unwrap().last_chunk_ms.unwrap();
+        stream.log_ctx.as_mut().unwrap().start_time -= std::time::Duration::from_secs(20);
+        assert!(stream.next().await.is_none());
+        let rows = db.lock().unwrap().request_log_list_all().unwrap();
+        assert_eq!(rows[0].first_token_ms, Some(first));
+        assert_eq!(rows[0].last_token_ms, Some(last_arrival));
+        assert!(last_arrival >= first + 2_000);
+        assert!(rows[0].latency_ms.unwrap() >= last_arrival + 20_000);
+        assert_eq!(rows[0].output_tokens, 50);
+    }
+
+    #[tokio::test]
+    async fn single_burst_sse_has_no_measurable_generation_speed() {
+        let (db, provider_id, api_key_id) = billing_db();
+        drive_stream(
+            vec![axum::body::Bytes::from(claude_sse_sample())],
+            "",
+            streaming_log_ctx(&db, &provider_id, &api_key_id),
+        )
+        .await;
+        let db = db.lock().unwrap();
+        let rows = db.request_log_list_all().unwrap();
+        assert!(rows[0].first_token_ms.is_some());
+        assert_eq!(rows[0].first_token_ms, rows[0].last_token_ms);
+        assert_eq!(
+            db.request_log_get_statistics("all")
+                .unwrap()
+                .summary
+                .avg_output_tokens_per_second,
+            None
+        );
     }
 
     #[tokio::test]
@@ -3844,6 +3931,7 @@ mod tests {
         assert_eq!(rows.len(), 1, "expected one billed row from gzip stream");
         assert_eq!(rows[0].input_tokens, 1234);
         assert_eq!(rows[0].output_tokens, 567);
+        assert_eq!(rows[0].last_token_ms, None);
         assert_eq!(
             rows[0].first_token_ms, None,
             "buffered decode has no live timing"

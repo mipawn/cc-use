@@ -924,9 +924,9 @@ export default {
     firstTokenHint:
       'Time from proxy entry to the first text, reasoning or tool-call content; heartbeats and empty events are excluded.',
     outputSpeedHint:
-      'Proxy-observed rate: output tokens ÷ (total time − time to first token). Uses upstream output usage, which may include reasoning tokens. Only successful streams with valid timing have a rate; historical, buffered or unmeasurable requests show —.',
+      'Proxy-observed generation rate (tok/s): upstream output tokens ÷ time between first and last generated content. Excludes input/cache tokens, TTFT and trailing waits. Output usage may include reasoning tokens. Only successful streams with a measured output span have a rate; historical, buffered or unmeasurable requests show —.',
     avgOutputSpeedHint:
-      'Mean of per-request output rates for successful streams with valid timing, in t/s (tokens/second). Excludes input/cache tokens and the wait for the first token. Shows — without valid samples.',
+      'Total sampled output tokens ÷ total corresponding output time, in tok/s (tokens/second). Duration-weighted across successful streams; missing timing and single buffered bursts are excluded. Shows — without valid samples.',
     status: 'Status',
     model: 'Model',
     provider: 'Provider',
@@ -949,7 +949,6 @@ export default {
     firstTokenLatency: 'Time to First Token',
     usageTrend: 'Token Mix',
     qualityTrend: 'Route Quality',
-    speedTrend: 'Response Speed',
     totalTokens: 'Total Tokens',
     totalRequests: 'Total Requests',
     avgLatency: 'Avg Total Time',

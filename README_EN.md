@@ -111,7 +111,7 @@ Check service status and port on the Settings page; click "Restart Service" if a
 
 Open “Client settings” on the Claude Code page, then “Status Line”, to enable the optional colored two-line status line. It shows
 the CC Use instance, provider, and key on the first line, then model, Git branch, context
-usage, and cache hit rate on the second. An ordinary Claude Code session keeps the general information and labels the
+usage, cache hit rate, and the current instance's last request speed (`tok/s`) and time to first token (TTFT) on the second. An ordinary Claude Code session keeps the general information and labels the
 CC Use route as unmanaged.
 
 This is not enabled by default and does not require the global `cc-use` command. If claude-hud or

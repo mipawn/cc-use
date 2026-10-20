@@ -10,19 +10,64 @@ use crate::models::{
 /// share under Claude Code; hiding them made totals unexplainable.
 const TOKEN_SUM: &str = "input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens";
 
-/// Per-request observed output rate. Never infer a first-token time for old,
-/// buffered or unsuccessful requests; AVG ignores their NULL measurements.
-fn output_speed_sql(prefix: &str) -> String {
+/// Output rate (tok/s) and first-output latency (ms) for one settled request.
+pub type RequestPerformanceReading = (Option<f64>, Option<i64>);
+
+/// Both token and duration sums must use exactly the same measured samples.
+fn output_speed_sample_sql(p: &str) -> String {
     format!(
-        "CASE WHEN {p}is_streaming = 1 AND COALESCE({p}outcome, 'success') = 'success'
+        "{p}is_streaming = 1 AND {p}outcome = 'success'
              AND {p}output_tokens > 0 AND {p}first_token_ms >= 0
-             AND {p}latency_ms > {p}first_token_ms
-         THEN {p}output_tokens * 1000.0 / ({p}latency_ms - {p}first_token_ms) END",
-        p = prefix
+             AND {p}last_token_ms > {p}first_token_ms
+             AND {p}latency_ms >= {p}last_token_ms"
+    )
+}
+
+/// A single transport burst has no measurable output span. Old measurements
+/// are not reinterpreted using EOF, which includes usage/heartbeat/close delays.
+fn output_speed_sql(p: &str) -> String {
+    format!(
+        "CASE WHEN {} THEN {p}output_tokens * 1000.0 / ({p}last_token_ms - {p}first_token_ms) END",
+        output_speed_sample_sql(p)
+    )
+}
+
+/// Duration-weighted throughput, following DeepSeek Harness's fold: sum of
+/// sampled output tokens / sum of the corresponding generation durations.
+fn aggregate_output_speed_sql(p: &str) -> String {
+    let valid = output_speed_sample_sql(p);
+    format!(
+        "SUM(CASE WHEN {valid} THEN {p}output_tokens END) * 1000.0 /
+         NULLIF(SUM(CASE WHEN {valid} THEN {p}last_token_ms - {p}first_token_ms END), 0)"
     )
 }
 
 impl Database {
+    /// Latest settled foreground request for this exact managed route. Do not
+    /// fall back to an older fast request when the latest one cannot be timed.
+    pub fn request_log_session_performance(
+        &self,
+        session_id: &str,
+        provider_id: &str,
+        api_key_id: &str,
+    ) -> Result<Option<RequestPerformanceReading>, rusqlite::Error> {
+        use rusqlite::OptionalExtension;
+        self.conn
+            .query_row(
+                &format!(
+                    "SELECT {}, CASE WHEN first_token_ms >= 0 THEN first_token_ms END
+                     FROM request_logs
+                     WHERE session_id = ?1 AND provider_id = ?2 AND api_key_id = ?3
+                       AND (request_kind IS NULL OR request_kind != 'auto_mode')
+                     ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                    output_speed_sql("")
+                ),
+                rusqlite::params![session_id, provider_id, api_key_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+    }
+
     fn trend_granularity(time_range: &str) -> &'static str {
         match time_range {
             "lastYear" | "year" => "week",
@@ -90,7 +135,7 @@ impl Database {
                     cache_read_tokens, cache_creation_tokens,
                     latency_ms, first_token_ms, status_code, error_message,
                     is_streaming, created_at,
-                    key_alias, provider_name, project_name, outcome, request_kind, request_id
+                    key_alias, provider_name, project_name, outcome, request_kind, request_id, last_token_ms
              FROM request_logs ORDER BY created_at ASC",
         )?;
 
@@ -110,6 +155,7 @@ impl Database {
                 cache_creation_tokens: row.get(10)?,
                 latency_ms: row.get(11)?,
                 first_token_ms: row.get(12)?,
+                last_token_ms: row.get(23)?,
                 status_code: row.get(13)?,
                 error_message: row.get(14)?,
                 is_streaming: is_streaming != 0,
@@ -132,8 +178,8 @@ impl Database {
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
                 cache_creation_tokens, latency_ms, first_token_ms, status_code, error_message,
                 is_streaming, created_at, key_alias, provider_name, project_name, outcome, request_kind,
-                request_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                request_id, last_token_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             rusqlite::params![
                 log.id, log.provider_id, log.api_key_id, log.project_id, log.session_id,
                 log.model, log.request_model, log.input_tokens, log.output_tokens,
@@ -141,7 +187,7 @@ impl Database {
                 log.latency_ms, log.first_token_ms, log.status_code, log.error_message,
                 if log.is_streaming { 1i32 } else { 0i32 }, log.created_at,
                 log.key_alias, log.provider_name, log.project_name, log.outcome, log.request_kind,
-                log.request_id,
+                log.request_id, log.last_token_ms,
             ],
         )?;
         Ok(())
@@ -153,8 +199,8 @@ impl Database {
                 model, request_model, input_tokens, output_tokens, cache_read_tokens,
                 cache_creation_tokens, latency_ms, first_token_ms, status_code, error_message,
                 is_streaming, created_at, key_alias, provider_name, project_name, outcome, request_kind,
-                request_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                request_id, last_token_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             rusqlite::params![
                 log.id,
                 log.provider_id,
@@ -179,6 +225,7 @@ impl Database {
                 log.outcome,
                 log.request_kind,
                 log.request_id,
+                log.last_token_ms,
             ],
         )?;
         Ok(())
@@ -261,9 +308,9 @@ impl Database {
             &format!(
                 "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                         COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
-                        AVG(latency_ms), AVG(first_token_ms), AVG({})
+                        AVG(latency_ms), AVG(first_token_ms), {}
                  FROM request_logs {}",
-                output_speed_sql(""),
+                aggregate_output_speed_sql(""),
                 where_clause
             ),
             [],
@@ -453,9 +500,9 @@ impl Database {
                         COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') = 'success' THEN 1 ELSE 0 END), 0),
                         COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
                         COALESCE(SUM(input_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
-                        COALESCE(SUM(cache_creation_tokens), 0), AVG(latency_ms), AVG(first_token_ms), AVG({})
+                        COALESCE(SUM(cache_creation_tokens), 0), AVG(latency_ms), AVG(first_token_ms), {}
                  FROM request_logs {}",
-                TOKEN_SUM, output_speed_sql(""), scoped_where
+                TOKEN_SUM, aggregate_output_speed_sql(""), scoped_where
             ),
             rusqlite::params![provider_id, api_key_id],
             |row| {
@@ -506,9 +553,9 @@ impl Database {
                     COALESCE(SUM(CASE WHEN COALESCE(outcome, 'success') != 'success' THEN 1 ELSE 0 END), 0),
                     COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                     COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
-                    AVG(latency_ms), AVG(first_token_ms), AVG({})
+                    AVG(latency_ms), AVG(first_token_ms), {}
              FROM request_logs {} GROUP BY d ORDER BY d ASC",
-            trend_bucket, TOKEN_SUM, output_speed_sql(""), scoped_where
+            trend_bucket, TOKEN_SUM, aggregate_output_speed_sql(""), scoped_where
         ))?;
         let daily_trend = stmt
             .query_map(rusqlite::params![provider_id, api_key_id], |row| {
@@ -724,6 +771,7 @@ mod tests {
             cache_creation_tokens: 0,
             latency_ms: Some(100),
             first_token_ms: None,
+            last_token_ms: None,
             status_code: Some(200),
             error_message: None,
             outcome: Some("success".into()),
@@ -1051,6 +1099,7 @@ mod tests {
         selected.cache_creation_tokens = 0;
         selected.latency_ms = Some(800);
         selected.first_token_ms = Some(200);
+        selected.last_token_ms = Some(800);
         selected.is_streaming = true;
         db.request_log_create(&selected).unwrap();
 
@@ -1105,12 +1154,96 @@ mod tests {
     }
 
     #[test]
+    fn session_performance_stays_on_the_current_route_and_latest_foreground_request() {
+        let db = Database::new_in_memory().unwrap();
+        // Use real FK targets, including two keys on the same provider.
+        db.conn.execute_batch(
+            "INSERT INTO providers (id, name, base_url) VALUES ('p', 'P', 'https://test');
+             INSERT INTO api_keys (id, provider_id, value) VALUES ('k', 'p', 'secret'), ('other', 'p', 'secret');"
+        ).unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut log = mk_billable_log("foreground", now);
+        log.session_id = Some("current".into());
+        log.provider_id = Some("p".into());
+        log.api_key_id = Some("k".into());
+        log.is_streaming = true;
+        log.first_token_ms = Some(2_000);
+        log.last_token_ms = Some(12_000);
+        log.latency_ms = Some(30_000);
+        log.output_tokens = 1_000;
+        db.request_log_create(&log).unwrap();
+        for id in ["classifier", "other-window", "other-route"] {
+            let mut other = log.clone();
+            other.id = id.into();
+            other.output_tokens = 99_999;
+            match id {
+                "classifier" => other.request_kind = Some("auto_mode".into()),
+                "other-window" => other.session_id = Some("other".into()),
+                _ => other.api_key_id = Some("other".into()),
+            }
+            db.request_log_create(&other).unwrap();
+        }
+        assert_eq!(
+            db.request_log_session_performance("current", "p", "k")
+                .unwrap(),
+            Some((Some(100.0), Some(2_000)))
+        );
+        assert_eq!(
+            db.request_log_session_performance("missing", "p", "k")
+                .unwrap(),
+            None
+        );
+
+        // Equal timestamps are resolved by insertion order. A missing reading
+        // on the latest request must replace the previous speed with a dash.
+        log.id = "buffered-latest".into();
+        log.last_token_ms = log.first_token_ms;
+        db.request_log_upsert(&log).unwrap();
+        assert_eq!(
+            db.request_log_session_performance("current", "p", "k")
+                .unwrap(),
+            Some((None, Some(2_000)))
+        );
+        let rows = db.request_log_list_all().unwrap();
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.id == log.id)
+                .unwrap()
+                .last_token_ms,
+            Some(2_000)
+        );
+    }
+
+    #[test]
+    fn last_output_migration_is_nullable_and_old_exports_remain_readable() {
+        let db = Database::new_in_memory().unwrap();
+        let mut log = mk_billable_log("legacy", chrono::Utc::now().to_rfc3339());
+        log.first_token_ms = Some(20);
+        db.request_log_create(&log).unwrap();
+        db.conn
+            .execute("ALTER TABLE request_logs DROP COLUMN last_token_ms", [])
+            .unwrap();
+        db.run_migrations(None).unwrap();
+        db.run_migrations(None).unwrap();
+        let rows = db.request_log_list_all().unwrap();
+        assert_eq!(rows[0].first_token_ms, Some(20));
+        assert_eq!(rows[0].last_token_ms, None);
+        let mut exported = serde_json::to_value(&rows[0]).unwrap();
+        exported.as_object_mut().unwrap().remove("lastTokenMs");
+        let restored: RequestLog = serde_json::from_value(exported).unwrap();
+        assert_eq!(restored.last_token_ms, None);
+    }
+
+    #[test]
     fn output_speed_uses_only_valid_successful_streams_and_excludes_input_tokens() {
         let db = Database::new_in_memory().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         for (id, streaming, first, latency, output, outcome) in [
-            ("fast", true, Some(2_000), 12_000, 1_000, "success"),
-            ("faster", true, Some(1_000), 3_000, 400, "success"),
+            ("fast", true, Some(2_000), 30_000, 1_000, "success"),
+            ("faster", true, Some(1_000), 100_000, 400, "success"),
+            ("single-burst", true, Some(2_000), 12_000, 1_000, "success"),
+            ("legacy-timing", true, Some(2_000), 12_000, 1_000, "success"),
+            ("after-eof", true, Some(2_000), 12_000, 1_000, "success"),
             ("historical", true, None, 12_000, 1_000, "success"),
             ("buffered", false, Some(2_000), 12_000, 1_000, "success"),
             ("failed", true, Some(2_000), 12_000, 1_000, "upstream_error"),
@@ -1137,6 +1270,14 @@ mod tests {
             let mut log = mk_billable_log(id, now.clone());
             log.is_streaming = streaming;
             log.first_token_ms = first;
+            log.last_token_ms = match id {
+                "fast" => Some(12_000),
+                "faster" => Some(3_000),
+                "single-burst" => first,
+                "legacy-timing" => None,
+                "after-eof" => Some(latency + 1),
+                _ => Some(latency),
+            };
             log.latency_ms = Some(latency);
             log.input_tokens = 1_000_000;
             log.cache_read_tokens = 2_000_000;
@@ -1145,7 +1286,7 @@ mod tests {
             db.request_log_create(&log).unwrap();
         }
         let recent = db.request_log_get_recent_paginated("all", 1, 20).unwrap();
-        assert_eq!(recent.items.len(), 10);
+        assert_eq!(recent.items.len(), 13);
         for row in recent.items {
             assert_eq!(
                 row.output_tokens_per_second,
@@ -1159,14 +1300,20 @@ mod tests {
             );
         }
         let stats = db.request_log_get_statistics("all").unwrap();
-        assert_eq!(stats.summary.avg_output_tokens_per_second, Some(150.0));
+        assert_eq!(
+            stats.summary.avg_output_tokens_per_second,
+            Some(1_400_000.0 / 12_000.0)
+        );
         let resource = db
             .request_log_get_resource_statistics("all", None, None)
             .unwrap();
-        assert_eq!(resource.summary.avg_output_tokens_per_second, Some(150.0));
+        assert_eq!(
+            resource.summary.avg_output_tokens_per_second,
+            Some(1_400_000.0 / 12_000.0)
+        );
         assert_eq!(
             resource.daily_trend[0].avg_output_tokens_per_second,
-            Some(150.0)
+            Some(1_400_000.0 / 12_000.0)
         );
 
         db.conn

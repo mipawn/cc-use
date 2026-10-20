@@ -647,6 +647,8 @@ export interface RequestLog {
   cacheCreationTokens: number
   latencyMs: number | null
   firstTokenMs: number | null
+  /** Last live output timestamp; absent on older exports. */
+  lastTokenMs?: number | null
   statusCode: number | null
   errorMessage: string | null
   /** v3.7.0: what actually happened to the request. */

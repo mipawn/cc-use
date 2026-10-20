@@ -213,6 +213,7 @@ impl Database {
                 cache_creation_tokens INTEGER DEFAULT 0,
                 latency_ms INTEGER,
                 first_token_ms INTEGER,
+                last_token_ms INTEGER,
                 status_code INTEGER,
                 error_message TEXT,
                 outcome TEXT,
@@ -582,6 +583,8 @@ impl Database {
             "ALTER TABLE proxy_sessions ADD COLUMN revoked_reason TEXT",
             // v3.7.0: failed requests are recorded too, so every row states its outcome.
             "ALTER TABLE request_logs ADD COLUMN outcome TEXT",
+            // Measured output span; historical rows intentionally stay NULL.
+            "ALTER TABLE request_logs ADD COLUMN last_token_ms INTEGER",
             "ALTER TABLE request_logs ADD COLUMN request_kind TEXT",
             // v3.10.0: ties one request's row to its console events and audit summary.
             "ALTER TABLE request_logs ADD COLUMN request_id TEXT",
@@ -597,6 +600,11 @@ impl Database {
         // Pre-v3.10.0 rows keep a NULL request_id; nothing guesses an association.
         let _ = self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_request_logs_request_id ON request_logs(request_id)",
+            [],
+        );
+        let _ = self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_session_route_created
+             ON request_logs(session_id, provider_id, api_key_id, created_at DESC)",
             [],
         );
 

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Card, Empty, Modal, Segmented, Spin, Statistic, Tooltip, Typography, theme } from 'antd'
+import { Card, Empty, Modal, Segmented, Spin, Statistic, Typography, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { ResourceUsageStatistics, ResourceUsageTrendItem, StatsTimeRange } from '@shared/types'
 import { getApi } from '../../api'
 import { formatExactTokenCount, formatTokenCount } from '../../utils/formatTokens'
-import { formatOutputSpeed } from '../../utils/formatPerformance'
 import MultiMetricLineChart, {
   type LineAxisDefinition,
   type LineSeries,
@@ -26,7 +25,7 @@ interface ResourceUsageModalProps {
   onClose: () => void
 }
 
-type ResourceTrendView = 'usage' | 'quality' | 'speed'
+type ResourceTrendView = 'usage' | 'quality'
 
 export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsageModalProps) {
   const { t, i18n } = useTranslation()
@@ -90,12 +89,6 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
     orientation: 'right',
     formatTick: (value) => `${Math.round(value)}ms`,
   }
-  const speedAxis: LineAxisDefinition = {
-    key: 'speed',
-    label: `${t('statistics.outputSpeed')} (t/s)`,
-    orientation: 'left',
-    formatTick: (value) => `${Math.round(value)} t/s`,
-  }
   const lineSeries: LineSeries<ResourceUsageTrendItem>[] =
     trendView === 'usage'
       ? [
@@ -132,63 +125,41 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
             format: (value) => (value == null ? '-' : formatExactTokenCount(value, language)),
           },
         ]
-      : trendView === 'speed'
-        ? [
-            {
-              key: 'outputSpeed',
-              label: t('statistics.avgOutputSpeed'),
-              color: usageChartColors.outputSpeed,
-              axisKey: 'speed',
-              value: (item) => item.avgOutputTokensPerSecond,
-              format: formatOutputSpeed,
-            },
-            {
-              key: 'firstTokenLatency',
-              label: t('usageDetail.firstTokenLatency'),
-              color: usageChartColors.firstToken,
-              axisKey: 'latency',
-              value: (item) => item.avgFirstTokenMs,
-              format: (value) => (value == null ? '—' : `${Math.round(value)}ms`),
-            },
-          ]
-        : [
-            {
-              key: 'successRate',
-              label: t('usageDetail.successRate'),
-              color: usageChartColors.success,
-              axisKey: 'percent',
-              value: (item) => item.successRate,
-              format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
-            },
-            {
-              key: 'cacheHitRate',
-              label: t('usageDetail.cacheHitRate'),
-              color: usageChartColors.cacheRate,
-              axisKey: 'percent',
-              value: (item) => item.cacheHitRate,
-              format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
-            },
-            {
-              key: 'latency',
-              label: t('usageDetail.latency'),
-              color: usageChartColors.latency,
-              axisKey: 'latency',
-              value: (item) => item.avgLatencyMs,
-              format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
-            },
-            {
-              key: 'firstTokenLatency',
-              label: t('usageDetail.firstTokenLatency'),
-              color: usageChartColors.firstToken,
-              axisKey: 'latency',
-              value: (item) => item.avgFirstTokenMs,
-              format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
-            },
-          ]
-  const lineAxes =
-    trendView === 'usage'
-      ? [tokenAxis]
-      : [trendView === 'speed' ? speedAxis : percentAxis, latencyAxis]
+      : [
+          {
+            key: 'successRate',
+            label: t('usageDetail.successRate'),
+            color: usageChartColors.success,
+            axisKey: 'percent',
+            value: (item) => item.successRate,
+            format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+          },
+          {
+            key: 'cacheHitRate',
+            label: t('usageDetail.cacheHitRate'),
+            color: usageChartColors.cacheRate,
+            axisKey: 'percent',
+            value: (item) => item.cacheHitRate,
+            format: (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`),
+          },
+          {
+            key: 'latency',
+            label: t('usageDetail.latency'),
+            color: usageChartColors.latency,
+            axisKey: 'latency',
+            value: (item) => item.avgLatencyMs,
+            format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
+          },
+          {
+            key: 'firstTokenLatency',
+            label: t('usageDetail.firstTokenLatency'),
+            color: usageChartColors.firstToken,
+            axisKey: 'latency',
+            value: (item) => item.avgFirstTokenMs,
+            format: (value) => (value == null ? '-' : `${Math.round(value)}ms`),
+          },
+        ]
+  const lineAxes = trendView === 'usage' ? [tokenAxis] : [percentAxis, latencyAxis]
   const tooltipMetrics: TooltipMetric<ResourceUsageTrendItem>[] = [
     {
       key: 'requests',
@@ -249,7 +220,7 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
                 value={summary.successRate * 100}
                 precision={1}
                 suffix='%'
-                valueStyle={{ color: successColor }}
+                styles={{ content: { color: successColor } }}
               />
             </Card>
             <Card size='small'>
@@ -274,16 +245,6 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
                 suffix={summary.avgFirstTokenMs == null ? undefined : 'ms'}
               />
             </Card>
-            <Card size='small'>
-              <Statistic
-                title={
-                  <Tooltip title={t('statistics.avgOutputSpeedHint')}>
-                    <span>{t('statistics.avgOutputSpeed')}</span>
-                  </Tooltip>
-                }
-                value={formatOutputSpeed(summary.avgOutputTokensPerSecond)}
-              />
-            </Card>
           </div>
 
           <Card
@@ -298,7 +259,6 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
                 options={[
                   { value: 'usage', label: t('usageDetail.usageTrend') },
                   { value: 'quality', label: t('usageDetail.qualityTrend') },
-                  { value: 'speed', label: t('usageDetail.speedTrend') },
                 ]}
               />
             }
@@ -319,7 +279,6 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
               })}{' '}
               {t('usageDetail.chartHint', { failed: summary.failedRequests })}{' '}
               {t('statistics.multiLineHint')}
-              {trendView === 'speed' && ` ${t('statistics.avgOutputSpeedHint')}`}
             </Text>
           </Card>
         </div>

@@ -87,26 +87,20 @@ async function renderModal() {
   })
 }
 
-it('shows average output speed and plots it separately from percent metrics', async () => {
+it('keeps provider usage focused on usage and quality after moving speed to statistics', async () => {
   await renderModal()
-  expect(document.body.textContent).toContain('100.0 t/s')
-  const speedTab = Array.from(document.querySelectorAll('.ant-segmented-item')).find(
-    (item) => item.textContent === 'usageDetail.speedTrend',
+  expect(document.body.textContent).not.toContain('statistics.avgOutputSpeed')
+  expect(document.body.textContent).not.toContain('tok/s')
+  const tabs = Array.from(document.querySelectorAll('.ant-segmented-item')).filter((item) =>
+    item.textContent?.startsWith('usageDetail.'),
   )
-  expect(speedTab).toBeTruthy()
-  await act(async () => (speedTab as HTMLElement).click())
+  expect(tabs.map((item) => item.textContent)).toEqual([
+    'usageDetail.usageTrend',
+    'usageDetail.qualityTrend',
+  ])
+  await act(async () => (tabs[1] as HTMLElement).click())
   const chart = document.querySelector('[data-testid="trend"]')
-  expect(chart?.textContent).toContain('outputSpeed:100')
   expect(chart?.textContent).toContain('firstTokenLatency:2000')
-  expect(chart?.textContent).not.toContain('successRate')
-})
-
-it('shows a dash when the selected range has no valid speed measurements', async () => {
-  measurements.speed = null
-  await renderModal()
-  const card = Array.from(document.querySelectorAll('.ant-statistic')).find((item) =>
-    item.textContent?.includes('statistics.avgOutputSpeed'),
-  )
-  expect(card?.textContent).toContain('—')
-  expect(card?.textContent).not.toContain('0.0 t/s')
+  expect(chart?.textContent).toContain('successRate')
+  expect(chart?.textContent).not.toContain('outputSpeed')
 })

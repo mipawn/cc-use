@@ -473,6 +473,9 @@ pub struct RequestLog {
     pub cache_creation_tokens: i64,
     pub latency_ms: Option<i64>,
     pub first_token_ms: Option<i64>,
+    /// Last generated content observed live. Historical/buffered rows lack it.
+    #[serde(default)]
+    pub last_token_ms: Option<i64>,
     pub status_code: Option<i32>,
     pub error_message: Option<String>,
     /// v3.7.0: `success` | `client_error` | `upstream_error` | `transport_error`.

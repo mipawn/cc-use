@@ -901,9 +901,9 @@ export default {
     avgOutputSpeed: '平均输出速度',
     firstTokenHint: '请求进入代理到首次收到文字、思考或工具调用内容的时间；心跳和空事件不计入。',
     outputSpeedHint:
-      '代理侧观测速率：输出 Token ÷（总耗时 − 首 Token 延迟）。以上游报告的输出用量计算，可能包含思考 Token；仅成功且有有效计时的流式请求显示，历史、非流式或无法计时的请求显示 —。',
+      '代理观测生成速度（tok/s）：上游输出 Token ÷ 首次至末次输出的时长。排除输入、缓存、首 Token 等待和收尾等待；输出用量可能含思考 Token。仅成功且有有效输出时长的流式请求显示，历史、缓冲或无法计时的请求显示 —。',
     avgOutputSpeedHint:
-      '有效成功流式请求的输出速度逐条取平均，单位 t/s（Token/秒）。不含输入和缓存 Token，排除首 Token 前的等待；无有效样本显示 —。',
+      '有效成功流式请求的输出 Token 总数 ÷ 对应输出时长总和，单位 tok/s（Token/秒）。按时长加权，排除缺失计时和单次缓冲送达的样本；无有效样本显示 —。',
     status: '状态',
     model: '模型',
     provider: '供应商',
@@ -926,7 +926,6 @@ export default {
     firstTokenLatency: '首 Token 延迟',
     usageTrend: 'Token 构成',
     qualityTrend: '线路质量',
-    speedTrend: '响应速度',
     totalTokens: '总 Token',
     totalRequests: '请求总数',
     avgLatency: '平均总耗时',
