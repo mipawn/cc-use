@@ -113,6 +113,8 @@ fn seed_managed_instance(db: &Database) -> String {
         revoked_at: None,
         revoked_reason: None,
         cli_type: None,
+        display_name: None,
+        is_active: true,
     })
     .expect("create proxy session");
     let instance_id = "instance-managed".to_string();

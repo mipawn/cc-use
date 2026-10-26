@@ -248,6 +248,9 @@ impl Database {
              WHERE api_key_id = ?1 AND key_alias IS NULL",
             [id],
         )?;
+        // Gateway outlets have no FK to api_keys; remove the ones bound to this key
+        // so they cannot linger as permanently failing outlets.
+        self.gateway_delete_by_api_key(id)?;
         self.conn
             .execute("DELETE FROM api_keys WHERE id = ?1", [id])?;
         Ok(())

@@ -134,6 +134,20 @@ function buildApi(): Api {
       delete: (sessionToken) => invoke('session_delete', { sessionToken }),
       list: () => invoke('session_list'),
     },
+    gateway: {
+      list: () => invoke('gateway_list'),
+      create: (name, providerId, apiKeyId) =>
+        invoke('gateway_create', { name, providerId, apiKeyId }),
+      update: (sessionToken, changes) =>
+        invoke('gateway_update', {
+          sessionToken,
+          ...(changes.name !== undefined ? { name: changes.name } : {}),
+          ...(changes.providerId !== undefined ? { providerId: changes.providerId } : {}),
+          ...(changes.apiKeyId !== undefined ? { apiKeyId: changes.apiKeyId } : {}),
+          ...(changes.isActive !== undefined ? { isActive: changes.isActive } : {}),
+        }),
+      delete: (sessionToken) => invoke('gateway_delete', { sessionToken }),
+    },
     settings: {
       get: () => invoke('settings_get'),
       update: (updates) => invoke('settings_update', { updates }),

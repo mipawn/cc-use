@@ -92,6 +92,31 @@ describe('renderer api contract', () => {
     })
   })
 
+  it('maps gateway commands and omits unchanged update fields', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+
+    await api.gateway.list()
+    await api.gateway.create('Work', 'provider-1', 'key-1')
+    await api.gateway.update('session-gw', { isActive: false })
+    await api.gateway.delete('session-gw')
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'gateway_list', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'gateway_create', {
+      name: 'Work',
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'gateway_update', {
+      sessionToken: 'session-gw',
+      isActive: false,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'gateway_delete', {
+      sessionToken: 'session-gw',
+    })
+  })
+
   it('maps managed instance commands and arguments correctly', async () => {
     invokeMock.mockResolvedValue(undefined)
     const { getApi } = await loadApiModule()

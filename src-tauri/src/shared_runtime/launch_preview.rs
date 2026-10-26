@@ -44,6 +44,21 @@ fn json_value_to_env_string(value: &Value) -> Option<String> {
     }
 }
 
+/// Let the latest Claude Code run auto mode's classifier locally instead of
+/// asking the upstream, and point that classifier at a model the provider
+/// actually serves. Callers invoke this only for Claude Code launches, after
+/// user-supplied env has been merged, so explicit values keep precedence.
+pub fn apply_auto_mode_launch_env(env: &mut EnvObject, mapping: Option<&str>) {
+    let Some(model) = crate::shared_runtime::model_mapping::auto_mode_classifier_model(mapping)
+    else {
+        return;
+    };
+    env.entry("CLAUDE_CODE_AUTO_MODE_SERVER".to_string())
+        .or_insert_with(|| "0".to_string());
+    env.entry("CLAUDE_CODE_AUTO_MODE_MODEL".to_string())
+        .or_insert(model);
+}
+
 fn build_cli_command(cli_type: &str) -> String {
     match cli_type {
         "grok" => format!("grok -m {}", crate::terminal::grok::CC_USE_MODEL_KEY),

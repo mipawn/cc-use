@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button, Checkbox, Input, Tooltip, Typography } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -71,11 +71,10 @@ export default function ModelCatalogManager({
   const [additions, setAdditions] = useState<ClientModel[]>(
     initialDraft?.additions ?? (value.catalogMode === 'append' ? value.models : []),
   )
+  // Only the models the user already saved are selected. Fetched catalog
+  // models are candidates and must be checked explicitly.
   const [selected, setSelected] = useState<ClientModel[]>(
-    initialDraft?.selected ??
-      (value.catalogMode === 'custom'
-        ? value.models
-        : unique([...(catalog?.models ?? []), ...value.models])),
+    initialDraft?.selected ?? value.models,
   )
   const [customCandidates, setCustomCandidates] = useState<ClientModel[]>(
     initialDraft?.customCandidates ?? (value.catalogMode === 'custom' ? value.models : []),
@@ -89,10 +88,6 @@ export default function ModelCatalogManager({
   const effective = unique([...base, ...additions])
   const candidates =
     source === 'provider' ? effective : unique([...effective, ...customCandidates, ...selected])
-
-  useEffect(() => {
-    if (catalog && !selectionTouched.current) setSelected(unique([...catalog.models, ...additions]))
-  }, [catalog, additions])
 
   const confirm = useCallback(() => {
     const models =
@@ -273,6 +268,11 @@ export default function ModelCatalogManager({
       {queryError && (
         <Text type='danger' className={styles.inlineNotice}>
           {queryError}
+        </Text>
+      )}
+      {source === 'custom' && selected.length === 0 && !queryError && (
+        <Text type='secondary' className={styles.inlineNotice}>
+          {t('keys.selectModelsHint')}
         </Text>
       )}
       <div className={styles.managerToolbar}>

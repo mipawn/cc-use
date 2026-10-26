@@ -232,7 +232,11 @@ impl Database {
                 last_seen_at TEXT NOT NULL,
                 expires_at TEXT,
                 revoked_at TEXT,
-                revoked_reason TEXT
+                revoked_reason TEXT,
+                -- v3.15.0: gateway outlets reuse this table; only gateway rows
+                -- use display_name and is_active.
+                display_name TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS gateway_request_events (
@@ -581,6 +585,9 @@ impl Database {
             "ALTER TABLE proxy_sessions ADD COLUMN expires_at TEXT",
             "ALTER TABLE proxy_sessions ADD COLUMN revoked_at TEXT",
             "ALTER TABLE proxy_sessions ADD COLUMN revoked_reason TEXT",
+            // v3.15.0: persistent gateway outlets reused proxy_sessions.
+            "ALTER TABLE proxy_sessions ADD COLUMN display_name TEXT",
+            "ALTER TABLE proxy_sessions ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
             // v3.7.0: failed requests are recorded too, so every row states its outcome.
             "ALTER TABLE request_logs ADD COLUMN outcome TEXT",
             // Measured output span; historical rows intentionally stay NULL.
@@ -616,16 +623,36 @@ impl Database {
             [],
         );
 
-        // Backfill lifecycle metadata for sessions created before v3.3.0.
+        // Backfill lifecycle metadata for sessions created before v3.3.0. This
+        // must run once: the legacy rows received the 'managed' default from the
+        // ALTER, while newer rows set session_kind explicitly. Running it every
+        // boot would rewrite gateway outlets back to 'manual'.
+        let lifecycle_backfilled = self
+            .settings_get_value("migration.proxy_session_lifecycle")
+            .ok()
+            .flatten()
+            .is_some();
+        if !lifecycle_backfilled {
+            let _ = self.conn.execute(
+                "UPDATE proxy_sessions
+                 SET session_kind = CASE
+                       WHEN project_id IS NULL AND cli_type IN ('codex', 'codex-app', 'claude_desktop')
+                         THEN 'desktop'
+                       WHEN project_id IS NULL THEN 'manual'
+                       ELSE 'managed'
+                     END,
+                     last_seen_at = COALESCE(last_seen_at, created_at)",
+                [],
+            );
+            let _ = self.settings_set_value("migration.proxy_session_lifecycle", "1");
+        }
+        // Older builds ran the backfill on every boot, which rewrote gateway
+        // rows to 'manual' while keeping display_name. Restore them idempotently.
         let _ = self.conn.execute(
-            "UPDATE proxy_sessions
-             SET session_kind = CASE
-                   WHEN project_id IS NULL AND cli_type IN ('codex', 'codex-app', 'claude_desktop')
-                     THEN 'desktop'
-                   WHEN project_id IS NULL THEN 'manual'
-                   ELSE 'managed'
-                 END,
-                 last_seen_at = COALESCE(last_seen_at, created_at)",
+            "UPDATE proxy_sessions SET session_kind = 'gateway'
+             WHERE display_name IS NOT NULL
+               AND cli_type IS NULL
+               AND session_kind != 'gateway'",
             [],
         );
 

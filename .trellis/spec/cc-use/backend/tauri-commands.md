@@ -12,8 +12,8 @@
 One file per domain under `src-tauri/src/commands/`; the module is declared in
 `commands/mod.rs` and the function is registered in `lib.rs`. Current domains:
 `api_keys`, `balance`, `claude_desktop_config`, `cli_tool`, `codex_config`, `console`,
-`import_export`, `managed_instances`, `projects`, `providers`, `proxy`, `sessions`,
-`settings`, `statistics`, `system`, `system_ext`, `terminal`, `user_agent`.
+`gateways`, `import_export`, `managed_instances`, `projects`, `providers`, `proxy`,
+`sessions`, `settings`, `statistics`, `system`, `system_ext`, `terminal`, `user_agent`.
 
 Keep `#[tauri::command]` functions thin: lock state, validate, call a
 `Database`/service/`*_inner` function, map the error. Business rules do not belong in the

@@ -101,26 +101,8 @@
   gap: 16px;
 }
 
-.dimensionGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.dimensionName {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.dimensionName > * {
-  min-width: 0;
-}
-
 @media (max-width: 900px) {
-  .tablesGrid,
-  .dimensionGrid {
+  .tablesGrid {
     grid-template-columns: 1fr;
   }
 }

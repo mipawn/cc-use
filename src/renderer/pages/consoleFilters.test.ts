@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ConsoleEvent } from '@shared/types'
-import { eventRowKey, isProblemEvent, matchesQuery } from './Console'
+import type { ConsoleEvent, ConsoleRequestEvent } from '@shared/types'
+import { displayKind, eventRowKey, isProblemEvent, matchesQuery } from './Console'
 
 function request(overrides: Partial<ConsoleEvent> = {}): ConsoleEvent {
   return {
@@ -101,5 +101,19 @@ describe('console search', () => {
 
   it('is case insensitive', () => {
     expect(matchesQuery(request({}), 'DEEPSEEK')).toBe(true)
+  })
+})
+
+describe('console problem classification', () => {
+  it('treats cancelled requests as problems instead of successes', () => {
+    expect(isProblemEvent(request({ kind: 'cancelled', status: 200 }))).toBe(true)
+  })
+
+  it('reclassifies a historical ok row that carried a 4xx/5xx status', () => {
+    expect(isProblemEvent(request({ kind: 'ok', status: 503 }))).toBe(true)
+    expect(displayKind(request({ kind: 'ok', status: 401 }) as ConsoleRequestEvent)).toBe(
+      'upstream_error',
+    )
+    expect(displayKind(request({ kind: 'ok', status: 200 }) as ConsoleRequestEvent)).toBe('ok')
   })
 })

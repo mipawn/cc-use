@@ -122,6 +122,11 @@ pub fn run() {
             commands::proxy::session_update_by_project,
             commands::proxy::session_delete,
             commands::proxy::session_list,
+            // Gateway outlet commands
+            commands::gateways::gateway_list,
+            commands::gateways::gateway_create,
+            commands::gateways::gateway_update,
+            commands::gateways::gateway_delete,
             // Terminal commands
             commands::terminal::terminal_launch,
             commands::terminal::terminal_launch_with_path,
@@ -162,6 +167,12 @@ pub fn run() {
             commands::system_ext::show_window_set_shortcut,
         ])
         .setup(|app| {
+            // Menu-bar-only mode: no Dock tile and no Cmd-Tab entry at any moment.
+            // Info.plist `LSUIElement` covers cold starts; this runtime call keeps the
+            // shape when the window is shown later.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             // Keep legacy behavior: close button hides to tray by default unless user explicitly changed it.
             let should_init_close_to_tray = {
                 let db_state = app.state::<Arc<Mutex<Database>>>();
@@ -421,17 +432,14 @@ pub fn run() {
                 win.on_window_event(move |event| {
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } => {
-                            if tray::should_close_to_tray(&handle3) {
-                                api.prevent_close();
-                                if let Some(w) = handle3.get_webview_window("main") {
-                                    #[cfg(target_os = "macos")]
-                                    {
-                                        let _ = handle3.set_dock_visibility(false);
-                                    }
-                                    let _ = w.hide();
-                                }
-                                tray::refresh_tray_menu(&handle3);
+                            // Menu-bar mode: closing the window always hides it. The app is
+                            // quit from the tray menu; destroying the last window would exit
+                            // the process with no Dock icon to bring it back.
+                            api.prevent_close();
+                            if let Some(w) = handle3.get_webview_window("main") {
+                                let _ = w.hide();
                             }
+                            tray::refresh_tray_menu(&handle3);
                         }
                         tauri::WindowEvent::Focused(true) => {
                             // Refresh tray badge when window gains focus
@@ -444,6 +452,14 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // With no Dock icon, Finder/Spotlight double-click is the only external
+            // reopen path; route it through the same helper as the tray menu.
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                tray::show_main_window(app);
+            }
+        });
 }

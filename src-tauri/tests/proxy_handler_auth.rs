@@ -41,6 +41,8 @@ fn create_session_state(
         revoked_at: None,
         revoked_reason: None,
         cli_type: Some(cli_type.to_string()),
+        display_name: None,
+        is_active: true,
     };
     configure_session(&mut session);
     db.proxy_session_create(&session)

@@ -49,7 +49,7 @@ export interface ClientModelConfig {
 }
 export interface ModelMappingFields {
   clients: Record<ClientKind, ClientModelConfig>
-  autoMode: { enabled: boolean; model: string; thinking: 'low' | 'disabled' | 'preserve' }
+  autoMode: { enabled: boolean; model: string }
 }
 const emptyClient = (): ClientModelConfig => ({
   catalogMode: 'provider',
@@ -69,7 +69,7 @@ export const EMPTY_MODEL_MAPPING: ModelMappingFields = {
     codex: emptyClient(),
     grok: emptyClient(),
   },
-  autoMode: { enabled: false, model: '', thinking: 'low' },
+  autoMode: { enabled: false, model: '' },
 }
 const object = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -168,8 +168,6 @@ export function parseModelMapping(value?: string | null): ModelMappingFields {
     autoMode: {
       enabled: auto.enabled === true,
       model: string(auto.model),
-      thinking:
-        auto.thinking === 'disabled' || auto.thinking === 'preserve' ? auto.thinking : 'low',
     },
   }
 }
@@ -189,7 +187,6 @@ export function serializeModelMapping(fields: ModelMappingFields): string | unde
         upstream.autoMode = {
           enabled: true,
           ...(fields.autoMode.model.trim() ? { model: fields.autoMode.model.trim() } : {}),
-          thinking: fields.autoMode.thinking,
         }
       const roles = Object.fromEntries(
         CLIENT_ROLES.map((role) => [role, config.roles[role].trim()]),

@@ -379,7 +379,11 @@
   font-size: 11px;
 }
 .providerQuota {
-  padding: 0 16px 14px;
+  padding: 14px 16px;
+}
+.providerQuotaAction {
+  display: flex;
+  justify-content: flex-end;
 }
 .providerQuota :global(.ant-progress) {
   margin-bottom: 0;

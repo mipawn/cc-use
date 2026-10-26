@@ -4,7 +4,7 @@ A desktop configuration manager for **Claude Code / Grok Build / Codex Desktop /
 
 [中文文档](./README.md)
 
-> **3.14.0 Update**: Usage statistics now show output speed (t/s), time to first token, and route speed trends, separating the initial wait from output generation. See [CHANGELOG](./CHANGELOG.md).
+> **3.15.0 Update**: Persistent gateway outlets and a menu-bar-only mode; models are now added explicitly and the console no longer shows failures as successes. See [CHANGELOG](./CHANGELOG.md) and [v3.15.0 docs](./docs/v3.15.0/README.md).
 >
 > **3.0 Architecture Update**: The local proxy is now an independent `cc-use-daemon` process, with instance identity explicitly modeled at launch time.
 >
@@ -37,12 +37,13 @@ These screenshots show the current UI using demo data.
 - **Command & Optional Status Line** - `cc-use claude` and `cc-use grok` show an arrow-key route picker with the GUI default preselected; users may opt into a three-line color Claude Code HUD for managed sessions
 - **Codex Desktop Config Takeover** - Preserves `auth.json` and official login while loading the selected route's real model catalog; DeepSeek exposes Flash / Pro and their reasoning levels, while key-level model mapping only renames the upstream model and never converts the Responses protocol
 - **Claude Desktop Config Takeover** - Writes a Claude 3P profile and configLibrary entries pointing to `http://127.0.0.1:<port>/claude-desktop`, with config preview, official restore, and model-list takeover
+- **Gateway Outlets** - Create multiple outlets on the Gateway page; each binds exactly one key and exposes a fixed address and local key. Requests are forwarded unchanged, with no protocol conversion, by the always-on daemon
 - **Local Daemon Service** - A standalone `cc-use-daemon` process acts as the local gateway, routing by session token to the current provider/key and enabling usage tracking and hot-switching
 - **Instance Management** - Each launchpad's Instances tab only shows managed instances from that client and only allows hot-switching to compatible keys
 - **Token Tracking** - Logs token usage, including both cache buckets, plus failure details; Chinese uses ten-thousand/hundred-million units, English uses `K / M / B`, and tooltips show exact counts
-- **Statistics** - Dashboard shows today's tokens, requests, failures, and a daily heatmap; Statistics provides custom date queries, token composition, trends, key/project usage, failures, output speed, time to first token, and total request time
-- **System Tray** - Minimize to tray on close while the daemon keeps running; tray menu supports service control and quick-launching recent projects
-- **Auto mode classifier adaptation (experimental)** - Enable per key to follow the Claude session model or choose a classifier model, with low or disabled thinking. Off by default. Includes classifier response header compatibility fixes and Auto mode labels in usage statistics; see the [v3.9.1 guide](https://github.com/mipawn/cc-use-docs/blob/main/v3.9.1/README.md).
+- **Statistics** - Dashboard shows today's tokens, requests, failures, and a daily heatmap; Statistics provides custom date queries, token composition, trends, failures, output speed, time to first token, and total request time
+- **Menu-Bar Only** - No Dock icon; closing the window always hides it, and it can be reopened from the top menu bar or Finder/Spotlight. The tray menu supports service control and quick-launching recent projects
+- **Auto mode compatibility (off by default)** - By default cc-use leaves Claude Code requests untouched. When enabled per key, launches inject `CLAUDE_CODE_AUTO_MODE_SERVER=0` and `CLAUDE_CODE_AUTO_MODE_MODEL` so the latest Claude Code uses its local classifier with a model the provider serves; restart the session after changes. See [v3.15.0 auto mode](./docs/v3.15.0/auto-mode.md).
 - **Auto Update** - In-app update detection and download with progress display (signature verification via `tauri-plugin-updater`)
 - **Claude Code Config Management** - Global and per-key startup variables merge at launch. Key-level model controls live with client models; other variables are edited in JSON on demand
 - **Internationalization** - Chinese and English UI

@@ -244,6 +244,8 @@ fn setup_session_with_type(
             "claude" => "claude_code".to_string(),
             other => other.to_string(),
         }),
+        display_name: None,
+        is_active: true,
     })
     .expect("create proxy session");
 
@@ -517,6 +519,8 @@ async fn codex_app_responses_request_uses_session_and_passes_responses_through()
         revoked_at: None,
         revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
+        display_name: None,
+        is_active: true,
     })
     .expect("create proxy session");
 
@@ -599,6 +603,8 @@ async fn codex_responses_request_with_legacy_session_type_passes_responses_throu
         revoked_at: None,
         revoked_reason: None,
         cli_type: None,
+        display_name: None,
+        is_active: true,
     })
     .expect("create legacy proxy session");
 
@@ -681,6 +687,8 @@ async fn codex_responses_request_with_non_session_auth_uses_takeover_session() {
         revoked_at: None,
         revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
+        display_name: None,
+        is_active: true,
     })
     .expect("create takeover proxy session");
 
@@ -782,6 +790,8 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
         revoked_at: None,
         revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
+        display_name: None,
+        is_active: true,
     })
     .expect("create proxy session");
 
@@ -880,6 +890,8 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
         revoked_at: None,
         revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
+        display_name: None,
+        is_active: true,
     })
     .expect("create proxy session");
 

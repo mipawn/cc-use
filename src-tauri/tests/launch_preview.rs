@@ -1,5 +1,69 @@
-use cc_use_lib::shared_runtime::resolve_launch_preview_from_configs;
+use cc_use_lib::shared_runtime::{
+    apply_auto_mode_launch_env, resolve_launch_preview_from_configs, EnvObject,
+};
 use serde_json::json;
+
+#[test]
+fn auto_mode_env_is_opt_in_and_requires_a_model() {
+    let mut env = EnvObject::new();
+    apply_auto_mode_launch_env(&mut env, None);
+    assert!(env.is_empty());
+
+    let disabled = json!({"version":2,"clients":{"claude_code":{"upstream":{
+        "autoMode":{"enabled":false,"model":"glm-5-air"}
+    }}}})
+    .to_string();
+    apply_auto_mode_launch_env(&mut env, Some(&disabled));
+    assert!(env.is_empty());
+
+    for empty_model in ["", "   "] {
+        let mapping = json!({"autoMode":{"enabled":true,"model":empty_model}}).to_string();
+        apply_auto_mode_launch_env(&mut env, Some(&mapping));
+        assert!(env.is_empty(), "model {empty_model:?} must not inject");
+    }
+}
+
+#[test]
+fn auto_mode_env_reads_only_the_claude_code_scope_and_trims_the_model() {
+    let mapping = json!({"version":2,"clients":{
+        "claude_code":{"upstream":{"autoMode":{"enabled":true,"model":"  glm-5-air  "}}},
+        "claude_desktop":{"upstream":{"autoMode":{"enabled":true,"model":"desktop-model"}}}
+    }})
+    .to_string();
+    let mut env = EnvObject::new();
+    apply_auto_mode_launch_env(&mut env, Some(&mapping));
+
+    assert_eq!(
+        env.get("CLAUDE_CODE_AUTO_MODE_SERVER").map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(
+        env.get("CLAUDE_CODE_AUTO_MODE_MODEL").map(String::as_str),
+        Some("glm-5-air")
+    );
+}
+
+#[test]
+fn auto_mode_env_keeps_explicit_user_values() {
+    let mapping = json!({"autoMode":{"enabled":true,"model":"glm-5-air"}}).to_string();
+    let mut env = EnvObject::from([
+        ("CLAUDE_CODE_AUTO_MODE_SERVER".to_string(), "1".to_string()),
+        (
+            "CLAUDE_CODE_AUTO_MODE_MODEL".to_string(),
+            "user-model".to_string(),
+        ),
+    ]);
+    apply_auto_mode_launch_env(&mut env, Some(&mapping));
+
+    assert_eq!(
+        env.get("CLAUDE_CODE_AUTO_MODE_SERVER").map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        env.get("CLAUDE_CODE_AUTO_MODE_MODEL").map(String::as_str),
+        Some("user-model")
+    );
+}
 
 #[test]
 fn resolve_launch_preview_merges_global_and_key_config_for_claude() {

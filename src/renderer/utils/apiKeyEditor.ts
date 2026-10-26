@@ -93,29 +93,13 @@ export interface NewKeyDefaults {
 /**
  * The mapping a brand-new key starts from.
  *
- * Auto mode is on unless the provider's template says otherwise: it only
- * reshapes the permission-classifier requests, and leaving it off means the
- * classifier answers about a model the user did not pick. A template that
- * states `autoMode.enabled` explicitly still wins, so a provider that cannot
- * take the rewrite can say so.
+ * Auto-mode compatibility is off by default: Claude Code owns auto mode, and
+ * cc-use only injects `CLAUDE_CODE_AUTO_MODE_*` at launch when the user
+ * explicitly enables the option and names a classifier model. A provider
+ * template that states `autoMode.enabled` still wins.
  */
 function newKeyMapping(json: string | null | undefined): ModelMappingFields {
-  const mapping = parseModelMapping(json)
-  if (!statesAutoMode(json)) {
-    return { ...mapping, autoMode: { ...mapping.autoMode, enabled: true } }
-  }
-  return mapping
-}
-
-function statesAutoMode(json: string | null | undefined): boolean {
-  if (!json) return false
-  try {
-    const parsed = JSON.parse(json)
-    const mapping = parsed?.version === 2 ? parsed.clients?.claude_code?.upstream : parsed
-    return typeof mapping?.autoMode?.enabled === 'boolean'
-  } catch {
-    return false
-  }
+  return parseModelMapping(json)
 }
 
 /**

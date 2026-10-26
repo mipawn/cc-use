@@ -10,7 +10,10 @@ pub mod session_token;
 pub mod upstream_routing;
 pub mod user_agent;
 
-pub use launch_preview::{resolve_launch_preview_from_configs, EnvObject, TerminalLaunchPreview};
+pub use launch_preview::{
+    apply_auto_mode_launch_env, resolve_launch_preview_from_configs, EnvObject,
+    TerminalLaunchPreview,
+};
 pub use management_token::{
     ensure_management_token, read_management_token, validate_management_token, ManagementTokenPaths,
 };

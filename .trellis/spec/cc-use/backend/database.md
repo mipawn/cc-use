@@ -29,7 +29,7 @@
 | `providers` | `db/providers.rs` |
 | `api_keys` | `db/api_keys.rs` |
 | `projects`, `project_client_bindings` | `db/projects.rs` (`project_binding_upsert`, `hydrate_project`) |
-| `proxy_sessions` | `db/proxy_sessions.rs` |
+| `proxy_sessions` | `db/proxy_sessions.rs` (also stores gateway outlets: `session_kind='gateway'`, `display_name`, `is_active`; `gateway_*` queries live here) |
 | `managed_instances` | `db/managed_instances.rs` |
 | `request_logs` | `db/request_logs.rs` |
 | `usage_logs`, usage statistics | `db/usage_logs.rs` |

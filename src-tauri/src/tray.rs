@@ -670,20 +670,22 @@ fn restore_desktop_config(app: &AppHandle, client_kind: &str) {
 fn toggle_window(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         if win.is_visible().unwrap_or(false) {
-            #[cfg(target_os = "macos")]
-            {
-                let _ = app.set_dock_visibility(false);
-            }
             let _ = win.hide();
         } else {
-            #[cfg(target_os = "macos")]
-            {
-                let _ = app.set_dock_visibility(true);
-            }
-            let _ = win.show();
-            let _ = win.set_focus();
+            show_main_window(app);
         }
     }
+}
+
+/// Show and focus the main window without ever bringing the app back to the Dock.
+/// Used by the tray menu and by `RunEvent::Reopen` (Finder/Spotlight).
+pub fn show_main_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+    refresh_tray_menu(app);
 }
 
 pub fn refresh_tray_menu(app: &AppHandle) {
@@ -754,20 +756,6 @@ fn calculate_tray_badge_text(app: &AppHandle) -> String {
     };
 
     UsageAggregator::calculate_badge(today_tokens).to_display_text()
-}
-
-/// Handle close-to-tray behavior. Returns true if the window should be hidden instead of closed.
-pub fn should_close_to_tray(app: &AppHandle) -> bool {
-    let db_state = app.state::<Arc<Mutex<Database>>>();
-    let db_arc = db_state.inner().clone();
-    drop(db_state);
-    let result = if let Ok(db) = db_arc.lock() {
-        let settings = db.settings_get().unwrap_or_default();
-        settings.close_to_tray
-    } else {
-        true // Default to close-to-tray on lock failure
-    };
-    result
 }
 
 #[cfg(test)]

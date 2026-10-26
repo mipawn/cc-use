@@ -825,25 +825,14 @@ export default function ModelMappingEditor({
                                 onChange={(event) => updateAuto({ model: event.target.value })}
                               />
                             </div>
-                            <div className={styles.fieldRow}>
-                              <span>
-                                {t('keys.autoModeThinking')}{' '}
-                                {help('keys.autoModeThinking', 'keys.autoModeThinkingHint')}
-                              </span>
-                              <Select
-                                value={value.autoMode.thinking}
-                                aria-label={t('keys.autoModeThinking')}
-                                options={(['low', 'disabled', 'preserve'] as const).map(
-                                  (thinking) => ({
-                                    value: thinking,
-                                    label: t(
-                                      `keys.autoModeThinking${thinking[0].toUpperCase() + thinking.slice(1)}`,
-                                    ),
-                                  }),
-                                )}
-                                onChange={(thinking) => updateAuto({ thinking })}
-                              />
-                            </div>
+                            {!value.autoMode.model.trim() && (
+                              <Text type='warning' className={styles.inlineNotice}>
+                                {t('keys.autoModeModelRequired')}
+                              </Text>
+                            )}
+                            <Text type='secondary' className={styles.inlineNotice}>
+                              {t('keys.autoModeRestartHint')}
+                            </Text>
                           </>
                         )}
                       </div>

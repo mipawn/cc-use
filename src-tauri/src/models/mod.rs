@@ -320,6 +320,24 @@ pub struct ProxySession {
     pub revoked_reason: Option<String>,
     // Client marker used by config-takeover routing and request logging.
     pub cli_type: Option<String>,
+    // v3.15.0: only gateway rows use these two fields.
+    pub display_name: Option<String>,
+    pub is_active: bool,
+}
+
+/// A persistent local outlet bound to exactly one API key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gateway {
+    pub session_token: String,
+    pub display_name: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub api_key_id: String,
+    pub key_alias: Option<String>,
+    pub is_active: bool,
+    pub created_at: String,
+    pub last_seen_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

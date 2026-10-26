@@ -233,3 +233,52 @@ fn oversized_sse_line_is_discarded_without_losing_following_usage() {
 
     assert_eq!(accumulator.get_usage().unwrap().output_tokens, 77);
 }
+
+#[test]
+fn stream_completion_markers_are_recognized() {
+    let cases: [(&str, bool); 5] = [
+        ("data: {\"type\":\"message_stop\"}\n\n", true),
+        ("data: [DONE]\n\n", true),
+        (
+            "data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+            true,
+        ),
+        (
+            "data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\n",
+            true,
+        ),
+        (
+            "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1}}}\n\n",
+            false,
+        ),
+    ];
+    for (chunk, expected) in cases {
+        let mut accumulator = StreamUsageAccumulator::new();
+        accumulator.process_chunk(chunk);
+        assert_eq!(accumulator.completed(), expected, "chunk: {chunk}");
+    }
+}
+
+#[test]
+fn usage_before_a_truncated_stream_is_not_a_completed_stream() {
+    let mut accumulator = StreamUsageAccumulator::new();
+    accumulator.process_chunk(
+        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\n",
+    );
+    accumulator
+        .process_chunk("data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":5}}\n\n");
+    accumulator.flush();
+
+    assert_eq!(accumulator.get_usage().unwrap().output_tokens, 5);
+    assert!(!accumulator.completed());
+}
+
+#[test]
+fn flush_recognizes_a_completion_marker_without_a_trailing_newline() {
+    let mut accumulator = StreamUsageAccumulator::new();
+    accumulator.process_chunk("data: {\"type\":\"message_stop\"}");
+    assert!(!accumulator.completed());
+
+    accumulator.flush();
+    assert!(accumulator.completed());
+}

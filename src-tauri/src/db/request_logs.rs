@@ -1010,6 +1010,8 @@ mod tests {
             revoked_at: None,
             revoked_reason: None,
             cli_type: Some("codex-app".into()),
+            display_name: None,
+            is_active: true,
         };
         db.proxy_session_create(&session).unwrap();
 

@@ -1,0 +1,110 @@
+.container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.scrollContent {
+  height: 100%;
+  padding-right: var(--simplebar-gutter);
+  margin-right: calc(-1 * var(--simplebar-gutter));
+  padding-bottom: 24px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+}
+
+.gatewayCard {
+  border-radius: var(--radius-ant-lg) !important;
+}
+
+.cardTitle {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.label {
+  flex: 0 0 72px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ant-font-family-code);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--ant-color-fill-tertiary);
+}
+
+.hint {
+  margin: 10px 0 0 !important;
+  font-size: 12px;
+}
+
+.fieldLabel {
+  margin-bottom: 6px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.loadingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+}
+
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .label {
+    flex-basis: 60px;
+  }
+}

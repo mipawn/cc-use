@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Menu-bar-only app: register as an accessory application from the very first
+         cold start so LaunchServices never creates a Dock tile and macOS never lists
+         cc-use in Cmd-Tab. lib.rs also sets ActivationPolicy::Accessory at runtime. -->
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>

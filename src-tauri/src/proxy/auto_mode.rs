@@ -1,48 +1,11 @@
-//! Claude Code permission classifier detection, opt-in model adaptation, and
-//! validated response compatibility.
-use axum::body::Bytes;
-use serde::Deserialize;
-use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+//! Claude Code auto mode request identification and response compatibility.
+//!
+//! Auto mode itself runs inside Claude Code. The proxy only labels classifier
+//! traffic for the console/statistics and repairs a non-streaming Messages
+//! response whose MIME type an upstream mislabelled.
+use serde_json::Value;
 
 const CLASSIFIER_PREFIX: &str = "You are a security monitor for autonomous AI coding agents.";
-const MAX_SESSIONS: usize = 1024;
-const SESSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
-
-#[derive(Default)]
-pub(super) struct AutoModeState {
-    models: HashMap<(String, String), (String, Instant)>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Mapping {
-    auto_mode: Option<Config>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Config {
-    #[serde(default)]
-    enabled: bool,
-    model: Option<String>,
-    thinking: Option<String>,
-}
-
-/// Claude Code sends `metadata.user_id` as a JSON *string*, with the
-/// conversation id inside it. Shared so the Go adapter and the Auto mode cache
-/// agree on what a native conversation id is.
-pub(super) fn claude_session_id(body: &Value) -> Option<String> {
-    let metadata = body["metadata"]["user_id"]
-        .as_str()
-        .and_then(|value| serde_json::from_str::<Value>(value).ok())?;
-    metadata["session_id"]
-        .as_str()
-        .map(str::trim)
-        .filter(|session| !session.is_empty())
-        .map(str::to_string)
-}
 
 fn text_blocks(value: &Value) -> Vec<&str> {
     if let Some(text) = value.as_str() {
@@ -62,10 +25,11 @@ fn text_blocks(value: &Value) -> Vec<&str> {
 
 pub(super) fn is_classifier(body: &Value) -> bool {
     // Match the system role and the final transcript envelope, never words in
-    // arbitrary user/tool content. Verified against Claude Code 2.1.220.
+    // arbitrary user/tool content. Server-side review does not use this shape;
+    // it arrives on ordinary requests with `safeguards` instead.
     let system_matches = text_blocks(&body["system"])
         .iter()
-        .any(|text| text.trim_start().starts_with(CLASSIFIER_PREFIX));
+        .any(|text| text.contains(CLASSIFIER_PREFIX));
     let last = body["messages"]
         .as_array()
         .and_then(|messages| messages.last());
@@ -98,170 +62,61 @@ pub(super) fn is_message_response(bytes: &[u8]) -> bool {
         && body["usage"]["output_tokens"].as_u64().is_some()
 }
 
-impl AutoModeState {
-    pub(super) fn adapt(&mut self, bytes: Bytes, mapping: &str, route_scope: &str) -> Bytes {
-        let scoped = crate::shared_runtime::model_mapping::upstream_mapping(mapping, "claude_code");
-        let Some(config) = serde_json::from_str::<Mapping>(scoped.as_deref().unwrap_or("{}"))
-            .ok()
-            .and_then(|mapping| mapping.auto_mode)
-            .filter(|config| config.enabled)
-        else {
-            return bytes;
-        };
-        let Ok(mut body) = serde_json::from_slice::<Value>(&bytes) else {
-            return bytes;
-        };
-        let Some(model) = body["model"]
-            .as_str()
-            .filter(|model| !model.trim().is_empty())
-        else {
-            return bytes;
-        };
-        // A proxy token can serve multiple Claude conversations. Use Claude's
-        // own session ID as well; never reuse another conversation's model.
-        let session_id = claude_session_id(&body);
-        let session_id = session_id.as_deref();
-        let scope = session_id.map(|session| (route_scope.to_string(), session.to_string()));
-        self.models
-            .retain(|_, (_, seen)| seen.elapsed() < SESSION_TTL);
-
-        if !is_classifier(&body) {
-            // Side queries (titles, compaction, classifier calls) have no tools.
-            // Only remember the model used for the session's agent requests.
-            if body["tools"]
-                .as_array()
-                .is_some_and(|tools| !tools.is_empty())
-            {
-                if let Some(scope) = scope {
-                    if self.models.len() >= MAX_SESSIONS && !self.models.contains_key(&scope) {
-                        if let Some(oldest) = self
-                            .models
-                            .iter()
-                            .min_by_key(|(_, (_, seen))| *seen)
-                            .map(|(key, _)| key.clone())
-                        {
-                            self.models.remove(&oldest);
-                        }
-                    }
-                    self.models
-                        .insert(scope, (model.to_string(), Instant::now()));
-                }
-            }
-            return bytes;
-        }
-
-        let target = config
-            .model
-            .as_deref()
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .or_else(|| {
-                scope
-                    .as_ref()
-                    .and_then(|scope| self.models.get(scope))
-                    .map(|(model, _)| model.as_str())
-            });
-        if let Some(target) = target {
-            body["model"] = json!(target.trim_end_matches("[1m]").trim());
-        }
-        match config.thinking.as_deref().unwrap_or("low") {
-            "low" => {
-                // Keep enough visible output after the thinking budget for the
-                // classifier's XML verdict, including its short first stage.
-                body["thinking"] = json!({"type": "enabled", "budget_tokens": 1024});
-                let max_tokens = body["max_tokens"].as_u64().unwrap_or(0).max(4096);
-                body["max_tokens"] = json!(max_tokens);
-                if body.get("output_config").is_none_or(Value::is_null) {
-                    body["output_config"] = json!({});
-                }
-                if let Some(output) = body["output_config"].as_object_mut() {
-                    output.insert("effort".to_string(), json!("low"));
-                }
-                body.as_object_mut().unwrap().remove("temperature");
-                body.as_object_mut().unwrap().remove("top_p");
-                body.as_object_mut().unwrap().remove("top_k");
-            }
-            "disabled" => {
-                body["thinking"] = json!({"type": "disabled"});
-                if let Some(output) = body["output_config"].as_object_mut() {
-                    output.remove("effort");
-                }
-            }
-            _ => {} // Unknown/future settings preserve the request's thinking.
-        }
-        serde_json::to_vec(&body).map(Bytes::from).unwrap_or(bytes)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
-    #[test]
-    fn v2_classifier_model_uses_only_the_claude_code_scope() {
-        let classifier = Bytes::from(
-            json!({"model":"original", "system":CLASSIFIER_PREFIX,
-            "messages":[{"role":"user","content":"<transcript>test</transcript>"}]})
-            .to_string(),
-        );
-        let mapping = json!({"version":2,"clients":{
-            "claude_code":{"upstream":{"autoMode":{"enabled":true,"model":"code-classifier","thinking":"preserve"}}},
-            "claude_desktop":{"upstream":{"autoMode":{"enabled":true,"model":"desktop-classifier"}}}
-        }}).to_string();
-        let adapted = AutoModeState::default().adapt(classifier.clone(), &mapping, "route");
-        assert_eq!(
-            serde_json::from_slice::<Value>(&adapted).unwrap()["model"],
-            "code-classifier"
-        );
-        let disabled = json!({"version":2,"clients":{"claude_desktop":{"upstream":{"autoMode":{"enabled":true,"model":"desktop-classifier"}}}}}).to_string();
-        assert_eq!(
-            AutoModeState::default().adapt(classifier.clone(), &disabled, "route"),
-            classifier
-        );
+    fn classifier_body() -> Value {
+        json!({
+            "model": "original",
+            "system": CLASSIFIER_PREFIX,
+            "messages": [{"role": "user", "content": "<transcript>x</transcript>"}]
+        })
     }
 
     #[test]
-    fn string_prompts_follow_only_the_same_route_and_identified_session() {
-        let mut state = AutoModeState::default();
-        let mapping = r#"{"autoMode":{"enabled":true,"thinking":"preserve"}}"#;
-        let main = json!({"model":"glm-5", "tools":[{"name":"Bash"}],
-            "metadata":{"user_id":"{\"session_id\":\"same-session\"}"}});
-        state.adapt(Bytes::from(main.to_string()), mapping, "route-a");
-        let classifier = json!({"model":"original", "system":CLASSIFIER_PREFIX,
-            "messages":[{"role":"user","content":"<transcript>test</transcript>"}],
-            "metadata":main["metadata"]});
-        let adapt = |state: &mut AutoModeState, body: &Value, route| {
-            serde_json::from_slice::<Value>(&state.adapt(
-                Bytes::from(body.to_string()),
-                mapping,
-                route,
-            ))
-            .unwrap()
-        };
-        assert_eq!(adapt(&mut state, &classifier, "route-a")["model"], "glm-5");
-        assert_eq!(
-            adapt(&mut state, &classifier, "route-b")["model"],
-            "original"
-        );
-        let mut anonymous = classifier.clone();
-        anonymous.as_object_mut().unwrap().remove("metadata");
-        assert_eq!(
-            adapt(&mut state, &anonymous, "route-a")["model"],
-            "original"
-        );
+    fn recognises_the_classifier_envelope() {
+        assert!(is_classifier(&classifier_body()));
+        let mut body = classifier_body();
+        body["system"] = json!([{"type": "text", "text": format!("prefix {CLASSIFIER_PREFIX}")}]);
+        assert!(is_classifier(&body));
     }
 
     #[test]
-    fn unknown_or_malformed_requests_and_configuration_pass_through() {
-        let mut state = AutoModeState::default();
-        let mapping = r#"{"autoMode":{"enabled":true}}"#;
-        for input in ["not json", "null", "[]", r#"{"model":null}"#] {
-            let body = Bytes::from(input);
-            assert_eq!(state.adapt(body.clone(), mapping, "route"), body);
-        }
-        let body = Bytes::from(r#"{"model":"original"}"#);
-        for invalid_mapping in ["{", "null", r#"{"autoMode":true}"#] {
-            assert_eq!(state.adapt(body.clone(), invalid_mapping, "route"), body);
-        }
+    fn rejects_requests_that_carry_tools_or_lack_the_transcript() {
+        let mut with_tools = classifier_body();
+        with_tools["tools"] = json!([{"name": "Bash"}]);
+        assert!(!is_classifier(&with_tools));
+
+        let mut without_transcript = classifier_body();
+        without_transcript["messages"] = json!([{"role": "user", "content": "hello"}]);
+        assert!(!is_classifier(&without_transcript));
+
+        let mut wrong_role = classifier_body();
+        wrong_role["messages"] =
+            json!([{"role": "assistant", "content": "<transcript>x</transcript>"}]);
+        assert!(!is_classifier(&wrong_role));
+    }
+
+    #[test]
+    fn ignores_the_prefix_outside_the_system_role() {
+        let body = json!({
+            "messages": [{"role": "user", "content": CLASSIFIER_PREFIX}]
+        });
+        assert!(!is_classifier(&body));
+    }
+
+    #[test]
+    fn validates_only_complete_message_envelopes() {
+        let valid = br#"{"type":"message","role":"assistant","content":[],"usage":{"input_tokens":1,"output_tokens":2}}"#;
+        assert!(is_message_response(valid));
+        assert!(!is_message_response(
+            br#"{"type":"message","role":"assistant","content":[]}"#
+        ));
+        assert!(!is_message_response(
+            br#"{"type":"error","error":{"type":"api_error"}}"#
+        ));
+        assert!(!is_message_response(b"event: message_start\ndata: {}\n\n"));
     }
 }

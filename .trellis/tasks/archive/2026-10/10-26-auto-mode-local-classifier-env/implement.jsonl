@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/10-26-auto-mode-local-classifier-env/prd.md", "reason": "Requirements, acceptance criteria, and explicit non-goals for the env-injection approach."}
+{"file": ".trellis/tasks/10-26-auto-mode-local-classifier-env/design.md", "reason": "Agreed technical design: config parsing, launch env injection, removal of proxy rewriting, UI copy, compatibility."}
+{"file": ".trellis/tasks/10-26-auto-mode-local-classifier-env/implement.md", "reason": "Ordered execution checklist, validation commands, rollback points."}
+{"file": ".trellis/spec/cc-use/backend/proxy-core.md", "reason": "Request pipeline and model/header shaping rules; auto mode docs must stop describing proxy-side rewriting."}
+{"file": ".trellis/spec/cc-use/backend/architecture.md", "reason": "Process ownership: launch env belongs to the app/wrapper; shared_runtime must stay Tauri-free."}
+{"file": ".trellis/spec/cc-use/frontend/i18n.md", "reason": "zh/en locale pairing and key naming for the renamed auto mode controls."}

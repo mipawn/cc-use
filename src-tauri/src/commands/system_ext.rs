@@ -84,17 +84,12 @@ pub fn auto_launch_set_enabled(db: DbState<'_>, enabled: bool) -> Result<bool, S
 pub fn toggle_main_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(win) = app.get_webview_window("main") {
         if win.is_visible().unwrap_or(false) {
-            #[cfg(target_os = "macos")]
-            {
-                let _ = app.set_dock_visibility(false);
-            }
             let _ = win.hide();
         } else {
-            #[cfg(target_os = "macos")]
-            {
-                let _ = app.set_dock_visibility(true);
-            }
+            // Menu-bar mode: never call set_dock_visibility(true); Accessory policy
+            // keeps the process out of the Dock for its whole lifetime.
             let _ = win.show();
+            let _ = win.unminimize();
             let _ = win.set_focus();
         }
     }

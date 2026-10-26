@@ -1,7 +1,13 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
-import { HomeOutlined, BarChartOutlined, SettingOutlined, KeyOutlined } from '@ant-design/icons'
+import {
+  HomeOutlined,
+  BarChartOutlined,
+  SettingOutlined,
+  KeyOutlined,
+  ApiOutlined,
+} from '@ant-design/icons'
 import { clientWorkspaces } from './workspaceNavigation'
 import styles from './WorkspaceLayout.module.css'
 import appLogo from '../../assets/icon.svg'
@@ -39,6 +45,7 @@ export default function Sidebar() {
         <div className={styles.group}>
           <span className={styles.groupLabel}>{t('workspace.manage')}</span>
           {link('/keys', t('keys.title'), <KeyOutlined />)}
+          {link('/gateway', t('gateway.title'), <ApiOutlined />)}
           {link('/stats', t('workspace.activityTitle'), <BarChartOutlined />, [
             '/stats',
             '/console',

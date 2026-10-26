@@ -122,6 +122,8 @@ pub fn create_proxy_session(
         revoked_at: None,
         revoked_reason: None,
         cli_type: None,
+        display_name: None,
+        is_active: true,
     })
     .expect("create proxy session")
 }

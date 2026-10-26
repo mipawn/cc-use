@@ -130,6 +130,10 @@ pub struct StreamUsageAccumulator {
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub model: Option<String>,
+    /// True once the stream carried its protocol-level terminal marker
+    /// (`message_stop`, `response.completed`, a non-null `finish_reason`, or
+    /// `[DONE]`). A 200 stream that ends without this was cut short.
+    completed: bool,
     output_event_count: usize,
     data_event_count: usize,
     invalid_json_count: usize,
@@ -149,6 +153,7 @@ impl StreamUsageAccumulator {
             cache_read_tokens: 0,
             cache_creation_tokens: 0,
             model: None,
+            completed: false,
             output_event_count: 0,
             data_event_count: 0,
             invalid_json_count: 0,
@@ -157,6 +162,10 @@ impl StreamUsageAccumulator {
             line_buffer: Vec::new(),
             discarding_oversized_line: false,
         }
+    }
+
+    pub fn completed(&self) -> bool {
+        self.completed
     }
 
     pub fn process_chunk(&mut self, chunk: &str) {
@@ -208,6 +217,7 @@ impl StreamUsageAccumulator {
         // with additional insignificant whitespace.
         let json_str = json_str.strip_prefix(' ').unwrap_or(json_str);
         if json_str == "[DONE]" {
+            self.completed = true;
             return;
         }
         self.data_event_count += 1;
@@ -219,6 +229,27 @@ impl StreamUsageAccumulator {
                 return;
             }
         };
+
+        if data
+            .get("type")
+            .and_then(|value| value.as_str())
+            .is_some_and(|kind| matches!(kind, "message_stop" | "response.completed"))
+        {
+            self.completed = true;
+        }
+        if data
+            .get("choices")
+            .and_then(|value| value.as_array())
+            .is_some_and(|choices| {
+                choices.iter().any(|choice| {
+                    choice
+                        .get("finish_reason")
+                        .is_some_and(|reason| !reason.is_null())
+                })
+            })
+        {
+            self.completed = true;
+        }
 
         if contains_generated_output(&data) {
             self.output_event_count += 1;

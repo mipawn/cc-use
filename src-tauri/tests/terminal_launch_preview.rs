@@ -62,6 +62,50 @@ fn merges_global_key_and_runtime_for_claude_preview() {
         Some(&"preview-session-token".to_string()),
     );
     assert_eq!(preview.env.get("ANTHROPIC_API_KEY"), None);
+    assert_eq!(preview.env.get("CLAUDE_CODE_AUTO_MODE_SERVER"), None);
+    assert_eq!(preview.env.get("CLAUDE_CODE_AUTO_MODE_MODEL"), None);
+}
+
+#[test]
+fn claude_preview_injects_local_auto_mode_classifier_env_when_opted_in() {
+    let fixture = TempDb::new();
+    let provider = create_provider(&fixture.db, "Claude Provider", "claude");
+    let api_key = fixture
+        .db
+        .api_key_create(&CreateApiKeyInput {
+            usage_script: None,
+            provider_id: provider.id.clone(),
+            alias: Some("auto-mode".to_string()),
+            value: "sk-test".to_string(),
+            types: None,
+            priority: Some(0),
+            is_active: Some(true),
+            config: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: Some(
+                json!({"version":2,"clients":{"claude_code":{"upstream":{
+                    "autoMode":{"enabled":true,"model":"glm-5-air"}
+                }}}})
+                .to_string(),
+            ),
+            client_configs: None,
+        })
+        .unwrap();
+
+    let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "claude")
+        .expect("claude preview");
+
+    assert_eq!(
+        preview.env.get("CLAUDE_CODE_AUTO_MODE_SERVER"),
+        Some(&"0".to_string())
+    );
+    assert_eq!(
+        preview.env.get("CLAUDE_CODE_AUTO_MODE_MODEL"),
+        Some(&"glm-5-air".to_string())
+    );
 }
 
 #[test]

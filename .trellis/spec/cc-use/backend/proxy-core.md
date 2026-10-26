@@ -9,14 +9,14 @@
 
 ## Files
 
-| File | Responsibility |
-|------|----------------|
-| `proxy/mod.rs` | `ProxyState`, concurrency permits, console/metrics fan-out, `build_proxy_state*`, `build_proxy_router`, unit tests for limits |
-| `proxy/handler.rs` | The 4k-line request pipeline: auth, routing, request shaping, upstream call, streaming relay, usage parsing, logging, console events |
-| `proxy/usage_parser.rs` | `TokenUsage`, non-stream JSON parsing, `StreamUsageAccumulator` for SSE |
-| `proxy/auto_mode.rs` | Claude Code permission-classifier detection and opt-in model adaptation |
-| `proxy/console.rs` | `ConsoleEvent` tagged union, redaction/truncation helpers, `build_detail_fields*` |
-| `proxy/key_selector.rs` | `select_key(db, provider_id)` — highest-priority active, non-exhausted key |
+| File                    | Responsibility                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `proxy/mod.rs`          | `ProxyState`, concurrency permits, console/metrics fan-out, `build_proxy_state*`, `build_proxy_router`, unit tests for limits        |
+| `proxy/handler.rs`      | The 4k-line request pipeline: auth, routing, request shaping, upstream call, streaming relay, usage parsing, logging, console events |
+| `proxy/usage_parser.rs` | `TokenUsage`, non-stream JSON parsing, `StreamUsageAccumulator` for SSE                                                              |
+| `proxy/auto_mode.rs`    | Claude Code permission-classifier detection and response compatibility (no body rewriting)                                           |
+| `proxy/console.rs`      | `ConsoleEvent` tagged union, redaction/truncation helpers, `build_detail_fields*`                                                    |
+| `proxy/key_selector.rs` | `select_key(db, provider_id)` — highest-priority active, non-exhausted key                                                           |
 
 `key_selector::select_key` is **not** used by the request path and there is no load
 balancing: a request is routed to the explicit key named by its session token. Do not
@@ -51,11 +51,11 @@ Order matters; every early exit emits a console event.
    `route_uses_bearer_auth` and the per-key `authScheme`), strip hop-by-hop headers, remove
    `accept-encoding` / `host` / `content-length`.
 8. Read body ≤ `MAX_REQUEST_BODY_BYTES` (50 MiB), parse JSON, remember `model` and
-   `stream`, apply `apply_model_mapping`, then `auto_mode.adapt` for Claude Messages
-   requests, then `apply_provider_headers` (additive) and `apply_chosen_user_agent`
-   (replacing). Emit `pending` (with detail fields only when `detail_mode` is on) and arm
-   `RequestCancellationGuard`, which emits a `cancelled` event if the request future is
-   dropped before completion.
+   `stream`, apply `apply_model_mapping`, label Claude Messages classifier requests via
+   `auto_mode::is_classifier` (no body rewrite), then `apply_provider_headers` (additive)
+   and `apply_chosen_user_agent` (replacing). Emit `pending` (with detail fields only when
+   `detail_mode` is on) and arm `RequestCancellationGuard`, which emits a `cancelled` event
+   if the request future is dropped before completion.
 9. Send via the cached client from `services::http_client::outbound_client_for_provider`
    (proxy-aware, 10 s connect timeout). Transport failure → record a
    `transport_error` request log and return 502.
@@ -77,15 +77,15 @@ Order matters; every early exit emits a console event.
 
 ### Size limits (do not raise casually)
 
-| Constant | Value | Meaning |
-|----------|-------|---------|
-| `MAX_REQUEST_BODY_BYTES` | 50 MiB | Incoming HTTP body |
-| `MAX_NON_STREAM_RESPONSE_BYTES` | 64 MiB | Buffered response |
-| `MAX_DECOMPRESSED_CAPTURE_BYTES` | 64 MiB | Decode budget |
-| `MAX_COMPRESSED_STREAM_CAPTURE_BYTES` | 16 MiB | Compressed SSE capture |
-| `MAX_STREAM_DETAIL_CAPTURE_BYTES` | 256 KiB | Detail-mode stream body |
-| `MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES` | 1 MiB | One SSE line |
-| `MAX_WS_MESSAGE_BYTES` / `MAX_WS_FRAME_BYTES` | 64 MiB / 16 MiB | WebSocket relay |
+| Constant                                      | Value           | Meaning                 |
+| --------------------------------------------- | --------------- | ----------------------- |
+| `MAX_REQUEST_BODY_BYTES`                      | 50 MiB          | Incoming HTTP body      |
+| `MAX_NON_STREAM_RESPONSE_BYTES`               | 64 MiB          | Buffered response       |
+| `MAX_DECOMPRESSED_CAPTURE_BYTES`              | 64 MiB          | Decode budget           |
+| `MAX_COMPRESSED_STREAM_CAPTURE_BYTES`         | 16 MiB          | Compressed SSE capture  |
+| `MAX_STREAM_DETAIL_CAPTURE_BYTES`             | 256 KiB         | Detail-mode stream body |
+| `MAX_SSE_MODEL_NORMALIZATION_LINE_BYTES`      | 1 MiB           | One SSE line            |
+| `MAX_WS_MESSAGE_BYTES` / `MAX_WS_FRAME_BYTES` | 64 MiB / 16 MiB | WebSocket relay         |
 
 ---
 
@@ -93,11 +93,22 @@ Order matters; every early exit emits a console event.
 
 `decide_route_plan` is the only routing decision:
 
-| Auth | Plan | Result |
-|------|------|--------|
-| `session-…` token | `ExplicitSession` | Resolve session → provider → key; reject on revoke/expiry/disabled/exhausted/client mismatch |
-| Provider credential (non-session `Authorization` / `x-api-key`) | `PassThrough` | Infer upstream family from path (`infer_upstream_family_from_path`) and forward to the official URL; no logging context |
-| No auth | `RejectMissingAuth` | 401 + `rejected` console event |
+| Auth                                                            | Plan                | Result                                                                                                                  |
+| --------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `session-…` token                                               | `ExplicitSession`   | Resolve session → provider → key; reject on revoke/expiry/disabled/exhausted/client mismatch                            |
+| Provider credential (non-session `Authorization` / `x-api-key`) | `PassThrough`       | Infer upstream family from path (`infer_upstream_family_from_path`) and forward to the official URL; no logging context |
+| No auth                                                         | `RejectMissingAuth` | 401 + `rejected` console event                                                                                          |
+
+**Gateway outlets** reuse the `session-…` path: a `proxy_sessions` row with
+`session_kind='gateway'`, `expires_at=NULL`, `cli_type=NULL`, exactly one
+`api_key_id`, and `is_active=1`. They skip the managed-instance gate, reject with
+403 `Gateway is disabled` when inactive, and force `cli_type=None` in
+`build_route_execution` so the local model-catalog intercept, auto-mode
+classifier labeling, client compatibility check and `/v1/responses` inference are
+all bypassed. The `count_tokens` local estimate is also skipped for gateways.
+`proxy_session_cleanup_stale` excludes `gateway` (like `desktop`) and
+`session_list` hides them; `gateway_list` is the dedicated query. Deleting a key
+or provider removes the gateway rows bound to it.
 
 Codex Desktop has one documented exception: when a `/v1/responses` request arrives with a
 provider credential, `route_plan_with_codex_takeover_fallback` substitutes the session
@@ -124,12 +135,18 @@ command or the renderer.
 - `apply_model_mapping` uses `shared_runtime::model_mapping` scoped to the session’s client
   kind; the alias table (`alias_table_key(api_key_id, kind)`) maps catalog ids back to real
   provider ids.
-- `auto_mode` only touches Claude Messages requests; it detects the permission classifier
-  by system prompt + final `<transcript>` envelope + absence of tools, remembers the
-  session’s real model per `(route_scope, session_id)` (bounded by `MAX_SESSIONS = 1024`,
-  TTL 24 h), and applies the opt-in mapping (`autoMode.enabled`, `model`, `thinking`).
-  Unknown/malformed bodies and mappings pass through unchanged — tests in
-  `proxy/auto_mode.rs` pin this.
+- `auto_mode` no longer rewrites request bodies. It only identifies Claude Messages
+  classifier requests (system prompt substring + final `<transcript>` envelope + absence
+  of tools) so the pipeline can label them `request_kind=auto_mode` for the console and
+  statistics. Auto mode compatibility is a launch-time concern instead:
+  `terminal::resolve_launch_preview` calls
+  `shared_runtime::launch_preview::apply_auto_mode_launch_env`, which injects
+  `CLAUDE_CODE_AUTO_MODE_SERVER=0` and `CLAUDE_CODE_AUTO_MODE_MODEL` when the key's
+  `autoMode.enabled` names a non-empty model
+  (`shared_runtime::model_mapping::auto_mode_classifier_model`). Explicit user env wins,
+  the default is no injection, and `safeguards` / `safeguard_results` pass through
+  untouched. Tests in `proxy/auto_mode.rs`, `tests/launch_preview.rs`, and
+  `tests/terminal_launch_preview.rs` pin this.
 - Header policies are intentionally opposite and both live in `shared_runtime`:
   provider request headers are additive (`apply_provider_headers` skips names the client
   already sent), a chosen User-Agent replaces (`user_agent::apply`).
@@ -188,6 +205,15 @@ produce both:
 1. a client response via `handler::error_response(status, message)` with a plain-text JSON
    body, and
 2. a `ConsoleEvent` explaining what happened to the operator.
+
+A non-2xx upstream response is emitted as `ConsoleEvent::upstream_response_error` (kind
+`upstream_error`, real status, truncated message), not `ok`. Streaming responses are
+classified by status first, then by the protocol completion marker
+(`message_stop` / `response.completed` / non-null `finish_reason` / `[DONE]`): a 2xx stream
+that ends without one is recorded as `transport_error`. Client cancellation writes a
+`transport_error` row (`Client disconnected before response`) in addition to the
+`cancelled` event. Console history recorded by older builds may contain `ok` rows with a
+4xx/5xx status; the renderer reclassifies them for display.
 
 Messages are shown in the UI: no keys, tokens, or full request bodies. Keep them short
 (`extract_error_message` truncates upstream error bodies).

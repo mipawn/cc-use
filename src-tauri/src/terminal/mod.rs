@@ -180,6 +180,12 @@ fn resolve_launch_preview(
                     .or_insert_with(|| "1".into());
             }
         }
+        // Opt-in only: leave auto mode untouched unless the key names a
+        // classifier model. Runs after the merged env so explicit values win.
+        crate::shared_runtime::launch_preview::apply_auto_mode_launch_env(
+            &mut preview.env,
+            api_key.model_mapping.as_deref(),
+        );
     }
     let preview = TerminalLaunchPreview {
         cli_type: preview.cli_type,
@@ -550,6 +556,8 @@ fn create_managed_launch(
         revoked_at: None,
         revoked_reason: None,
         cli_type: Some(cli_type.to_string()),
+        display_name: None,
+        is_active: true,
     };
     if let Err(error) = db.proxy_session_create(&session) {
         let _ = std::fs::remove_file(&script_path);

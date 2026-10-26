@@ -225,3 +225,15 @@ it('saves a new provider without querying and explains the missing key', async (
     ).toBe(true)
   })
 })
+
+it('renders the empty quota query as a link action with a refresh icon', async () => {
+  mocks.providers[0].walletBalanceScript = 'enabled'
+  await withPage(async (container) => {
+    const action = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent === 'providers.queryNow',
+    )
+    expect(action).toBeTruthy()
+    expect(action!.className).toContain('ant-btn-link')
+    expect(action!.querySelector('.anticon-reload')).not.toBeNull()
+  })
+})

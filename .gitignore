@@ -28,9 +28,6 @@ npm-debug.log*
 .env
 .env.local
 
-# Development docs
-docs/
-
 .playwright-mcp/
 
 .claude/

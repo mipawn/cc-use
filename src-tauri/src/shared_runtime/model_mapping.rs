@@ -41,6 +41,24 @@ pub fn sanitize_mapping(raw: Option<&str>) -> Option<String> {
     }
 }
 
+/// Model id for Claude Code's local auto mode classifier, when the key opted
+/// into compatibility. `None` unless the key enables it and names a model:
+/// an empty value would leave the classifier on Claude's default model, which
+/// a third-party provider usually cannot serve.
+pub fn auto_mode_classifier_model(mapping: Option<&str>) -> Option<String> {
+    let upstream = upstream_mapping(mapping?, "claude_code")?;
+    let value: Value = serde_json::from_str(&upstream).ok()?;
+    let auto = &value["autoMode"];
+    if !auto["enabled"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    auto["model"]
+        .as_str()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_string)
+}
+
 pub fn upstream_mapping(mapping: &str, kind: &str) -> Option<String> {
     let mut value: Value = serde_json::from_str(mapping).ok()?;
     remove_retired_rules(&mut value);

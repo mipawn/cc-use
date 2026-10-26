@@ -688,6 +688,21 @@ export interface ProxySession {
   apiKeyId: string
   projectId: string | null
   createdAt: string
+  displayName: string | null
+  isActive: boolean
+}
+
+/** A persistent local outlet bound to exactly one API key. */
+export interface Gateway {
+  sessionToken: string
+  displayName: string
+  providerId: string
+  providerName: string
+  apiKeyId: string
+  keyAlias: string | null
+  isActive: boolean
+  createdAt: string
+  lastSeenAt: string
 }
 
 export type ManagedInstanceStatus = 'launching' | 'running' | 'stale' | 'stopped' | 'failed'

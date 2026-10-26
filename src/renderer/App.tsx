@@ -9,6 +9,7 @@ import Statistics from './pages/Statistics'
 import ActivityPage from './pages/ActivityPage'
 import Settings from './pages/Settings'
 import Console from './pages/Console'
+import GatewayPage from './pages/GatewayPage'
 import Keys from './pages/Keys'
 import ClaudeCodePage from './pages/ClaudeCodePage'
 import CodexPage from './pages/CodexPage'
@@ -212,6 +213,7 @@ function AppContent() {
             <Route path='/codex' element={<CodexPage />} />
             <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
             <Route path='/keys' element={<Keys />} />
+            <Route path='/gateway' element={<GatewayPage />} />
             <Route element={<ActivityPage />}>
               <Route path='/stats' element={<Statistics embedded />} />
               <Route path='/console' element={<Console />} />

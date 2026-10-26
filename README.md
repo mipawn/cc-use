@@ -4,7 +4,7 @@
 
 [English](./README_EN.md)
 
-> **3.14.0 更新**：用量统计新增输出速度（t/s）、首 Token 延迟和线路速度趋势，分别查看开始前的等待与输出阶段的速度。详见 [CHANGELOG](./CHANGELOG.md)。
+> **3.15.0 更新**：新增常驻网关出口与仅菜单栏模式；模型改为显式选择，控制台不再把异常显示为成功。详见 [CHANGELOG](./CHANGELOG.md) 与 [v3.15.0 文档](./docs/v3.15.0/README.md)。
 >
 > **3.0 架构更新**：代理抽离为独立 `cc-use-daemon` 进程，实例身份在启动时显式建模。
 >
@@ -37,12 +37,13 @@
 - **命令行工具与状态栏** - `cc-use claude` / `cc-use grok` 每次用方向键选择线路并预选 GUI 默认项；Claude Code 可选彩色三行 HUD，详见 [CLI 使用指南](./guides/CLI.md)
 - **Codex Desktop 配置接管** - 保留 `auth.json` 和官方登录，加载所选线路的真实模型目录；DeepSeek 可选择 Flash / Pro 与对应思考强度，密钥级模型映射只替换上游模型名，不转换 Responses 协议
 - **Claude Desktop 配置接管** - 写入 Claude 3P profile 和 configLibrary，网关地址指向 `http://127.0.0.1:<port>/claude-desktop`，支持配置预览、恢复官方配置和模型列表接管
+- **网关出口** - 在「网关」页面创建多个出口，每个只绑定一个密钥，提供固定地址和本地 Key；请求原样转发，不做协议转换，由常驻 daemon 承担
 - **本地 daemon 服务** - 独立常驻的 `cc-use-daemon` 进程作为本地网关，按 session token 路由到当前供应商/密钥，支持用量追踪与热切换
 - **实例管理** - Claude Code 与 Grok Build 各自的「实例」Tab 只展示当前客户端启动的 managed instance，并且只能热切换到兼容密钥
 - **Token 用量追踪** - 自动记录每次请求的 Token 用量（含缓存读取与缓存创建）与失败原因；中文界面使用「万 / 亿」、英文界面使用 `K / M / B`，悬停可查看精确数量
-- **统计分析** - 仪表盘展示今日 Token、请求、失败和每日 Token 热力图；统计页提供自定义日期查询、Token 构成、每日趋势、Key/项目用量、失败明细，以及输出速度、首 Token 延迟和总耗时
-- **系统托盘** - 关闭窗口时最小化到托盘，daemon 服务持续运行；托盘徽章显示今日 Token，菜单支持服务控制和最近项目快速启动
-- **Auto mode 分类器适配（实验性）** - 在 Key 的模型映射中启用，可跟随当前 Claude 会话或指定分类器模型，支持低思考与关闭思考；默认关闭。修复部分网关的分类器响应头兼容问题，并在用量统计中标记 Auto mode 请求。详见 [v3.9.1 使用说明](https://github.com/mipawn/cc-use-docs/blob/main/v3.9.1/README.md)。
+- **统计分析** - 仪表盘展示今日 Token、请求、失败和每日 Token 热力图；统计页提供自定义日期查询、Token 构成、每日趋势、失败明细，以及输出速度、首 Token 延迟和总耗时
+- **仅菜单栏常驻** - 不显示 Dock 图标；关闭窗口始终隐藏，从顶部菜单栏或 Finder/Spotlight 重新打开；托盘徽章显示今日 Token，菜单支持服务控制和最近项目快速启动
+- **Auto mode 兼容（默认关闭）** - 默认完全不动 Claude Code 请求。按 Key 开启后，启动时注入 `CLAUDE_CODE_AUTO_MODE_SERVER=0` 与 `CLAUDE_CODE_AUTO_MODE_MODEL`，让最新版 Claude Code 使用本地分类器并指向供应商可用模型；修改后需重启会话。详见 [v3.15.0 auto mode](./docs/v3.15.0/auto-mode.md)。
 - **自动更新** - 应用内检测并下载新版本，支持下载进度显示（`tauri-plugin-updater` 签名校验）
 - **Claude Code 配置管理** - 支持全局配置与密钥级启动变量，启动时自动合并注入；密钥模型控件归入客户端模型，其他变量按需编辑 JSON
 - **国际化** - 中文 / 英文界面

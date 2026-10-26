@@ -110,9 +110,9 @@ Startup work is best-effort except two process-fatal `.expect(...)` calls in `li
   100 MiB total, 256 KiB per record; overflow is counted in `dropped()` and surfaced by
   `console_log_status`.
 - **Proxy state** — `proxy::ProxyState` (DB handle, request counter, console broadcast
-  channel, console log handle, detail-mode flag, concurrency semaphores, auto-mode cache).
-  Built by `proxy::build_proxy_state_with_console_log` only inside the daemon; tests build
-  it with `build_proxy_state`.
+  channel, console log handle, detail-mode flag, concurrency semaphores). Built by
+  `proxy::build_proxy_state_with_console_log` only inside the daemon; tests build it with
+  `build_proxy_state`.
 
 ---
 

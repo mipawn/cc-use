@@ -122,10 +122,28 @@ function formatLatency(ms: number | null): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`
 }
 
+/**
+ * Historical rows were always stored as `ok` even for 4xx/5xx responses.
+ * Display them by what actually happened so replaying old history does not
+ * turn a failed request green.
+ */
+function displayKind(event: ConsoleRequestEvent): string {
+  if (event.kind === 'ok' && event.status != null && event.status >= 400) {
+    return 'upstream_error'
+  }
+  return event.kind
+}
+
 /** Whether an event is a problem worth surfacing in the 异常 view. */
 function isProblemEvent(event: ConsoleEvent): boolean {
   if (event.category === 'request') {
-    if (event.kind === 'upstream_error' || event.kind === 'rejected') return true
+    if (
+      event.kind === 'upstream_error' ||
+      event.kind === 'rejected' ||
+      event.kind === 'cancelled'
+    ) {
+      return true
+    }
     return event.status != null && event.status >= 400
   }
   return event.level === 'error' || event.level === 'warn'
@@ -398,7 +416,8 @@ function RequestRow({
   onSelect: () => void
 }) {
   const { t } = useTranslation()
-  const color = kindColor(event.kind)
+  const kind = displayKind(event)
+  const color = kindColor(kind)
   const isProblem = isProblemEvent(event)
   return (
     <div
@@ -415,7 +434,7 @@ function RequestRow({
       }}
     >
       <span style={{ color: PALETTE.dim, flexShrink: 0 }}>{formatTime(event.timestamp)}</span>
-      <span style={{ color, flexShrink: 0, width: 64 }}>{kindLabel(event.kind, t)}</span>
+      <span style={{ color, flexShrink: 0, width: 64 }}>{kindLabel(kind, t)}</span>
       <span
         style={{
           flexShrink: 0,
@@ -522,7 +541,9 @@ function RequestDetail({ event, onClose }: { event: ConsoleRequestEvent; onClose
     >
       <Space className='justify-between w-full'>
         <Space size={6} wrap>
-          <Tag color={event.kind === 'ok' ? 'green' : 'default'}>{kindLabel(event.kind, t)}</Tag>
+          <Tag color={displayKind(event) === 'ok' ? 'green' : 'default'}>
+            {kindLabel(displayKind(event), t)}
+          </Tag>
           <Typography.Text style={{ color: PALETTE.text }}>{event.model || '—'}</Typography.Text>
           {event.requestKind === 'auto_mode' && <Tag color='gold'>Auto</Tag>}
           <Typography.Text style={{ color: PALETTE.dim, fontSize: 12 }}>
@@ -648,4 +669,4 @@ function DetailSection({
   )
 }
 
-export { eventRowKey, isProblemEvent, matchesQuery }
+export { displayKind, eventRowKey, isProblemEvent, matchesQuery }

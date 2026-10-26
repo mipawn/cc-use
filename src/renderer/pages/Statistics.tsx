@@ -1,24 +1,12 @@
 import { getApi } from '../api'
 /**
  * Statistics - 用量统计页面
- * v3.8.0: 聚焦 Token 构成、Key / 项目归因和可追溯的请求记录。
+ * v3.8.0: 聚焦 Token 构成和可追溯的请求记录。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
-import {
-  Typography,
-  Button,
-  Card,
-  Drawer,
-  Table,
-  Tag,
-  Spin,
-  theme,
-  Space,
-  Statistic,
-  Tooltip,
-} from 'antd'
-import { BarChartOutlined, KeyOutlined, FolderOpenOutlined, RobotOutlined } from '@ant-design/icons'
+import { Typography, Button, Card, Table, Tag, Spin, theme, Space, Statistic, Tooltip } from 'antd'
+import { BarChartOutlined, RobotOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import { usePageRefresh } from '../hooks/usePageRefresh'
@@ -27,7 +15,6 @@ import type {
   UsageStatistics,
   PaginatedRecentRequests,
   StatsTimeRange,
-  UsageDimensionItem,
   RecentRequestLogDisplay,
 } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
@@ -49,9 +36,6 @@ function totalTokens(record: RecentRequestLogDisplay): number {
     record.inputTokens + record.outputTokens + record.cacheReadTokens + record.cacheCreationTokens
   )
 }
-
-/** Rankings show this many rows before offering "view all". */
-const RANKING_PREVIEW = 5
 
 const OUTCOME_COLORS: Record<string, string> = {
   success: 'green',
@@ -80,7 +64,6 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
   const [recentPageSize, setRecentPageSize] = useState(10)
   const refreshToken = useRef(0)
   const [detailRecord, setDetailRecord] = useState<RecentRequestLogDisplay | null>(null)
-  const [rankingScope, setRankingScope] = useState<'key' | 'project' | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -299,43 +282,6 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
     },
   ]
 
-  const dimensionColumns = [
-    {
-      title: t('statistics.name'),
-      dataIndex: 'name',
-      key: 'name',
-      ellipsis: true,
-      render: (value: string, record: UsageDimensionItem) => (
-        <div className={styles.dimensionName}>
-          <Text strong ellipsis={{ tooltip: value }}>
-            {displayName(value, t('statistics.other'))}
-          </Text>
-          {record.detail && (
-            <Text type='secondary' ellipsis={{ tooltip: record.detail }}>
-              {record.detail}
-            </Text>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: t('statistics.tokens'),
-      dataIndex: 'tokens',
-      key: 'tokens',
-      width: 110,
-      align: 'right' as const,
-      render: (value: number) => renderTokens(value),
-    },
-    {
-      title: t('statistics.requests'),
-      dataIndex: 'requests',
-      key: 'requests',
-      width: 88,
-      align: 'right' as const,
-      render: (value: number) => value.toLocaleString(),
-    },
-  ]
-
   const hasData = stats
     ? stats.summary.totalRequests > 0 || stats.summary.failedRequests > 0
     : false
@@ -483,64 +429,6 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                   }}
                 />
               </Card>
-
-              {/* Rankings last: they answer "who spent it", after "how much". */}
-              <div className={styles.dimensionGrid}>
-                <Card
-                  className={styles.tableCard}
-                  variant='outlined'
-                  title={
-                    <Space>
-                      <KeyOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.keyUsage')}</span>
-                    </Space>
-                  }
-                  extra={
-                    stats.keyUsage.length > RANKING_PREVIEW ? (
-                      <Button type='link' size='small' onClick={() => setRankingScope('key')}>
-                        {t('statistics.viewAll', { count: stats.keyUsage.length })}
-                      </Button>
-                    ) : undefined
-                  }
-                >
-                  <Table
-                    dataSource={stats.keyUsage.slice(0, RANKING_PREVIEW)}
-                    columns={dimensionColumns}
-                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
-                    size='small'
-                    pagination={false}
-                    locale={{ emptyText: t('statistics.noData') }}
-                  />
-                </Card>
-                <Card
-                  className={styles.tableCard}
-                  variant='outlined'
-                  title={
-                    <Space>
-                      <FolderOpenOutlined style={{ color: token.colorPrimary }} />
-                      <span>{t('statistics.projectUsage')}</span>
-                    </Space>
-                  }
-                  extra={
-                    stats.projectUsage.length > RANKING_PREVIEW ? (
-                      <Button type='link' size='small' onClick={() => setRankingScope('project')}>
-                        {t('statistics.viewAll', {
-                          count: stats.projectUsage.length,
-                        })}
-                      </Button>
-                    ) : undefined
-                  }
-                >
-                  <Table
-                    dataSource={stats.projectUsage.slice(0, RANKING_PREVIEW)}
-                    columns={dimensionColumns}
-                    rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
-                    size='small'
-                    pagination={false}
-                    locale={{ emptyText: t('statistics.noData') }}
-                  />
-                </Card>
-              </div>
             </div>
           ) : (
             <Card className='empty-state' variant='outlined'>
@@ -560,24 +448,6 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
       </div>
 
       <RecentRequestDetailDrawer record={detailRecord} onClose={() => setDetailRecord(null)} />
-
-      {/* "View all" opens the full ranking; the page itself keeps the top few. */}
-      <Drawer
-        title={rankingScope === 'key' ? t('statistics.keyUsage') : t('statistics.projectUsage')}
-        open={rankingScope !== null}
-        onClose={() => setRankingScope(null)}
-        size='large'
-        destroyOnHidden
-      >
-        <Table
-          dataSource={(rankingScope === 'key' ? stats?.keyUsage : stats?.projectUsage) ?? []}
-          columns={dimensionColumns}
-          rowKey={(record) => `${record.id}-${record.name}-${record.detail}`}
-          size='small'
-          pagination={{ pageSize: 20, size: 'small' }}
-          locale={{ emptyText: t('statistics.noData') }}
-        />
-      </Drawer>
     </div>
   )
 }

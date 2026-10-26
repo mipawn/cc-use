@@ -52,12 +52,21 @@ it('keeps an empty custom directory invalid instead of falling back to provider 
   expect(modelMappingValueForSave(EMPTY_MODEL_MAPPING, false)).toBeUndefined()
 })
 
-it('keeps classifier configuration in Code and ignores malformed mapping JSON', () => {
-  const fields = parseModelMapping('{"autoMode":{"enabled":true,"thinking":"disabled"}}')
+it('keeps the classifier model in Code and drops the retired thinking field', () => {
+  const fields = parseModelMapping(
+    '{"autoMode":{"enabled":true,"model":" glm-5-air ","thinking":"disabled"}}',
+  )
+  expect(fields.autoMode).toEqual({ enabled: true, model: ' glm-5-air ' })
   expect(JSON.parse(serializeModelMapping(fields)!).clients.claude_code.upstream.autoMode).toEqual({
     enabled: true,
-    thinking: 'disabled',
+    model: 'glm-5-air',
   })
+
+  const withoutModel = parseModelMapping('{"autoMode":{"enabled":true}}')
+  expect(
+    JSON.parse(serializeModelMapping(withoutModel)!).clients.claude_code.upstream.autoMode,
+  ).toEqual({ enabled: true })
+
   for (const raw of ['null', '[]', '{bad'])
     expect(parseModelMapping(raw)).toEqual(EMPTY_MODEL_MAPPING)
 })

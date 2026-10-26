@@ -1,0 +1,16 @@
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/prd.md", "reason": "Requirements R1-R6, acceptance criteria and out-of-scope for this task."}
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/design.md", "reason": "Agreed technical design for gateway, menu-bar, provider UI, model selection, auto mode and console errors."}
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/implement.md", "reason": "Ordered slices and validation commands; implement slice by slice."}
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/research/evidence.md", "reason": "File:line evidence gathered on the v3.14.2 baseline; verify before editing."}
+{"file": ".trellis/spec/cc-use/backend/architecture.md", "reason": "Three-process topology, shared_runtime ownership and Tauri-free zones."}
+{"file": ".trellis/spec/cc-use/backend/proxy-core.md", "reason": "Request pipeline, route selection, passthrough and console side effects."}
+{"file": ".trellis/spec/cc-use/backend/database.md", "reason": "ALTER-only migrations and the full column-change checklist."}
+{"file": ".trellis/spec/cc-use/backend/tauri-commands.md", "reason": "Adding IPC commands and the coordinated frontend pairing."}
+{"file": ".trellis/spec/cc-use/backend/errors-and-logging.md", "reason": "Error semantics, console history and secret-redaction rules."}
+{"file": ".trellis/spec/cc-use/frontend/index.md", "reason": "Frontend layer positioning and definition of done."}
+{"file": ".trellis/spec/cc-use/frontend/api-bridge.md", "reason": "Api interface, buildApi, command/argument contract and contract tests."}
+{"file": ".trellis/spec/cc-use/frontend/data-and-ux.md", "reason": "Page loading, refresh registry, loading/empty/error patterns."}
+{"file": ".trellis/spec/cc-use/frontend/ui-and-styling.md", "reason": "antd/CSS-module conventions and shared components to reuse."}
+{"file": ".trellis/spec/cc-use/frontend/i18n.md", "reason": "zh/en pairing and key naming for new UI copy."}
+{"file": ".trellis/spec/cc-use-daemon/backend/index.md", "reason": "Daemon boundaries, management API and lifecycle constraints."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross Rust/TS changes must update both sides atomically."}

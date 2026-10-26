@@ -348,6 +348,8 @@ impl Database {
              WHERE provider_id = ?1 AND provider_name IS NULL",
             [id],
         )?;
+        // Deleting a provider cascades to its keys, but gateway rows have no FK.
+        self.gateway_delete_by_provider(id)?;
         self.conn
             .execute("DELETE FROM providers WHERE id = ?1", [id])?;
         Ok(())

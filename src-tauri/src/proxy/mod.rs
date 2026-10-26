@@ -46,7 +46,6 @@ pub struct ProxyState {
     pub detail_mode: Arc<AtomicBool>,
     global_concurrency: Arc<Semaphore>,
     session_concurrency: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
-    auto_mode: Mutex<auto_mode::AutoModeState>,
 }
 
 impl ProxyState {
@@ -203,7 +202,6 @@ fn build_proxy_state_inner(
         detail_mode: Arc::new(AtomicBool::new(false)),
         global_concurrency: Arc::new(Semaphore::new(GLOBAL_CONCURRENCY_LIMIT)),
         session_concurrency: Arc::new(Mutex::new(HashMap::new())),
-        auto_mode: Mutex::new(auto_mode::AutoModeState::default()),
     }))
 }
 

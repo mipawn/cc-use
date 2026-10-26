@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/cc-use/backend/quality-and-testing.md", "reason": "Rust test layout and quality gate for the new helper and adapter removal."}
+{"file": ".trellis/spec/cc-use/frontend/testing-and-quality.md", "reason": "Vitest layout and assertions for model mapping serialization and UI copy."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This change spans Rust launch env, proxy, React UI, docs, and specs."}
+{"file": ".trellis/spec/cc-use/backend/errors-and-logging.md", "reason": "Ensure no secret or classifier content leaks into logs and error strings."}

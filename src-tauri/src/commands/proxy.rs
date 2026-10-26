@@ -257,6 +257,8 @@ pub fn session_create(
         revoked_at: None,
         revoked_reason: None,
         cli_type,
+        display_name: None,
+        is_active: true,
     };
     db.proxy_session_create(&session)
         .map_err(|e| e.to_string())?;

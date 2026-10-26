@@ -1,0 +1,10 @@
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/prd.md", "reason": "Acceptance criteria to verify per slice."}
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/design.md", "reason": "Design decisions that the implementation must match."}
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/implement.md", "reason": "Validation commands and manual acceptance matrix."}
+{"file": ".trellis/tasks/10-26-v3-baseline-minimal-gateway/research/evidence.md", "reason": "Anchors to re-check when reviewing the diff."}
+{"file": ".trellis/spec/cc-use/backend/quality-and-testing.md", "reason": "Test layout, fixtures and quality gates for Rust changes."}
+{"file": ".trellis/spec/cc-use/backend/data-model-contract.md", "reason": "Rust model and TypeScript mirror must stay in sync."}
+{"file": ".trellis/spec/cc-use/frontend/testing-and-quality.md", "reason": "vitest conventions and lint/typecheck gates."}
+{"file": ".trellis/spec/cc-use-daemon/backend/testing.md", "reason": "Daemon router tests when gateway resolution touches daemon behavior."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing session/route/console helpers instead of copies."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check every Rust/TS contract boundary in the diff."}

@@ -154,19 +154,24 @@ describe('duplicated key drafts', () => {
 })
 
 describe('new key defaults', () => {
-  it('starts a new key with Auto mode on', () => {
-    // Auto mode only reshapes the permission-classifier requests; leaving it
-    // off makes the classifier answer about a model the user did not pick.
-    expect(newKeyDefaults(null, false).mapping.autoMode.enabled).toBe(true)
+  it('starts a new key with Auto mode compatibility off', () => {
+    // Claude Code owns auto mode; cc-use only injects the local-classifier env
+    // when the user explicitly enables compatibility and names a model.
+    expect(newKeyDefaults(null, false).mapping.autoMode.enabled).toBe(false)
   })
 
-  it('lets a provider template turn Auto mode off', () => {
-    const defaults = newKeyDefaults(
+  it('keeps an explicit provider template decision', () => {
+    const disabled = newKeyDefaults(
       { modelMapping: JSON.stringify({ autoMode: { enabled: false } }) },
       false,
     )
+    const enabled = newKeyDefaults(
+      { modelMapping: JSON.stringify({ autoMode: { enabled: true } }) },
+      false,
+    )
 
-    expect(defaults.mapping.autoMode.enabled).toBe(false)
+    expect(disabled.mapping.autoMode.enabled).toBe(false)
+    expect(enabled.mapping.autoMode.enabled).toBe(true)
   })
 
   it('keeps the family mapping a template supplies alongside it', () => {
@@ -180,6 +185,6 @@ describe('new key defaults', () => {
       sonnet: 'big',
       forwardMode: 'family',
     })
-    expect(defaults.mapping.autoMode.enabled).toBe(true)
+    expect(defaults.mapping.autoMode.enabled).toBe(false)
   })
 })

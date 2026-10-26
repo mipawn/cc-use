@@ -832,9 +832,13 @@ export default function Keys() {
                         ) : balance === undefined &&
                           !provider.cachedUsage?.windows?.length &&
                           !provider.cachedUsage?.groups?.length ? (
-                          <div className={styles.providerQuota}>
+                          <div
+                            className={`${styles.providerQuota} ${styles.providerQuotaAction}`}
+                          >
                             <Button
+                              type='link'
                               size='small'
+                              icon={<ReloadOutlined />}
                               loading={refreshingIds.has(provider.id)}
                               onClick={() => handleRefreshBalance(provider.id)}
                             >

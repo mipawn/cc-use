@@ -110,6 +110,8 @@ fn setup_proxy(
         revoked_at: None,
         revoked_reason: None,
         cli_type: Some("codex-app".to_string()),
+        display_name: None,
+        is_active: true,
     })
     .unwrap();
 

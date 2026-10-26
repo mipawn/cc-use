@@ -597,10 +597,7 @@ export default function Settings() {
                     </Text>
                   </div>
                 </Space>
-                <Switch
-                  checked={globalSettings.closeToTray}
-                  onChange={(checked) => updateGlobalSettings({ closeToTray: checked })}
-                />
+                <Switch checked disabled />
               </div>
             </Card>
 

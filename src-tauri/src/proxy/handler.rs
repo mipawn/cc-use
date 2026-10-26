@@ -48,6 +48,9 @@ struct RouteExecution {
     user_agent: Option<String>,
     /// Exposed catalog id → provider model id, for the session's client kind.
     aliases: std::collections::BTreeMap<String, String>,
+    /// Gateway outlets forward the body unchanged; model mapping must not
+    /// rewrite the client's model.
+    transparent: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,6 +152,31 @@ impl<'a> EmitCtx<'a> {
         );
     }
 
+    /// An upstream response with a non-2xx status, keeping the status visible.
+    fn upstream_response_error(
+        &self,
+        status: u16,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        error: &str,
+    ) {
+        self.state.emit_console(
+            ConsoleEvent::upstream_response_error(
+                self.request_id,
+                self.method,
+                self.path,
+                status,
+                self.elapsed_ms(),
+                upstream,
+                provider,
+                key_alias,
+                error,
+            )
+            .with_routing(self.model.as_deref(), self.request_kind.as_deref()),
+        );
+    }
+
     fn ws_upgraded(&self, upstream: &str, provider: Option<&str>, key_alias: Option<&str>) {
         self.state.emit_console(
             ConsoleEvent::ws_upgraded(
@@ -205,6 +233,9 @@ struct RequestCancellationGuard {
     key_alias: Option<String>,
     start_time: std::time::Instant,
     status: Option<u16>,
+    /// Filled in once the route is resolved; lets a client abort write the
+    /// same request_logs row a transport failure would.
+    log_ctx: Option<LogContext>,
     armed: bool,
 }
 
@@ -229,12 +260,17 @@ impl RequestCancellationGuard {
             key_alias,
             start_time,
             status: None,
+            log_ctx: None,
             armed: true,
         }
     }
 
     fn set_status(&mut self, status: u16) {
         self.status = Some(status);
+    }
+
+    fn set_log_ctx(&mut self, log_ctx: Option<LogContext>) {
+        self.log_ctx = log_ctx;
     }
 
     fn disarm(&mut self) {
@@ -246,6 +282,17 @@ impl Drop for RequestCancellationGuard {
     fn drop(&mut self) {
         if !self.armed {
             return;
+        }
+        if let Some(mut ctx) = self.log_ctx.clone() {
+            ctx.status_code = self.status;
+            record_usage(
+                &ctx,
+                &usage_parser::TokenUsage::default(),
+                None,
+                false,
+                RequestOutcome::TransportError,
+                Some("Client disconnected before response".to_string()),
+            );
         }
         self.state.emit_console(ConsoleEvent::cancelled(
             &self.request_id,
@@ -346,18 +393,69 @@ pub async fn proxy_handler(
         }
     };
 
+    // Gateway model discovery reuses the provider's configured query: base
+    // URL + /v1/models + auth scheme + saved query User-Agent. The client can
+    // keep the gateway root; it does not need to know the upstream /v1 path.
+    if route_execution.transparent
+        && req.method() == axum::http::Method::GET
+        && is_model_discovery_path(req.uri().path())
+    {
+        if let (Some(provider), Some(key)) = (&route_execution.provider, &route_execution.api_key) {
+            let catalog_kind = ["codex", "grok"]
+                .into_iter()
+                .find(|kind| key.types.iter().any(|value| value == kind))
+                .or_else(|| key.types.first().map(String::as_str))
+                .unwrap_or("claude_code");
+            let user_agent = {
+                let db = state.db.lock().ok();
+                db.and_then(|db| {
+                    db.settings_get_value(&format!(
+                        "model-catalog-user-agent.{}.{}",
+                        provider.id, catalog_kind
+                    ))
+                    .ok()
+                    .flatten()
+                })
+            };
+            match crate::commands::providers::fetch_provider_model_catalog(
+                provider,
+                key,
+                Some(catalog_kind),
+                user_agent.as_deref(),
+                None,
+            )
+            .await
+            {
+                Ok(catalog) => {
+                    state.emit_console(ConsoleEvent::ok(
+                        &request_id,
+                        &method_str,
+                        &req_path,
+                        200,
+                        start_time.elapsed().as_millis() as u64,
+                        &route_execution.upstream_url,
+                        Some(provider.name.as_str()),
+                        key.alias.as_deref(),
+                        false,
+                    ));
+                    return Ok(axum::Json(catalog).into_response());
+                }
+                Err(error) => {
+                    emit.upstream_error(
+                        &route_execution.upstream_url,
+                        Some(provider.name.as_str()),
+                        key.alias.as_deref(),
+                        &error,
+                    );
+                    return Err(error_response(StatusCode::BAD_GATEWAY, &error));
+                }
+            }
+        }
+    }
+
     // Model discovery uses the same authenticated route snapshot as inference,
     // but never applies the inference model alias to directory IDs.
-    if req.method() == axum::http::Method::GET
-        && matches!(
-            req.uri().path(),
-            "/v1/models"
-                | "/models"
-                | "/claude-desktop/v1/models"
-                | "/claude/v1/models"
-                | "/openai/v1/models"
-        )
-    {
+    if req.method() == axum::http::Method::GET && is_model_discovery_path(req.uri().path()) {
         if let (Some(provider), Some(key), Some(kind)) = (
             &route_execution.provider,
             &route_execution.api_key,
@@ -505,10 +603,54 @@ pub async fn proxy_handler(
                 .as_ref()
                 .and_then(|c| c.key_alias.as_deref()),
         );
+        // ws_relay outlives the handler future; keep the pieces its terminal
+        // failure event needs before route_execution is moved into it.
+        let ws_state = state.clone();
+        let ws_request_id = request_id.clone();
+        let ws_method = method_str.clone();
+        let ws_path = req_path.clone();
+        let ws_upstream_url = route_execution.upstream_url.clone();
+        let ws_provider_name = route_execution
+            .log_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.provider_name.clone());
+        let ws_key_alias = route_execution
+            .log_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.key_alias.clone());
+        let ws_start_time = start_time;
         return Ok(ws_upgrade
             .on_upgrade(move |socket| async move {
                 let _request_permits = request_permits;
-                ws_relay(socket, upstream, route_execution).await;
+                if let Some(failure) = ws_relay(socket, upstream, route_execution).await {
+                    match failure {
+                        WsRelayFailure::Upstream(error) => {
+                            ws_state.emit_console(ConsoleEvent::upstream_error(
+                                &ws_request_id,
+                                &ws_method,
+                                &ws_path,
+                                ws_start_time.elapsed().as_millis() as u64,
+                                &ws_upstream_url,
+                                ws_provider_name.as_deref(),
+                                ws_key_alias.as_deref(),
+                                &error,
+                            ));
+                        }
+                        WsRelayFailure::Client(error) => {
+                            log::debug!("WebSocket client relay ended: {}", error);
+                            ws_state.emit_console(ConsoleEvent::cancelled(
+                                &ws_request_id,
+                                &ws_method,
+                                &ws_path,
+                                None,
+                                ws_start_time.elapsed().as_millis() as u64,
+                                &ws_upstream_url,
+                                ws_provider_name.as_deref(),
+                                ws_key_alias.as_deref(),
+                            ));
+                        }
+                    }
+                }
             })
             .into_response());
     }
@@ -556,36 +698,13 @@ pub async fn proxy_handler(
             .split('?')
             .next()
             .is_some_and(|path| matches!(path, "/v1/messages" | "/claude/v1/messages"));
-    // Identify purpose independently of whether per-key adaptation is enabled.
+    // Label classifier traffic for the console and statistics. The request is
+    // forwarded unchanged: model selection happens at launch time through
+    // CLAUDE_CODE_AUTO_MODE_MODEL, not by rewriting the body.
     let request_kind = request_json
         .as_ref()
         .filter(|body| is_claude_messages && super::auto_mode::is_classifier(body))
         .map(|_| "auto_mode".to_string());
-    let body_bytes = if is_claude_messages {
-        match (
-            route_execution.model_mapping.as_deref(),
-            route_execution.log_ctx.as_ref(),
-            state.auto_mode.lock(),
-        ) {
-            (Some(mapping), Some(ctx), Ok(mut auto_mode)) => auto_mode.adapt(
-                body_bytes,
-                mapping,
-                &format!(
-                    "{}:{}:{}",
-                    ctx.session_token,
-                    ctx.api_key_id,
-                    route_execution
-                        .upstream_url
-                        .split('?')
-                        .next()
-                        .unwrap_or_default()
-                ),
-            ),
-            _ => body_bytes,
-        }
-    } else {
-        body_bytes
-    };
     apply_provider_headers(&mut headers, &route_execution);
     // Last, and by replacement: a chosen UA is the final word on what the
     // upstream sees, so a provider default must not survive it.
@@ -689,6 +808,7 @@ pub async fn proxy_handler(
         provider_name: ctx.provider_name.clone(),
         project_name: ctx.project_name.clone(),
     });
+    cancellation_guard.set_log_ctx(base_log_ctx.clone());
 
     let upstream_resp = match req_builder.send().await {
         Ok(r) => r,
@@ -730,6 +850,9 @@ pub async fn proxy_handler(
     if is_count_tokens_path(&req_path)
         && matches!(status.as_u16(), 404 | 405 | 501)
         && request_json.is_some()
+        // Gateway outlets are pure passthrough: never replace the upstream's
+        // 404/405/501 with a local estimate.
+        && route_execution.cli_type.is_some()
     {
         if let Some(estimate) = request_json.as_ref().and_then(estimate_input_tokens) {
             cancellation_guard.disarm();
@@ -905,11 +1028,30 @@ pub async fn proxy_handler(
     ) {
         Ok(decoded) => decoded,
         Err(error) => {
-            log::warn!(
-                "Skipping oversized decompressed response capture: {}",
-                error
+            // A response we cannot decode must not fall through to the
+            // success/no-usage path and look green in the console.
+            let message = format!("Failed to decode upstream response: {}", error);
+            cancellation_guard.disarm();
+            emit.upstream_response_error(
+                status.as_u16(),
+                &route_execution.upstream_url,
+                provider_snapshot.as_deref(),
+                key_snapshot.as_deref(),
+                &message,
             );
-            Vec::new()
+            if let Some(log_ctx) = base_log_ctx.as_ref() {
+                let mut log_ctx = log_ctx.clone();
+                log_ctx.status_code = Some(status.as_u16());
+                record_usage(
+                    &log_ctx,
+                    &usage_parser::TokenUsage::default(),
+                    None,
+                    false,
+                    RequestOutcome::TransportError,
+                    Some(truncate_bytes(&message, MAX_ERROR_MESSAGE_BYTES)),
+                );
+            }
+            return Err(error_response(StatusCode::BAD_GATEWAY, &message));
         }
     };
     let response_model_was_added = route_execution.cli_type.as_deref() == Some("grok")
@@ -947,6 +1089,15 @@ pub async fn proxy_handler(
     let response_text = String::from_utf8_lossy(&decoded);
     let (usage, model, is_streaming) =
         usage_parser::parse_usage_from_response_data(&response_text, &content_type);
+    // A 200 classifier response that is not a valid Messages envelope is a
+    // failure: Claude Code reports "classifier unavailable", so the console
+    // must not show it as a successful request.
+    let classifier_invalid = request_kind.as_deref() == Some("auto_mode")
+        && status.is_success()
+        && usage
+            .as_ref()
+            .is_none_or(|value| !has_billable_usage(value))
+        && !super::auto_mode::is_message_response(&decoded);
 
     // v3.7.0 write policy:
     //   success + usage   → record (billable)
@@ -958,13 +1109,15 @@ pub async fn proxy_handler(
         let outcome = RequestOutcome::from_status(status.as_u16());
         let billable = usage.as_ref().filter(|u| has_billable_usage(u));
 
-        if billable.is_some() || outcome != RequestOutcome::Success {
+        if billable.is_some() || outcome != RequestOutcome::Success || classifier_invalid {
             let mut log_ctx = base_log_ctx
                 .clone()
                 .expect("resolved session has log context");
             log_ctx.status_code = Some(status.as_u16());
             log_ctx.response_content_type = content_type.clone();
-            let error_message = if outcome == RequestOutcome::Success {
+            let error_message = if classifier_invalid {
+                Some("Auto-mode classifier response was not a valid message".to_string())
+            } else if outcome == RequestOutcome::Success {
                 None
             } else {
                 extract_error_message(&response_text)
@@ -975,7 +1128,11 @@ pub async fn proxy_handler(
                 billable.unwrap_or(&empty_usage),
                 model.as_deref(),
                 is_streaming,
-                outcome,
+                if classifier_invalid {
+                    RequestOutcome::UpstreamError
+                } else {
+                    outcome
+                },
                 error_message,
             );
         } else {
@@ -1003,17 +1160,37 @@ pub async fn proxy_handler(
             &content_type,
             detail_mode,
         );
-    let mut evt = ConsoleEvent::ok(
-        &request_id,
-        &method_str,
-        &req_path,
-        status.as_u16(),
-        start_time.elapsed().as_millis() as u64,
-        &route_execution.upstream_url,
-        provider_snapshot.as_deref(),
-        key_snapshot.as_deref(),
-        false,
-    );
+    let mut evt = if status.is_success() && !classifier_invalid {
+        ConsoleEvent::ok(
+            &request_id,
+            &method_str,
+            &req_path,
+            status.as_u16(),
+            start_time.elapsed().as_millis() as u64,
+            &route_execution.upstream_url,
+            provider_snapshot.as_deref(),
+            key_snapshot.as_deref(),
+            false,
+        )
+    } else {
+        let message = if classifier_invalid {
+            "Auto-mode classifier response was not a valid message".to_string()
+        } else {
+            extract_error_message(&response_text)
+                .unwrap_or_else(|| format!("Upstream returned HTTP {}", status.as_u16()))
+        };
+        ConsoleEvent::upstream_response_error(
+            &request_id,
+            &method_str,
+            &req_path,
+            status.as_u16(),
+            start_time.elapsed().as_millis() as u64,
+            &route_execution.upstream_url,
+            provider_snapshot.as_deref(),
+            key_snapshot.as_deref(),
+            &message,
+        )
+    };
     if detail_mode {
         if let ConsoleEvent::Request {
             ref mut request_headers,
@@ -1097,7 +1274,15 @@ fn build_route_execution(
                 .and_then(|pid| db.project_get(pid).ok().flatten())
                 .map(|p| p.name);
             let mapping = api_key.model_mapping.clone();
-            let cli_type = effective_session_cli_type(session.cli_type.as_deref(), req_path);
+            // Gateway outlets are transparent: keep cli_type None so the model
+            // catalog intercept, auto-mode adaptation, client compatibility check
+            // and codex /v1/responses inference are all bypassed.
+            let transparent = session.session_kind == "gateway";
+            let cli_type = if transparent {
+                None
+            } else {
+                effective_session_cli_type(session.cli_type.as_deref(), req_path)
+            };
             // Written whenever this key's catalog was last served; it maps an
             // exposed id (alias, role route) back to the provider's model id.
             let aliases = cli_type
@@ -1128,10 +1313,37 @@ fn build_route_execution(
                 .and_then(|cfg| cfg.get("baseUrl"))
                 .and_then(|v| v.as_str())
                 .unwrap_or(&provider.base_url);
+            // A gateway client reaches us at the root, so its OpenAI-style
+            // paths may omit `/v1`. Complete the upstream path here, using the
+            // same rule as the provider model-list query.
+            let upstream_req_path = if transparent {
+                ensure_v1_path(resolved_base_url, &upstream_req_path)
+            } else {
+                upstream_req_path
+            };
             let client_config = api_key
                 .client_configs
                 .as_ref()
                 .and_then(|configs| configs.get(client_config_key));
+            // Gateway forwarding prefers the key's own User-Agent. When that
+            // is unset, reuse the provider's configured model-query UA: it is
+            // the identity this provider already accepted for the same key.
+            let user_agent = client_config
+                .and_then(|config| config.get("proxyUserAgent"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    if !transparent {
+                        return None;
+                    }
+                    db.settings_get_value(&format!(
+                        "model-catalog-user-agent.{}.{}",
+                        provider.id, client_config_key
+                    ))
+                    .ok()
+                    .flatten()
+                    .filter(|value| !value.trim().is_empty())
+                });
             let upstream_url =
                 build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
             Ok(RouteExecution {
@@ -1149,13 +1361,11 @@ fn build_route_execution(
                     provider_name: Some(provider.name.clone()),
                     project_name,
                 }),
-                user_agent: client_config
-                    .and_then(|config| config.get("proxyUserAgent"))
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string),
+                user_agent,
                 provider: Some(provider),
                 cli_type,
                 aliases,
+                transparent,
             })
         }
         RoutePlan::PassThrough => {
@@ -1181,6 +1391,7 @@ fn build_route_execution(
                 user_agent: None,
                 cli_type: None,
                 aliases: std::collections::BTreeMap::new(),
+                transparent: false,
             })
         }
         RoutePlan::RejectMissingAuth => {
@@ -1204,6 +1415,17 @@ fn is_codex_responses_request_path(req_path: &str) -> bool {
     matches!(
         path.trim_end_matches('/'),
         "/v1/responses" | "/responses" | "/v1/responses/compact" | "/responses/compact"
+    )
+}
+
+fn is_model_discovery_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/v1/models"
+            | "/models"
+            | "/claude-desktop/v1/models"
+            | "/claude/v1/models"
+            | "/openai/v1/models"
     )
 }
 
@@ -1246,6 +1468,16 @@ fn resolve_session_resources(
         let reason = "Session expired";
         emit.reject(reason);
         return Err(error_response(StatusCode::UNAUTHORIZED, reason));
+    }
+
+    if !session.is_active {
+        let reason = if session.session_kind == "gateway" {
+            "Gateway is disabled"
+        } else {
+            "Session is disabled"
+        };
+        emit.reject(reason);
+        return Err(error_response(StatusCode::FORBIDDEN, reason));
     }
 
     if session.session_kind == "managed" {
@@ -1373,6 +1605,30 @@ fn session_client_config_key(cli_type: Option<&str>) -> &str {
         Some("claude") => "claude_code",
         Some(value) => value,
         None => "claude_code",
+    }
+}
+
+/// Gateway clients can address the gateway root and send `/chat/completions`
+/// or `/models` without `/v1`. Mirror `build_model_list_endpoint`: add `/v1`
+/// unless the provider base already ends with it or the request already has it.
+fn ensure_v1_path(base_url: &str, req_path: &str) -> String {
+    let (path, query) = req_path.split_once('?').unwrap_or((req_path, ""));
+    let base_has_v1 = url::Url::parse(base_url.trim_end_matches('/'))
+        .map(|url| url.path().trim_end_matches('/').ends_with("/v1"))
+        .unwrap_or(false);
+    let trimmed = path.trim_start_matches('/');
+    let path_has_v1 = trimmed == "v1" || trimmed.starts_with("v1/");
+    let normalized = if base_has_v1 || path_has_v1 {
+        path.to_string()
+    } else if path.starts_with('/') {
+        format!("/v1{}", path)
+    } else {
+        format!("/v1/{}", path)
+    };
+    if query.is_empty() {
+        normalized
+    } else {
+        format!("{}?{}", normalized, query)
     }
 }
 
@@ -1506,6 +1762,9 @@ fn decode_catalog_alias(
 }
 
 fn apply_model_mapping(body_bytes: axum::body::Bytes, route: &RouteExecution) -> axum::body::Bytes {
+    if route.transparent {
+        return body_bytes;
+    }
     let (body_bytes, in_catalog) = decode_catalog_alias(body_bytes, route);
     if in_catalog {
         return body_bytes;
@@ -2284,56 +2543,61 @@ struct UsageTrackingStream<S> {
 }
 
 impl<S> UsageTrackingStream<S> {
+    /// Classify how the stream really ended. A 200 SSE response is only a
+    /// success when it carried its protocol-level completion marker; a stream
+    /// cut after `message_start` must not be recorded as a successful request.
+    fn stream_terminal(&self) -> (RequestOutcome, Option<String>) {
+        let status = self
+            .log_ctx
+            .as_ref()
+            .and_then(|ctx| ctx.status_code)
+            .or_else(|| self.console_ctx.as_ref().map(|ctx| ctx.status))
+            .unwrap_or(0);
+        let usage = self.accumulator.get_usage().unwrap_or_default();
+        if !(200..=299).contains(&status) {
+            (
+                RequestOutcome::from_status(status),
+                Some(format!("Upstream returned HTTP {}", status)),
+            )
+        } else if !self.accumulator.completed() {
+            (
+                RequestOutcome::TransportError,
+                Some("Stream ended before completion".to_string()),
+            )
+        } else if has_billable_usage(&usage) {
+            (RequestOutcome::Success, None)
+        } else {
+            (
+                RequestOutcome::TransportError,
+                Some("Stream completed without usage".to_string()),
+            )
+        }
+    }
+
     fn finalize_usage(&mut self, transport_error: Option<String>) -> bool {
         let previous = self.accumulator.output_event_count();
         self.accumulator.flush();
         self.observe_output(previous);
+        let (terminal_outcome, terminal_message) = self.stream_terminal();
         let Some(log_ctx) = self.log_ctx.take() else {
             return false;
         };
 
         let usage = self.accumulator.get_usage().unwrap_or_default();
         let billable = has_billable_usage(&usage);
-        if let Some(error_message) = transport_error {
-            record_usage(
-                &log_ctx,
-                &usage,
-                self.accumulator.model.as_deref(),
-                true,
-                RequestOutcome::TransportError,
-                Some(truncate_bytes(&error_message, MAX_ERROR_MESSAGE_BYTES)),
-            );
-            return billable;
-        }
-        if billable {
-            record_usage(
-                &log_ctx,
-                &usage,
-                self.accumulator.model.as_deref(),
-                true,
-                RequestOutcome::from_status(
-                    log_ctx
-                        .status_code
-                        .expect("streaming response always has an upstream status"),
-                ),
-                None,
-            );
-            return true;
-        }
-
-        // The upstream accepted the request and opened an SSE stream, but it
-        // ended without ever reporting usage. For the Anthropic and OpenAI
-        // stream shapes that means the stream was cut short, which is exactly
-        // the failure users currently cannot see anywhere.
+        let (outcome, error_message) = match transport_error {
+            Some(error_message) => (RequestOutcome::TransportError, Some(error_message)),
+            None => (terminal_outcome, terminal_message),
+        };
         record_usage(
             &log_ctx,
             &usage,
             self.accumulator.model.as_deref(),
             true,
-            RequestOutcome::TransportError,
-            Some("Stream ended without reporting usage".to_string()),
+            outcome,
+            error_message.map(|message| truncate_bytes(&message, MAX_ERROR_MESSAGE_BYTES)),
         );
-        false
+        billable
     }
 
     fn observe_output(&mut self, previous_output_events: usize) {
@@ -2416,10 +2680,13 @@ where
                 if this.content_encoding.is_empty() {
                     if let Some(ctx) = this.log_ctx.as_mut() {
                         ctx.last_chunk_ms = Some(ctx.start_time.elapsed().as_millis() as i64);
-                        let previous = this.accumulator.output_event_count();
-                        this.accumulator.process_bytes(&bytes);
-                        this.observe_output(previous);
                     }
+                    // Pass-through streams have no log context, but the console
+                    // still needs the completion marker to avoid reporting a
+                    // successful 200 stream as truncated.
+                    let previous = this.accumulator.output_event_count();
+                    this.accumulator.process_bytes(&bytes);
+                    this.observe_output(previous);
                     if this.detail_capture {
                         append_bounded_tail(
                             &mut this.capture_buffer,
@@ -2481,15 +2748,24 @@ where
                         Vec::new()
                     })
                 };
+                // Feed the decompressed compressed capture before classifying the
+                // terminal state; uncompressed chunks were already consumed live.
+                if !this.content_encoding.is_empty() && !decoded.is_empty() {
+                    this.accumulator.process_bytes(&decoded);
+                }
+                // Process a final unterminated SSE line before classifying, so the
+                // console event and the request log agree when the completion
+                // marker arrived without a trailing newline.
+                let previous = this.accumulator.output_event_count();
+                this.accumulator.flush();
+                this.observe_output(previous);
+                let (terminal_outcome, terminal_message) = this.stream_terminal();
                 if let Some(log_ctx) = this.log_ctx.as_ref() {
                     let diagnostics = (
                         log_ctx.path.clone(),
                         log_ctx.status_code,
                         log_ctx.response_content_type.clone(),
                     );
-                    if !this.content_encoding.is_empty() && !decoded.is_empty() {
-                        this.accumulator.process_bytes(&decoded);
-                    }
                     if !this.finalize_usage(None) {
                         log::debug!(
                             "Streaming response ended without billable usage; path={}, status={:?}, content_type={}, diagnostics={}",
@@ -2522,17 +2798,34 @@ where
                             response_content_type,
                             detail_mode,
                         );
-                    let mut evt = ConsoleEvent::ok(
-                        &ctx.request_id,
-                        &ctx.method,
-                        &ctx.path,
-                        ctx.status,
-                        ctx.start_time.elapsed().as_millis() as u64,
-                        &ctx.upstream_url,
-                        ctx.provider_name.as_deref(),
-                        ctx.key_alias.as_deref(),
-                        true,
-                    );
+                    let mut evt = if matches!(terminal_outcome, RequestOutcome::Success) {
+                        ConsoleEvent::ok(
+                            &ctx.request_id,
+                            &ctx.method,
+                            &ctx.path,
+                            ctx.status,
+                            ctx.start_time.elapsed().as_millis() as u64,
+                            &ctx.upstream_url,
+                            ctx.provider_name.as_deref(),
+                            ctx.key_alias.as_deref(),
+                            true,
+                        )
+                    } else {
+                        let message = terminal_message
+                            .clone()
+                            .unwrap_or_else(|| "Streaming failed".to_string());
+                        ConsoleEvent::upstream_response_error(
+                            &ctx.request_id,
+                            &ctx.method,
+                            &ctx.path,
+                            ctx.status,
+                            ctx.start_time.elapsed().as_millis() as u64,
+                            &ctx.upstream_url,
+                            ctx.provider_name.as_deref(),
+                            ctx.key_alias.as_deref(),
+                            &message,
+                        )
+                    };
                     if detail_mode {
                         if let ConsoleEvent::Request {
                             ref mut request_headers,
@@ -2817,11 +3110,27 @@ fn upstream_close_to_axum(
     })
 }
 
-async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket, route: RouteExecution) {
+/// Which side a WebSocket relay failure came from. A client abort is a
+/// cancellation, not an upstream error.
+enum WsRelayFailure {
+    Client(String),
+    Upstream(String),
+}
+
+/// Relay frames until either side closes. Returns `Some(failure)` when the relay
+/// ended because of a transport error, so the caller can emit a terminal
+/// console event instead of leaving the request looking like a successful
+/// upgrade forever.
+async fn ws_relay(
+    mut client: WebSocket,
+    mut upstream: UpstreamWebSocket,
+    route: RouteExecution,
+) -> Option<WsRelayFailure> {
     use tokio_tungstenite::tungstenite;
 
     let mut close_sent_to_client = false;
     let mut close_sent_to_upstream = false;
+    let mut relay_error: Option<WsRelayFailure> = None;
 
     loop {
         tokio::select! {
@@ -2830,28 +3139,40 @@ async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket, route:
                     Some(Ok(WsMessage::Text(t))) => {
                         let bytes = apply_model_mapping(axum::body::Bytes::from(t.to_string()), &route);
                         let text = String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| t.to_string());
-                        if upstream.send(tungstenite::Message::Text(text.into())).await.is_err() { break; }
+                        if let Err(error) = upstream.send(tungstenite::Message::Text(text.into())).await {
+                            relay_error = Some(WsRelayFailure::Upstream(format!("Failed to forward to upstream: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(WsMessage::Binary(b))) => {
                         let bytes = apply_model_mapping(axum::body::Bytes::from(b.to_vec()), &route);
-                        if upstream.send(tungstenite::Message::Binary(bytes.to_vec().into())).await.is_err() { break; }
+                        if let Err(error) = upstream.send(tungstenite::Message::Binary(bytes.to_vec().into())).await {
+                            relay_error = Some(WsRelayFailure::Upstream(format!("Failed to forward to upstream: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(WsMessage::Ping(p))) => {
-                        if upstream.send(tungstenite::Message::Ping(p.to_vec().into())).await.is_err() { break; }
+                        if let Err(error) = upstream.send(tungstenite::Message::Ping(p.to_vec().into())).await {
+                            relay_error = Some(WsRelayFailure::Upstream(format!("Failed to forward to upstream: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(WsMessage::Pong(p))) => {
-                        if upstream.send(tungstenite::Message::Pong(p.to_vec().into())).await.is_err() { break; }
+                        if let Err(error) = upstream.send(tungstenite::Message::Pong(p.to_vec().into())).await {
+                            relay_error = Some(WsRelayFailure::Upstream(format!("Failed to forward to upstream: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(WsMessage::Close(frame))) => {
-                        close_sent_to_upstream = upstream
-                            .send(tungstenite::Message::Close(axum_close_to_upstream(frame)))
-                            .await
-                            .is_ok();
+                        match upstream.send(tungstenite::Message::Close(axum_close_to_upstream(frame))).await {
+                            Ok(()) => close_sent_to_upstream = true,
+                            Err(error) => relay_error = Some(WsRelayFailure::Upstream(format!("Failed to forward close to upstream: {}", error))),
+                        }
                         break;
                     }
                     None => break,
                     Some(Err(error)) => {
-                        log::debug!("Client WebSocket closed with error: {}", error);
+                        relay_error = Some(WsRelayFailure::Client(format!("Client WebSocket closed with error: {}", error)));
                         break;
                     }
                 }
@@ -2859,28 +3180,40 @@ async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket, route:
             msg = upstream.next() => {
                 match msg {
                     Some(Ok(tungstenite::Message::Text(t))) => {
-                        if client.send(WsMessage::Text(t.to_string().into())).await.is_err() { break; }
+                        if let Err(error) = client.send(WsMessage::Text(t.to_string().into())).await {
+                            relay_error = Some(WsRelayFailure::Client(format!("Failed to deliver upstream message to client: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(tungstenite::Message::Binary(b))) => {
-                        if client.send(WsMessage::Binary(b.to_vec().into())).await.is_err() { break; }
+                        if let Err(error) = client.send(WsMessage::Binary(b.to_vec().into())).await {
+                            relay_error = Some(WsRelayFailure::Client(format!("Failed to deliver upstream message to client: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(tungstenite::Message::Ping(p))) => {
-                        if client.send(WsMessage::Ping(p.to_vec().into())).await.is_err() { break; }
+                        if let Err(error) = client.send(WsMessage::Ping(p.to_vec().into())).await {
+                            relay_error = Some(WsRelayFailure::Client(format!("Failed to deliver upstream message to client: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(tungstenite::Message::Pong(p))) => {
-                        if client.send(WsMessage::Pong(p.to_vec().into())).await.is_err() { break; }
+                        if let Err(error) = client.send(WsMessage::Pong(p.to_vec().into())).await {
+                            relay_error = Some(WsRelayFailure::Client(format!("Failed to deliver upstream message to client: {}", error)));
+                            break;
+                        }
                     }
                     Some(Ok(tungstenite::Message::Close(frame))) => {
-                        close_sent_to_client = client
-                            .send(WsMessage::Close(upstream_close_to_axum(frame)))
-                            .await
-                            .is_ok();
+                        match client.send(WsMessage::Close(upstream_close_to_axum(frame))).await {
+                            Ok(()) => close_sent_to_client = true,
+                            Err(error) => relay_error = Some(WsRelayFailure::Client(format!("Failed to deliver close to client: {}", error))),
+                        }
                         break;
                     }
                     Some(Ok(_)) => {}
                     None => break,
                     Some(Err(error)) => {
-                        log::debug!("Upstream WebSocket closed with error: {}", error);
+                        relay_error = Some(WsRelayFailure::Upstream(format!("Upstream WebSocket closed with error: {}", error)));
                         break;
                     }
                 }
@@ -2894,6 +3227,7 @@ async fn ws_relay(mut client: WebSocket, mut upstream: UpstreamWebSocket, route:
     if !close_sent_to_upstream {
         let _ = upstream.close(None).await;
     }
+    relay_error
 }
 
 fn extract_host(url: &str) -> Option<String> {
@@ -3005,6 +3339,103 @@ mod tests {
             }
             _ => panic!("expected request event"),
         }
+    }
+
+    fn guard_test_context(
+        db: std::sync::Arc<std::sync::Mutex<Database>>,
+        provider_id: &str,
+        api_key_id: &str,
+    ) -> LogContext {
+        LogContext {
+            db,
+            session_token: "session-guard".to_string(),
+            provider_id: provider_id.to_string(),
+            api_key_id: api_key_id.to_string(),
+            project_id: None,
+            request_model: Some("guard-model".to_string()),
+            request_kind: None,
+            request_id: "request-guard".to_string(),
+            status_code: None,
+            start_time: std::time::Instant::now(),
+            path: "/v1/messages".to_string(),
+            response_content_type: String::new(),
+            first_token_ms: None,
+            last_token_ms: None,
+            last_chunk_ms: None,
+            key_alias: None,
+            provider_name: None,
+            project_name: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn dropping_an_armed_guard_with_log_context_writes_one_transport_error_row() {
+        let (db, provider_id, api_key_id) = billing_db();
+        let state = crate::proxy::build_proxy_state(db.clone()).unwrap();
+        let mut guard = RequestCancellationGuard::new(
+            state,
+            "request-guard",
+            "POST",
+            "/v1/messages",
+            "https://example.com/v1/messages",
+            None,
+            None,
+            std::time::Instant::now(),
+        );
+        guard.set_log_ctx(Some(guard_test_context(
+            db.clone(),
+            &provider_id,
+            &api_key_id,
+        )));
+        drop(guard);
+
+        let db = db.lock().unwrap();
+        let (outcome, status): (String, Option<i64>) = db
+            .conn
+            .query_row(
+                "SELECT outcome, status_code FROM request_logs WHERE request_id = ?1",
+                ["request-guard"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM request_logs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(outcome, "transport_error");
+        assert_eq!(status, None);
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn disarmed_guard_does_not_write_a_transport_error_row() {
+        let (db, provider_id, api_key_id) = billing_db();
+        let state = crate::proxy::build_proxy_state(db.clone()).unwrap();
+        let mut guard = RequestCancellationGuard::new(
+            state,
+            "request-guard",
+            "POST",
+            "/v1/messages",
+            "https://example.com/v1/messages",
+            None,
+            None,
+            std::time::Instant::now(),
+        );
+        guard.set_log_ctx(Some(guard_test_context(
+            db.clone(),
+            &provider_id,
+            &api_key_id,
+        )));
+        guard.disarm();
+        drop(guard);
+
+        let count: i64 = db
+            .lock()
+            .unwrap()
+            .conn
+            .query_row("SELECT COUNT(*) FROM request_logs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[tokio::test]
@@ -3119,6 +3550,7 @@ mod tests {
             user_agent: None,
             cli_type: cli_type.map(str::to_string),
             aliases: Default::default(),
+            transparent: false,
         }
     }
 
@@ -3449,6 +3881,8 @@ mod tests {
             revoked_at: None,
             revoked_reason: None,
             cli_type: Some("codex-app".to_string()),
+            display_name: None,
+            is_active: true,
         })
         .unwrap();
 
@@ -4065,5 +4499,27 @@ mod tests {
         let wide_tokens = estimate_input_tokens(&wide).unwrap();
         assert!(ascii_tokens < wide_tokens);
         assert!(estimate_input_tokens(&serde_json::json!({})).is_none());
+    }
+
+    #[tokio::test]
+    async fn pass_through_stream_without_log_context_is_reported_as_ok() {
+        let state = crate::proxy::build_proxy_state(std::sync::Arc::new(std::sync::Mutex::new(
+            Database::new_in_memory().unwrap(),
+        )))
+        .unwrap();
+        let chunks = vec![axum::body::Bytes::from_static(
+            b"data: {\"type\":\"message_start\",\"message\":{\"model\":\"m\",\"usage\":{\"input_tokens\":1}}}\n\n\
+              data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n\
+              data: {\"type\":\"message_stop\"}\n\n",
+        )];
+        let event = drive_detail_stream(chunks, "", state, hyper::HeaderMap::new()).await;
+
+        match event {
+            ConsoleEvent::Request { kind, status, .. } => {
+                assert_eq!(kind, "ok");
+                assert_eq!(status, Some(200));
+            }
+            _ => panic!("expected request event"),
+        }
     }
 }

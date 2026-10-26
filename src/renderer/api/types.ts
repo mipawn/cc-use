@@ -23,6 +23,7 @@ import type {
   ImportOptions,
   ImportResult,
   ProxySession,
+  Gateway,
   ProxyStatus,
   ConsoleEvent,
   ManagedInstance,
@@ -216,6 +217,20 @@ export interface Api {
     updateByProject: (projectId: string, providerId: string, apiKeyId: string) => Promise<void>
     delete: (sessionToken: string) => Promise<boolean>
     list: () => Promise<ProxySession[]>
+  }
+  gateway: {
+    list: () => Promise<Gateway[]>
+    create: (name: string, providerId: string, apiKeyId: string) => Promise<Gateway>
+    update: (
+      sessionToken: string,
+      changes: {
+        name?: string
+        providerId?: string
+        apiKeyId?: string
+        isActive?: boolean
+      },
+    ) => Promise<Gateway>
+    delete: (sessionToken: string) => Promise<boolean>
   }
   settings: {
     get: () => Promise<GlobalSettings>

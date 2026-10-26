@@ -456,6 +456,41 @@ impl ConsoleEvent {
         }
     }
 
+    /// The upstream answered with a non-2xx status. Keeps the real status so
+    /// the console can color and summarize the row like the request log does.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upstream_response_error(
+        request_id: impl Into<String>,
+        method: &str,
+        path: &str,
+        status: u16,
+        latency_ms: u64,
+        upstream: &str,
+        provider: Option<&str>,
+        key_alias: Option<&str>,
+        error: &str,
+    ) -> Self {
+        Self::Request {
+            request_id: Some(request_id.into()),
+            timestamp: now_timestamp(),
+            kind: "upstream_error".to_string(),
+            method: method.to_string(),
+            path: path.to_string(),
+            status: Some(status),
+            latency_ms: Some(latency_ms),
+            upstream: Some(upstream.to_string()),
+            provider: provider.map(String::from),
+            key_alias: key_alias.map(String::from),
+            message: Some(error.to_string()),
+            model: None,
+            request_kind: None,
+            request_headers: None,
+            request_body: None,
+            response_headers: None,
+            response_body: None,
+        }
+    }
+
     /// Client disconnected while waiting for upstream or before a stream completed.
     pub fn cancelled(
         request_id: impl Into<String>,

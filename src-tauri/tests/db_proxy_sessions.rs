@@ -166,3 +166,40 @@ fn proxy_session_revoke_and_touch_persist_lifecycle_state() {
     assert_eq!(session.revoked_at.as_deref(), Some("2026-07-12T02:00:00Z"));
     assert_eq!(session.revoked_reason.as_deref(), Some("manual_revoke"));
 }
+
+#[test]
+fn reopening_the_database_keeps_gateway_rows() {
+    use cc_use_lib::commands::gateways::gateway_create_inner;
+    use support::{create_api_key, create_provider};
+
+    let path = std::env::temp_dir().join(format!(
+        "cc-use-gateway-migration-{}.db",
+        nanoid::nanoid!(8)
+    ));
+    let db = cc_use_lib::db::Database::open_at(&path).unwrap();
+    let provider = create_provider(&db, "gateway-provider", "custom");
+    let key = create_api_key(&db, &provider.id, "claude_code");
+    let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id).unwrap();
+
+    // Simulate an older build's boot-time backfill corrupting the row.
+    db.conn
+        .execute(
+            "UPDATE proxy_sessions SET session_kind = 'manual' WHERE session_token = ?1",
+            [&gateway.session_token],
+        )
+        .unwrap();
+    drop(db);
+
+    let db = cc_use_lib::db::Database::open_at(&path).unwrap();
+    let restored = db
+        .gateway_get(&gateway.session_token)
+        .unwrap()
+        .expect("gateway row should survive the reopen");
+    assert_eq!(restored.display_name, "outlet");
+    assert_eq!(restored.provider_id, provider.id);
+    drop(db);
+
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
