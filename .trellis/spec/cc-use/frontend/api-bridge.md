@@ -90,7 +90,92 @@ These are current facts in the tree, not endorsements. Fix them when touching th
 | Config-takeover pages call `invoke()` directly for registered commands that are missing from `Api`: `codex_config_is_taken_over`, `codex_config_takeover`, `codex_config_restore`, `claude_desktop_schema_detect`, `claude_desktop_config_takeover`, `claude_desktop_config_restore`, `get_setting`, `set_setting`, `delete_setting` | `pages/CodexPage.tsx:31-87`, `pages/ClaudeDesktopPage.tsx:31-100` |
 | `system.openExternal` uses `@tauri-apps/plugin-opener`, while the registered `system_open_external` command is unused by the renderer | `api/index.ts:221-224`; `src-tauri/src/lib.rs` registration list |
 | `app.checkUpdate` / `downloadAndInstall` / `relaunch` use `plugin-updater` and `plugin-process`, not invoke; `system.selectFolder` uses `plugin-dialog` | `api/index.ts:182-224` |
-| `Api.console.readRecent` restates the Rust `ConsoleLogPage` shape inline instead of importing a shared type | `api/types.ts:153-167` vs `src-tauri/src/services/console_log_store.rs:125` |
-| `Api.provider.modelCatalog` returns `ClientCatalog` from `src/renderer/utils/modelMapping.ts` (renderer-owned type for a backend payload) | `api/types.ts:69-81`; `src-tauri/src/commands/providers.rs:110` (`ModelCatalogResult`) |
+| `Api.provider.modelCatalog` returns `ClientCatalog` from `src/renderer/utils/modelMapping.ts` (renderer-owned type for a backend payload) | `api/types.ts`; `src-tauri/src/services/model_catalog.rs` (`ModelCatalogResult`) |
+| `Api.provider.modelList` (`provider_model_list`) has no renderer caller since the model workflow moved to the shared query controller; the command and signature are kept for compatibility | `api/index.ts`; `grep -rn "modelList" src/renderer` |
+
+Console/gateway payloads added for the 3-day log and gateway-outlet work use shared types instead of inline shapes
+(`ConsoleLogPage`, `ConsoleLogStatus`, `ConsoleLogClearResult`, `ConsoleLogRetention`,
+`GatewayConnectionConfig` in `src/shared/types/index.ts`). `gateway_model_catalog_preview`
+was retired with R9: gateway UI never queries models. `console_log_append_renderer` takes
+`records: RendererLogRecord[]` and returns `{ accepted, rejected }` — enqueue counts,
+not disk acknowledgement.
+
+LAN access (R8) adds `proxy_lan_addresses` (no args) → `ProxyLanInfo
+{ port, scope: 'loopback' | 'lan', addresses: [{ ip, url, interface }] }`, used by the
+Gateway page and the Settings listen-scope section. It is read-only and must never return
+the management token or file paths. The listen-scope setting itself travels through the
+normal `settings.update({ proxyListenScope })` path; the backend restarts the daemon when it
+changes, so the UI keeps the stored value and lets status polling reflect the restart.
 
 When a backend command changes shape, update `src/renderer/api/types.ts`, `buildApi`, the shared types in `src/shared/types/index.ts`, the Rust model/serializer, and the contract test in the same change. That is the cross-layer contract the backend spec must mirror.
+
+
+## Scenario: Saved provider catalogs, gateway restrictions and uploaded icon deletion (R9)
+
+### 1. Scope / Trigger
+
+These commands cross renderer, IPC, SQLite and the shared app/daemon runtime. Keep the
+command, registration, shared DTO, bridge and consumer changes together.
+
+### 2. Signatures
+
+- `provider.getModelCatalog(providerId)` → `provider_model_catalog_get({ providerId })`.
+- `provider.saveModelCatalog(providerId, models, revision)` → `provider_model_catalog_save({ providerId, models, revision })`.
+- `provider.queryModels(input)` → `provider_model_catalog_query({ input })`; input is
+  `{ providerId, apiKeyId, connectionConfig: GatewayConnectionConfig }`.
+- `gateway.create(name, providerId, apiKeyId, connectionConfig?, modelPolicy?)`;
+  `gateway.update(token, { ..., connectionConfig?, modelPolicy? })`.
+- `icon.delete(filename)` → `icon_delete({ filename })`.
+
+### 3. Contracts
+
+`ProviderModelCatalog = { models: ClientModel[], revision: number, updatedAt: string | null }`;
+`ClientModel = { id, displayName, supports1m? }` lives in shared types. Empty initial
+catalog has revision 0. Only explicit save changes it. Query reads a saved Key's credentials,
+with explicit URL/auth/UA drafts, independent of clientKind and clientConfigs.
+
+`GatewayModelPolicy = { mode: 'all' } | { mode: 'selected', modelIds: string[] }`.
+Missing create/old SQL NULL means all; omitted update preserves; explicit object replaces.
+Gateway responses normalize the policy. `ProxySession.modelPolicy` is optional/null for
+ordinary sessions. Selected mode applies to actual requests and discovery, including
+subsequent application frames on an established WS connection.
+
+`IconDeleteResult = { deleted: boolean, usedBy: { id, name }[] }`. In-use is a successful
+domain response with `deleted: false`; validation/I/O errors reject. API input is a filename.
+
+### 4. Validation & Error Matrix
+
+| Condition | Result |
+| --- | --- |
+| Stale catalog revision | Reject without overwriting saved models |
+| Query Key belongs to another provider / inactive / exhausted | Reject before network |
+| Invalid connection URL/UA | Reject without exposing secrets |
+| Empty selected set / invalid ID / corrupt policy JSON | Reject; never default to all |
+| Unselected model / unsupported endpoint or WS under selected | Local policy rejection; zero upstream delivery |
+| Missing / duplicate / invalid top-level model, compressed/non-JSON body | Local validation error |
+| Icon referenced by filename, legacy path or file URL | Return current referencing providers; no deletion |
+| Icon traversal / built-in mark / directory / symlink | Reject; no filesystem mutation |
+
+### 5. Good/Base/Bad Cases
+
+- Good: explicitly save a provider catalog, select its IDs in a gateway, save the gateway,
+  then discover only those IDs and forward an authorized JSON body unchanged.
+- Base: legacy gateway missing policy stays all; opening or fetching a model window does
+  not persist models or change any Key connection.
+- Bad: hiding model IDs in the UI while leaving proxy routes or old WS frames unrestricted.
+
+### 6. Tests Required
+
+API contract tests pin all command names and camelCase arguments, omitted policy and
+explicit all. TempDb tests cover catalog revision conflicts/reopen/cascade and policy
+migration. Gateway/mock WS tests assert raw approved body and zero rejected upstream
+hits. Icon tests use temporary directories and cover in-use references, path rejection
+and delayed read/list invalidation. Provider catalog store tests prove revisions never
+regress under overlapping fetch/save.
+
+### 7. Wrong vs Correct
+
+Wrong: call `provider.modelCatalogPreview` from Key mapping or gateway forms and keep
+models only in a five-minute cache. Correct: the outer model manager alone calls
+`queryModels`; downstream consumers subscribe to `useProviderModelCatalogStore` saved
+snapshots plus their own current drafts. Query candidates never become saved data implicitly.

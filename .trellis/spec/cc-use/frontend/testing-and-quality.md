@@ -31,19 +31,20 @@ There is **no E2E/Playwright harness**. `.playwright-mcp/` is a git-ignored loca
 | `X.query.test.tsx` | page-level interaction/query behavior | `pages/Keys.query.test.tsx` |
 | `__tests__/` | module with several test files | `api/__tests__/index.contract.test.ts`, `shared/types/__tests__/` |
 
-Current inventory: **32 test files, ~105 `it` cases**.
+Current inventory: **38 test files, ~270 `it` cases**.
 
 Covered:
 
-- API bridge contract (`api/__tests__/index.contract.test.ts`), console buffer/merge/hydration (`api/consoleStore.test.ts`), page-refresh registry (`api/pageRefresh.test.ts`);
+- API bridge contract (`api/__tests__/index.contract.test.ts`), console buffer/merge/hydration (`api/consoleStore.test.ts`), renderer log persistence bridge (`api/consoleLogBridge.test.ts`), page-refresh registry (`api/pageRefresh.test.ts`);
 - shared types/helpers: `getClientKindLabel`, `normalizeClientKind`, provider-type config, terminal command generation (`shared/types/__tests__/*`);
 - pure utils: `accountQuery`, `apiKeyEditor`, `clientConfig`, `clientSupport`, `formatTokens`, `modelMapping`, `providerIcon`, `providerQueryDefaults`;
-- 12 component/logic tests: `ProviderModal`, `KeyEditModal`, `UserAgentField`, `ProviderIcon`, `ProviderUsageWindows`, `AppErrorBoundary`, `DailyModelUsageChart`, `MultiMetricLineChart`, `ResourceUsageModal`, `RoutePickerModal` (model-label logic), `TakeoverConfigTab` reorder helpers, `usageChartColors`;
+- component/logic tests: `ProviderModal`, `KeyEditModal`, `UserAgentField`, `ProviderIcon`, `ProviderUsageWindows`, `AppErrorBoundary`, `DailyModelUsageChart`, `MultiMetricLineChart`, `ResourceUsageModal`, `ModelCatalogManager`, `GatewayPage`, `Console`, `RoutePickerModal` (model-label logic), `TakeoverConfigTab` reorder helpers, `usageChartColors`;
+- hooks: `useModelCatalogQuery` (identity/revision/cache/stale-response rules);
 - locale spot-check (`locales/usageChartLocales.test.ts`);
-- pages: `Instances`, `Projects`, `Statistics`, `Keys` (query), `consoleFilters` (helpers exported from `pages/Console.tsx`);
-- one store: `providerStore` (`refreshBalance` behavior).
+- pages: `Instances`, `Projects`, `Statistics`, `Keys` (query + unified model flow), `Keys.models` (provider/key model-entry parity), `consoleFilters` (helpers exported from `pages/Console.tsx`);
+- stores: `providerStore` (`refreshBalance` behavior), `consoleStore` (hydration meta, TTL prune, clear generations).
 
-Not covered: `Dashboard`, `Settings`, `Console` rendering, `Sessions`, `ActivityPage`, `ClaudeCodePage`, `CodexPage`, `ClaudeDesktopPage`, layout components (`Sidebar`, `TitleBar`), `apiKeyStore` / `projectStore` / `settingsStore`, most hooks, `claudeConfig` / `formatPerformance` / `modelQueryUserAgent` / `officialProviders` / `userAgentOptions` utils, and full zh/en key parity. Treat typecheck + code review as the safety net there; add tests when changing behavior in those files.
+Not covered: `Dashboard`, `Settings`, `Sessions`, `ActivityPage`, `ClaudeCodePage`, `CodexPage`, `ClaudeDesktopPage`, layout components (`Sidebar`, `TitleBar`), `apiKeyStore` / `projectStore` / `settingsStore`, most hooks, `claudeConfig` / `formatPerformance` / `modelQueryUserAgent` / `officialProviders` / `userAgentOptions` utils, and full zh/en key parity. Treat typecheck + code review as the safety net there; add tests when changing behavior in those files.
 
 Coverage config includes only `src/renderer/api/**/*.ts`, `src/renderer/pages/**/*.ts`, `src/shared/types/**/*.ts` — the `pages` glob does **not** match `.tsx`, so page components are not instrumented. Widen `coverage.include` if you need measured component coverage.
 
@@ -114,7 +115,7 @@ CI (`.github/workflows/ci.yml`, job `frontend`) runs exactly `pnpm typecheck`, `
 - **Do not weaken types to make a test pass** (e.g. `as any` in production code) unless unavoidable; test files already use `as never` / `as any` cast helpers where fixtures are partial.
 - **No test may call real Tauri IPC.** Mock `@tauri-apps/api/*` (bridge tests) or `../api` (everything else).
 - **Clean up DOM state between tests** (`root.unmount()`, `document.body.innerHTML = ''`, `vi.resetAllMocks()`); antd modals portal into `document.body`.
-- **Keep helper logic pure so it can be imported under the default `node` environment.** Helpers are exported from page/component modules and exercised without rendering: `computeProviderReorder` (`pages/Keys.tsx`), `eventRowKey`/`isProblemEvent`/`matchesQuery` (`pages/Console.tsx`, imported by `consoleFilters.test.ts`), `getRouteModelLabel` (`RoutePickerModal.tsx`), `reorder.ts`. Do not read `window`/`document` at module scope in modules whose helpers are tested this way.
+- **Keep helper logic pure so it can be imported under the default `node` environment.** Helpers are exported from page/component modules and exercised without rendering: `computeProviderReorder` (`pages/Keys.tsx`), `classifyRequestResult`/`projectRequestEvent`/`projectLogEvent`/`matchesQuery`/`applyRequestFilters`/`applyLogFilters` (`pages/Console.tsx`, imported by `consoleFilters.test.ts`), `getRouteModelLabel` (`RoutePickerModal.tsx`), `reorder.ts`. Do not read `window`/`document` at module scope in modules whose helpers are tested this way.
 - **When fixing a bug, add a regression at the lowest level that can express it** (pure helper or contract test) rather than a browser-only check; there is no E2E layer to catch it later.
 
 ---

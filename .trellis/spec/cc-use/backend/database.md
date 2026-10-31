@@ -29,7 +29,7 @@
 | `providers` | `db/providers.rs` |
 | `api_keys` | `db/api_keys.rs` |
 | `projects`, `project_client_bindings` | `db/projects.rs` (`project_binding_upsert`, `hydrate_project`) |
-| `proxy_sessions` | `db/proxy_sessions.rs` (also stores gateway outlets: `session_kind='gateway'`, `display_name`, `is_active`; `gateway_*` queries live here) |
+| `proxy_sessions` | `db/proxy_sessions.rs` (also stores gateway outlets: `session_kind='gateway'`, `display_name`, `is_active`, `gateway_connection_config` JSON NULL; `gateway_*` queries live here) |
 | `managed_instances` | `db/managed_instances.rs` |
 | `request_logs` | `db/request_logs.rs` |
 | `usage_logs`, usage statistics | `db/usage_logs.rs` |
@@ -108,6 +108,18 @@ When data has to be rewritten once (not just a column added), follow
   `commit()`.
 - Preserve user-specific data unless it exactly matches a known generated value
   (`remove_shipped_mapping` only clears the exact shipped mapping and keeps `autoMode`).
+
+`db/mod.rs::migrate_gateway_connection_config` is the current example of a one-shot
+*mapping* migration driven by a column: after the ALTER migration adds
+`proxy_sessions.gateway_connection_config`, it snapshots the old implicit
+`clientConfigs.claude_code` base URL / UA / explicit auth scheme into that column for
+`session_kind='gateway'` rows where it is still NULL, under the marker
+`migration.gatewayConnectionConfig.v1`. Rules worth copying: only fill NULL, never overwrite
+an existing value, never copy unrelated settings (model mapping/roles/startup params),
+keep invalid historical strings for repair instead of failing the whole upgrade, and make
+the error string safe when stored JSON is corrupt (no raw JSON/secrets in the error).
+It runs from `Database::new()` after `run_alter_migrations()` and before any read of a
+gateway row.
 
 `unchecked_transaction()` is used because methods take `&self`; plain
 `Connection::transaction()` requires `&mut self`. Multi-row changes must be transactional —
@@ -193,3 +205,22 @@ document. Never log a restored secret.
   `providers.token`.
 - Opening a second `Connection` in a command instead of using the managed `Database`.
 - Holding the `Database` mutex while awaiting network I/O.
+
+
+## R9 Provider Catalog and Gateway Policy Persistence
+
+`provider_model_catalogs(provider_id PRIMARY KEY REFERENCES providers(id) ON DELETE CASCADE,
+models_json TEXT, revision INTEGER, updated_at TEXT)` is an idempotent CREATE extension.
+`provider_model_catalog_get` returns empty revision 0 for an existing provider without a row.
+`provider_model_catalog_save(provider_id, models, revision)` validates/deduplicates real IDs,
+limits count (10,000), display names and serialized bytes (8 MiB), then checks revision
+and increments it within one transaction. Conflict leaves the row unchanged. Do not migrate
+per-Key client catalogs into it or write Key/provider connection settings from catalog saves.
+
+`proxy_sessions.gateway_model_policy TEXT NULL` is added to CREATE and idempotent ALTER.
+Every mapper/SELECT/write carries it. SQL NULL is all; malformed JSON, unknown variants,
+invalid IDs and empty selected sets fail. Omitted update preserves; explicit all resets.
+Connection and policy updates are atomic. The old gateway connection migration is not rerun
+or repurposed for this column. Tests: `provider_model_catalogs`, `gateway_api` and the
+shared runtime policy unit tests. Full IPC/error cases are specified in
+[API Bridge R9 scenario](../../cc-use/frontend/api-bridge.md#scenario-saved-provider-catalogs-gateway-restrictions-and-uploaded-icon-deletion-r9).

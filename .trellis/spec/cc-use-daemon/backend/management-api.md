@@ -8,7 +8,8 @@
 - `require_management_token(&DaemonState, &HeaderMap)` compares the header with `DaemonState::management_token` using `cc_use_lib::shared_runtime::validate_management_token` (exact string equality). Missing and wrong values both produce `401` with `{"error": "Invalid management token"}`.
 - No other channel is accepted: no query parameter, no cookie, no `Authorization: Bearer`. Keep the token in the header so it does not end up in URLs or access logs.
 - The token is created at daemon boot by `resolve_management_token()` → `ensure_management_token` → `~/.cc-use/state/management-token` (mode `0600`). The app reads the same file with `read_management_token`; the wrapper script written by `src-tauri/src/terminal/mod.rs` receives it as `CC_USE_MANAGEMENT_TOKEN` and sends heartbeat/stop calls with it.
-- `DaemonState` stores the token as a plain `String`; there is no rotation endpoint and no constant-time comparison. This is a loopback-only credential — do not expose these routes beyond `127.0.0.1` and do not log the value.
+- `DaemonState` stores the token as a plain `String`; there is no rotation endpoint and no constant-time comparison. This is a loopback-only credential — do not expose these routes beyond loopback and do not log the value.
+- **Transport guard (R8):** `management_routes()` wraps every `/_management/*` route in `require_loopback_peer` middleware. It reads `ConnectInfo<SocketAddr>` (installed by `into_make_service_with_connect_info`) and returns `403 {"error":"Management API is only reachable over loopback"}` for any non-loopback peer **before** token validation, so a LAN client cannot probe the token or route existence. A missing `ConnectInfo` only happens in in-process router tests and is treated as trusted; the production listener always installs it. This guard is independent of `proxyListenScope`, so binding `0.0.0.0` never publishes the management plane.
 
 ## Routes
 

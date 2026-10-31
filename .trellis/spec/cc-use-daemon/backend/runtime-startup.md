@@ -7,20 +7,21 @@
 `run_foreground` performs these steps in order, and each step depends on the previous one:
 
 1. `Database::new()` — opens the same SQLite file the app uses (`~/Library/Application Support/<APP_SUPPORT_DIR>/data/cc-use.db`). Failure returns `"Failed to initialize database: ..."`.
-2. `db.settings_get()` — the listen port comes from the `proxyPort` setting (`GlobalSettings::proxy_port`, default `12345` in `src-tauri/src/models/mod.rs`).
+2. `db.settings_get()` — the listen port comes from the `proxyPort` setting (`GlobalSettings::proxy_port`, default `12345` in `src-tauri/src/models/mod.rs`); the listen scope comes from `proxyListenScope` (`loopback` default, `lan` only on explicit opt-in).
 3. `console_log_dir()` + `ConsoleLogHandle::spawn(dir, ConsoleLogSource::Daemon)` — the daemon keeps its own bounded console history on disk. A missing home directory is fatal (`"Cannot locate a home directory for console logs"`).
 4. `build_proxy_state_with_console_log(db.clone(), console_log.clone())` — constructs `ProxyState`, including the broadcast sender (`console_tx`) and the session/metrics machinery from `cc_use_lib`.
 5. `console_logger::install(proxy_state.console_tx.clone(), console_log.clone())` — the log adapter is installed *after* `ProxyState` exists because it needs a live `Sender`; from this point every `log::info!` (including the boot line below) is visible on the Console page.
-6. `log::info!("daemon booted; binding 127.0.0.1:{}", settings.proxy_port)` — the first observable log line.
+6. `log::info!("daemon booted; binding {addr} (listen scope: {scope})", ...)` — the first observable log line; it names the real bind address.
 7. `build_daemon_state(db, proxy_state, console_log)` — resolves the management token with `management::resolve_management_token`, which creates `~/.cc-use/state/management-token` when absent. A daemon boot can therefore create the token file.
 8. `spawn_managed_instance_sweeper(db)` — starts the stale-instance task.
 9. `build_daemon_router(state)` — merges `management_routes()` and installs `daemon_proxy_handler` as the fallback.
-10. `TcpListener::bind(127.0.0.1:<port as u16>)` — loopback only. Failure reads `"Failed to bind daemon port <port>: <error>"`.
+10. `TcpListener::bind(cc_use_lib::shared_runtime::network::proxy_bind_address(scope, port))` — `loopback` → `127.0.0.1`, `lan` → `0.0.0.0`. Failure reads `"Failed to bind daemon port <port>: <error>"`.
 11. `axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())` — serves until the process dies or the server errors.
 
 Rules:
-- Bind `127.0.0.1`, never `0.0.0.0`. The daemon is a local sidecar that injects real provider keys; exposing the listener is a security regression (`SECURITY.md`).
-- The port comes only from the database setting. There is no `--port` flag; port changes are an app responsibility (`src-tauri/src/commands/settings.rs` restarts the daemon and resets the console bridge). The daemon casts `proxy_port as u16`, so it trusts the app to have stored a valid port.
+- Default bind is `127.0.0.1`. Binding `0.0.0.0` is allowed **only** through the explicit `proxyListenScope = "lan"` setting (R8); the decision lives in `shared_runtime::network::proxy_bind_address`, not in the daemon.
+- When the scope is `lan`, the management plane must still be unreachable from the network: `management_routes()` applies a loopback-peer middleware, and the proxy rejects provider-credential pass-through for non-loopback peers. Both guards are mandatory and independent of the scope value.
+- The port comes only from the database setting. There is no `--port` flag; port/scope changes are an app responsibility (`src-tauri/src/commands/settings.rs` restarts the daemon and resets the console bridge). The daemon casts `proxy_port as u16`, so it trusts the app to have stored a valid port.
 - Anything that needs the console broadcast must be created after `build_proxy_state_with_console_log` and logged after `console_logger::install`.
 - Startup failures are returned as `String`; `main` prints them to stderr and exits `1`. With `KeepAlive=true`, launchd restarts the process, so a deterministic failure (bad DB permissions, occupied port) becomes a restart loop. The app surfaces the real reason through `daemon_client::read_daemon_status` (port probe + `EADDRINUSE` detection), so keep bind errors descriptive.
 

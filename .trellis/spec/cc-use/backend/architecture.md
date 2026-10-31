@@ -105,10 +105,14 @@ Startup work is best-effort except two process-fatal `.expect(...)` calls in `li
   local-only capability: never log it, never put it in a client config file.
 - **Console history** — `~/.cc-use/logs/console`, created mode `0o700`
   (`services/console_log_store.rs::console_log_dir`). Each process owns its source
-  (`daemon` / `app`); the app never deletes daemon files directly — it asks the daemon over
-  `/_management/console/clear`. Budgets: 10 MiB/file, 5 files/source, 50 MiB/source,
-  100 MiB total, 256 KiB per record; overflow is counted in `dropped()` and surfaced by
-  `console_log_status`.
+  (`daemon` / `app`) and takes a fresh epoch/file per start; the app never deletes daemon
+  files directly — it asks the daemon over `/_management/console/clear` and reports a
+  per-owner result. The window is the current local day plus the previous two (from UTC
+  record timestamps), and size budgets stay on top: 10 MiB/file, 5 files/source,
+  50 MiB/source, 100 MiB total, 256 KiB per record. Per-source `dropped`/`writeFailed`/
+  `trimmed`/`capacityEvicted` are surfaced by `console_log_status` (daemon offline =>
+  `available: false`). Renderer `console.*` lines join the app-owned files through
+  `console_log_append_renderer`. Cross-process maintenance uses a `flock` directory lock.
 - **Proxy state** — `proxy::ProxyState` (DB handle, request counter, console broadcast
   channel, console log handle, detail-mode flag, concurrency semaphores). Built by
   `proxy::build_proxy_state_with_console_log` only inside the daemon; tests build it with

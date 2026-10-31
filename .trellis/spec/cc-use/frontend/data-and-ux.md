@@ -49,6 +49,8 @@ The registry lives in `src/renderer/api/pageRefresh.ts`:
 
 Every page that owns data registers its loader. Current registrations: `pages/Settings.tsx`, `Projects.tsx`, `Keys.tsx`, `Sessions.tsx`, `Dashboard.tsx`, `Instances.tsx`, `Statistics.tsx`, `Console.tsx`, `ClaudeCodePage.tsx`, `CodexPage.tsx`, `ClaudeDesktopPage.tsx`. Embedded tabs register too — refreshing `/claude-code` runs the shell loader and the embedded Projects/Instances/Sessions loaders independently (comments in `ClaudeCodePage.tsx:44-46` and `Projects.tsx:141-142`).
 
+Dialogs can register conditionally: `components/usage/ResourceUsageModal.tsx` mounts a tiny `PageRefreshBridge` (a component whose only job is `usePageRefresh(load)`) **only while the dialog is open on a valid scope**, so ⌘R re-queries the open dialog and closing it unregisters immediately. When an async dialog does this, guard the response with identity + revision + still-open; a late reply for a previous scope must not overwrite the current one.
+
 A refresh handler must be **read-only relative to the user's draft and side effects**:
 
 - `Settings.tsx:202-203` — refreshing never saves and never restarts anything, so unsaved edits stay.

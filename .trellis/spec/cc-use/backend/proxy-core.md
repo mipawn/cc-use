@@ -110,6 +110,25 @@ all bypassed. The `count_tokens` local estimate is also skipped for gateways.
 `session_list` hides them; `gateway_list` is the dedicated query. Deleting a key
 or provider removes the gateway rows bound to it.
 
+Gateways resolve **one effective connection** through
+`shared_runtime::gateway_connection` and use it for `/models`, `/v1/models`, HTTP/SSE
+forwarding and the WebSocket handshake: effective Base URL (gateway override else
+provider), explicit auth scheme, optional UA override, provider additive headers and
+provider HTTP proxy. They must not read `clientConfigs[claude_code|codex|grok]` or the
+`model-catalog-user-agent.*` preference, and must not guess an auth scheme from the model or
+path. URL/path joining, protected/hop-by-hop filtering, `{{baseUrl}}` substitution and the
+UA priority live in that module so discovery and inference cannot disagree; see
+`shared_runtime/gateway_connection.rs` and the resolver doc module for the exact rules.
+`apply_provider_headers` / `apply_chosen_user_agent` remain for non-gateway clients only.
+
+**Non-loopback peers (R8 LAN access):** the handler reads the optional
+`ConnectInfo<SocketAddr>` peer. When the peer is not loopback, `RequestAuth::ProviderCredential`
+(PassThrough, i.e. the client sent a real provider credential) is rejected with `403` and a
+console `rejected` event before permits/routing, so enabling `proxyListenScope = "lan"` never
+turns the local proxy into an open LAN relay. `session-`/gateway tokens keep working, and
+loopback behaviour is unchanged. A missing `ConnectInfo` only happens in in-process router
+tests and keeps the old trusted semantics; the production listener always provides it.
+
 Codex Desktop has one documented exception: when a `/v1/responses` request arrives with a
 provider credential, `route_plan_with_codex_takeover_fallback` substitutes the session
 token stored under `CODEX_SESSION_TOKEN_SETTING_KEY` **only if that session exists**. Codex
@@ -248,3 +267,21 @@ Messages are shown in the UI: no keys, tokens, or full request bodies. Keep them
 - Treating a `cancelled` request as an upstream error in metrics.
 - Changing behavior based on `detail_mode`.
 - Unbounded buffering of bodies or SSE lines.
+
+
+## Gateway Selected-Model Authorization (R9)
+
+`shared_runtime::gateway_model_policy` owns the closed endpoint and body contract. Read
+the latest persisted gateway policy at request authorization. All preserves the existing
+HTTP/SSE/WS pipeline. Selected publishes its configured real IDs locally on supported
+GET model-list aliases after normal token/binding validation. POST supports only known
+JSON inference endpoints/aliases, unique valid top-level `model` with exact set membership,
+and no ambiguous model query, content encoding, multipart or upgrade. Unsupported methods
+or paths reject before upstream I/O; malformed JSON is 400 and unselected model is 403.
+Do not parse/re-serialize authorized bodies to enforce policy.
+
+A WS established under all rechecks saved policy/token status before each client application
+frame. A change to selected, revocation, corrupt policy or failed DB read closes it without
+forwarding that frame. HTTP/SSE already authorized may finish. Test actual upstream hits,
+text/binary transport, changes during a stream and isolation between two gateways on one Key.
+Policy rejections use the existing console lifecycle and never invent inference/token usage.

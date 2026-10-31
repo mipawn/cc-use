@@ -148,15 +148,22 @@ acceptable; URLs with embedded credentials are not (the proxy never builds those
   Request kinds: `pending`, `ok`, `cancelled`, `upstream_error`, `rejected`, `ws`; log sources:
   `daemon`, `app`, `renderer`.
 - On-disk store: `services/console_log_store.rs` at `~/.cc-use/logs/console` (mode `0o700`),
-  bounded (see [architecture.md](./architecture.md)). The writer thread never blocks the
-  caller; `record()` returns `false` and increments `dropped()` on overload. A process only
-  clears its own files.
+  bounded by the local-day window (today + previous two local natural days, from UTC event
+  timestamps) **and** by size (see [architecture.md](./architecture.md)). The writer thread
+  never blocks the caller; `record()` returns `false` and increments `dropped()` on overload.
+  A process only clears its own files; per-source `dropped`/`writeFailed`/`trimmed`/
+  `capacityEvicted` are surfaced through `console_log_status`, and a daemon that is offline
+  reports `available: false` instead of pretending zero.
+- Renderer `console.*` lines are persisted through `commands/console.rs::console_log_append_renderer`,
+  which re-validates id/timestamp/level/target/message length, forces `source=renderer`,
+  redacts, and only returns enqueue counts (`{ accepted, rejected }`). Never treat that ack as
+  a disk write; failures must not recurse through `console.*`/`log::*`.
 - App ↔ daemon transport: the app keeps one SSE connection to
   `/_management/console/stream` (`services/console_bridge.rs`, capped exponential backoff
   1–10 s), authenticating with `x-cc-use-management-token`. The bridge is alerting-safe: it
   never surfaces errors into the UI, it just reconnects.
 - A Console page reload reads history back via `commands/console.rs::console_log_read_recent`
-  and the on-disk generation; the live stream is not replayed.
+  and the on-disk generation/retention metadata; the live stream is not replayed.
 
 ## Verification
 

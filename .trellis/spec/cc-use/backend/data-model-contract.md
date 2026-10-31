@@ -51,6 +51,25 @@ camelCase spelling of the Rust field.
 When adding a field, choose `Option<T>` (serialized as `null`) unless the value is
 guaranteed to exist for every old row and every caller.
 
+### Whole-Object Replacement vs Omitted Field
+
+`GatewayConnectionConfig` (`models/mod.rs`, mirrored in `shared/types/index.ts`) is the
+reference case for a nested optional payload that must distinguish three states:
+
+| Wire shape | Meaning |
+|---|---|
+| argument omitted | keep the stored value (or apply the creation default) |
+| object present with `baseUrl: null` / `userAgent: null` | replace the whole object; the nulls clear those fields and fall back to the provider default |
+| object present with a value | replace the whole object |
+
+This is why `gateway_create` / `gateway_update` take `Option<GatewayConnectionConfig>` and the
+command omits the argument instead of sending `undefined`, and why the TS command signature
+uses `connectionConfig?: GatewayConnectionConfig`. `Gateway.connectionConfig` is always
+serialized as a normalized object (default `{ authScheme: "bearer" }`), never `null`;
+`ProxySession.connectionConfig` is `Option<T>` and is `None` for every non-gateway row.
+Do not model this pair as a flat set of optional fields: that cannot express "clear to default".
+
+
 ## What Breaks When Only One Side Changes
 
 | Change | Rust-only effect | TypeScript-only effect |
@@ -81,6 +100,10 @@ Several “enums” are stored/transmitted as strings; treat the literals as a c
   in `shared_runtime/model_mapping.rs::client_key`, `db/projects.rs::normalize_project_cli_type`
   and `commands/managed_instances.rs::normalize_cli_type`. New code must normalize, not
   invent a fifth spelling.
+- Listen scope: `GlobalSettings.proxyListenScope` is `loopback` | `lan`
+  (`shared_runtime/network.rs::normalize_listen_scope`). Only the exact lowercase `lan`
+  opts into binding `0.0.0.0`; missing, empty or any other value normalizes to `loopback`
+  on read and on write. Do not treat it as a free-form host string.
 - Session kinds: `managed` | `manual` | `desktop` (`ProxySession.session_kind`, backfilled
   in `db/mod.rs::run_alter_migrations`).
 - Request outcomes: `success` | `client_error` | `upstream_error` | `transport_error`
@@ -135,3 +158,27 @@ balance. Choose strictness at the boundary:
 - Passing a whole `serde_json::Value` through IPC when a struct exists (or is warranted);
   each consumer then re-implements the field casts.
 - Making a new field required when the renderer and old export files cannot supply it.
+
+
+## R9 Catalog and Exposure DTOs
+
+`ProviderModelCatalog { models: ClientModel[], revision: i64, updated_at: Option<String> }`
+serializes as `{ models, revision, updatedAt }`. `GatewayModelPolicy` is a tagged union
+`{mode:"all"}` or `{mode:"selected",modelIds:[...]}`; do not interpret malformed JSON as all.
+Gateway DTOs always return normalized policy; ordinary ProxySession DTOs may return null.
+Shared TS `ClientModel` is re-exported by the renderer model-mapping utility to keep
+displayName/supports1m semantics aligned rather than defining a second model shape.
+
+Independent query input is `{providerId,apiKeyId,connectionConfig}`: credentials come from
+the saved Key. `clientKind`, `keyValue` and `clientConfigs` are not part of this query.
+`IconDeleteResult` serializes `used_by` as `usedBy`, containing `{id,name}` references.
+See [API Bridge R9 scenario](../frontend/api-bridge.md#scenario-saved-provider-catalogs-gateway-restrictions-and-uploaded-icon-deletion-r9)
+for signatures, validation/error matrix and required test assertions.
+
+
+`modelMapping.clients.<kind>.catalog.draftModels` is optional editor-only persistence
+for selections under mode `provider`. Runtime readers intentionally ignore it, including
+role seeding, alias generation and 1M expansion. `catalog.models` retains its established
+runtime meaning for imported/existing mappings. See
+`model_mapping::provider_editor_draft_models_do_not_change_runtime_catalog_roles_or_aliases`
+for equivalent provider catalogs and alias tables with/without draft metadata.

@@ -24,7 +24,7 @@ GUI / wrapper script -> _management/* (x-cc-use-management-token) -> daemon stat
 
 ## What the daemon owns
 
-- The listener: `runtime::run_foreground` binds `127.0.0.1:<settings.proxy_port>` and serves `runtime::build_daemon_router`, whose `fallback` is `cc_use_lib::proxy::handler::proxy_handler`.
+- The listener: `runtime::run_foreground` binds `shared_runtime::network::proxy_bind_address(proxyListenScope, port)` — `127.0.0.1` by default, `0.0.0.0` only when the user explicitly set `proxyListenScope = "lan"` — and serves `runtime::build_daemon_router`, whose `fallback` is `cc_use_lib::proxy::handler::proxy_handler`. The management routes stay loopback-only in both modes (middleware in `management.rs`).
 - Managed-instance lifecycle writes: `management::management_instance_heartbeat` / `management_instance_stop`, plus the background sweeper in `runtime.rs`.
 - Its own console history: `ConsoleLogHandle::spawn(dir, ConsoleLogSource::Daemon)` under `~/.cc-use/logs/console`.
 - Management token generation on boot: `management::resolve_management_token` -> `shared_runtime::ensure_management_token`.
