@@ -9,6 +9,7 @@ import 'dayjs/locale/zh-cn'
 import App from './App'
 import { useSettingsStore } from './stores/settingsStore'
 import { installRendererConsoleTap } from './api/consoleBus'
+import { installRendererLogBridge } from './api/consoleLogBridge'
 import { installConsoleStore } from './api/consoleStore'
 import './locales'
 import './styles/global.css'
@@ -19,6 +20,10 @@ import { useReducedMotion } from './hooks/useReducedMotion'
 // from React / stores / app bootstrap is already funneled into the Console
 // page's event stream by the time the user opens it.
 installRendererConsoleTap()
+// Persist renderer `console.*` lines through the app writer as well, at app
+// startup and independently of the Console page ever being mounted, so they
+// survive a reload of the webview.
+installRendererLogBridge()
 // Process-long buffer: events start accumulating immediately, survive
 // navigation away from the Console page, and only reset on full app reload.
 installConsoleStore()

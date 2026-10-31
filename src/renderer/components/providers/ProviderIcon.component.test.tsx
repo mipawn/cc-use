@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ProviderIcon from './ProviderIcon'
+import { invalidateUploadedIcon } from '../../utils/providerIconCache'
 
 const read = vi.fn()
 vi.mock('../../api', () => ({ getApi: () => ({ icon: { read } }) }))
@@ -61,4 +62,36 @@ it('does not let a late upload read replace a newly selected built-in mark', asy
   const builtin = container.querySelector('img')!.src
   await act(async () => resolve('data:image/png;base64,old'))
   expect(container.querySelector('img')!.src).toBe(builtin)
+})
+
+it('invalidates every mounted instance and ignores a late read after deletion', async () => {
+  let resolve!: (source: string) => void
+  read.mockReturnValue(
+    new Promise<string>((done) => {
+      resolve = done
+    }),
+  )
+  await act(async () =>
+    root.render(
+      <>
+        <ProviderIcon icon='deleted-slow.png' />
+        <ProviderIcon icon='/old/path/deleted-slow.png' />
+      </>,
+    ),
+  )
+  expect(read).toHaveBeenCalledExactlyOnceWith('deleted-slow.png')
+  await act(async () => invalidateUploadedIcon('deleted-slow.png'))
+  await act(async () => resolve('data:image/png;base64,retired'))
+  expect(container.querySelectorAll('img')).toHaveLength(0)
+  await act(async () => root.render(<ProviderIcon icon='deleted-slow.png' />))
+  expect(read).toHaveBeenCalledTimes(1)
+  expect(container.querySelector('img')).toBeNull()
+})
+
+it('removes already cached data from all instances when the resource is deleted', async () => {
+  read.mockResolvedValue('data:image/png;base64,active')
+  await act(async () => root.render(<ProviderIcon icon='delete-cached.png' />))
+  expect(container.querySelector('img')).not.toBeNull()
+  await act(async () => invalidateUploadedIcon('delete-cached.png'))
+  expect(container.querySelector('img')).toBeNull()
 })

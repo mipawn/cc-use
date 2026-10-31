@@ -11,7 +11,7 @@ import { getApi } from '../api'
  * Keys - 以 Key 为核心维度的管理页面
  * Provider 作为分组/筛选器
  */
-import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import {
   Typography,
   Button,
@@ -27,7 +27,6 @@ import {
   Modal,
   Divider,
   Dropdown,
-  Select,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
 import { useServiceStatus } from '../hooks/useServiceStatus'
@@ -59,6 +58,7 @@ import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
 import ProviderModal from '../components/providers/ProviderModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
+import ProviderModelModal from '../components/providers/ProviderModelModal'
 import ResourceUsageModal, { type ResourceScope } from '../components/usage/ResourceUsageModal'
 import type { Provider, ApiKey, ClientKind, ProviderGatewayMetrics } from '@shared/types'
 import {
@@ -69,12 +69,6 @@ import {
 } from '@shared/types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
-import UserAgentField from '../components/UserAgentField'
-import {
-  modelQueryClientKind,
-  readQueryUserAgent,
-  rememberQueryUserAgent,
-} from '../utils/modelQueryUserAgent'
 import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import {
@@ -168,25 +162,12 @@ export default function Keys() {
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null)
   const [keyEditMode, setKeyEditMode] = useState<KeyEditMode>('create')
   const [defaultProviderId, setDefaultProviderId] = useState<string | undefined>(undefined)
+  const [modelProvider, setModelProvider] = useState<Provider | null>(null)
   const [usageScope, setUsageScope] = useState<ResourceScope | null>(null)
 
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
   const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
-
-  // Model list state
-  const [modelListOpen, setModelListOpen] = useState(false)
-  const [modelListProvider, setModelListProvider] = useState<Provider | null>(null)
-  const [modelList, setModelList] = useState<string[]>([])
-  const [modelListLoading, setModelListLoading] = useState(false)
-  const [modelListApiKeyId, setModelListApiKeyId] = useState<string | undefined>(undefined)
-  const [modelListError, setModelListError] = useState(false)
-  // Query identity lives only for as long as the dialog is open: this is a
-  // "show me as that client" glance, not a property of the key.
-  const [modelListUa, setModelListUa] = useState('')
-  const [modelListUaLoading, setModelListUaLoading] = useState(false)
-  const modelListUserAgent = modelListUa.trim() || undefined
-  const modelListRequestId = useRef(0)
 
   // Token stats per key (today and total)
   const [keyTokenStats, setKeyTokenStats] = useState<
@@ -196,10 +177,6 @@ export default function Keys() {
 
   // Get all API keys
   const allApiKeys = getAllApiKeys()
-  const modelListKeys = useMemo(
-    () => (modelListProvider ? apiKeys[modelListProvider.id] || [] : []),
-    [apiKeys, modelListProvider],
-  )
 
   useEffect(() => {
     fetchProviders()
@@ -477,71 +454,6 @@ export default function Keys() {
     return formatEnvCommand(envVars, cliCommand)
   }
 
-  // Handle edit key
-  // Drag-and-drop reorder handlers
-  const loadModels = async (
-    provider: Provider,
-    apiKeyId: string,
-    userAgent?: string,
-    restoreAgent = false,
-  ) => {
-    const requestId = ++modelListRequestId.current
-    setModelList([])
-    setModelListError(false)
-    setModelListLoading(true)
-    setModelListUaLoading(restoreAgent)
-    try {
-      const key = (apiKeys[provider.id] || []).find((key) => key.id === apiKeyId)
-      if (!key) throw new Error('API key not found')
-      const kind = modelQueryClientKind(key)
-      const agent = restoreAgent
-        ? await readQueryUserAgent(provider.id, kind, key.clientConfigs?.[kind]?.proxyUserAgent)
-        : (userAgent ?? '')
-      if (requestId !== modelListRequestId.current) return
-      if (restoreAgent) setModelListUa(agent)
-      setModelListUaLoading(false)
-      await rememberQueryUserAgent(provider.id, kind, agent)
-      if (requestId !== modelListRequestId.current) return
-      const models = await getApi().provider.modelList(
-        provider.id,
-        apiKeyId,
-        agent || undefined,
-        kind,
-      )
-      if (requestId === modelListRequestId.current) setModelList(models)
-    } catch {
-      if (requestId === modelListRequestId.current) setModelListError(true)
-    } finally {
-      if (requestId === modelListRequestId.current) {
-        setModelListLoading(false)
-        setModelListUaLoading(false)
-      }
-    }
-  }
-
-  /** Re-run the current query after the selection changed. */
-  const rerunModelList = (overrides: { userAgent?: string } = {}) => {
-    if (!modelListProvider || !modelListApiKeyId) return
-    void loadModels(
-      modelListProvider,
-      modelListApiKeyId,
-      'userAgent' in overrides ? overrides.userAgent : modelListUserAgent,
-    )
-  }
-
-  const handleViewModels = (provider: Provider) => {
-    const keys = apiKeys[provider.id] || []
-    const defaultKey = keys.find((key) => key.isActive && !key.isExhausted) || keys[0]
-    setModelListProvider(provider)
-    setModelListOpen(true)
-    setModelList([])
-    setModelListApiKeyId(defaultKey?.id)
-    setModelListError(false)
-    setModelListLoading(false)
-    setModelListUa('')
-    if (defaultKey) void loadModels(provider, defaultKey.id, undefined, true)
-  }
-
   // dnd-kit sensors — require 8px drag threshold so clicks pass through
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -774,7 +686,7 @@ export default function Keys() {
                                 key: 'models',
                                 label: t('keys.viewModels'),
                                 icon: <EyeOutlined />,
-                                onClick: () => handleViewModels(provider),
+                                onClick: () => setModelProvider(provider),
                               },
                               { type: 'divider' },
                               {
@@ -832,9 +744,7 @@ export default function Keys() {
                         ) : balance === undefined &&
                           !provider.cachedUsage?.windows?.length &&
                           !provider.cachedUsage?.groups?.length ? (
-                          <div
-                            className={`${styles.providerQuota} ${styles.providerQuotaAction}`}
-                          >
+                          <div className={`${styles.providerQuota} ${styles.providerQuotaAction}`}>
                             <Button
                               type='link'
                               size='small'
@@ -1080,6 +990,14 @@ export default function Keys() {
       </div>
 
       {/* Provider Modal */}
+      {modelProvider && (
+        <ProviderModelModal
+          key={modelProvider.id}
+          provider={modelProvider}
+          apiKeys={apiKeys[modelProvider.id] ?? []}
+          onClose={() => setModelProvider(null)}
+        />
+      )}
       <ProviderModal
         open={providerModalOpen}
         provider={editingProvider}
@@ -1267,117 +1185,6 @@ export default function Keys() {
             </div>
           </SimpleBar>
         )}
-      </Modal>
-
-      {/* Model List Modal */}
-      <Modal
-        title={
-          <Space>
-            <EyeOutlined />
-            <span>{modelListProvider?.name || ''}</span>
-            <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>
-              — {t('keys.models') || '可用模型'}
-            </span>
-          </Space>
-        }
-        open={modelListOpen}
-        onCancel={() => {
-          modelListRequestId.current += 1
-          setModelListOpen(false)
-          setModelListProvider(null)
-          setModelList([])
-          setModelListApiKeyId(undefined)
-          setModelListError(false)
-          setModelListLoading(false)
-          setModelListUaLoading(false)
-        }}
-        footer={null}
-        width={500}
-        style={{ top: 24 }}
-      >
-        <Space direction='vertical' size={16} style={{ width: '100%' }}>
-          <div>
-            <Text type='secondary' style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
-              {t('keys.modelListKey') || '读取模型使用的密钥'}
-            </Text>
-            <Select
-              value={modelListApiKeyId}
-              placeholder={t('keys.modelListKeyPlaceholder') || '选择 API Key'}
-              disabled={modelListKeys.length === 0}
-              style={{ width: '100%' }}
-              onChange={(apiKeyId) => {
-                setModelListApiKeyId(apiKeyId)
-                if (modelListProvider) void loadModels(modelListProvider, apiKeyId, undefined, true)
-              }}
-              options={modelListKeys.map((key) => ({
-                value: key.id,
-                label: `${key.alias || t('keys.unnamedKey')}${
-                  key.isExhausted ? ` (${t('keys.exhausted')})` : ''
-                }`,
-              }))}
-            />
-          </div>
-          <div>
-            <Text type='secondary' style={{ display: 'block', marginBottom: 6, fontSize: 12 }}>
-              {t('keys.modelListUserAgent') || 'User-Agent'}
-            </Text>
-            <UserAgentField
-              value={modelListUa}
-              placeholder={t('keys.modelListUaDefault')}
-              disabled={modelListUaLoading}
-              onChange={(value) => {
-                modelListRequestId.current += 1
-                setModelListUa(value)
-                setModelList([])
-                setModelListLoading(false)
-                setModelListError(false)
-              }}
-              onApply={(value) => rerunModelList({ userAgent: value.trim() || undefined })}
-            />
-          </div>
-          {modelListLoading ? (
-            <div className='empty-state' style={{ padding: '48px 0' }}>
-              <Spin />
-            </div>
-          ) : modelListKeys.length === 0 ? (
-            <div className='empty-state' style={{ padding: '48px 0' }}>
-              <Text type='secondary'>{t('keys.modelListNoKey') || '该供应商暂无 API Key'}</Text>
-            </div>
-          ) : modelListError || modelList.length === 0 ? (
-            <div className='empty-state' style={{ padding: '48px 0' }}>
-              <Text type='secondary'>{t('keys.modelsFetchFailed') || '无法获取模型列表'}</Text>
-            </div>
-          ) : (
-            <SimpleBar style={{ maxHeight: '60vh' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {modelList.map((model) => (
-                  <div
-                    key={model}
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      fontSize: 13,
-                      fontFamily: 'var(--font-mono)',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--surface-sunken)',
-                    }}
-                  >
-                    {model}
-                  </div>
-                ))}
-                {modelList.length > 0 && (
-                  <Text
-                    type='secondary'
-                    style={{ fontSize: 12, textAlign: 'center', marginTop: 8 }}
-                  >
-                    {t('keys.modelsCount', { count: modelList.length }) ||
-                      `共 ${modelList.length} 个模型`}
-                  </Text>
-                )}
-              </div>
-            </SimpleBar>
-          )}
-        </Space>
       </Modal>
     </div>
   )

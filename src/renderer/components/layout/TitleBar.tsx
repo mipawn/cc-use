@@ -18,8 +18,9 @@ export default function TitleBar({
   const pages: Record<string, string> = {
     '/': 'workspace.home',
     '/keys': 'keys.title',
-    '/stats': 'workspace.activityTitle',
-    '/console': 'workspace.activityTitle',
+    '/gateway': 'gateway.title',
+    '/stats': 'statistics.title',
+    '/console': 'console.title',
     '/settings': 'common.settings',
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PROVIDER_ICON_CHOICES, providerIconSrc } from './providerIcon'
+import { PROVIDER_ICON_CHOICES, providerIconFilename, providerIconSrc } from './providerIcon'
 
 describe('providerIconSrc', () => {
   it('resolves every mark the editor offers', () => {
@@ -31,5 +31,16 @@ describe('providerIconSrc', () => {
     // name a client rather than a vendor.
     expect(providerIconSrc('codex')).toBe(providerIconSrc('openai'))
     expect(providerIconSrc('claude_code')).toBe(providerIconSrc('claude'))
+  })
+
+  it('normalizes legacy file URL names and keeps built-in marks out of upload actions', () => {
+    expect(providerIconFilename('file:///old/my%20icon.png')).toBe('my icon.png')
+    expect(providerIconSrc('file:///old/my%20icon.png')).toBe(
+      'cc-use-icon://localhost/my%20icon.png',
+    )
+    expect(providerIconFilename('C:\\old\\icon.png')).toBe('icon.png')
+    expect(providerIconFilename('claude')).toBeNull()
+    expect(providerIconFilename('custom')).toBeNull()
+    expect(providerIconFilename('file:///bad%name.png')).toBeNull()
   })
 })

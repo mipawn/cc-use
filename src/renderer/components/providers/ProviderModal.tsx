@@ -8,13 +8,19 @@ import {
   SettingOutlined,
   WalletOutlined,
   DownOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import SimpleBar from 'simplebar-react'
 import type { Provider, CreateProviderInput, ProviderPreset } from '@shared/types'
 import styles from './ProviderModal.module.css'
 
-import { PROVIDER_ICON_CHOICES, providerIconSrc } from '../../utils/providerIcon'
+import {
+  PROVIDER_ICON_CHOICES,
+  providerIconFilename,
+  providerIconSrc,
+} from '../../utils/providerIcon'
+import { invalidateUploadedIcon, isUploadedIconDeleted } from '../../utils/providerIconCache'
 import ProviderIcon from './ProviderIcon'
 import {
   ROLLING_WINDOW_ACCOUNT_SCRIPT,
@@ -40,6 +46,10 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const [selectedIcon, setSelectedIcon] = useState<string>('claude')
   const [uploadedIcons, setUploadedIcons] = useState<string[]>([])
   const [customIconPath, setCustomIconPath] = useState<string | null>(null)
+  const [deleteIcon, setDeleteIcon] = useState<string | null>(null)
+  const [deletingIcon, setDeletingIcon] = useState(false)
+  const [iconDeleteError, setIconDeleteError] = useState<string | null>(null)
+  const [iconUsedBy, setIconUsedBy] = useState<string[]>([])
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [presets, setPresets] = useState<ProviderPreset[]>([])
   const [preset, setPreset] = useState<ProviderPreset | null>(null)
@@ -52,19 +62,30 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const [requestHeaders, setRequestHeaders] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const iconListRevision = useRef(0)
   const message = useAppMessage()
 
   // The catalogue is code, not user data; it only seeds a new provider.
   useEffect(() => {
     if (!open) return
+    const revision = ++iconListRevision.current
     getApi()
       .icon.list()
-      .then((result) => setUploadedIcons(result.uploaded))
-      .catch(() => setUploadedIcons([]))
+      .then((result) => {
+        if (revision === iconListRevision.current) {
+          setUploadedIcons(result.uploaded.filter((icon) => !isUploadedIconDeleted(icon)))
+        }
+      })
+      .catch(() => {
+        if (revision === iconListRevision.current) setUploadedIcons([])
+      })
     getApi()
       .provider.presets()
       .then(setPresets)
       .catch(() => setPresets([]))
+    return () => {
+      iconListRevision.current += 1
+    }
   }, [open])
 
   useEffect(() => {
@@ -111,6 +132,8 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setRequestHeaders('')
       }
       setAccountError(null)
+    } else {
+      setDeleteIcon(null)
     }
   }, [open, provider, form])
 
@@ -200,11 +223,39 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
     try {
       const buffer = await file.arrayBuffer()
       const path = await getApi().icon.upload(buffer, file.name)
+      iconListRevision.current += 1
       setUploadedIcons((icons) => [...icons, path])
       setCustomIconPath(path)
       setSelectedIcon('custom')
     } catch {
       message.error(t('messages.error'))
+    }
+  }
+
+  const handleIconDelete = async () => {
+    if (!deleteIcon || deletingIcon) return
+    const filename = deleteIcon
+    setDeletingIcon(true)
+    setIconDeleteError(null)
+    try {
+      const result = await getApi().icon.delete(filename)
+      if (!result.deleted) {
+        setIconUsedBy(result.usedBy.map((item) => item.name))
+        return
+      }
+      iconListRevision.current += 1
+      invalidateUploadedIcon(filename)
+      setUploadedIcons((icons) => icons.filter((icon) => providerIconFilename(icon) !== filename))
+      if (providerIconFilename(customIconPath) === filename) {
+        setCustomIconPath(null)
+        setSelectedIcon('')
+      }
+      setDeleteIcon(null)
+      message.success(t('providers.iconDeleted'))
+    } catch {
+      setIconDeleteError(t('providers.iconDeleteFailed'))
+    } finally {
+      setDeletingIcon(false)
     }
   }
 
@@ -317,21 +368,47 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                       </Tooltip>
                     ))}
                     {Array.from(
-                      new Set([...uploadedIcons, ...(customIconPath ? [customIconPath] : [])]),
+                      new Set(
+                        [...uploadedIcons, ...(customIconPath ? [customIconPath] : [])]
+                          .map(providerIconFilename)
+                          .filter(
+                            (icon): icon is string =>
+                              Boolean(icon) && !isUploadedIconDeleted(icon!),
+                          ),
+                      ),
                     ).map((icon) => (
-                      <button
-                        type='button'
-                        key={icon}
-                        aria-label={icon}
-                        aria-pressed={selectedIcon === 'custom' && customIconPath === icon}
-                        className={`${styles.iconItem} ${selectedIcon === 'custom' && customIconPath === icon ? styles.iconItemActive : ''}`}
-                        onClick={() => {
-                          setSelectedIcon('custom')
-                          setCustomIconPath(icon)
-                        }}
-                      >
-                        <ProviderIcon icon={icon} name={icon} className={styles.iconImg} />
-                      </button>
+                      <div className={styles.uploadedIcon} key={icon}>
+                        <button
+                          type='button'
+                          aria-label={icon}
+                          aria-pressed={
+                            selectedIcon === 'custom' &&
+                            providerIconFilename(customIconPath) === icon
+                          }
+                          className={`${styles.iconItem} ${selectedIcon === 'custom' && providerIconFilename(customIconPath) === icon ? styles.iconItemActive : ''}`}
+                          onClick={() => {
+                            setSelectedIcon('custom')
+                            setCustomIconPath(icon)
+                          }}
+                        >
+                          <ProviderIcon icon={icon} name={icon} className={styles.iconImg} />
+                        </button>
+                        <Tooltip title={t('providers.deleteIcon')}>
+                          <Button
+                            type='text'
+                            size='small'
+                            danger
+                            icon={<DeleteOutlined />}
+                            className={styles.deleteIcon}
+                            aria-label={`${t('providers.deleteIcon')}: ${icon}`}
+                            onClick={() => {
+                              setDeleteIcon(icon)
+                              setIconDeleteError(null)
+                              setIconUsedBy([])
+                            }}
+                          />
+                        </Tooltip>
+                      </div>
                     ))}
                     <Tooltip title={t('providers.uploadIcon')}>
                       <button
@@ -531,6 +608,33 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           </Form>
         </div>
       </SimpleBar>
+      <Modal
+        open={open && deleteIcon !== null}
+        title={t('providers.deleteIconConfirm')}
+        onOk={() => void handleIconDelete()}
+        onCancel={() => {
+          if (!deletingIcon) setDeleteIcon(null)
+        }}
+        okText={t('common.delete')}
+        cancelText={t('common.cancel')}
+        okButtonProps={{ danger: true, disabled: iconUsedBy.length > 0 }}
+        cancelButtonProps={{ disabled: deletingIcon }}
+        confirmLoading={deletingIcon}
+        closable={!deletingIcon}
+        keyboard={!deletingIcon}
+        maskClosable={!deletingIcon}
+        destroyOnHidden
+      >
+        <p>{deleteIcon}</p>
+        <p>{t('providers.deleteIconIrreversible')}</p>
+        {iconUsedBy.length > 0 && (
+          <div role='alert'>
+            <p>{t('providers.iconInUse', { names: iconUsedBy.join(', ') })}</p>
+            <p>{t('providers.iconInUseHint')}</p>
+          </div>
+        )}
+        {iconDeleteError && <p role='alert'>{iconDeleteError}</p>}
+      </Modal>
     </Modal>
   )
 }

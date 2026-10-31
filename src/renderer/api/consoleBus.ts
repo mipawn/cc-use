@@ -10,6 +10,12 @@
  * the Console page runs in the same process. The Console page subscribes to
  * this bus in addition to the Tauri `proxy:consoleEvent` channel, so it
  * observes all three sources (daemon / app / renderer) in one pane.
+ *
+ * Identity: every renderer line gets `renderer-<startup epoch>-<seq>`. The
+ * epoch is random per page load and the sequence is per page, so a record that
+ * was replayed from disk after a reload can never collide with a new live
+ * line. The live event and the persisted copy share the same id, which is what
+ * lets the console store collapse them into one row.
  */
 import type { ConsoleLogEvent } from '../../shared/types'
 
@@ -17,6 +23,22 @@ type Level = 'error' | 'warn' | 'info' | 'debug'
 
 const EVENT_NAME = 'cc-use:renderer-console'
 const bus = new EventTarget()
+
+/** Random per-page-load identity, sanitised to the backend's id alphabet. */
+const STARTUP_EPOCH = createStartupEpoch()
+
+function createStartupEpoch(): string {
+  const entropy =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  return entropy.replace(/[^a-z0-9]/gi, '').slice(0, 16) || 'epoch'
+}
+
+/** The id epoch every renderer line in this page load is stamped with. */
+export function getRendererStartupEpoch(): string {
+  return STARTUP_EPOCH
+}
 
 let installed = false
 // Re-entry guard: if a subscriber synchronously calls `console.*`, the patched
@@ -57,10 +79,10 @@ export function installRendererConsoleTap(): void {
           new CustomEvent<ConsoleLogEvent>(EVENT_NAME, {
             detail: {
               category: 'log',
-              // Renderer records never reach the Rust log store, so this id only
-              // has to be unique within the page: it is what keeps the expanded
-              // state attached to the same row as the buffer shifts.
-              id: `renderer-${nextRendererSeq()}`,
+              // The same id reaches the Console page live and the persistence
+              // bridge, so the on-disk copy merges back into one row after a
+              // reload instead of duplicating.
+              id: nextRendererEventId(),
               timestamp: nowTimestamp(),
               level,
               source: 'renderer',
@@ -97,12 +119,14 @@ function formatArg(arg: unknown): string {
 
 let rendererSeq = 0
 
-function nextRendererSeq(): number {
+/** `renderer-<startup epoch>-<seq>`; unique across page reloads. */
+export function nextRendererEventId(): string {
   rendererSeq += 1
-  return rendererSeq
+  return `renderer-${STARTUP_EPOCH}-${rendererSeq}`
 }
 
-function nowTimestamp(): string {
+/** UTC `YYYY-MM-DD HH:MM:SS`, the format the Rust store parses. */
+export function nowTimestamp(): string {
   const d = new Date()
   const y = d.getUTCFullYear()
   const m = String(d.getUTCMonth() + 1).padStart(2, '0')

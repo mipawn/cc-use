@@ -7,6 +7,7 @@ import {
   SettingOutlined,
   KeyOutlined,
   ApiOutlined,
+  ConsoleSqlOutlined,
 } from '@ant-design/icons'
 import { clientWorkspaces } from './workspaceNavigation'
 import styles from './WorkspaceLayout.module.css'
@@ -45,11 +46,15 @@ export default function Sidebar() {
         <div className={styles.group}>
           <span className={styles.groupLabel}>{t('workspace.manage')}</span>
           {link('/keys', t('keys.title'), <KeyOutlined />)}
+        </div>
+        {/* Gateway is an access point, not an observation screen. */}
+        <div className={styles.standalone}>
           {link('/gateway', t('gateway.title'), <ApiOutlined />)}
-          {link('/stats', t('workspace.activityTitle'), <BarChartOutlined />, [
-            '/stats',
-            '/console',
-          ])}
+        </div>
+        <div className={`${styles.group} ${styles.observationGroup}`}>
+          <span className={styles.groupLabel}>{t('workspace.observation')}</span>
+          {link('/stats', t('statistics.title'), <BarChartOutlined />)}
+          {link('/console', t('workspace.liveConsole'), <ConsoleSqlOutlined />)}
         </div>
       </nav>
       <div className={styles.footer}>

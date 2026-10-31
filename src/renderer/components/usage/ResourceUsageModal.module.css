@@ -18,12 +18,41 @@
   flex-wrap: wrap;
 }
 
+.refreshHint {
+  font-size: 12px;
+}
+
 .loading,
+.errorState,
 .empty {
   min-height: 360px;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.errorState :global(.ant-alert) {
+  width: 100%;
+  max-width: 560px;
+}
+
+.notice {
+  margin-bottom: 12px;
+}
+
+.refreshRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.emptyHint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
 }
 
 .content {

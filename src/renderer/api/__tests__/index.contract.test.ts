@@ -117,6 +117,55 @@ describe('renderer api contract', () => {
     })
   })
 
+  it('maps the R6/R7/R8 commands without inventing fields', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+
+    const connectionConfig = {
+      authScheme: 'bearer' as const,
+      baseUrl: 'https://relay.example.com',
+      userAgent: null,
+    }
+    await api.gateway.create('Work', 'provider-1', 'key-1', connectionConfig)
+    await api.gateway.update('session-gw', {
+      connectionConfig: { authScheme: 'none', baseUrl: null },
+    })
+    await api.console.readRecent(['daemon', 'app'], 500)
+    await api.console.logStatus()
+    await api.console.clearHistory()
+    const records = [
+      {
+        id: 'renderer-epoch-1',
+        timestamp: '2026-10-29 00:00:00',
+        level: 'info' as const,
+        target: null,
+        message: 'hello',
+      },
+    ]
+    await api.console.appendRendererLogs(records)
+    await api.proxy.lanAddresses()
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'gateway_create', {
+      name: 'Work',
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+      connectionConfig,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'gateway_update', {
+      sessionToken: 'session-gw',
+      connectionConfig: { authScheme: 'none', baseUrl: null },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'console_log_read_recent', {
+      sources: ['daemon', 'app'],
+      limit: 500,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'console_log_status', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'console_log_clear', undefined)
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'console_log_append_renderer', { records })
+    expect(invokeMock).toHaveBeenNthCalledWith(7, 'proxy_lan_addresses', undefined)
+  })
+
   it('maps managed instance commands and arguments correctly', async () => {
     invokeMock.mockResolvedValue(undefined)
     const { getApi } = await loadApiModule()
@@ -145,6 +194,62 @@ describe('renderer api contract', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(4, 'managed_instance_cleanup', {
       cliType: 'grok',
     })
+  })
+
+  it('keeps provider catalog persistence separate from explicit connection queries', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+    const models = [{ id: 'model-a', displayName: 'Model A' }]
+    const input = {
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+      connectionConfig: { authScheme: 'bearer' as const, baseUrl: null, userAgent: 'Query/1' },
+    }
+    await api.provider.getModelCatalog('provider-1')
+    await api.provider.saveModelCatalog('provider-1', models, 3)
+    await api.provider.queryModels(input)
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'provider_model_catalog_get', {
+      providerId: 'provider-1',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'provider_model_catalog_save', {
+      providerId: 'provider-1',
+      models,
+      revision: 3,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'provider_model_catalog_query', { input })
+  })
+
+  it('forwards explicit gateway restrictions and keeps omitted policy unchanged', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+    const modelPolicy = { mode: 'selected' as const, modelIds: ['model-a'] }
+    await api.gateway.create('Work', 'provider-1', 'key-1', undefined, modelPolicy)
+    await api.gateway.update('gw', { modelPolicy: { mode: 'all' } })
+    await api.gateway.update('gw', { name: 'Renamed' })
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'gateway_create', {
+      name: 'Work',
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+      modelPolicy,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'gateway_update', {
+      sessionToken: 'gw',
+      modelPolicy: { mode: 'all' },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'gateway_update', {
+      sessionToken: 'gw',
+      name: 'Renamed',
+    })
+  })
+
+  it('deletes an uploaded icon using only its filename', async () => {
+    const result = { deleted: false, usedBy: [{ id: 'provider-1', name: 'Provider' }] }
+    invokeMock.mockResolvedValue(result)
+    const { getApi } = await loadApiModule()
+    expect(await getApi().icon.delete('logo.png')).toEqual(result)
+    expect(invokeMock).toHaveBeenCalledWith('icon_delete', { filename: 'logo.png' })
   })
 
   it('subscribes to proxy status events and disposes the listener', async () => {

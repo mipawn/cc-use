@@ -1,4 +1,5 @@
-import type { ClientKind } from '@shared/types'
+import type { ClientKind, ClientModel } from '@shared/types'
+export type { ClientModel } from '@shared/types'
 
 export const CLAUDE_CODE_MODEL_ENV_KEYS = [
   'ANTHROPIC_MODEL',
@@ -10,12 +11,6 @@ export const CLAUDE_CODE_MODEL_ENV_KEYS = [
 
 export type CatalogMode = 'provider' | 'append' | 'custom'
 export type ForwardMode = 'follow' | 'fixed' | 'family'
-export interface ClientModel {
-  id: string
-  displayName: string
-  /** Exposed as a 1M-context variant next to the plain entry. */
-  supports1m?: boolean
-}
 
 /** Claude Desktop role slots. Each exposes one catalog model under a
  * canonical Claude route id so Desktop's tier and effort controls apply. */
@@ -36,9 +31,19 @@ export interface ClientCatalog {
   fetchedAt: string
   error?: string
 }
+
+/** Match the exact client ID, including the supported 1M spelling offered by Code. */
+export function isCatalogModelId(models: readonly ClientModel[], id: string): boolean {
+  return models.some(
+    (model) => model.id === id || (model.supports1m === true && `${model.id}[1m]` === id),
+  )
+}
+
 export interface ClientModelConfig {
   catalogMode: CatalogMode
   models: ClientModel[]
+  /** Existing provider-mode runtime metadata; ordinary selection drafts never populate this. */
+  providerRuntimeModels?: ClientModel[]
   roles: ClientRoles
   defaultModel: string
   forwardMode: ForwardMode
@@ -76,6 +81,21 @@ const object = (value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : {}
 const string = (value: unknown) => (typeof value === 'string' ? value : '')
+const readModels = (value: unknown): ClientModel[] =>
+  Array.isArray(value)
+    ? value.flatMap((item) => {
+        const model = object(item)
+        return typeof model.id === 'string'
+          ? [
+              {
+                id: model.id,
+                displayName: string(model.displayName),
+                supports1m: model.supports1m === true,
+              },
+            ]
+          : []
+      })
+    : []
 const kinds: ClientKind[] = ['claude_code', 'claude_desktop', 'codex', 'grok']
 
 export function parseModelMapping(value?: string | null): ModelMappingFields {
@@ -100,40 +120,30 @@ export function parseModelMapping(value?: string | null): ModelMappingFields {
         sonnet: string(upstream.sonnet),
         opus: string(upstream.opus),
       }
-      const rawModels = catalog.models ?? scope.models
-      const models: ClientModel[] = Array.isArray(rawModels)
-        ? rawModels.flatMap((item) => {
-            const model = object(item)
-            return typeof model.id === 'string'
-              ? [
-                  {
-                    id: model.id,
-                    displayName: string(model.displayName),
-                    supports1m: model.supports1m === true,
-                  },
-                ]
-              : []
-          })
-        : []
-      // Role slots default to the model that already names the family; the
-      // person can override any of them in the editor. Claude Desktop is the
-      // client that consumes them; Claude Code uses startup variables.
-      const rawRoles = object(catalog.roles ?? scope.roles)
-      const roles = emptyRoles()
-      for (const role of CLIENT_ROLES) {
-        const assigned = string(rawRoles[role]).trim()
-        roles[role] =
-          assigned ||
-          (kind === 'claude_desktop'
-            ? (models.find((model) => model.id.toLowerCase().includes(role))?.id ?? '')
-            : '')
-      }
+      const runtimeModels = catalog.models ?? scope.models
+      // Provider-mode selections are editor state, not runtime catalog overrides.
+      const draftOnly = catalog.mode === 'provider' && Array.isArray(catalog.draftModels)
+      const providerRuntimeModels = readModels(runtimeModels)
+      const models = draftOnly ? readModels(catalog.draftModels) : providerRuntimeModels
       const catalogMode: CatalogMode =
         catalog.mode === 'append' || catalog.mode === 'custom'
           ? catalog.mode
           : !Object.keys(catalog).length && models.length
             ? 'custom'
             : 'provider'
+      // Provider roles stay explicit: inferring from legacy metadata would
+      // change existing configurations and resurrect cleared role slots.
+      const roleModelIds = models.map((model) => model.id)
+      const rawRoles = object(catalog.roles ?? scope.roles)
+      const roles = emptyRoles()
+      for (const role of CLIENT_ROLES) {
+        const assigned = string(rawRoles[role]).trim()
+        roles[role] =
+          assigned ||
+          (kind === 'claude_desktop' && catalogMode !== 'provider'
+            ? (roleModelIds.find((id) => id.toLowerCase().includes(role)) ?? '')
+            : '')
+      }
       const forwardMode: ForwardMode =
         upstream.mode === 'follow'
           ? 'follow'
@@ -150,6 +160,9 @@ export function parseModelMapping(value?: string | null): ModelMappingFields {
           ...emptyClient(),
           catalogMode,
           models,
+          ...(catalogMode === 'provider' && providerRuntimeModels.length
+            ? { providerRuntimeModels }
+            : {}),
           roles,
           defaultModel: string(
             kind === 'grok' ? (scoped ? scope.model : parsed.grok) : catalog.defaultModel,
@@ -195,17 +208,27 @@ export function serializeModelMapping(fields: ModelMappingFields): string | unde
         kind === 'claude_desktop'
           ? Object.fromEntries(Object.entries(roles).filter(([, model]) => Boolean(model)))
           : {}
+      const providerRuntimeModels =
+        config.catalogMode === 'provider' ? (config.providerRuntimeModels ?? []) : []
+      const serializeModels = (models: ClientModel[]) =>
+        models.map(({ id, displayName, supports1m }) => ({
+          id: id.trim(),
+          displayName: displayName.trim() || id.trim(),
+          ...(supports1m ? { supports1m: true } : {}),
+        }))
+      configured ||= kind !== 'grok' && providerRuntimeModels.length > 0
       const catalog = {
         mode: config.catalogMode,
-        ...(config.catalogMode !== 'provider'
+        ...(config.catalogMode !== 'provider' ||
+        config.models.length ||
+        providerRuntimeModels.length
           ? {
-              models: config.models.map(({ id, displayName, supports1m }) => ({
-                id: id.trim(),
-                displayName: displayName.trim() || id.trim(),
-                ...(supports1m ? { supports1m: true } : {}),
-              })),
+              [config.catalogMode === 'provider' ? 'draftModels' : 'models']: serializeModels(
+                config.models,
+              ),
             }
           : {}),
+        ...(providerRuntimeModels.length ? { models: serializeModels(providerRuntimeModels) } : {}),
         ...(Object.keys(assignedRoles).length ? { roles: assignedRoles } : {}),
         ...(kind === 'codex' && config.defaultModel.trim()
           ? { defaultModel: config.defaultModel.trim() }
@@ -215,7 +238,7 @@ export function serializeModelMapping(fields: ModelMappingFields): string | unde
         config.forwardMode !== 'follow' ||
         Boolean(config.defaultModel.trim()) ||
         Object.keys(assignedRoles).length > 0 ||
-        (kind !== 'grok' && config.catalogMode !== 'provider')
+        (kind !== 'grok' && (config.catalogMode !== 'provider' || config.models.length > 0))
       return [
         kind,
         {

@@ -36,6 +36,8 @@ const getDefaultTerminalType = (): TerminalType => {
 const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   defaultProviderType: 'claude',
   proxyPort: 12345,
+  // Only an explicit opt-in binds non-loopback interfaces.
+  proxyListenScope: 'loopback',
   defaultTerminalType: getDefaultTerminalType(),
   closeToTray: true,
   daemonEnabled: true,

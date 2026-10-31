@@ -183,6 +183,14 @@
   gap: 12px;
   margin-bottom: 14px;
 }
+.managerToolbar > :global(.ant-input-affix-wrapper) {
+  flex: 1;
+  min-width: 0;
+}
+.managerToolbar > :global(.ant-checkbox-wrapper) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .sourceButtons,
 .batchActions {
   display: flex;
@@ -254,7 +262,55 @@
   font-size: 12px;
   line-height: 1.6;
 }
+/* Query identity: the provider/key/launchpad/address a list is actually for. */
+.identityGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 16px;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  font-size: 12px;
+}
+.identityGrid > span {
+  overflow-wrap: anywhere;
+}
+.identityGrid code {
+  font-family: var(--font-mono, monospace);
+}
+.identityAddress {
+  grid-column: 1 / -1;
+}
+.strategyRow {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 200px) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.strategyRow > :first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.strategyHint {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
 @media (max-width: 760px) {
+  .strategyRow {
+    grid-template-columns: 1fr;
+  }
+  .identityGrid {
+    grid-template-columns: 1fr;
+  }
+  .identityAddress {
+    grid-column: auto;
+  }
   .clientHeader {
     align-items: flex-start;
     flex-direction: column;
@@ -278,4 +334,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.catalogSelection {
+  padding: 12px 0 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.catalogSelection .fieldRow {
+  grid-template-columns: 106px minmax(0, 1fr);
+}
+.selectionHint {
+  display: block;
+  padding-left: 116px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 760px) {
+  .catalogSelection .fieldRow {
+    grid-template-columns: 92px minmax(0, 1fr);
+  }
+  .selectionHint {
+    padding-left: 100px;
+  }
 }

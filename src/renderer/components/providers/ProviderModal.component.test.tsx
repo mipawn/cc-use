@@ -13,6 +13,7 @@ import ProviderModal from './ProviderModal'
 const presets = vi.fn()
 const checkScript = vi.fn()
 const iconList = vi.fn()
+const iconDelete = vi.fn()
 
 vi.mock('../../api', () => ({
   getApi: () => ({
@@ -21,12 +22,17 @@ vi.mock('../../api', () => ({
       upload: async () => '',
       list: iconList,
       read: async () => 'data:image/png;base64,aWNvbg==',
+      delete: iconDelete,
     },
     balance: { checkScript },
   }),
 }))
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh' } }),
+  useTranslation: () => ({
+    t: (key: string, values?: { names?: string }) =>
+      values?.names ? `${key}: ${values.names}` : key,
+    i18n: { language: 'zh' },
+  }),
 }))
 vi.mock('../../hooks/useAppMessage', () => ({
   useAppMessage: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
@@ -122,6 +128,8 @@ let mounted: { root: Root; container: HTMLElement } | null = null
 beforeEach(() => {
   iconList.mockReset()
   iconList.mockResolvedValue({ uploaded: [] })
+  iconDelete.mockReset()
+  iconDelete.mockResolvedValue({ deleted: true, usedBy: [] })
   presets.mockReset()
   checkScript.mockReset()
   checkScript.mockResolvedValue({ url: 'https://relay.example.com', method: 'GET', headers: {} })
@@ -250,6 +258,110 @@ function providerFixture(overrides: Partial<Provider> = {}): Provider {
     ...overrides,
   }
 }
+
+function iconDeleteDialog(): HTMLElement {
+  return [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].find((dialog) =>
+    dialog.textContent?.includes('providers.deleteIconConfirm'),
+  )!
+}
+
+async function beginIconDelete(filename: string) {
+  const button = document.body.querySelector<HTMLButtonElement>(
+    `button[aria-label="providers.deleteIcon: ${filename}"]`,
+  )
+  expect(button).not.toBeNull()
+  await act(async () => button!.click())
+}
+
+async function confirmIconDelete() {
+  const button = [...iconDeleteDialog().querySelectorAll('button')].find(
+    (item) => item.textContent === 'common.delete',
+  )!
+  await act(async () => button.click())
+}
+
+it('offers deletion only for uploaded icons and cancel keeps the draft and file', async () => {
+  iconList.mockResolvedValue({ uploaded: ['cancel-upload.png'] })
+  await render(null)
+  expect(
+    document.body.querySelectorAll('button[aria-label^="providers.deleteIcon:"]'),
+  ).toHaveLength(1)
+  await act(async () =>
+    document.body.querySelector<HTMLButtonElement>('[aria-label="cancel-upload.png"]')!.click(),
+  )
+  await beginIconDelete('cancel-upload.png')
+  expect(iconDeleteDialog().textContent).toContain('providers.deleteIconIrreversible')
+  const cancel = [...iconDeleteDialog().querySelectorAll('button')].find(
+    (item) => item.textContent === 'common.cancel',
+  )!
+  await act(async () => cancel.click())
+  expect(iconDelete).not.toHaveBeenCalled()
+  expect(
+    document.body.querySelector('[aria-label="cancel-upload.png"]')?.getAttribute('aria-pressed'),
+  ).toBe('true')
+})
+
+it('deletes only after confirmation and clears a selected unsaved icon draft', async () => {
+  iconList.mockResolvedValue({ uploaded: ['delete-draft.png', 'keep-upload.png'] })
+  const onSave = await render(null)
+  await fillRequiredFields()
+  await act(async () =>
+    document.body.querySelector<HTMLButtonElement>('[aria-label="delete-draft.png"]')!.click(),
+  )
+  await beginIconDelete('delete-draft.png')
+  expect(iconDelete).not.toHaveBeenCalled()
+  await confirmIconDelete()
+  expect(iconDelete).toHaveBeenCalledExactlyOnceWith('delete-draft.png')
+  expect(document.body.querySelector('[aria-label="delete-draft.png"]')).toBeNull()
+  expect(document.body.querySelector('[aria-label="keep-upload.png"]')).not.toBeNull()
+  await submit()
+  expect(onSave.mock.calls[0][0].icon).toBeUndefined()
+})
+
+it('keeps the selected icon and names providers when the backend refuses an in-use file', async () => {
+  iconList.mockResolvedValue({ uploaded: ['in-use.png'] })
+  iconDelete.mockResolvedValue({
+    deleted: false,
+    usedBy: [{ id: 'provider-1', name: 'Live provider' }],
+  })
+  await render(providerFixture({ icon: 'in-use.png' }))
+  await beginIconDelete('in-use.png')
+  await confirmIconDelete()
+  expect(iconDeleteDialog().textContent).toContain('providers.iconInUseHint')
+  expect(iconDeleteDialog().textContent).toContain('Live provider')
+  expect(
+    document.body.querySelector('[aria-label="in-use.png"]')?.getAttribute('aria-pressed'),
+  ).toBe('true')
+  expect(iconDeleteDialog().querySelector('button.ant-btn-primary')?.hasAttribute('disabled')).toBe(
+    true,
+  )
+})
+
+it('keeps the file and selected draft visible when deletion fails', async () => {
+  iconList.mockResolvedValue({ uploaded: ['failed-delete.png'] })
+  iconDelete.mockRejectedValue(new Error('disk unavailable'))
+  await render(providerFixture({ icon: 'failed-delete.png' }))
+  await beginIconDelete('failed-delete.png')
+  await confirmIconDelete()
+  expect(iconDeleteDialog().textContent).toContain('providers.iconDeleteFailed')
+  expect(
+    document.body.querySelector('[aria-label="failed-delete.png"]')?.getAttribute('aria-pressed'),
+  ).toBe('true')
+})
+
+it('ignores a list reply that arrives after successful deletion', async () => {
+  let resolve!: (value: { uploaded: string[] }) => void
+  iconList.mockReturnValue(
+    new Promise<{ uploaded: string[] }>((done) => {
+      resolve = done
+    }),
+  )
+  await render(providerFixture({ icon: 'file:///old/library/late-list.png' }))
+  await beginIconDelete('late-list.png')
+  await confirmIconDelete()
+  await act(async () => resolve({ uploaded: ['late-list.png'] }))
+  expect(document.body.querySelector('[aria-label="late-list.png"]')).toBeNull()
+})
 
 it('offers the catalogue on a new provider', async () => {
   await render(null)

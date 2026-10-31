@@ -1,0 +1,197 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.tabs {
+  min-width: 240px;
+  flex: 1;
+}
+
+.tabs :global(.ant-tabs-nav) {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.search {
+  width: 240px;
+  max-width: 100%;
+}
+
+.toggleField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.streamHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--ant-color-text-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.bufferInfo {
+  font-variant-numeric: tabular-nums;
+}
+
+.bufferHint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminalLayout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+
+.streamPane {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Menlo, 'Cascadia Code', 'Courier New', monospace;
+  font-size: 12.5px;
+  line-height: 20px;
+}
+
+.requestRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 1px 4px;
+  border-left: 2px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.requestRow:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: -2px;
+}
+
+.requestRow:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.modelCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logRow {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.empty {
+  line-height: 20px;
+}
+
+.newEvents {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.detailPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 380px;
+  flex-shrink: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid;
+  border-radius: 8px;
+}
+
+@media (max-width: 1100px) {
+  .terminalLayout {
+    flex-direction: column;
+  }
+
+  .detailPanel {
+    width: auto;
+    max-height: 45%;
+  }
+}
+
+@media (max-width: 1000px) {
+  .search {
+    width: 180px;
+  }
+
+  .requestRow > span:nth-child(4) {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .toolbar {
+    align-items: flex-start;
+  }
+
+  .actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .search {
+    flex: 1;
+    width: auto;
+    min-width: 160px;
+  }
+
+  .tabs {
+    width: 100%;
+  }
+}

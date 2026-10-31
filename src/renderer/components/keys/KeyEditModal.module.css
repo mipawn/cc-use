@@ -103,6 +103,15 @@
   font-size: 12px;
 }
 
+.baseUrlRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.baseUrlRow > :global(.ant-input) {
+  flex: 1;
+  min-width: 0;
+}
 .clientRowFields {
   display: grid;
   /* The address takes the slack; the scheme is a fixed, comparable column. */

@@ -69,6 +69,14 @@
   margin: 16px 0 !important;
 }
 
+.lanScopeHint {
+  margin-top: 8px;
+}
+
+.lanSection {
+  margin-top: 12px;
+}
+
 .sectionTitle {
   margin: 0 0 8px 0 !important;
 }

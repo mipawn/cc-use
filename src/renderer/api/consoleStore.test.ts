@@ -1,15 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ConsoleEvent } from '../../shared/types'
+import type { ConsoleEvent, ConsoleLogClearResult, ConsoleLogRetention } from '../../shared/types'
 
 const readRecent = vi.fn()
 const clearHistory = vi.fn()
 const logStatus = vi.fn()
+
+const { beginRendererLogClear, endRendererLogClear } = vi.hoisted(() => ({
+  beginRendererLogClear: vi.fn(async () => {}),
+  endRendererLogClear: vi.fn(),
+}))
 
 vi.mock('./index', () => ({
   getApi: () => ({
     console: { readRecent, clearHistory, logStatus, onEvent: () => () => {} },
   }),
 }))
+
+// The real bridge owns intervals and IPC; the store tests only care that the
+// clear protocol is entered before the backend call and left afterwards.
+vi.mock('./consoleLogBridge', () => ({ beginRendererLogClear, endRendererLogClear }))
 
 type ConsoleStore = typeof import('./consoleStore')
 
@@ -53,6 +62,18 @@ function logEvent(id: string | undefined, message: string): ConsoleEvent {
     target: null,
     message,
   } as ConsoleEvent
+}
+
+/** Render a local Date as the UTC `YYYY-MM-DD HH:MM:SS` record format. */
+function renderUtcRecordTimestamp(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(
+    date.getUTCHours(),
+  )}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`
+}
+
+function pageRecord(source: string, seq: number, id: string, event: ConsoleEvent) {
+  return { source, epoch: 'e', seq, at: '', id, event }
 }
 
 describe('mergeConsoleEventList', () => {
@@ -110,6 +131,9 @@ describe('console history hydration', () => {
   beforeEach(() => {
     readRecent.mockReset()
     clearHistory.mockReset()
+    logStatus.mockReset()
+    beginRendererLogClear.mockClear()
+    endRendererLogClear.mockClear()
   })
 
   it('restores records from disk without duplicating what is already on screen', async () => {
@@ -118,22 +142,8 @@ describe('console history hydration', () => {
       generation: 'g1',
       truncated: false,
       records: [
-        {
-          source: 'daemon',
-          epoch: 'e',
-          seq: 1,
-          at: '',
-          id: 'req-1:ok',
-          event: pendingRequest({ kind: 'ok', status: 200 }),
-        },
-        {
-          source: 'daemon',
-          epoch: 'e',
-          seq: 2,
-          at: '',
-          id: 'log-1',
-          event: logEvent('log-1', 'from disk'),
-        },
+        pageRecord('daemon', 1, 'req-1:ok', pendingRequest({ kind: 'ok', status: 200 })),
+        pageRecord('daemon', 2, 'log-1', logEvent('log-1', 'from disk')),
       ],
     })
 
@@ -151,16 +161,7 @@ describe('console history hydration', () => {
     readRecent.mockResolvedValueOnce({
       generation: 'g1',
       truncated: false,
-      records: [
-        {
-          source: 'daemon',
-          epoch: 'e',
-          seq: 1,
-          at: '',
-          id: 'log-1',
-          event: logEvent('log-1', 'old'),
-        },
-      ],
+      records: [pageRecord('daemon', 1, 'log-1', logEvent('log-1', 'old'))],
     })
     await hydrateConsoleHistory()
     expect(getConsoleEvents()).toHaveLength(1)
@@ -170,16 +171,7 @@ describe('console history hydration', () => {
     readRecent.mockResolvedValueOnce({
       generation: 'g2',
       truncated: false,
-      records: [
-        {
-          source: 'daemon',
-          epoch: 'e',
-          seq: 1,
-          at: '',
-          id: 'log-2',
-          event: logEvent('log-2', 'new'),
-        },
-      ],
+      records: [pageRecord('daemon', 1, 'log-2', logEvent('log-2', 'new'))],
     })
     await hydrateConsoleHistory()
 
@@ -188,21 +180,176 @@ describe('console history hydration', () => {
     expect(events[0]).toMatchObject({ message: 'new' })
   })
 
-  it('keeps the console usable when history cannot be read', async () => {
-    const { hydrateConsoleHistory } = await freshStore()
+  it('uses the durable envelope to deduplicate legacy events without ids across refreshes', async () => {
+    const { getConsoleEvents, hydrateConsoleHistory } = await freshStore()
+    readRecent.mockImplementation(async () => ({
+      generation: 'g1',
+      truncated: false,
+      records: [
+        pageRecord('daemon', 7, 'daemon:e:7', pendingRequest({ requestId: undefined })),
+        pageRecord('app', 8, 'app:e:8', logEvent(undefined, 'legacy log')),
+      ],
+    }))
+    await hydrateConsoleHistory()
+    await hydrateConsoleHistory()
+    expect(getConsoleEvents()).toHaveLength(2)
+    expect(getConsoleEvents()[0]).toMatchObject({ requestId: 'daemon:e:7' })
+    expect(getConsoleEvents()[1]).toMatchObject({ id: 'app:e:8' })
+  })
+
+  it('does not resurrect a cleared window from an earlier in-flight history read', async () => {
+    const { getConsoleEvents, hydrateConsoleHistory, clearConsoleHistory } = await freshStore()
+    let resolveRead!: (value: unknown) => void
+    readRecent.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRead = resolve
+      }),
+    )
+    const read = hydrateConsoleHistory()
+    clearHistory.mockResolvedValue({ ok: true, app: true, daemon: true })
+    await clearConsoleHistory()
+    resolveRead({
+      generation: 'old',
+      truncated: false,
+      records: [pageRecord('daemon', 1, 'old', logEvent('old', 'cleared'))],
+    })
+    await read
+    expect(getConsoleEvents()).toEqual([])
+  })
+
+  it('exposes retention and truncation metadata from the read', async () => {
+    const retention: ConsoleLogRetention = {
+      retentionStartDate: '2026-07-04',
+      capacityEvicted: true,
+      trimmed: true,
+      corrupted: 2,
+      limited: true,
+    }
+    const { getConsoleHistoryMeta, hydrateConsoleHistory } = await freshStore()
+    readRecent.mockResolvedValue({
+      generation: 'g9',
+      truncated: true,
+      retention,
+      records: [],
+    })
+
+    await hydrateConsoleHistory()
+
+    expect(getConsoleHistoryMeta()).toEqual({
+      truncated: true,
+      retention,
+      error: null,
+      generation: 'g9',
+    })
+  })
+
+  it('keeps the console usable when history cannot be read and records the error', async () => {
+    const { getConsoleHistoryMeta, hydrateConsoleHistory } = await freshStore()
     readRecent.mockRejectedValue(new Error('unavailable'))
 
     await expect(hydrateConsoleHistory()).resolves.toBeUndefined()
+    expect(getConsoleHistoryMeta().error).toBe('unavailable')
+    expect(getConsoleHistoryMeta().truncated).toBe(false)
+  })
+})
+
+describe('the three-local-day window', () => {
+  beforeEach(() => {
+    readRecent.mockReset()
+  })
+
+  it('computes the oldest retained local day as today minus two days', async () => {
+    const { getConsoleRetentionStartDate } = await freshStore()
+    const now = new Date(2026, 9, 29, 12, 0, 0) // local 2026-10-29
+    expect(getConsoleRetentionStartDate(now)).toBe('2026-10-27')
+  })
+
+  it('prunes expired rows and invalid timestamps from the in-memory list', async () => {
+    const {
+      getConsoleEvents,
+      getConsoleHistoryMeta,
+      hydrateConsoleHistory,
+      pruneExpiredConsoleEvents,
+    } = await freshStore()
+    const now = new Date(2026, 9, 29, 12, 0, 0)
+    // Local-time instants converted to the UTC format the backend sends; the
+    // store must map them back to the same local natural day.
+    const inside = renderUtcRecordTimestamp(new Date(2026, 9, 27, 0, 30, 0))
+    const expired = renderUtcRecordTimestamp(new Date(2026, 9, 26, 23, 30, 0))
+    readRecent.mockResolvedValue({
+      generation: 'g1',
+      truncated: false,
+      records: [
+        pageRecord('daemon', 1, 'inside', { ...logEvent('inside', 'kept'), timestamp: inside }),
+        pageRecord('daemon', 2, 'expired', { ...logEvent('expired', 'old'), timestamp: expired }),
+        pageRecord('daemon', 3, 'bad', {
+          ...logEvent('bad', 'invalid'),
+          timestamp: 'not-a-timestamp',
+        }),
+      ],
+    })
+    await hydrateConsoleHistory()
+    expect(getConsoleEvents()).toHaveLength(3)
+    expect(getConsoleHistoryMeta().generation).toBe('g1')
+
+    const removed = pruneExpiredConsoleEvents(now)
+
+    expect(removed).toBe(2)
+    expect(getConsoleEvents()).toHaveLength(1)
+    expect(getConsoleEvents()[0]).toMatchObject({ message: 'kept' })
   })
 })
 
 describe('clearing the console', () => {
+  beforeEach(() => {
+    clearHistory.mockReset()
+    beginRendererLogClear.mockClear()
+    endRendererLogClear.mockClear()
+  })
+
   it('drops the buffer and the on-disk history together', async () => {
     const { getConsoleEvents, clearConsoleHistory } = await freshStore()
-    clearHistory.mockResolvedValue(undefined)
-    await clearConsoleHistory()
+    clearHistory.mockResolvedValue({ ok: true, app: true, daemon: true })
+    const result = await clearConsoleHistory()
 
+    expect(result).toEqual({ ok: true, app: true, daemon: true })
     expect(clearHistory).toHaveBeenCalledTimes(1)
     expect(getConsoleEvents()).toEqual([])
+  })
+
+  it('enters and leaves the bridge clear protocol around the backend call', async () => {
+    const { clearConsoleHistory } = await freshStore()
+    clearHistory.mockImplementation(async () => {
+      expect(beginRendererLogClear).toHaveBeenCalledTimes(1)
+      return { ok: true, app: true, daemon: true }
+    })
+
+    await clearConsoleHistory()
+
+    expect(beginRendererLogClear).toHaveBeenCalledTimes(1)
+    expect(endRendererLogClear).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a partial clear instead of reporting a full success', async () => {
+    const { clearConsoleHistory, getConsoleHistoryMeta } = await freshStore()
+    const partial: ConsoleLogClearResult = { ok: false, app: true, daemon: false }
+    clearHistory.mockResolvedValue(partial)
+
+    const result = await clearConsoleHistory()
+
+    expect(result).toEqual(partial)
+    // Clear failures use the per-owner result, not the history-read error channel.
+    expect(getConsoleHistoryMeta().error).toBeNull()
+    // The bridge protocol is still left, otherwise new logs would never flush.
+    expect(endRendererLogClear).toHaveBeenCalledTimes(1)
+  })
+
+  it('never rejects when the clear IPC itself fails', async () => {
+    const { clearConsoleHistory } = await freshStore()
+    clearHistory.mockRejectedValue(new Error('ipc down'))
+
+    const result = await clearConsoleHistory()
+
+    expect(result).toEqual({ ok: false, app: false, daemon: false })
   })
 })

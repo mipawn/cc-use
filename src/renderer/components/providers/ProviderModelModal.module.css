@@ -1,0 +1,187 @@
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.title > :last-child {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.body {
+  max-height: 74vh;
+  padding-right: 8px;
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 4px;
+}
+.querySection {
+  padding: 14px 16px 10px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--radius-ant);
+  background: var(--surface-sunken);
+}
+.queryHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+}
+.queryStatus {
+  font-size: 12px;
+}
+.queryRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.queryRow > label {
+  flex-shrink: 0;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+.keySelect {
+  flex: 1;
+  min-width: 0;
+}
+.connectionDetails {
+  margin-top: 10px;
+}
+.connectionDetails > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-block: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+.connectionDetails > summary::before {
+  content: '›';
+  font-size: 16px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+.connectionDetails[open] > summary::before {
+  transform: rotate(90deg);
+}
+.connectionDetails > summary code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connectionFields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+.connectionHint,
+.inlineNotice {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.inlineNotice {
+  display: block;
+  margin-top: 6px;
+}
+.field {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.field > :first-child {
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+.urlField {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.urlField > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.authSelect {
+  width: 180px;
+}
+.advancedDetails > summary {
+  padding-block: 4px;
+  cursor: pointer;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+.advancedFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.connectionDetails > summary:focus-visible,
+.advancedDetails > summary:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.catalogHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.catalogSection {
+  min-width: 0;
+}
+.catalogHeader > :last-child {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.reading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  min-height: 160px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@media (max-width: 760px) {
+  .querySection {
+    padding: 12px;
+  }
+  .field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .queryRow {
+    flex-wrap: wrap;
+  }
+  .queryRow > label {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connectionDetails > summary::before {
+    transition: none;
+  }
+}

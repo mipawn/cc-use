@@ -3,7 +3,7 @@ import { getApi } from '../api'
  * Settings - 简化的设置页面
  * 只保留：语言、主题、代理端口、默认终端、代理状态（只读+重启）
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Typography,
   Card,
@@ -21,6 +21,7 @@ import {
   message,
   Checkbox,
   Alert,
+  Segmented,
   Tooltip,
 } from 'antd'
 import { useTranslation } from 'react-i18next'
@@ -32,7 +33,7 @@ import { reloadMigratedStores } from '../stores/reloadStores'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
-import type { CliToolStatus } from '@shared/types'
+import type { CliToolStatus, ProxyLanInfo } from '@shared/types'
 import {
   GlobalOutlined,
   BgColorsOutlined,
@@ -45,7 +46,9 @@ import {
   UploadOutlined,
   PoweroffOutlined,
   ThunderboltOutlined,
+  WifiOutlined,
 } from '@ant-design/icons'
+import ProxyLanSection from '../components/settings/ProxyLanSection'
 import styles from './Settings.module.css'
 
 const { Title, Text } = Typography
@@ -162,6 +165,17 @@ export default function Settings() {
   const [cliToolStatus, setCliToolStatus] = useState<CliToolStatus | null>(null)
   const [cliToolInstalling, setCliToolInstalling] = useState(false)
 
+  // LAN access (R8): loopback is the default. The scope and the discovered
+  // IPv4 entries both come from the backend so this page never invents a
+  // reachable address.
+  const [lanInfo, setLanInfo] = useState<ProxyLanInfo | null>(null)
+  const [lanLoading, setLanLoading] = useState(false)
+  const [lanError, setLanError] = useState<string | null>(null)
+  const [savingListenScope, setSavingListenScope] = useState(false)
+  // A refresh and a scope change can both trigger the LAN read; only the latest
+  // response may update the list/error state.
+  const lanRevision = useRef(0)
+
   const handleCliToolInstall = async () => {
     setCliToolInstalling(true)
     try {
@@ -199,10 +213,27 @@ export default function Settings() {
     })
   }
 
+  const loadLanInfo = useCallback(async () => {
+    const revision = lanRevision.current + 1
+    lanRevision.current = revision
+    setLanLoading(true)
+    setLanError(null)
+    try {
+      const info = await getApi().proxy.lanAddresses()
+      if (lanRevision.current === revision) setLanInfo(info)
+    } catch (lanLoadError) {
+      if (lanRevision.current !== revision) return
+      console.error('Failed to load LAN addresses:', lanLoadError)
+      setLanError(String(lanLoadError))
+    } finally {
+      if (lanRevision.current === revision) setLanLoading(false)
+    }
+  }, [])
+
   // Read-only settings and daemon/version status. Refreshing this never saves
   // and never restarts anything, so an unsaved edit stays in the draft.
   const loadSettings = useCallback(async () => {
-    await fetchGlobalSettings()
+    await Promise.all([fetchGlobalSettings(), loadLanInfo()])
     getApi().app.getVersion().then(setAppVersion)
     // Load launch-at-login + show-window-shortcut state in parallel with the
     // other settings so the toggles are populated by the time the page renders.
@@ -221,13 +252,48 @@ export default function Settings() {
       .cliTool.status()
       .then(setCliToolStatus)
       .catch(() => setCliToolStatus(null))
-  }, [fetchGlobalSettings])
+  }, [fetchGlobalSettings, loadLanInfo])
 
   useEffect(() => {
     void loadSettings()
   }, [loadSettings])
 
   usePageRefresh(loadSettings)
+
+  const handleListenScopeChange = async (value: string | number) => {
+    const scope: ProxyLanInfo['scope'] = value === 'lan' ? 'lan' : 'loopback'
+    if (scope === globalSettings.proxyListenScope || savingListenScope) return
+    setSavingListenScope(true)
+    try {
+      // The backend persists the scope and restarts the daemon on change. A
+      // restart failure is logged there instead of failing the save, so read
+      // the live status before telling the user the new scope is active.
+      await updateGlobalSettings({ proxyListenScope: scope })
+      await loadLanInfo()
+      const nextStatus = await getApi()
+        .proxy.status()
+        .catch(() => null)
+      if (globalSettings.daemonEnabled && nextStatus && !nextStatus.isRunning) {
+        message.error(nextStatus.lastError || t('settings.proxyListenScopeRestartFailed'))
+      } else {
+        message.success(t('settings.proxyListenScopeChanged'))
+      }
+    } catch {
+      // The settings store already logged and reported the failure; the stored
+      // scope was not changed.
+    } finally {
+      setSavingListenScope(false)
+    }
+  }
+
+  const copyLanAddress = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      message.success(t('common.copied'))
+    } catch (copyError) {
+      message.error(String(copyError))
+    }
+  }
 
   const handleToggleLaunchAtLogin = async (checked: boolean) => {
     setLaunchAtLoginLoading(true)
@@ -577,6 +643,53 @@ export default function Settings() {
                   </Button>
                 </Space>
               </div>
+            </Card>
+
+            {/* Listen scope — loopback only unless the user explicitly opens
+                the gateway to the local network. */}
+            <Card className={styles.settingCard} variant='outlined'>
+              <div className={styles.settingRow}>
+                <Space>
+                  <div className={styles.iconBox} style={{ background: token.colorFillTertiary }}>
+                    <WifiOutlined
+                      className={styles.settingIcon}
+                      style={{ color: token.colorText }}
+                    />
+                  </div>
+                  <div>
+                    <Text strong>{t('settings.proxyListenScope')}</Text>
+                    <br />
+                    <Text type='secondary' className={styles.settingDesc}>
+                      {t('settings.proxyListenScopeDesc')}
+                    </Text>
+                  </div>
+                </Space>
+                <Segmented
+                  value={globalSettings.proxyListenScope}
+                  disabled={savingListenScope}
+                  onChange={(value) => void handleListenScopeChange(value)}
+                  options={[
+                    { value: 'loopback', label: t('settings.proxyListenScopeLoopback') },
+                    { value: 'lan', label: t('settings.proxyListenScopeLan') },
+                  ]}
+                />
+              </div>
+              <div className={styles.lanScopeHint}>
+                <Text type='secondary' className={styles.settingDesc}>
+                  {t('settings.proxyListenScopeHint')}
+                </Text>
+              </div>
+              {globalSettings.proxyListenScope === 'lan' && (
+                <div className={styles.lanSection}>
+                  <ProxyLanSection
+                    info={lanInfo}
+                    loading={lanLoading}
+                    error={lanError}
+                    onRefresh={() => void loadLanInfo()}
+                    onCopy={(url) => void copyLanAddress(url)}
+                  />
+                </div>
+              )}
             </Card>
 
             {/* Close to Tray */}

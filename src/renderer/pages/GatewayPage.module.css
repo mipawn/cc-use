@@ -16,6 +16,10 @@
   flex-shrink: 0;
 }
 
+.header > :first-child {
+  min-width: 0;
+}
+
 .content {
   flex: 1;
   min-height: 0;
@@ -33,12 +37,23 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
   gap: 16px;
 }
 
 .gatewayCard {
   border-radius: var(--radius-ant-lg) !important;
+}
+
+.cardHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cardHeading > :last-child {
+  flex-shrink: 0;
 }
 
 .cardTitle {
@@ -62,6 +77,7 @@
 }
 
 .value {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -74,22 +90,243 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--ant-font-family-code);
+  font-family: var(--font-mono);
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 4px;
   background: var(--ant-color-fill-tertiary);
 }
 
-.hint {
-  margin: 10px 0 0 !important;
+.connectionBlock {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+
+.connectionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 8px;
+  color: var(--ant-color-text-secondary);
   font-size: 12px;
 }
 
+.modelSummary {
+  color: var(--ant-color-text);
+  font-weight: 500;
+}
+
+.metadataDivider {
+  color: var(--ant-color-text-quaternary);
+}
+
+.userAgentSummary {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lanHint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 12px;
+}
+
+.lanEntries {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lanEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lanInterface {
+  margin-inline-end: 0 !important;
+  font-size: 11px;
+}
+
+.lanEmpty,
+.lanError {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.lanError {
+  color: var(--ant-color-error);
+}
+
+.riskHints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .fieldLabel {
+  display: block;
   margin-bottom: 6px;
   color: var(--ant-color-text-secondary);
   font-size: 12px;
+}
+
+.fieldHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.fieldHeader .fieldLabel {
+  margin-bottom: 0;
+}
+
+.fieldHint {
+  margin-top: 4px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.fieldError {
+  margin-top: 4px;
+  color: var(--ant-color-error);
+  font-size: 12px;
+}
+
+.sectionLabel {
+  margin: 0 0 10px;
+  color: var(--ant-color-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.formSections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.formSection {
+  min-width: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.formField {
+  min-width: 0;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.bindingGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.policyChoices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.policyChoice {
+  display: flex;
+  align-items: flex-start;
+  margin-inline-end: 0;
+  padding: 10px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: var(--radius-ant);
+  background: var(--ant-color-bg-container);
+}
+
+.policyChoiceActive {
+  border-color: var(--ant-color-primary-border);
+  background: var(--ant-color-primary-bg);
+}
+
+.policyChoice > :global(.ant-radio) {
+  margin-top: 3px;
+}
+
+.policyCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.policyTitle {
+  color: var(--ant-color-text);
+  font-weight: 500;
+}
+
+.policyDescription {
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.selectedModels {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.selectionCount {
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.policyNotice {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.policyNotice :global(.ant-alert-title) {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.advancedPanel {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.advancedSummary {
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.advancedFields {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.modalBody {
+  max-height: calc(100dvh - 190px);
+  padding-right: 8px;
 }
 
 .loadingState {
@@ -100,11 +337,23 @@
 }
 
 @media (max-width: 720px) {
+  .header {
+    flex-wrap: wrap;
+  }
+
   .grid {
     grid-template-columns: 1fr;
   }
 
   .label {
     flex-basis: 60px;
+  }
+}
+
+@media (max-width: 560px) {
+  .bindingGrid,
+  .policyChoices,
+  .advancedFields {
+    grid-template-columns: 1fr;
   }
 }

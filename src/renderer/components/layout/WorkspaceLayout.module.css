@@ -43,12 +43,25 @@
 .group {
   margin-top: 25px;
 }
+/* The gateway entry connects clients rather than showing observations, so it
+   sits outside both the management and the observation group. */
+.standalone {
+  margin-top: 0;
+}
 .groupLabel {
   display: block;
   padding: 0 12px 9px;
   font-size: 11px;
   font-weight: 500;
   color: var(--ant-color-text-tertiary);
+}
+/* Observation screens (statistics/console) are grouped in their own sunken
+   panel so they read as a separate section from provider/key management. */
+.observationGroup {
+  margin-top: 12px;
+}
+.observationGroup .groupLabel {
+  padding-inline: 12px;
 }
 .navItem {
   display: flex;
@@ -186,6 +199,21 @@
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
 }
+.collapsed .standalone {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+/* Keep the observation panel if there is room, but shrink its inner padding so
+   the icon-only nav items stay centered in the collapsed rail. */
+.collapsed .observationGroup {
+  margin-top: 0;
+  padding: 0 4px 4px;
+  border-top: 0;
+}
+.collapsed .observationGroup .navItem {
+  padding-inline: 4px;
+}
 .navItem:focus-visible,
 .iconButton:focus-visible {
   outline: 2px solid var(--color-focus);
@@ -225,6 +253,19 @@
     margin-top: 18px;
     padding-top: 12px;
     border-top: 1px solid var(--border-subtle);
+  }
+  .standalone {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .observationGroup {
+    margin-top: 0;
+    padding: 0 4px 4px;
+    border-top: 0;
+  }
+  .observationGroup .navItem {
+    padding-inline: 4px;
   }
   .content {
     padding: 18px 16px;

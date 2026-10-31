@@ -14,6 +14,7 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
   GlobalSettings,
+  ProxyLanInfo,
   PresetIcon,
   ProviderPreset,
   UsageData,
@@ -24,8 +25,18 @@ import type {
   ImportResult,
   ProxySession,
   Gateway,
+  GatewayConnectionConfig,
+  GatewayModelPolicy,
+  ProviderModelCatalog,
+  ClientModel,
+  IconDeleteResult,
   ProxyStatus,
   ConsoleEvent,
+  ConsoleLogPage,
+  ConsoleLogStatus,
+  ConsoleLogClearResult,
+  ConsoleLogAppendResult,
+  RendererLogRecord,
   ManagedInstance,
   UpdateManagedInstanceAssignmentInput,
   UsageStats,
@@ -80,6 +91,17 @@ export interface Api {
       userAgent?: string
       clientConfigs?: Partial<Record<ClientKind, import('@shared/types').ClientConfig>>
     }) => Promise<import('../utils/modelMapping').ClientCatalog>
+    getModelCatalog: (providerId: string) => Promise<ProviderModelCatalog>
+    saveModelCatalog: (
+      providerId: string,
+      models: ClientModel[],
+      revision: number,
+    ) => Promise<ProviderModelCatalog>
+    queryModels: (input: {
+      providerId: string
+      apiKeyId: string
+      connectionConfig: GatewayConnectionConfig
+    }) => Promise<import('../utils/modelMapping').ClientCatalog>
     /// The preset catalogue the add-provider flow fills from.
     presets: () => Promise<ProviderPreset[]>
   }
@@ -88,7 +110,11 @@ export interface Api {
     save: (value: string) => Promise<string[]>
     delete: (value: string) => Promise<string[]>
     getQueryPreference: (providerId: string, clientKind: ClientKind) => Promise<string | null>
-    saveQueryPreference: (providerId: string, clientKind: ClientKind, value: string) => Promise<void>
+    saveQueryPreference: (
+      providerId: string,
+      clientKind: ClientKind,
+      value: string,
+    ) => Promise<void>
   }
   apiKey: {
     list: (providerId: string) => Promise<ApiKey[]>
@@ -134,6 +160,9 @@ export interface Api {
     /// The daemon owns this flag; read it back after a reload instead of
     /// assuming the switch is off.
     getDetailMode: () => Promise<boolean>
+    /// Current listen scope plus the LAN IPv4 entries for the proxy port.
+    /// Read-only: it reports addresses, it does not open or close a listener.
+    lanAddresses: () => Promise<ProxyLanInfo>
     onStatusChanged: (
       callback: (data: {
         isRunning: boolean
@@ -149,28 +178,21 @@ export interface Api {
     /// single channel. Returns an unlisten fn.
     onEvent: (callback: (event: ConsoleEvent) => void) => () => void
     /// Bounded on-disk history, oldest record first. Used to restore the
-    /// console after a reload or restart; `truncated` says the size budget has
-    /// already evicted older records.
-    readRecent: (
-      sources: string[],
-      limit?: number,
-    ) => Promise<{
-      generation: string
-      truncated: boolean
-      records: Array<{
-        source: string
-        epoch: string
-        seq: number
-        at: string
-        id: string
-        event: ConsoleEvent
-      }>
-    }>
-    /// Records this process failed to persist (queue overflow or write error).
-    logStatus: () => Promise<{ dropped: number }>
+    /// console after a reload or restart. `retention` explains the window:
+    /// the store keeps the current local day plus the two before it, and the
+    /// size budget may evict older records earlier.
+    readRecent: (sources: string[], limit?: number) => Promise<ConsoleLogPage>
+    /// Per-owner writer state: enqueue drops, write failures, trims and the
+    /// size-budget eviction flag. The daemon entry reports `available: false`
+    /// when it is offline instead of pretending zero.
+    logStatus: () => Promise<ConsoleLogStatus>
     /// Delete console history on disk for both processes. Statistics rows live
-    /// in the database and are not affected.
-    clearHistory: () => Promise<void>
+    /// in the database and are not affected. One owner failing is visible in
+    /// the result instead of being reported as a full success.
+    clearHistory: () => Promise<ConsoleLogClearResult>
+    /// Enqueue renderer `console.*` records for persistence. The result counts
+    /// accepted/rejected enqueues — it does not prove they reached disk.
+    appendRendererLogs: (records: RendererLogRecord[]) => Promise<ConsoleLogAppendResult>
   }
   balance: {
     refresh: (providerId: string) => Promise<{
@@ -220,7 +242,15 @@ export interface Api {
   }
   gateway: {
     list: () => Promise<Gateway[]>
-    create: (name: string, providerId: string, apiKeyId: string) => Promise<Gateway>
+    /// `connectionConfig` is omitted to keep the stored override (or to apply
+    /// the creation default when creating); an object replaces it wholesale.
+    create: (
+      name: string,
+      providerId: string,
+      apiKeyId: string,
+      connectionConfig?: GatewayConnectionConfig,
+      modelPolicy?: GatewayModelPolicy,
+    ) => Promise<Gateway>
     update: (
       sessionToken: string,
       changes: {
@@ -228,6 +258,9 @@ export interface Api {
         providerId?: string
         apiKeyId?: string
         isActive?: boolean
+        /// Omitted keeps the stored override; an object replaces it wholesale.
+        connectionConfig?: GatewayConnectionConfig
+        modelPolicy?: GatewayModelPolicy
       },
     ) => Promise<Gateway>
     delete: (sessionToken: string) => Promise<boolean>
@@ -244,6 +277,7 @@ export interface Api {
     read: (filename: string) => Promise<string>
     upload: (buffer: ArrayBuffer, filename: string) => Promise<string>
     list: () => Promise<{ preset: PresetIcon[]; uploaded: string[] }>
+    delete: (filename: string) => Promise<IconDeleteResult>
   }
   usageLog: {
     getStats: (timeRange: StatsTimeRange) => Promise<UsageStats>

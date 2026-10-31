@@ -28,6 +28,21 @@ export const PROVIDER_ICON_CHOICES: { key: string; label: string; src: string }[
   { key: 'newapi', label: 'NewAPI', src: newapiIcon },
 ]
 
+/** The same library identity for filenames and legacy absolute/file paths. */
+export function providerIconFilename(icon: string | null | undefined): string | null {
+  let value = icon?.trim()
+  if (!value || ICON_SOURCES[value] || value === 'custom') return null
+  if (value.startsWith('file://')) {
+    try {
+      value = decodeURIComponent(value.slice('file://'.length))
+    } catch {
+      return null
+    }
+  }
+  const filename = value.split(/[\\/]/).pop()
+  return filename && filename !== '.' && filename !== '..' ? filename : null
+}
+
 /**
  * Where to load a provider's mark from, or `null` when it has none.
  *
@@ -44,10 +59,7 @@ export function providerIconSrc(icon: string | null | undefined): string | null 
   if (value === 'custom') return null
   // Uploaded icons are served only from the app's local icon library.
   // Older records can contain an absolute path; only its filename is used.
-  const filename = value
-    .replace(/^file:\/\//, '')
-    .split('/')
-    .pop()
-  if (!filename || filename === '.' || filename === '..') return null
+  const filename = providerIconFilename(value)
+  if (!filename) return null
   return `cc-use-icon://localhost/${encodeURIComponent(filename)}`
 }

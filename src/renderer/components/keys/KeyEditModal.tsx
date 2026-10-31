@@ -28,6 +28,7 @@ import {
   parseModelMapping,
   EMPTY_MODEL_MAPPING,
   validateModelMapping,
+  isCatalogModelId,
   type ModelMappingFields,
 } from '../../utils/modelMapping'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
@@ -51,6 +52,8 @@ interface KeyEditModalProps {
   apiKey: ApiKey | null
   providers: Provider[]
   defaultProviderId?: string
+  /** Tab to show when the modal opens. */
+  defaultTab?: 'usage' | 'modelMapping'
   onClose: () => void
   onSave: (input: ApiKeyEditorInput) => Promise<void>
 }
@@ -61,6 +64,7 @@ export default function KeyEditModal({
   apiKey,
   providers,
   defaultProviderId,
+  defaultTab,
   onClose,
   onSave,
 }: KeyEditModalProps) {
@@ -70,7 +74,6 @@ export default function KeyEditModal({
   const [loading, setLoading] = useState(false)
   const [editorActions, setEditorActions] = useState<ModelEditorActions | null>(null)
   const [hasPendingModelDraft, setHasPendingModelDraft] = useState(false)
-  const watchedKeyValue = Form.useWatch('value', form)
 
   const [selectedTypes, setSelectedTypes] = useState<ClientKind[]>(['claude_code'])
   const [claudeConfigJson, setClaudeConfigJson] = useState('{}')
@@ -151,13 +154,14 @@ export default function KeyEditModal({
     }
 
     // A copy exists to be re-pointed at another model mapping, so start there.
-    setActiveTab(mode === 'duplicate' ? 'modelMapping' : 'usage')
+    // The provider "view models" entry asks for the model tab explicitly.
+    setActiveTab(mode === 'duplicate' ? 'modelMapping' : (defaultTab ?? 'usage'))
     setErrorClientKind(undefined)
     setEditorActions(null)
     setHasPendingModelDraft(false)
     // `currentProvider` carries the saved key defaults a create inherits, so a
     // provider swap has to re-seed the draft.
-  }, [open, mode, apiKey, form, isOfficialDeepSeek, currentProvider])
+  }, [open, mode, apiKey, form, isOfficialDeepSeek, currentProvider, defaultTab])
 
   useEffect(() => {
     if (!open || !apiKey?.id || !selectedTypes.includes('claude_code')) {
@@ -261,7 +265,7 @@ export default function KeyEditModal({
         typeof codeModel === 'string' &&
         codeModel &&
         !['haiku', 'sonnet', 'opus'].includes(codeModel) &&
-        !mapping.clients.claude_code.models.some((model) => model.id === codeModel)
+        !isCatalogModelId(mapping.clients.claude_code.models, codeModel)
       ) {
         setActiveTab('modelMapping')
         setErrorClientKind('claude_code')
@@ -384,12 +388,14 @@ export default function KeyEditModal({
       okButtonProps={{ disabled: hasPendingModelDraft }}
       footer={
         activeTab === 'modelMapping' && editorActions ? (
-          editorActions.confirm ? <>
-            <Button onClick={onClose}>{t('common.cancel')}</Button>
-            <Button type='primary' onClick={editorActions.confirm}>
-              {editorActions.confirmText}
-            </Button>
-          </> : null
+          editorActions.confirm ? (
+            <>
+              <Button onClick={onClose}>{t('common.cancel')}</Button>
+              <Button type='primary' onClick={editorActions.confirm}>
+                {editorActions.confirmText}
+              </Button>
+            </>
+          ) : null
         ) : undefined
       }
       width={960}
@@ -469,8 +475,15 @@ export default function KeyEditModal({
                 {t('keys.retiredMappingNotice')}
               </Text>
             )}
-          {hasPendingModelDraft && activeTab !== 'modelMapping' && <div className={styles.hintLine}><Text type='warning'>{t('keys.pendingModelDraft')}</Text><Button type='link' size='small' onClick={() => setActiveTab('modelMapping')}>{t('keys.backToModels')}</Button></div>}
-          <Tabs
+            {hasPendingModelDraft && activeTab !== 'modelMapping' && (
+              <div className={styles.hintLine}>
+                <Text type='warning'>{t('keys.pendingModelDraft')}</Text>
+                <Button type='link' size='small' onClick={() => setActiveTab('modelMapping')}>
+                  {t('keys.backToModels')}
+                </Button>
+              </div>
+            )}
+            <Tabs
               activeKey={activeTab}
               onChange={(key) => {
                 editorActions?.back()
@@ -522,15 +535,9 @@ export default function KeyEditModal({
                       onClaudeConfigChange={setClaudeConfigJson}
                       globalClaudeConfig={claudeGlobalConfig}
                       previewJson={previewJson}
+                      provider={currentProvider}
                       providerId={currentProvider?.id}
-                      apiKeyId={mode === 'edit' ? apiKey?.id : undefined}
                       errorClientKind={errorClientKind}
-                      draftKeyValue={
-                        typeof watchedKeyValue === 'string'
-                          ? watchedKeyValue
-                          : (apiKey?.value ?? '')
-                      }
-                      clientConfigs={clientConfigs}
                       onEditorActionsChange={setEditorActions}
                       onPendingDraftChange={setHasPendingModelDraft}
                     />
@@ -572,17 +579,32 @@ export default function KeyEditModal({
                                   })}
                                   style={{ marginBottom: 0 }}
                                 >
-                                  <Input
-                                    value={currentValue}
-                                    onChange={(event) =>
-                                      updateClientConfig(clientKind, {
-                                        baseUrl: event.target.value.trim(),
-                                      })
-                                    }
-                                    placeholder={
-                                      currentProvider?.baseUrl || 'https://api.example.com/v1'
-                                    }
-                                  />
+                                  {/* The same draft the model manager queries
+                                      with; restoring removes the override only
+                                      from this unsaved draft. */}
+                                  <div className={styles.baseUrlRow}>
+                                    <Input
+                                      value={currentValue}
+                                      onChange={(event) =>
+                                        updateClientConfig(clientKind, {
+                                          baseUrl: event.target.value.trim(),
+                                        })
+                                      }
+                                      placeholder={
+                                        currentProvider?.baseUrl || 'https://api.example.com/v1'
+                                      }
+                                    />
+                                    <Button
+                                      size='small'
+                                      disabled={!currentValue}
+                                      aria-label={t('keys.connectionRestoreDefault')}
+                                      onClick={() =>
+                                        updateClientConfig(clientKind, { baseUrl: undefined })
+                                      }
+                                    >
+                                      {t('keys.connectionRestoreDefault')}
+                                    </Button>
+                                  </div>
                                 </Form.Item>
                                 <Form.Item
                                   label={t('keys.connectionAuth')}

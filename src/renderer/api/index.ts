@@ -37,14 +37,20 @@ function buildApi(): Api {
       modelCatalog: (providerId, apiKeyId, clientKind) =>
         invoke('provider_model_catalog', { providerId, apiKeyId, clientKind }),
       modelCatalogPreview: (input) => invoke('provider_model_catalog_preview', { input }),
+      getModelCatalog: (providerId) => invoke('provider_model_catalog_get', { providerId }),
+      saveModelCatalog: (providerId, models, revision) =>
+        invoke('provider_model_catalog_save', { providerId, models, revision }),
+      queryModels: (input) => invoke('provider_model_catalog_query', { input }),
       presets: () => invoke('provider_preset_list'),
     },
     userAgent: {
       list: () => invoke('user_agent_custom_list'),
       save: (value) => invoke('user_agent_custom_save', { value }),
       delete: (value) => invoke('user_agent_custom_delete', { value }),
-      getQueryPreference: (providerId, clientKind) => invoke('user_agent_query_preference_get', { providerId, clientKind }),
-      saveQueryPreference: (providerId, clientKind, value) => invoke('user_agent_query_preference_save', { providerId, clientKind, value }),
+      getQueryPreference: (providerId, clientKind) =>
+        invoke('user_agent_query_preference_get', { providerId, clientKind }),
+      saveQueryPreference: (providerId, clientKind, value) =>
+        invoke('user_agent_query_preference_save', { providerId, clientKind, value }),
     },
     apiKey: {
       list: (providerId) => invoke('api_key_list', { providerId }),
@@ -77,6 +83,7 @@ function buildApi(): Api {
       stop: () => invoke('proxy_stop'),
       setDetailMode: (enabled: boolean) => invoke('console_detail_mode_set', { enabled }),
       getDetailMode: () => invoke('console_detail_mode_get'),
+      lanAddresses: () => invoke('proxy_lan_addresses'),
       onStatusChanged: (callback) => {
         let unlisten: UnlistenFn | null = null
         listen<{ isRunning: boolean; port: number; lastError?: string | null; source?: string }>(
@@ -105,6 +112,7 @@ function buildApi(): Api {
       readRecent: (sources, limit) => invoke('console_log_read_recent', { sources, limit }),
       logStatus: () => invoke('console_log_status'),
       clearHistory: () => invoke('console_log_clear'),
+      appendRendererLogs: (records) => invoke('console_log_append_renderer', { records }),
     },
     balance: {
       refresh: (providerId) => invoke('balance_refresh', { providerId }),
@@ -136,8 +144,16 @@ function buildApi(): Api {
     },
     gateway: {
       list: () => invoke('gateway_list'),
-      create: (name, providerId, apiKeyId) =>
-        invoke('gateway_create', { name, providerId, apiKeyId }),
+      create: (name, providerId, apiKeyId, connectionConfig, modelPolicy) =>
+        invoke('gateway_create', {
+          name,
+          providerId,
+          apiKeyId,
+          // Omitted stays omitted: the backend keeps the stored override (or
+          // applies its creation default) instead of silently clearing it.
+          ...(connectionConfig !== undefined ? { connectionConfig } : {}),
+          ...(modelPolicy !== undefined ? { modelPolicy } : {}),
+        }),
       update: (sessionToken, changes) =>
         invoke('gateway_update', {
           sessionToken,
@@ -145,6 +161,10 @@ function buildApi(): Api {
           ...(changes.providerId !== undefined ? { providerId: changes.providerId } : {}),
           ...(changes.apiKeyId !== undefined ? { apiKeyId: changes.apiKeyId } : {}),
           ...(changes.isActive !== undefined ? { isActive: changes.isActive } : {}),
+          ...(changes.connectionConfig !== undefined
+            ? { connectionConfig: changes.connectionConfig }
+            : {}),
+          ...(changes.modelPolicy !== undefined ? { modelPolicy: changes.modelPolicy } : {}),
         }),
       delete: (sessionToken) => invoke('gateway_delete', { sessionToken }),
     },
@@ -163,6 +183,7 @@ function buildApi(): Api {
         return invoke('icon_upload', { buffer: arr, filename })
       },
       list: () => invoke('icon_list'),
+      delete: (filename) => invoke('icon_delete', { filename }),
     },
     usageLog: {
       getStats: (timeRange) => invoke('usage_log_get_stats', { timeRange }),

@@ -13,12 +13,14 @@ export function useModelEditorActions(
 ) {
   const latest = useRef(actions)
   latest.current = actions
+  const hasConfirm = Boolean(actions.confirm)
+  const confirmText = actions.confirmText
   useEffect(() => {
     onChange({
-      confirm: actions.confirm ? () => latest.current.confirm?.() : undefined,
+      confirm: hasConfirm ? () => latest.current.confirm?.() : undefined,
       back: () => latest.current.back(),
-      confirmText: actions.confirmText,
+      confirmText,
     })
     return () => onChange(null)
-  }, [onChange, actions.confirmText, Boolean(actions.confirm)])
+  }, [onChange, confirmText, hasConfirm])
 }

@@ -1,27 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button, Collapse, Input, Select, Switch, Tooltip, Typography } from 'antd'
-import { CodeOutlined, DesktopOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CodeOutlined, DesktopOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
-import {
-  CLIENT_KIND_CONFIGS,
-  type ClientKind,
-  type CliConfig,
-  type ClientConfig,
-} from '@shared/types'
-import { getApi } from '../../api'
+import { CLIENT_KIND_CONFIGS, type ClientKind, type CliConfig, type Provider } from '@shared/types'
 import type {
-  ClientCatalog,
   ClientModel,
   ClientModelConfig,
   ClientRole,
   ModelMappingFields,
 } from '../../utils/modelMapping'
-import { CLIENT_ROLES, ROLE_ROUTE_IDS } from '../../utils/modelMapping'
+import { CLIENT_ROLES, ROLE_ROUTE_IDS, isCatalogModelId } from '../../utils/modelMapping'
 import { readClaudeConfig } from '../../utils/claudeConfig'
-import { readQueryUserAgent, rememberQueryUserAgent } from '../../utils/modelQueryUserAgent'
+import { useProviderModelCatalogStore } from '../../stores/providerModelCatalogStore'
+import ModelTargetField from './ModelTargetField'
 import CodeModelField from './CodeModelField'
 import CodeStartupEditor from './CodeStartupEditor'
-import ModelCatalogManager, { type ModelCatalogDraft } from './ModelCatalogManager'
 import ModelHelp from './ModelHelp'
 import ModelViewHeader from './ModelViewHeader'
 import { useModelEditorActions, type ModelEditorActions } from './ModelEditorView'
@@ -36,17 +29,13 @@ interface Props {
   onClaudeConfigChange: (json: string) => void
   globalClaudeConfig: CliConfig
   previewJson: string
+  provider?: Provider | null
   providerId?: string
-  apiKeyId?: string
-  draftKeyValue: string
-  clientConfigs: Partial<Record<ClientKind, ClientConfig>>
   errorClientKind?: ClientKind
   onEditorActionsChange: (actions: ModelEditorActions | null) => void
   onPendingDraftChange: (pending: boolean) => void
 }
-type View =
-  | { type: 'catalog'; kind: ClientKind; source?: 'provider' | 'custom'; identity: string }
-  | { type: 'startup' | 'preview' }
+type View = { type: 'startup' | 'preview' }
 const CODE_TIER_FIELDS: Array<[ClientRole, string, string]> = [
   ['sonnet', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME'],
   ['opus', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME'],
@@ -96,210 +85,44 @@ export default function ModelMappingEditor({
   onClaudeConfigChange,
   globalClaudeConfig,
   previewJson,
+  provider,
   providerId,
-  apiKeyId,
-  draftKeyValue,
-  clientConfigs,
   errorClientKind,
   onEditorActionsChange,
   onPendingDraftChange,
 }: Props) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState<string[]>([])
   const [view, setView] = useState<View | null>(null)
-  const [catalogDrafts, setCatalogDrafts] = useState<
-    Partial<Record<ClientKind, { identity: string; draft: ModelCatalogDraft; dirty: boolean }>>
-  >({})
   const [startupDraft, setStartupDraft] = useState<{ draft: string; dirty: boolean }>()
-  const [queryAgents, setQueryAgents] = useState<
-    Partial<Record<ClientKind, { providerId: string; value: string; ready: boolean }>>
-  >({})
-  const agentRevisions = useRef<Partial<Record<ClientKind, number>>>({})
-  const [catalogs, setCatalogs] = useState<
-    Partial<Record<ClientKind, { identity: string; result: ClientCatalog }>>
-  >({})
-  const [loading, setLoading] = useState<Partial<Record<ClientKind, boolean>>>({})
-  const [queryErrors, setQueryErrors] = useState<
-    Partial<Record<ClientKind, { identity: string; error: string }>>
-  >({})
-  const routeIdentities = useMemo(
-    () =>
-      Object.fromEntries(
-        CLIENT_KIND_CONFIGS.map(({ kind }) => [
-          kind,
-          JSON.stringify([providerId, apiKeyId, draftKeyValue, clientConfigs[kind] ?? null]),
-        ]),
-      ) as Record<ClientKind, string>,
-    [providerId, apiKeyId, draftKeyValue, clientConfigs],
-  )
-  const agentFor = (kind: ClientKind) =>
-    queryAgents[kind]?.providerId === providerId
-      ? (queryAgents[kind]?.value ?? '')
-      : (clientConfigs[kind]?.proxyUserAgent ?? '')
-  const identities = Object.fromEntries(
-    CLIENT_KIND_CONFIGS.map(({ kind }) => [
-      kind,
-      JSON.stringify([routeIdentities[kind], agentFor(kind)]),
-    ]),
-  ) as Record<ClientKind, string>
-  const latestIdentity = useRef(identities)
-  latestIdentity.current = identities
-  const requestVersions = useRef<Partial<Record<ClientKind, number>>>({})
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
   const { config: codeConfig, valid: validCodeConfig } = readClaudeConfig(claudeConfigJson)
   const discovery =
     'CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY' in codeConfig
       ? codeConfig.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY
       : (globalClaudeConfig.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY ?? '1')
-  const canLoad = Boolean(providerId && draftKeyValue.trim())
+  const routeProviderId = provider?.id ?? providerId
+  const {
+    catalogs,
+    errors: catalogErrors,
+    loading: catalogLoading,
+    fetchCatalog,
+  } = useProviderModelCatalogStore()
+  useEffect(() => {
+    if (routeProviderId) void fetchCatalog(routeProviderId).catch(() => {})
+  }, [routeProviderId, fetchCatalog])
+  const snapshot = routeProviderId ? catalogs[routeProviderId] : undefined
   const closeView = useCallback(() => setView(null), [])
   useEffect(() => {
     if (errorClientKind) setExpanded([errorClientKind])
   }, [errorClientKind])
   useEffect(() => {
-    if (
-      view?.type === 'catalog' &&
-      (!types.includes(view.kind) || view.identity !== routeIdentities[view.kind])
-    )
-      setView(null)
-    if (view && view.type !== 'catalog' && !types.includes('claude_code')) setView(null)
-  }, [view, types, routeIdentities])
-  useEffect(() => {
-    if (!providerId) return
-    let active = true
-    for (const kind of types) {
-      const revision = (agentRevisions.current[kind] ?? 0) + 1
-      agentRevisions.current[kind] = revision
-      const fallback = clientConfigs[kind]?.proxyUserAgent ?? ''
-      setQueryAgents((previous) => ({
-        ...previous,
-        [kind]: { providerId, value: fallback, ready: false },
-      }))
-      void readQueryUserAgent(providerId, kind, fallback)
-        .then((agent) => {
-          if (active && (agentRevisions.current[kind] ?? 0) === revision)
-            setQueryAgents((previous) => ({
-              ...previous,
-              [kind]: { providerId, value: agent, ready: true },
-            }))
-        })
-        .catch((error) => {
-          if (active && (agentRevisions.current[kind] ?? 0) === revision) {
-            setQueryAgents((previous) => ({
-              ...previous,
-              [kind]: { providerId, value: fallback, ready: true },
-            }))
-            setQueryErrors((previous) => ({
-              ...previous,
-              [kind]: { identity: latestIdentity.current[kind], error: String(error) },
-            }))
-          }
-        })
-    }
-    return () => {
-      active = false
-    }
-  }, [providerId, types, clientConfigs])
-  const hasPending =
-    Boolean(startupDraft?.dirty && types.includes('claude_code')) ||
-    types.some(
-      (kind) =>
-        catalogDrafts[kind]?.identity === routeIdentities[kind] && catalogDrafts[kind]?.dirty,
-    )
+    if (view && !types.includes('claude_code')) setView(null)
+  }, [view, types])
+  const hasPending = Boolean(startupDraft?.dirty && types.includes('claude_code'))
   useEffect(() => {
     onPendingDraftChange(hasPending)
     return () => onPendingDraftChange(false)
   }, [hasPending, onPendingDraftChange])
-  const changeAgent = (kind: ClientKind, agent: string) => {
-    if (!providerId) return
-    agentRevisions.current[kind] = (agentRevisions.current[kind] ?? 0) + 1
-    requestVersions.current[kind] = (requestVersions.current[kind] ?? 0) + 1
-    setLoading((previous) => ({ ...previous, [kind]: false }))
-    setQueryAgents((previous) => ({
-      ...previous,
-      [kind]: { providerId, value: agent, ready: true },
-    }))
-  }
-  const applyAgent = async (kind: ClientKind, agent: string) => {
-    if (!providerId) return
-    const revision = agentRevisions.current[kind] ?? 0
-    try {
-      await rememberQueryUserAgent(providerId, kind, agent)
-    } catch (error) {
-      if (mounted.current && agentRevisions.current[kind] === revision)
-        setQueryErrors((previous) => ({
-          ...previous,
-          [kind]: { identity: latestIdentity.current[kind], error: String(error) },
-        }))
-    }
-  }
-
-  const loadCatalog = useCallback(
-    async (kind: ClientKind) => {
-      if (
-        !providerId ||
-        !draftKeyValue.trim() ||
-        queryAgents[kind]?.providerId !== providerId ||
-        !queryAgents[kind]?.ready
-      )
-        return
-      const userAgent = agentFor(kind).trim()
-      const identity = latestIdentity.current[kind]
-      const version = (requestVersions.current[kind] ?? 0) + 1
-      requestVersions.current[kind] = version
-      setLoading((previous) => ({ ...previous, [kind]: true }))
-      setQueryErrors((previous) => ({ ...previous, [kind]: undefined }))
-      const isCurrent = () =>
-        mounted.current &&
-        latestIdentity.current[kind] === identity &&
-        requestVersions.current[kind] === version
-      try {
-        await rememberQueryUserAgent(providerId, kind, userAgent)
-        if (!isCurrent()) return
-        const result = await getApi().provider.modelCatalogPreview({
-          providerId,
-          apiKeyId,
-          keyValue: draftKeyValue,
-          clientKind: kind,
-          clientConfigs,
-          userAgent,
-        })
-        if (isCurrent()) setCatalogs((previous) => ({ ...previous, [kind]: { identity, result } }))
-      } catch (error) {
-        if (isCurrent())
-          setQueryErrors((previous) => ({
-            ...previous,
-            [kind]: { identity, error: String(error) },
-          }))
-      } finally {
-        if (mounted.current && requestVersions.current[kind] === version)
-          setLoading((previous) => ({ ...previous, [kind]: false }))
-      }
-    },
-    [providerId, apiKeyId, draftKeyValue, clientConfigs, queryAgents],
-  )
-  const viewKind = view?.type === 'catalog' ? view.kind : undefined
-  const loadManagedCatalog = useCallback(async () => {
-    if (viewKind) await loadCatalog(viewKind)
-  }, [viewKind, loadCatalog])
-  const commitCatalog = useCallback(
-    (patch: Pick<ClientModelConfig, 'catalogMode' | 'models'>) => {
-      if (!viewKind) return
-      onChange({
-        ...value,
-        clients: { ...value.clients, [viewKind]: { ...value.clients[viewKind], ...patch } },
-      })
-      setCatalogDrafts((previous) => ({ ...previous, [viewKind]: undefined }))
-      setView(null)
-    },
-    [viewKind, value, onChange],
-  )
   const commitStartup = useCallback(
     (json: string) => {
       onClaudeConfigChange(json)
@@ -312,33 +135,36 @@ export default function ModelMappingEditor({
     setStartupDraft({ draft, dirty })
     setView(null)
   }, [])
-  const backCatalog = useCallback(
-    (draft: ModelCatalogDraft, dirty: boolean) => {
-      if (viewKind)
-        setCatalogDrafts((previous) => ({
-          ...previous,
-          [viewKind]: { identity: routeIdentities[viewKind], draft, dirty },
-        }))
-      setView(null)
-    },
-    [viewKind, routeIdentities],
-  )
-  const catalogFor = (kind: ClientKind) =>
-    catalogs[kind]?.identity === identities[kind] ? catalogs[kind]?.result : undefined
-  const errorFor = (kind: ClientKind) =>
-    queryErrors[kind]?.identity === identities[kind] ? queryErrors[kind]?.error : undefined
   const modelsFor = (kind: ClientKind) => {
     const client = value.clients[kind]
     if (client.catalogMode === 'custom') return client.models
     return [
       ...new Map(
         [
-          ...(catalogFor(kind)?.models ?? []),
-          ...(client.catalogMode === 'append' ? client.models : []),
+          ...(snapshot?.models ?? []),
+          ...(client.catalogMode === 'provider' ? (client.providerRuntimeModels ?? []) : []),
+          ...client.models,
         ].map((model) => [model.id, model]),
       ).values(),
     ]
   }
+  const upstreamOptions = (kind: ClientKind) => [
+    ...new Map(
+      [
+        ...[
+          value.clients[kind].upstreamModel,
+          value.clients[kind].haiku,
+          value.clients[kind].sonnet,
+          value.clients[kind].opus,
+          value.autoMode.model,
+        ]
+          .filter(Boolean)
+          .map((id) => ({ id, displayName: id })),
+        ...(snapshot?.models ?? []),
+        ...value.clients[kind].models,
+      ].map((model) => [model.id, model]),
+    ).values(),
+  ]
   // Claude Code's tier slots are the client's own startup variables: pinning
   // one makes the client show that model in its picker and status line. A
   // model flagged 1M is pinned with the `[1m]` spelling.
@@ -365,7 +191,6 @@ export default function ModelMappingEditor({
     if (current.models.some((entry) => entry.id === model.id)) return
     update(kind, {
       models: [...current.models, model],
-      catalogMode: current.catalogMode === 'provider' ? 'append' : current.catalogMode,
     })
   }
   const update = (kind: ClientKind, patch: Partial<ClientModelConfig>) =>
@@ -380,41 +205,27 @@ export default function ModelMappingEditor({
     const fromList = modelsFor(kind).find((model) => model.id === modelId)
     const known = current.models.some((model) => model.id === modelId)
     const models = modelId && !known && fromList ? [...current.models, fromList] : current.models
-    const catalogMode =
-      current.catalogMode === 'provider' && models.length ? 'append' : current.catalogMode
-    update(kind, { roles: { ...current.roles, [role]: modelId }, models, catalogMode })
+    update(kind, {
+      roles: { ...current.roles, [role]: modelId },
+      models,
+      ...(current.catalogMode === 'provider' && fromList
+        ? {
+            providerRuntimeModels: [
+              ...new Map(
+                [...(current.providerRuntimeModels ?? []), fromList].map((model) => [
+                  model.id,
+                  model,
+                ]),
+              ).values(),
+            ],
+          }
+        : {}),
+    })
   }
   const updateAuto = (patch: Partial<ModelMappingFields['autoMode']>) =>
     onChange({ ...value, autoMode: { ...value.autoMode, ...patch } })
   const help = (label: string, text: string) => <ModelHelp label={t(label)} text={t(text)} />
 
-  if (view?.type === 'catalog')
-    return (
-      <ModelCatalogManager
-        label={CLIENT_KIND_CONFIGS.find((client) => client.kind === view.kind)?.label ?? view.kind}
-        value={value.clients[view.kind]}
-        initialSource={view.source}
-        initialDraft={
-          catalogDrafts[view.kind]?.identity === routeIdentities[view.kind]
-            ? catalogDrafts[view.kind]?.draft
-            : undefined
-        }
-        catalog={catalogFor(view.kind)}
-        loading={Boolean(loading[view.kind])}
-        canLoad={canLoad}
-        queryError={errorFor(view.kind)}
-        onLoad={loadManagedCatalog}
-        onCommit={commitCatalog}
-        onBack={backCatalog}
-        userAgent={agentFor(view.kind)}
-        userAgentReady={Boolean(
-          queryAgents[view.kind]?.providerId === providerId && queryAgents[view.kind]?.ready,
-        )}
-        onUserAgentChange={(agent) => changeAgent(view.kind, agent)}
-        onUserAgentApply={(agent) => void applyAgent(view.kind, agent)}
-        onActionsChange={onEditorActionsChange}
-      />
-    )
   if (view?.type === 'startup')
     return (
       <CodeStartupEditor
@@ -444,7 +255,6 @@ export default function ModelMappingEditor({
             size='small'
             onClick={() => {
               setStartupDraft(undefined)
-              setCatalogDrafts({})
             }}
           >
             {t('keys.discardModelDraft')}
@@ -459,7 +269,6 @@ export default function ModelMappingEditor({
         items={CLIENT_KIND_CONFIGS.filter((client) => types.includes(client.kind)).map((client) => {
           const kind = client.kind
           const current = value.clients[kind]
-          const fetched = catalogFor(kind)
           const models = modelsFor(kind)
           const codeDefault =
             typeof codeConfig.ANTHROPIC_MODEL === 'string' ? codeConfig.ANTHROPIC_MODEL : ''
@@ -472,7 +281,7 @@ export default function ModelMappingEditor({
                     codeDefault &&
                     !['haiku', 'sonnet', 'opus'].includes(codeDefault) &&
                     !Object.values(ROLE_ROUTE_IDS).includes(codeDefault) &&
-                    !models.some((model) => model.id === codeDefault),
+                    !isCatalogModelId(models, codeDefault),
             )
           const changed =
             current.catalogMode !== 'provider' ||
@@ -541,30 +350,64 @@ export default function ModelMappingEditor({
                     </div>
                   ) : (
                     <>
-                      <div className={styles.fieldRow}>
-                        <span>
-                          {t('keys.modelPool')} {help('keys.modelPool', 'keys.modelPoolHint')}
-                        </span>
-                        <Text type='secondary' className={styles.poolSummary}>
-                          {t('keys.modelPoolCount', { count: models.length })}
+                      <div className={styles.catalogSelection}>
+                        <div className={styles.fieldRow}>
+                          <span>{t('keys.clientModelSelection')}</span>
+                          <Select
+                            mode='multiple'
+                            // Provider mode ignores a per-key selection at
+                            // runtime; showing dormant R10 drafts as checked
+                            // would claim a whitelist that is not active.
+                            value={
+                              current.catalogMode === 'provider'
+                                ? []
+                                : current.models.map((model) => model.id)
+                            }
+                            aria-label={`${client.label} ${t('keys.clientModelSelection')}`}
+                            className={styles.fullWidth}
+                            placeholder={t('keys.clientModelSelection')}
+                            maxTagCount='responsive'
+                            showSearch={{ optionFilterProp: 'label' }}
+                            loading={routeProviderId ? catalogLoading[routeProviderId] : false}
+                            options={[
+                              ...new Map(
+                                [...(snapshot?.models ?? []), ...current.models].map((model) => [
+                                  model.id,
+                                  model,
+                                ]),
+                              ).values(),
+                            ].map((model) => ({
+                              value: model.id,
+                              label:
+                                model.displayName && model.displayName !== model.id
+                                  ? `${model.displayName} · ${model.id}`
+                                  : model.id,
+                            }))}
+                            onChange={(ids: string[]) => {
+                              const available = new Map(
+                                [...(snapshot?.models ?? []), ...current.models].map((model) => [
+                                  model.id,
+                                  model,
+                                ]),
+                              )
+                              // Selecting models turns the Key into an explicit
+                              // whitelist; clearing restores the provider catalog.
+                              update(kind, {
+                                models: ids.map(
+                                  (id) => available.get(id) ?? { id, displayName: id },
+                                ),
+                                catalogMode: ids.length ? 'custom' : 'provider',
+                              })
+                            }}
+                          />
+                        </div>
+                        <Text type='secondary' className={styles.selectionHint}>
+                          {t('keys.clientModelsOnlyHint')}
                         </Text>
-                        <Button
-                          onClick={() =>
-                            setView({ type: 'catalog', kind, identity: routeIdentities[kind] })
-                          }
-                        >
-                          {t('keys.manageModels')}
-                        </Button>
+                        <Text type='secondary' className={styles.selectionHint}>
+                          {t('keys.catalogSelectionHint')}
+                        </Text>
                       </div>
-                      {fetched?.fromCache && (
-                        <Tooltip
-                          title={`${new Date(fetched.fetchedAt).toLocaleString(i18n.language === 'zh' ? 'zh-CN' : 'en-US')}${fetched.error ? ` · ${fetched.error}` : ''}`}
-                        >
-                          <span className={fetched.error ? styles.warning : styles.cacheBadge}>
-                            {t('keys.catalogCachedShort')}
-                          </span>
-                        </Tooltip>
-                      )}
                       {kind === 'codex' && (
                         <div className={styles.fieldRow}>
                           <span>{t('keys.processDefaultModel')}</span>
@@ -584,24 +427,15 @@ export default function ModelMappingEditor({
                                 : []),
                             ].map((model) => ({
                               value: model.id,
-                              label: model.displayName || model.id,
+                              label:
+                                model.displayName && model.displayName !== model.id
+                                  ? `${model.displayName} · ${model.id}`
+                                  : model.id,
                             }))}
                             onChange={(defaultModel) =>
                               update(kind, { defaultModel: defaultModel ?? '' })
                             }
                           />
-                          {!fetched && current.catalogMode !== 'custom' && (
-                            <Tooltip title={t('keys.catalogDraftQueryHint')}>
-                              <Button
-                                type='text'
-                                icon={<ReloadOutlined />}
-                                loading={loading[kind]}
-                                disabled={!canLoad || !queryAgents[kind]?.ready}
-                                aria-label={t('keys.catalogLoad')}
-                                onClick={() => void loadCatalog(kind)}
-                              />
-                            </Tooltip>
-                          )}
                         </div>
                       )}
                       {kind === 'claude_desktop' && (
@@ -621,7 +455,10 @@ export default function ModelMappingEditor({
                                 showSearch={{ optionFilterProp: 'label' }}
                                 options={models.map((model) => ({
                                   value: model.id,
-                                  label: model.displayName || model.id,
+                                  label:
+                                    model.displayName && model.displayName !== model.id
+                                      ? `${model.displayName} · ${model.id}`
+                                      : model.id,
                                 }))}
                                 onChange={(modelId) => assignRole(kind, role, modelId ?? '')}
                               />
@@ -715,9 +552,14 @@ export default function ModelMappingEditor({
                           {t('keys.clientDefaultInvalid')}
                         </Text>
                       )}
-                      {errorFor(kind) && (
+                      {!snapshot?.models.length && (
+                        <Text type='secondary' className={styles.inlineNotice}>
+                          {t('keys.savedCatalogHint')}
+                        </Text>
+                      )}
+                      {routeProviderId && catalogErrors[routeProviderId] && (
                         <Text type='danger' className={styles.inlineNotice}>
-                          {errorFor(kind)}
+                          {t('gateway.catalogLoadFailed')}
                         </Text>
                       )}
                     </>
@@ -745,11 +587,11 @@ export default function ModelMappingEditor({
                   {current.forwardMode === 'fixed' && (
                     <div className={styles.fieldRow}>
                       <span>{t('keys.upstreamModel')}</span>
-                      <Input
+                      <ModelTargetField
                         value={current.upstreamModel}
-                        placeholder={t('keys.clientModelId')}
-                        aria-label={`${client.label} ${t('keys.upstreamModel')}`}
-                        onChange={(event) => update(kind, { upstreamModel: event.target.value })}
+                        models={upstreamOptions(kind)}
+                        label={`${client.label} ${t('keys.upstreamModel')}`}
+                        onChange={(upstreamModel) => update(kind, { upstreamModel })}
                       />
                     </div>
                   )}
@@ -789,13 +631,11 @@ export default function ModelMappingEditor({
                             {(['haiku', 'sonnet', 'opus'] as const).map((family) => (
                               <div className={styles.fieldRow} key={family}>
                                 <span>{family[0].toUpperCase() + family.slice(1)}</span>
-                                <Input
+                                <ModelTargetField
                                   value={current[family]}
-                                  placeholder={t('keys.clientModelId')}
-                                  aria-label={`Claude Code ${family} ${t('keys.upstreamModel')}`}
-                                  onChange={(event) =>
-                                    update(kind, { [family]: event.target.value })
-                                  }
+                                  models={upstreamOptions(kind)}
+                                  label={`Claude Code ${family} ${t('keys.upstreamModel')}`}
+                                  onChange={(model) => update(kind, { [family]: model })}
                                 />
                               </div>
                             ))}
@@ -818,11 +658,11 @@ export default function ModelMappingEditor({
                                 {t('keys.autoModeModel')}{' '}
                                 {help('keys.autoModeModel', 'keys.autoModeModelHint')}
                               </span>
-                              <Input
+                              <ModelTargetField
                                 value={value.autoMode.model}
-                                placeholder={t('keys.autoModeModelPlaceholder')}
-                                aria-label={t('keys.autoModeModel')}
-                                onChange={(event) => updateAuto({ model: event.target.value })}
+                                models={upstreamOptions(kind)}
+                                label={t('keys.autoModeModel')}
+                                onChange={(model) => updateAuto({ model })}
                               />
                             </div>
                             {!value.autoMode.model.trim() && (
