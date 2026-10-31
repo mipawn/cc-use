@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "name": "database created by the real daemon",
+      "pass": true,
+      "detail": "/tmp/cc-use-e2e-lan/home/Library/Application Support/com.mipawn.cc-use.dev/data/cc-use.db"
+    },
+    {
+      "name": "daemon listening on loopback (default scope)",
+      "pass": true,
+      "detail": "53412"
+    },
+    {
+      "name": "management token exists",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "loopback gateway works with default scope",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "LAN IP is NOT reachable with default loopback scope",
+      "pass": true,
+      "detail": "<urlopen error [Errno 61] Connection refused>"
+    },
+    {
+      "name": "daemon listening after LAN restart",
+      "pass": true,
+      "detail": "53412"
+    },
+    {
+      "name": "LAN client gets the model catalogue through the gateway",
+      "pass": true,
+      "detail": "status=200 ids=['mock-alpha', 'mock-beta']"
+    },
+    {
+      "name": "LAN client completes an inference call",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "LAN peer cannot read management health",
+      "pass": true,
+      "detail": "status=403 body={\"error\":\"Management API is only reachable over loopback\"}"
+    },
+    {
+      "name": "LAN peer cannot read management log-status",
+      "pass": true,
+      "detail": "status=403"
+    },
+    {
+      "name": "LAN peer cannot clear management history",
+      "pass": true,
+      "detail": "status=403"
+    },
+    {
+      "name": "loopback management health still works",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "LAN provider-credential pass-through is rejected",
+      "pass": true,
+      "detail": "status=403 body={\"error\":\"Provider credentials are not accepted from non-loopback peers; use a gateway or session token\"}"
+    },
+    {
+      "name": "rejection does not echo the credential",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "rejected pass-through never reached an upstream",
+      "pass": true,
+      "detail": "before=3 after=3"
+    },
+    {
+      "name": "LAN inference is attributed to the bound provider/key",
+      "pass": true,
+      "detail": "[{\"provider_id\": \"p1\", \"api_key_id\": \"k1\", \"model\": \"mock-alpha\", \"outcome\": \"success\"}]"
+    },
+    {
+      "name": "LAN inference recorded exactly one request",
+      "pass": true,
+      "detail": "rows=1"
+    },
+    {
+      "name": "turning LAN off restores loopback-only reachability",
+      "pass": true,
+      "detail": "None"
+    },
+    {
+      "name": "loopback still works after turning LAN off",
+      "pass": true,
+      "detail": "200"
+    }
+  ],
+  "lan_ip": "192.168.31.128"
+}

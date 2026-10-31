@@ -1,0 +1,20 @@
+{"file": ".trellis/spec/cc-use/backend/architecture.md", "reason": "Shared app/daemon ownership and Tauri-free boundary"}
+{"file": ".trellis/spec/cc-use/backend/database.md", "reason": "ALTER/CREATE migration and query/mapper contract"}
+{"file": ".trellis/spec/cc-use/backend/data-model-contract.md", "reason": "Rust and TypeScript DTO compatibility"}
+{"file": ".trellis/spec/cc-use/backend/errors-and-logging.md", "reason": "Secrets, log levels, history safety"}
+{"file": ".trellis/spec/cc-use/frontend/api-bridge.md", "reason": "Command registration, API wiring and contract tests"}
+{"file": ".trellis/spec/cc-use/frontend/ui-and-styling.md", "reason": "Ant Design and component conventions"}
+{"file": ".trellis/spec/cc-use/frontend/data-and-ux.md", "reason": "Draft state and async identity handling"}
+{"file": ".trellis/spec/cc-use-daemon/backend/console-and-logging.md", "reason": "File ownership and SSE/history contract"}
+{"file": ".trellis/tasks/10-28-gateway-console-provider-ux/research.md", "reason": "Confirmed source evidence and final external-gateway scope"}
+{"file": ".trellis/spec/cc-use/backend/index.md", "reason": "Backend layer entry and pre-development checklist"}
+{"file": ".trellis/spec/cc-use/backend/proxy-core.md", "reason": "Gateway request flow, HTTP/SSE/WS and side effects"}
+{"file": ".trellis/spec/cc-use/backend/tauri-commands.md", "reason": "IPC boundaries, managed state and async lock discipline"}
+{"file": ".trellis/spec/cc-use/backend/quality-and-testing.md", "reason": "Migration and proxy mock validation contracts"}
+{"file": ".trellis/spec/cc-use/frontend/index.md", "reason": "Frontend layer entry and pre-development checklist"}
+{"file": ".trellis/spec/cc-use/frontend/state-management.md", "reason": "Draft ownership and process-long console store"}
+{"file": ".trellis/spec/cc-use/frontend/i18n.md", "reason": "Paired Chinese and English product copy"}
+{"file": ".trellis/spec/cc-use/frontend/testing-and-quality.md", "reason": "Component and API contract regression conventions"}
+{"file": ".trellis/spec/cc-use-daemon/backend/index.md", "reason": "Daemon layer boundaries and pre-development checklist"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "DTO, event identity and persistence round trips"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Search and reuse before extracting shared rules"}

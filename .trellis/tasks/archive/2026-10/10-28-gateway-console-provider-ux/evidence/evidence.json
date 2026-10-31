@@ -1,0 +1,174 @@
+{
+  "results": [
+    {
+      "name": "database created and migrated by the real daemon binary",
+      "pass": true,
+      "detail": "/tmp/cc-use-e2e/home/Library/Application Support/com.mipawn.cc-use.dev/data/cc-use.db"
+    },
+    {
+      "name": "seeded two gateways on one key with explicit connection overrides",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "mock upstream ready",
+      "pass": true,
+      "detail": "READY 53387"
+    },
+    {
+      "name": "daemon listening on seeded port",
+      "pass": true,
+      "detail": "53388"
+    },
+    {
+      "name": "GET /v1/models returns upstream catalogue",
+      "pass": true,
+      "detail": "status=200 ids=['mock-alpha', 'mock-beta']"
+    },
+    {
+      "name": "model discovery reached the provider upstream path",
+      "pass": true,
+      "detail": "/v1/models?limit=1000"
+    },
+    {
+      "name": "model discovery uses the bound key as bearer credential",
+      "pass": true,
+      "detail": "Bearer sk-upstream-secret"
+    },
+    {
+      "name": "model discovery is not written as billed inference",
+      "pass": true,
+      "detail": "before=0 after=0"
+    },
+    {
+      "name": "model discovery sends the gateway UA override, not legacy clientConfigs UA",
+      "pass": true,
+      "detail": "E2E-Gateway-UA/1.0"
+    },
+    {
+      "name": "POST /v1/chat/completions succeeds",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "inference reached the provider base URL (not key clientConfigs)",
+      "pass": true,
+      "detail": "/v1/chat/completions"
+    },
+    {
+      "name": "client model id is forwarded unchanged",
+      "pass": true,
+      "detail": "mock-alpha"
+    },
+    {
+      "name": "gateway UA override wins over the inbound client UA",
+      "pass": true,
+      "detail": "E2E-Gateway-UA/1.0"
+    },
+    {
+      "name": "provider additive header reaches the upstream",
+      "pass": true,
+      "detail": "provider-additive-value"
+    },
+    {
+      "name": "streaming inference returns SSE content",
+      "pass": true,
+      "detail": "status=200 ct=text/event-stream"
+    },
+    {
+      "name": "streaming request reached the upstream",
+      "pass": true,
+      "detail": "/v1/chat/completions"
+    },
+    {
+      "name": "upstream 4xx is surfaced as a failure status",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "name": "upstream rejection reached the provider",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "second gateway joins its base URL path prefix",
+      "pass": true,
+      "detail": "/relay/v1/models?limit=1000"
+    },
+    {
+      "name": "second gateway authenticates with x-api-key and no Authorization",
+      "pass": true,
+      "detail": "{\"x-api-key\": \"sk-upstream-secret\"}"
+    },
+    {
+      "name": "second gateway without UA override keeps the inbound UA",
+      "pass": true,
+      "detail": "client-two/2.0"
+    },
+    {
+      "name": "second gateway inference joins the prefix",
+      "pass": true,
+      "detail": "/relay/v1/chat/completions"
+    },
+    {
+      "name": "inference requests are recorded with the gateway-bound attribution",
+      "pass": true,
+      "detail": "[[\"p1\", \"k1\"], [\"p1\", \"k1\"], [\"p1\", \"k1\"], [\"p1\", \"k1\"]]"
+    },
+    {
+      "name": "request ids are unique per recorded request",
+      "pass": true,
+      "detail": "['8SIp052RKuLIXZs7oa7T4', '0GARRmJCy5Y-jt9M4b4hJ', 'St1ld3U2QYWnKKt0OL0Ek', 'YeUGV1P3l7Y9__gpPFSik']"
+    },
+    {
+      "name": "non-streaming success, stream success and upstream rejection are all recorded",
+      "pass": true,
+      "detail": "[('mock-alpha', 'success', 200), ('mock-alpha', 'success', 200), ('mock-error', 'client_error', 400), ('mock-beta', 'success', 200)]"
+    },
+    {
+      "name": "streaming request recorded as streaming with measured usage",
+      "pass": true,
+      "detail": "[[0, 11, 7], [1, 11, 7], [0, 0, 0], [0, 11, 7]]"
+    },
+    {
+      "name": "second provider/key is not polluted by gateway traffic",
+      "pass": true,
+      "detail": "rows=0"
+    },
+    {
+      "name": "every recorded row belongs to a real inference POST",
+      "pass": true,
+      "detail": "[[\"mock-alpha\", \"success\"], [\"mock-alpha\", \"success\"], [\"mock-error\", \"client_error\"], [\"mock-beta\", \"success\"]]"
+    },
+    {
+      "name": "daemon console log files exist",
+      "pass": true,
+      "detail": "['daemon-gdIKvfQ4zx-00001.jsonl', 'daemon-u9ryux7Mqt-00002.jsonl']"
+    },
+    {
+      "name": "console log file contains JSONL records",
+      "pass": true,
+      "detail": "352 bytes"
+    },
+    {
+      "name": "daemon management token exists",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "daemon log-status reports per-owner counters",
+      "pass": true,
+      "detail": "{\"available\":true,\"capacityEvicted\":false,\"dropped\":0,\"trimmed\":0,\"writeFailed\":0}"
+    },
+    {
+      "name": "daemon console clear acknowledges real removal",
+      "pass": true,
+      "detail": "status=200 body={\"generation\":\"daemon:nGv5qdWZ-72bO7IqZssyg;app:nGv5qdWZ-72bO7IqZssyg\",\"ok\":true}"
+    },
+    {
+      "name": "daemon console files from before the clear are gone",
+      "pass": true,
+      "detail": "before=['daemon-u9ryux7Mqt-00002.jsonl', 'daemon-gdIKvfQ4zx-00001.jsonl'] remaining=['daemon-y6OIxdpVhb-00003.jsonl', '.maintenance.lock', 'meta.json']"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "screenshots": [
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-console-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-console-logs-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-console-detail-900.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-gateway-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-gateway-editor-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-gateway-advanced-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-keys-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-models-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-console-dark.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-console-logs-dark.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-console-logs-900-dark.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-gateway-900-dark.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r11-models-dark.png"
+  ],
+  "checks": [
+    {
+      "name": "consoleRequestRows",
+      "value": 2
+    },
+    {
+      "name": "consoleHasTable",
+      "value": false
+    },
+    {
+      "name": "consoleTabs",
+      "value": [
+        "请求",
+        "异常 1",
+        "运行日志"
+      ]
+    },
+    {
+      "name": "sidebarLogsLink",
+      "value": 0
+    },
+    {
+      "name": "consoleUsesTerminalFont",
+      "value": {
+        "fontFamily": "\"JetBrains Mono\", SFMono-Regular, Menlo, \"Cascadia Code\", \"Courier New\", monospace",
+        "overflow": "auto"
+      }
+    },
+    {
+      "name": "consoleLogRows",
+      "value": 8
+    },
+    {
+      "name": "consoleRequestRowsInLogTab",
+      "value": 0
+    },
+    {
+      "name": "narrowRequestDetailLayout",
+      "value": {
+        "flexDirection": "column",
+        "layoutWidth": 640,
+        "paneWidth": 640,
+        "detailWidth": 640,
+        "streamWidth": 640,
+        "documentOverflow": false
+      }
+    },
+    {
+      "name": "gatewayAuthHintAbsent",
+      "value": true
+    },
+    {
+      "name": "modelWindowTitle",
+      "value": true
+    },
+    {
+      "name": "modelWindowHasManagementEntry",
+      "value": false
+    },
+    {
+      "name": "darkThemeApplied",
+      "value": "dark"
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "overflow": {
+    "documentOverflow": false,
+    "bodyOverflow": false
+  },
+  "commands": [
+    "api_key_list",
+    "console_detail_mode_get",
+    "console_log_read_recent",
+    "gateway_list",
+    "gateway_metrics_get_by_provider",
+    "plugin:event|listen",
+    "plugin:event|unlisten",
+    "provider_list",
+    "provider_model_catalog_get",
+    "proxy_lan_addresses",
+    "proxy_status",
+    "request_log_get_key_token_stats",
+    "settings_get",
+    "user_agent_custom_list"
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "screenshots": [
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-console-requests-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-logs-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-logs-detail-900.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-gateway-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-gateway-editor-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-keys-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-models-light.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-logs-dark.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-logs-detail-900-dark.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-gateway-900-dark.png",
+    ".trellis/tasks/10-28-gateway-console-provider-ux/evidence/r10/r10-models-900-dark.png"
+  ],
+  "checks": [
+    {
+      "name": "requestRows",
+      "value": 2
+    },
+    {
+      "name": "filterBarLabels",
+      "value": "状态"
+    },
+    {
+      "name": "logRows",
+      "value": 8
+    },
+    {
+      "name": "narrowLogDetailLayout",
+      "value": {
+        "flexDirection": "column",
+        "layoutWidth": 640,
+        "paneWidth": 640,
+        "detailWidth": 640,
+        "detailTop": 470.25,
+        "paneTop": 229.75,
+        "minMessageWidth": 194,
+        "documentOverflow": false
+      }
+    },
+    {
+      "name": "gatewayPolicySummary",
+      "value": true
+    },
+    {
+      "name": "gatewayEditorSections",
+      "value": [
+        "连接设置",
+        "模型暴露"
+      ]
+    },
+    {
+      "name": "modelWindowTitle",
+      "value": true
+    },
+    {
+      "name": "modelWindowHasNoInnerManagementEntry",
+      "value": false
+    },
+    {
+      "name": "darkThemeApplied",
+      "value": "dark"
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "overflow": {
+    "documentOverflow": false,
+    "bodyOverflow": false
+  },
+  "commands": [
+    "api_key_list",
+    "console_detail_mode_get",
+    "console_log_read_recent",
+    "console_log_status",
+    "gateway_list",
+    "gateway_metrics_get_by_provider",
+    "plugin:event|listen",
+    "plugin:event|unlisten",
+    "provider_list",
+    "provider_model_catalog_get",
+    "proxy_lan_addresses",
+    "proxy_status",
+    "request_log_get_key_token_stats",
+    "settings_get",
+    "user_agent_custom_list"
+  ]
+}
