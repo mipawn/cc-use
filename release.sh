@@ -35,8 +35,10 @@ sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" src-tauri/tauri.c
 export VERSION
 perl -0777 -i -pe 's/(^\[package\][\s\S]*?^version\s*=\s*")[^"]*(")/${1}$ENV{VERSION}${2}/m' src-tauri/Cargo.toml
 
-# Update Cargo.lock from workspace root
-cargo generate-lockfile 2>/dev/null
+# Update only the workspace crate version. A full `cargo generate-lockfile`
+# refreshes Tauri crates and can drift away from the npm @tauri-apps versions,
+# which makes `tauri build` fail with a version-mismatch error.
+cargo update -p cc-use --precise "$VERSION" 2>/dev/null
 
 echo "已更新版本号:"
 echo "  package.json:    $(grep '"version"' package.json | head -1 | xargs)"
