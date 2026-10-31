@@ -561,6 +561,90 @@ export interface ConsoleLogEvent {
   message: string
 }
 
+/**
+ * A persisted console record as returned by `console_log_read_recent`.
+ * `source`/`epoch`/`seq` are stable enough to rebuild a missing event id as
+ * `source:epoch:seq`.
+ */
+export interface ConsoleLogRecordRef {
+  source: string
+  epoch: string
+  seq: number
+  /** UTC timestamp `YYYY-MM-DD HH:MM:SS`. */
+  at: string
+  id: string
+  event: ConsoleEvent
+}
+
+/**
+ * Retention state of the on-disk recovery window. The store keeps the current
+ * local natural day plus the two before it, so `retentionStartDate` names the
+ * oldest local day still guaranteed to be readable.
+ */
+export interface ConsoleLogRetention {
+  /** Oldest local `YYYY-MM-DD` still kept; null when nothing is stored. */
+  retentionStartDate: string | null
+  /** Older records were evicted by the size budget, not by the day window. */
+  capacityEvicted: boolean
+  /** A record was cut down to the size limit before it was written. */
+  trimmed: boolean
+  /** Records skipped while compacting a file because the line was corrupt. */
+  corrupted: number
+  /** The read itself was capped by `limit`, so older records exist on disk. */
+  limited: boolean
+}
+
+export interface ConsoleLogPage {
+  generation: string
+  /// Something is missing from this page (size budget, day window, or limit).
+  truncated: boolean
+  retention?: ConsoleLogRetention
+  records: ConsoleLogRecordRef[]
+}
+
+/** Per-owner writer state. `available: false` means that owner is offline. */
+export interface ConsoleLogSourceStatus {
+  available: boolean
+  dropped: number
+  writeFailed: number
+  trimmed: number
+  capacityEvicted: boolean
+}
+
+export interface ConsoleLogStatus {
+  /// Legacy total kept for older callers; equals app.dropped + daemon.dropped.
+  dropped: number
+  app: ConsoleLogSourceStatus
+  daemon: ConsoleLogSourceStatus
+}
+
+/** Per-owner result of a clear; one owner failing is visible, not hidden. */
+export interface ConsoleLogClearResult {
+  ok: boolean
+  app: boolean
+  daemon: boolean
+}
+
+/**
+ * A renderer log line as sent to the persistence bridge. The backend forces
+ * `source: "renderer"`, so callers cannot forge another owner's records.
+ */
+export interface RendererLogRecord {
+  /** Cross-reload unique id: `renderer-<epoch>-<seq>`. */
+  id: string
+  /** UTC timestamp `YYYY-MM-DD HH:MM:SS`. */
+  timestamp: string
+  level: 'error' | 'warn' | 'info' | 'debug'
+  target: string | null
+  message: string
+}
+
+/** Enqueue result, not a disk-write acknowledgement. */
+export interface ConsoleLogAppendResult {
+  accepted: number
+  rejected: number
+}
+
 // CLI configuration for Claude Code or Codex
 export interface CliConfig {
   model?: string
@@ -578,9 +662,34 @@ export interface TerminalLaunchPreview {
 }
 
 // Global settings types
+/**
+ * How the daemon listens. `loopback` binds 127.0.0.1 only (default);
+ * `lan` binds all interfaces so other devices on the local network can reach
+ * the gateway. The management API stays loopback-only in both modes.
+ */
+export type ProxyListenScope = 'loopback' | 'lan'
+
+/** One reachable LAN entry for the gateway port. */
+export interface ProxyLanAddress {
+  ip: string
+  /** Ready-to-use `http://<ip>:<port>` base URL. */
+  url: string
+  /** Interface name (e.g. `en0`) so Wi-Fi can be told from Ethernet. */
+  interface: string | null
+}
+
+/** Read-only network description used by the gateway/settings screens. */
+export interface ProxyLanInfo {
+  port: number
+  scope: ProxyListenScope
+  addresses: ProxyLanAddress[]
+}
+
 export interface GlobalSettings {
   defaultProviderType: ProviderType
   proxyPort: number
+  /** Defaults to loopback; only `lan` binds non-loopback interfaces. */
+  proxyListenScope: ProxyListenScope
   defaultTerminalType: TerminalType
   closeToTray: boolean
   daemonEnabled: boolean
@@ -690,6 +799,42 @@ export interface ProxySession {
   createdAt: string
   displayName: string | null
   isActive: boolean
+  /** Gateway-only connection overrides; absent/null for every other session. */
+  connectionConfig?: GatewayConnectionConfig | null
+  modelPolicy?: GatewayModelPolicy | null
+}
+
+/**
+ * Connection overrides a gateway outlet applies to traffic from external
+ * clients. Empty/null baseUrl and userAgent mean "not overridden"; authScheme
+ * is always explicit because a gateway must never guess the auth header.
+ */
+export interface GatewayConnectionConfig {
+  /** Upstream base URL override; null means "use the provider default". */
+  baseUrl?: string | null
+  authScheme: 'bearer' | 'x-api-key' | 'none'
+  /** Outbound User-Agent override; null means "no override". */
+  userAgent?: string | null
+}
+
+export type GatewayModelPolicy = { mode: 'all' } | { mode: 'selected'; modelIds: string[] }
+
+/** Explicitly saved provider models; revision guards concurrent editors. */
+export interface ProviderModelCatalog {
+  models: ClientModel[]
+  revision: number
+  updatedAt: string | null
+}
+
+export interface ClientModel {
+  id: string
+  displayName: string
+  supports1m?: boolean
+}
+
+export interface IconDeleteResult {
+  deleted: boolean
+  usedBy: { id: string; name: string }[]
 }
 
 /** A persistent local outlet bound to exactly one API key. */
@@ -703,6 +848,9 @@ export interface Gateway {
   isActive: boolean
   createdAt: string
   lastSeenAt: string
+  /** Normalized connection overrides; defaults to `{ authScheme: 'bearer' }`. */
+  connectionConfig: GatewayConnectionConfig
+  modelPolicy: GatewayModelPolicy
 }
 
 export type ManagedInstanceStatus = 'launching' | 'running' | 'stale' | 'stopped' | 'failed'

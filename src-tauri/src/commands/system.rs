@@ -1,5 +1,122 @@
+use crate::db::Database;
 use base64::Engine;
+use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IconUsageProvider {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IconDeleteResult {
+    pub deleted: bool,
+    pub used_by: Vec<IconUsageProvider>,
+}
+
+#[tauri::command]
+pub fn icon_delete(
+    db: tauri::State<'_, Arc<Mutex<Database>>>,
+    filename: String,
+) -> Result<IconDeleteResult, String> {
+    let db = db.lock().map_err(|_| "Cannot access provider data")?;
+    icon_delete_inner(&db, &get_icons_dir()?, &filename)
+}
+
+/// The library stores only filenames. Legacy provider records also store
+/// absolute paths and file URLs; match those without treating a built-in mark
+/// as an uploaded resource.
+fn referenced_icon_filename(value: &str) -> Option<String> {
+    let file_url = value.strip_prefix("file://");
+    let decoded;
+    let value = if let Some(path) = file_url {
+        decoded = urlencoding::decode(path).ok()?;
+        decoded.as_ref()
+    } else {
+        value
+    };
+    value
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+fn icon_delete_inner(
+    db: &Database,
+    directory: &std::path::Path,
+    filename: &str,
+) -> Result<IconDeleteResult, String> {
+    if filename.is_empty()
+        || filename.trim() != filename
+        || filename.contains(['/', '\\', '\0'])
+        || filename == "."
+        || filename == ".."
+        || icon_mime(filename).is_none()
+    {
+        return Err("Invalid uploaded icon name".into());
+    }
+    let directory = std::fs::canonicalize(directory).map_err(|_| "Cannot access icon library")?;
+    let file = directory.join(filename);
+    let metadata = std::fs::symlink_metadata(&file).map_err(|_| "Cannot access uploaded icon")?;
+    if !metadata.file_type().is_file()
+        || std::fs::canonicalize(&file)
+            .map_err(|_| "Cannot access uploaded icon")?
+            .parent()
+            != Some(directory.as_path())
+    {
+        return Err("Invalid uploaded icon file".into());
+    }
+
+    // An immediate transaction prevents another connection from saving a new
+    // reference between this check and removal. The app's DB mutex also keeps
+    // the check atomic with ordinary provider edits on this connection.
+    let transaction =
+        rusqlite::Transaction::new_unchecked(&db.conn, rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| "Cannot check icon usage")?;
+    let used_by = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT id, name, icon FROM providers WHERE icon IS NOT NULL ORDER BY name, id",
+            )
+            .map_err(|_| "Cannot check icon usage")?;
+        let references = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| "Cannot check icon usage")?;
+        let mut used_by = Vec::new();
+        for reference in references {
+            let (id, name, icon) = reference.map_err(|_| "Cannot check icon usage")?;
+            if referenced_icon_filename(&icon).as_deref() == Some(filename) {
+                used_by.push(IconUsageProvider { id, name });
+            }
+        }
+        used_by
+    };
+    if !used_by.is_empty() {
+        return Ok(IconDeleteResult {
+            deleted: false,
+            used_by,
+        });
+    }
+    std::fs::remove_file(&file).map_err(|_| "Cannot delete uploaded icon")?;
+    // No business data was changed. Drop the read-only transaction to release
+    // its write reservation after the file has been removed.
+    drop(transaction);
+    Ok(IconDeleteResult {
+        deleted: true,
+        used_by: Vec::new(),
+    })
+}
 
 /// Read through IPC so uploaded images also work in the development WebView.
 /// Reuse the protocol's library-only path and file checks.
@@ -194,5 +311,108 @@ mod tests {
         assert!(read_icon(dir.path(), "/%2e%2e%2fsecret.png").is_err());
         assert!(save_icon(dir.path(), b"html", "logo.html").is_err());
         assert!(save_icon(dir.path(), b"", "logo.png").is_err());
+    }
+
+    #[test]
+    fn delete_icon_removes_only_an_unreferenced_upload_and_preserves_provider_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open_at(&directory.path().join("test.db")).unwrap();
+        let icons = directory.path().join("icons");
+        std::fs::create_dir(&icons).unwrap();
+        let filename = save_icon(&icons, b"image", "uploaded.png").unwrap();
+        let other = save_icon(&icons, b"other image", "other.png").unwrap();
+        let result = icon_delete_inner(&db, &icons, &filename).unwrap();
+        assert!(result.deleted);
+        assert!(result.used_by.is_empty());
+        assert!(!icons.join(&filename).exists());
+        assert_eq!(std::fs::read(icons.join(other)).unwrap(), b"other image");
+        assert!(db.provider_list().unwrap().is_empty());
+        assert!(icon_delete_inner(&db, &icons, &filename).is_err());
+    }
+
+    #[test]
+    fn delete_icon_checks_saved_and_legacy_references_without_modifying_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open_at(&directory.path().join("test.db")).unwrap();
+        let icons = directory.path().join("icons");
+        std::fs::create_dir(&icons).unwrap();
+        std::fs::write(icons.join("my icon.png"), b"image").unwrap();
+        for (index, icon) in [
+            "my icon.png",
+            "/old/location/my icon.png",
+            "file:///old/location/my%20icon.png",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let input = serde_json::from_value(serde_json::json!({
+                "name": format!("provider-{index}"),
+                "baseUrl": "https://example.test",
+                "icon": icon,
+            }))
+            .unwrap();
+            db.provider_create(&input).unwrap();
+        }
+        let before = serde_json::to_value(db.provider_list().unwrap()).unwrap();
+        let result = icon_delete_inner(&db, &icons, "my icon.png").unwrap();
+        assert!(!result.deleted);
+        assert_eq!(result.used_by.len(), 3);
+        assert_eq!(
+            result
+                .used_by
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["provider-0", "provider-1", "provider-2"]
+        );
+        assert_eq!(std::fs::read(icons.join("my icon.png")).unwrap(), b"image");
+        assert_eq!(
+            serde_json::to_value(db.provider_list().unwrap()).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn delete_icon_rejects_builtin_traversal_directories_and_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open_at(&directory.path().join("test.db")).unwrap();
+        let icons = directory.path().join("icons");
+        std::fs::create_dir(&icons).unwrap();
+        std::fs::write(directory.path().join("outside.png"), b"outside").unwrap();
+        std::fs::create_dir(icons.join("directory.png")).unwrap();
+        for filename in [
+            "",
+            "claude",
+            "custom",
+            "..",
+            "../outside.png",
+            "/outside.png",
+            "a\\outside.png",
+            "file:///outside.png",
+            "bad.html",
+            "directory.png",
+        ] {
+            assert!(
+                icon_delete_inner(&db, &icons, filename).is_err(),
+                "{filename}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                directory.path().join("outside.png"),
+                icons.join("link.png"),
+            )
+            .unwrap();
+            assert!(icon_delete_inner(&db, &icons, "link.png").is_err());
+            assert!(std::fs::symlink_metadata(icons.join("link.png"))
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
+        assert_eq!(
+            std::fs::read(directory.path().join("outside.png")).unwrap(),
+            b"outside"
+        );
     }
 }

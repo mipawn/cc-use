@@ -740,6 +740,8 @@ fn claude_desktop_config_takeover_with_manager(
             cli_type: Some("claude_desktop".to_string()),
             display_name: None,
             is_active: true,
+            connection_config: None,
+            model_policy: None,
         };
         db.proxy_session_create(&session)
             .map_err(|e| format!("创建 session 失败: {}", e))?;

@@ -271,6 +271,10 @@ pub struct UpdateProjectInput {
 pub struct GlobalSettings {
     pub default_provider_type: String,
     pub proxy_port: i32,
+    /// How the daemon binds its listener. Only `"lan"` opts into `0.0.0.0`;
+    /// every other value (including a missing setting) means loopback-only.
+    #[serde(default = "crate::shared_runtime::default_listen_scope_string")]
+    pub proxy_listen_scope: String,
     pub default_terminal_type: String,
     pub close_to_tray: bool,
     /// Whether the local daemon should run. When false, the daemon is not
@@ -285,6 +289,7 @@ impl Default for GlobalSettings {
         Self {
             default_provider_type: "claude".to_string(),
             proxy_port: 12345,
+            proxy_listen_scope: crate::shared_runtime::default_listen_scope_string(),
             default_terminal_type: "iterm2".to_string(),
             close_to_tray: true,
             daemon_enabled: true,
@@ -305,6 +310,98 @@ pub struct ProxyStatus {
     pub last_error: Option<String>,
 }
 
+/// One reachable IPv4 entry for the gateway port, as shown in the settings and
+/// gateway screens. Read-only view built by `shared_runtime::network`; it never
+/// carries a management token, proxy session token or internal path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyLanAddress {
+    pub ip: String,
+    /// Ready-to-use `http://<ip>:<port>` base URL.
+    pub url: String,
+    /// Interface name (e.g. `en0`) so Wi-Fi can be told from Ethernet.
+    pub interface: Option<String>,
+}
+
+/// Network description for the gateway/settings screens: the current port, the
+/// normalized listen scope and every LAN entry another device can use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyLanInfo {
+    pub port: u16,
+    /// `"loopback"` or `"lan"`; never the raw stored value.
+    pub scope: String,
+    pub addresses: Vec<ProxyLanAddress>,
+}
+
+/// Connection overrides a gateway outlet applies to every path it serves.
+///
+/// `baseUrl`/`userAgent` are `None` when the gateway uses the provider default
+/// / keeps the inbound request's value. `authScheme` is always explicit: a
+/// gateway must never guess how to authenticate the bound key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GatewayConnectionConfig {
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default = "default_gateway_auth_scheme")]
+    pub auth_scheme: String,
+    #[serde(default)]
+    pub user_agent: Option<String>,
+}
+
+pub fn default_gateway_auth_scheme() -> String {
+    "bearer".to_string()
+}
+
+impl Default for GatewayConnectionConfig {
+    fn default() -> Self {
+        Self {
+            base_url: None,
+            auth_scheme: default_gateway_auth_scheme(),
+            user_agent: None,
+        }
+    }
+}
+
+/// Explicit gateway allow-list. SQL NULL alone has the legacy all meaning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(tag = "mode", rename_all = "camelCase")]
+pub enum GatewayModelPolicy {
+    #[default]
+    All,
+    Selected {
+        #[serde(rename = "modelIds")]
+        model_ids: Vec<String>,
+    },
+}
+
+impl<'de> Deserialize<'de> for GatewayModelPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(tag = "mode", rename_all = "camelCase", deny_unknown_fields)]
+        enum WirePolicy {
+            All {},
+            Selected {
+                #[serde(rename = "modelIds")]
+                model_ids: Vec<String>,
+            },
+        }
+        Ok(match WirePolicy::deserialize(deserializer)? {
+            WirePolicy::All {} => Self::All,
+            WirePolicy::Selected { model_ids } => Self::Selected { model_ids },
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelCatalog {
+    pub models: Vec<crate::shared_runtime::model_mapping::ClientModel>,
+    pub revision: i64,
+    pub updated_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxySession {
@@ -323,6 +420,10 @@ pub struct ProxySession {
     // v3.15.0: only gateway rows use these two fields.
     pub display_name: Option<String>,
     pub is_active: bool,
+    /// Gateway-only connection overrides; `None` for every other session row.
+    pub connection_config: Option<GatewayConnectionConfig>,
+    #[serde(default)]
+    pub model_policy: Option<GatewayModelPolicy>,
 }
 
 /// A persistent local outlet bound to exactly one API key.
@@ -338,6 +439,11 @@ pub struct Gateway {
     pub is_active: bool,
     pub created_at: String,
     pub last_seen_at: String,
+    /// Normalized overrides; a gateway without stored overrides reads back as
+    /// `{ authScheme: "bearer" }` rather than an absent object.
+    pub connection_config: GatewayConnectionConfig,
+    #[serde(default)]
+    pub model_policy: GatewayModelPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

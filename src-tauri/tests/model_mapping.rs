@@ -13,6 +13,34 @@ use std::sync::{Arc, Mutex};
 use support::build_proxy_state;
 use tokio::net::TcpListener;
 
+#[test]
+fn provider_editor_draft_models_do_not_change_runtime_catalog_roles_or_aliases() {
+    use cc_use_lib::shared_runtime::model_mapping::{
+        client_models, client_role_entries, effective_catalog_ex,
+    };
+    let provider = serde_json::json!({"data":[{"id":"model-a","display_name":"Upstream A"}]});
+    for kind in ["claude_code", "claude_desktop", "codex"] {
+        let baseline = serde_json::json!({"version":2,"clients":{
+            (kind):{"catalog":{"mode":"provider"},"upstream":{"mode":"follow"}}
+        }});
+        assert_eq!(baseline["clients"][kind]["catalog"]["mode"], "provider");
+        let mut draft = baseline.clone();
+        draft["clients"][kind]["catalog"]["draftModels"] = serde_json::json!([
+            {"id":"model-a","displayName":"Editor A","supports1m":true},
+            {"id":"claude-opus-private","displayName":"Editor Opus","supports1m":true}
+        ]);
+        let before = baseline.to_string();
+        let after = draft.to_string();
+        assert!(client_models(Some(&after), kind).is_empty());
+        assert!(client_role_entries(Some(&after), kind).is_empty());
+        assert_eq!(
+            effective_catalog_ex(Some(&before), kind, Some(&provider)).unwrap(),
+            effective_catalog_ex(Some(&after), kind, Some(&provider)).unwrap(),
+            "Editor-only selection must not change {kind} runtime IDs, 1M metadata or aliases"
+        );
+    }
+}
+
 struct MockUpstream {
     port: u16,
     received_body: Arc<Mutex<String>>,
@@ -146,6 +174,8 @@ fn setup_provider_with_mapping(
         }),
         display_name: None,
         is_active: true,
+        connection_config: None,
+        model_policy: None,
     })
     .expect("create proxy session");
 

@@ -41,6 +41,9 @@ pub fn run() {
             commands::providers::provider_model_list,
             commands::providers::provider_model_catalog,
             commands::providers::provider_model_catalog_preview,
+            commands::providers::provider_model_catalog_get,
+            commands::providers::provider_model_catalog_save,
+            commands::providers::provider_model_catalog_query,
             commands::providers::provider_preset_list,
             // Observed User-Agent candidates
             commands::user_agent::user_agent_custom_list,
@@ -112,10 +115,14 @@ pub fn run() {
             commands::proxy::proxy_stop,
             commands::proxy::console_detail_mode_set,
             commands::proxy::console_detail_mode_get,
+            // Read-only LAN/loopback listener description for the gateway UI
+            commands::proxy::proxy_lan_addresses,
             // Console history (v3.10.0)
             commands::console::console_log_read_recent,
             commands::console::console_log_status,
             commands::console::console_log_clear,
+            // Renderer console persistence (v3.16.0)
+            commands::console::console_log_append_renderer,
             commands::proxy::session_create,
             commands::proxy::session_get,
             commands::proxy::session_update_key,
@@ -127,6 +134,7 @@ pub fn run() {
             commands::gateways::gateway_create,
             commands::gateways::gateway_update,
             commands::gateways::gateway_delete,
+            // Read-only catalogue query from a draft gateway connection (v3.16.0)
             // Terminal commands
             commands::terminal::terminal_launch,
             commands::terminal::terminal_launch_with_path,
@@ -145,6 +153,7 @@ pub fn run() {
             // Icon commands
             commands::system::icon_upload,
             commands::system::icon_list,
+            commands::system::icon_delete,
             commands::system::icon_read,
             // Codex config commands
             commands::codex_config::codex_config_read,

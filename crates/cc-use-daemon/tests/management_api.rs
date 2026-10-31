@@ -1,4 +1,5 @@
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use cc_use_daemon::management::DaemonState;
 use cc_use_daemon::runtime::build_daemon_router;
@@ -8,6 +9,7 @@ use cc_use_lib::{
     proxy::build_proxy_state,
     services::console_log_store::{ConsoleLogHandle, ConsoleLogSource},
 };
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
@@ -115,6 +117,8 @@ fn seed_managed_instance(db: &Database) -> String {
         cli_type: None,
         display_name: None,
         is_active: true,
+        connection_config: None,
+        model_policy: None,
     })
     .expect("create proxy session");
     let instance_id = "instance-managed".to_string();
@@ -476,8 +480,9 @@ async fn console_clear_drops_the_daemons_own_history() {
         Some("cc_use_daemon::runtime"),
         "before clear",
     ));
-    console_log.flush();
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    console_log
+        .flush_and_wait(std::time::Duration::from_secs(5))
+        .expect("flush ack");
     assert_eq!(
         read_recent(&log_dir, &[ConsoleLogSource::Daemon], 10)
             .records
@@ -499,13 +504,99 @@ async fn console_clear_drops_the_daemons_own_history() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    // The clear is queued behind whatever the writer is already doing.
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    // A 200 is a real acknowledgement: the files are already gone when the
+    // response arrives, so a caller may re-read immediately.
     let after = read_recent(&log_dir, &[ConsoleLogSource::Daemon], 10);
     assert!(
         after.records.is_empty(),
         "cleared history does not come back"
     );
+}
+
+/// The status route reports the daemon's own per-owner counters, not a bare
+/// legacy total, and it keeps the management token gate.
+#[tokio::test]
+async fn console_log_status_reports_per_owner_counters() {
+    let (app, console_log, _log_dir) = app_with_console_log();
+    console_log.record(cc_use_lib::proxy::console::ConsoleEvent::log(
+        "info",
+        "daemon",
+        Some("cc_use_daemon::runtime"),
+        "status seed",
+    ));
+    console_log
+        .flush_and_wait(std::time::Duration::from_secs(5))
+        .expect("flush ack");
+
+    let read = |app: axum::Router, token: &'static str| async move {
+        app.oneshot(
+            Request::builder()
+                .uri("/_management/console/log-status")
+                .header("x-cc-use-management-token", token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    };
+
+    let unauthorized = read(app.clone(), "wrong-token").await;
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let response = read(app, "mgmt-test").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["available"], serde_json::json!(true));
+    assert_eq!(value["dropped"], serde_json::json!(0));
+    assert_eq!(value["writeFailed"], serde_json::json!(0));
+    assert_eq!(value["trimmed"], serde_json::json!(0));
+    assert_eq!(value["capacityEvicted"], serde_json::json!(false));
+}
+
+/// A clear only answers after the new generation is on disk, and two clears
+/// never lose each other's generation update.
+#[tokio::test]
+async fn console_clear_acks_the_real_generation_change() {
+    let (app, console_log, log_dir) = app_with_console_log();
+
+    let clear = |app: axum::Router| async move {
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/_management/console/clear")
+                    .header("x-cc-use-management-token", "mgmt-test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+    };
+
+    let first = clear(app.clone()).await;
+    let second = clear(app).await;
+    let first_generation = first["generation"].as_str().expect("generation");
+    let second_generation = second["generation"].as_str().expect("generation");
+    assert!(!first_generation.is_empty());
+    assert_ne!(
+        first_generation, second_generation,
+        "each clear advances the generation; a concurrent write cannot drop it"
+    );
+    let page = cc_use_lib::services::console_log_store::read_recent(
+        &log_dir,
+        &[ConsoleLogSource::Daemon],
+        10,
+    );
+    assert_eq!(page.generation, second_generation);
+    let _ = console_log;
 }
 
 /// The GUI reads this back after a reload: the flag lives in the daemon, so
@@ -559,4 +650,241 @@ async fn console_detail_mode_can_be_read_back() {
         serde_json::from_slice::<serde_json::Value>(&body).unwrap()["enabled"],
         serde_json::json!(true)
     );
+}
+
+// ── R8: the management plane stays loopback-only when the proxy opens to LAN ──
+
+fn with_peer(mut request: Request<Body>, peer: SocketAddr) -> Request<Body> {
+    request.extensions_mut().insert(ConnectInfo(peer));
+    request
+}
+
+fn lan_peer() -> SocketAddr {
+    SocketAddr::from(([192, 168, 1, 50], 51234))
+}
+
+fn loopback_peer() -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], 51234))
+}
+
+fn management_request(
+    method: &str,
+    uri: &str,
+    peer: Option<SocketAddr>,
+    body: Option<&str>,
+) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("x-cc-use-management-token", "mgmt-test");
+    if body.is_some() {
+        builder = builder.header("content-type", "application/json");
+    }
+    let request = builder
+        .body(
+            body.map(|json| Body::from(json.to_string()))
+                .unwrap_or_else(Body::empty),
+        )
+        .unwrap();
+    match peer {
+        Some(peer) => with_peer(request, peer),
+        None => request,
+    }
+}
+
+/// T24/A19: every `/_management/*` surface must answer 403 for a LAN peer even
+/// when the request carries the real management token. This is independent of
+/// the proxy listen scope — the daemon can bind `0.0.0.0` for the gateway while
+/// keeping the management plane loopback-only.
+#[tokio::test]
+async fn management_routes_reject_non_loopback_peers_on_every_surface() {
+    let app = app();
+    let peer = lan_peer();
+    let surfaces = [
+        ("GET", "/_management/health", None),
+        ("GET", "/_management/console/detail-mode", None),
+        (
+            "POST",
+            "/_management/console/detail-mode",
+            Some(r#"{"enabled":true}"#),
+        ),
+        ("GET", "/_management/console/log-status", None),
+        ("POST", "/_management/console/clear", None),
+        ("GET", "/_management/console/stream", None),
+        (
+            "POST",
+            "/_management/instances/heartbeat",
+            Some(r#"{"instanceId":"instance-managed"}"#),
+        ),
+        (
+            "POST",
+            "/_management/instances/stop",
+            Some(r#"{"instanceId":"instance-managed"}"#),
+        ),
+    ];
+
+    for (method, uri, body) in surfaces {
+        let response = app
+            .clone()
+            .oneshot(management_request(method, uri, Some(peer), body))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "{} {} must be 403 for a non-loopback peer",
+            method,
+            uri
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            text.contains("loopback"),
+            "{} {} must explain the loopback restriction, got {:?}",
+            method,
+            uri,
+            text
+        );
+        assert!(
+            !text.contains("mgmt-test"),
+            "{} {} must never echo the management token",
+            method,
+            uri
+        );
+    }
+}
+
+/// The 403 happens before token validation, so a LAN peer cannot even probe
+/// whether it guessed the management token.
+#[tokio::test]
+async fn non_loopback_peer_cannot_probe_the_management_token() {
+    let mut request = management_request("GET", "/_management/health", None, None);
+    request
+        .headers_mut()
+        .insert("x-cc-use-management-token", "wrong-token".parse().unwrap());
+    let response = app().oneshot(with_peer(request, lan_peer())).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// IPv6 is treated by the peer check too: `::1` is loopback, any other address
+/// is not.
+#[tokio::test]
+async fn non_loopback_ipv6_peer_is_rejected_and_ipv6_loopback_is_allowed() {
+    let ipv6_loopback = SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 51234));
+    let response = app()
+        .oneshot(management_request(
+            "GET",
+            "/_management/health",
+            Some(ipv6_loopback),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let ipv6_lan = SocketAddr::from((
+        std::net::Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 5),
+        51234,
+    ));
+    let response = app()
+        .oneshot(management_request(
+            "GET",
+            "/_management/health",
+            Some(ipv6_lan),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// T24: loopback peers keep the historical behaviour on every surface.
+#[tokio::test]
+async fn management_routes_accept_loopback_peers() {
+    let app = app();
+    let peer = loopback_peer();
+
+    let response = app
+        .clone()
+        .oneshot(management_request(
+            "GET",
+            "/_management/health",
+            Some(peer),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(management_request(
+            "GET",
+            "/_management/console/log-status",
+            Some(peer),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(management_request(
+            "POST",
+            "/_management/console/detail-mode",
+            Some(peer),
+            Some(r#"{"enabled":false}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .clone()
+        .oneshot(management_request(
+            "GET",
+            "/_management/console/stream",
+            Some(peer),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.starts_with("text/event-stream"),
+        "loopback SSE must stay available, got {:?}",
+        content_type
+    );
+
+    let response = app
+        .oneshot(management_request(
+            "POST",
+            "/_management/console/clear",
+            Some(peer),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// The trusted case for in-process use: only the production listener installs
+/// `ConnectInfo` (via `into_make_service_with_connect_info`), so a router driven
+/// directly by `oneshot` has no peer address. That must keep working for the
+/// existing tests; a real LAN client always has the extension and gets 403.
+#[tokio::test]
+async fn management_routes_treat_missing_connect_info_as_trusted_in_process() {
+    let response = app()
+        .oneshot(management_request("GET", "/_management/health", None, None))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }

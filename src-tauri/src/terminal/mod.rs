@@ -558,6 +558,8 @@ fn create_managed_launch(
         cli_type: Some(cli_type.to_string()),
         display_name: None,
         is_active: true,
+        connection_config: None,
+        model_policy: None,
     };
     if let Err(error) = db.proxy_session_create(&session) {
         let _ = std::fs::remove_file(&script_path);

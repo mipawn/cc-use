@@ -43,6 +43,8 @@ fn create_session_state(
         cli_type: Some(cli_type.to_string()),
         display_name: None,
         is_active: true,
+        connection_config: None,
+        model_policy: None,
     };
     configure_session(&mut session);
     db.proxy_session_create(&session)

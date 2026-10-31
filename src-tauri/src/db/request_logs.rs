@@ -1012,6 +1012,8 @@ mod tests {
             cli_type: Some("codex-app".into()),
             display_name: None,
             is_active: true,
+            connection_config: None,
+            model_policy: None,
         };
         db.proxy_session_create(&session).unwrap();
 

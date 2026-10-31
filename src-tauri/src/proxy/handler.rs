@@ -1,8 +1,11 @@
 use crate::db::Database;
+use crate::models::GatewayModelPolicy;
 use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
 use crate::proxy::usage_parser;
 use crate::proxy::{ProxyState, RequestPermits};
+use crate::shared_runtime::gateway_connection::{self, GatewayConnection, GatewayTraffic};
+use crate::shared_runtime::gateway_model_policy;
 use crate::shared_runtime::{
     classify_request_auth, decide_route_plan, infer_upstream_family_from_path, user_agent,
     RequestAuth, RoutePlan, UpstreamFamily,
@@ -13,8 +16,8 @@ use axum::{
     extract::ws::{
         CloseFrame as AxumCloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade,
     },
-    extract::FromRequestParts,
     extract::State as AxumState,
+    extract::{ConnectInfo, FromRequestParts},
     http::{HeaderMap, HeaderValue, Request, Response, StatusCode},
     response::IntoResponse,
 };
@@ -51,6 +54,10 @@ struct RouteExecution {
     /// Gateway outlets forward the body unchanged; model mapping must not
     /// rewrite the client's model.
     transparent: bool,
+    /// Resolved gateway connection. One instance is used by model discovery,
+    /// HTTP/SSE forwarding and the WebSocket handshake.
+    gateway: Option<GatewayConnection>,
+    gateway_policy: Option<GatewayModelPolicy>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -364,6 +371,25 @@ pub async fn proxy_handler(
         request_kind: None,
     };
 
+    // R8 LAN guard: when the daemon is explicitly bound to the LAN, a peer that
+    // is not loopback may only use the local gateway/session tokens. A
+    // provider credential would be forwarded with this machine's real upstream
+    // keys, turning the proxy into an open relay, so it is rejected here before
+    // routing. Loopback peers keep every existing behaviour, and a missing
+    // `ConnectInfo` (in-process router tests / direct handler calls) is treated
+    // as the trusted local case — the production listener always installs it.
+    let peer_ip = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|connect_info| connect_info.0.ip());
+    if let Some(peer_ip) = peer_ip {
+        if !peer_ip.is_loopback() && matches!(&request_auth, RequestAuth::ProviderCredential) {
+            let reason = "Provider credentials are not accepted from non-loopback peers; use a gateway or session token";
+            emit.reject(reason);
+            return Err(error_response(StatusCode::FORBIDDEN, reason));
+        }
+    }
+
     let request_permits = match state.try_acquire_request_permits(match &request_auth {
         RequestAuth::SessionToken(token) => Some(token.as_str()),
         _ => None,
@@ -393,40 +419,75 @@ pub async fn proxy_handler(
         }
     };
 
-    // Gateway model discovery reuses the provider's configured query: base
-    // URL + /v1/models + auth scheme + saved query User-Agent. The client can
-    // keep the gateway root; it does not need to know the upstream /v1 path.
+    if let Some(policy) = route_execution.gateway_policy.as_ref() {
+        if let Err((status, reason)) =
+            gateway_model_policy::validate_envelope(policy, req.method(), &req_path, req.headers())
+        {
+            emit.reject(reason);
+            return Err(error_response(status, reason));
+        }
+        if let GatewayModelPolicy::Selected { model_ids } = policy {
+            if req.method() == axum::http::Method::GET {
+                let names = route_execution.provider.as_ref().and_then(|provider| {
+                    state
+                        .db
+                        .lock()
+                        .ok()?
+                        .provider_model_catalog_get(&provider.id)
+                        .ok()
+                });
+                let data = model_ids.iter().map(|id| {
+                    let name = names.as_ref().and_then(|catalog| catalog.models.iter().find(|model| &model.id == id)).map(|model| model.display_name.as_str()).unwrap_or(id);
+                    serde_json::json!({"id":id,"object":"model","display_name":name,"owned_by":"gateway"})
+                }).collect::<Vec<_>>();
+                state.emit_console(ConsoleEvent::ok(
+                    &request_id,
+                    &method_str,
+                    &req_path,
+                    200,
+                    start_time.elapsed().as_millis() as u64,
+                    &route_execution.upstream_url,
+                    route_execution
+                        .provider
+                        .as_ref()
+                        .map(|provider| provider.name.as_str()),
+                    route_execution
+                        .api_key
+                        .as_ref()
+                        .and_then(|key| key.alias.as_deref()),
+                    false,
+                ));
+                return Ok(
+                    axum::Json(serde_json::json!({"object":"list","data":data})).into_response()
+                );
+            }
+        }
+    }
+
+    // Gateway model discovery uses the same resolved connection as inference:
+    // effective Base URL, gateway authentication, provider additive headers and
+    // the gateway User-Agent priority. No clientConfigs / model-catalog
+    // preference is consulted, so /models and the request that follows cannot
+    // point at different upstreams.
     if route_execution.transparent
         && req.method() == axum::http::Method::GET
         && is_model_discovery_path(req.uri().path())
     {
-        if let (Some(provider), Some(key)) = (&route_execution.provider, &route_execution.api_key) {
-            let catalog_kind = ["codex", "grok"]
-                .into_iter()
-                .find(|kind| key.types.iter().any(|value| value == kind))
-                .or_else(|| key.types.first().map(String::as_str))
-                .unwrap_or("claude_code");
-            let user_agent = {
-                let db = state.db.lock().ok();
-                db.and_then(|db| {
-                    db.settings_get_value(&format!(
-                        "model-catalog-user-agent.{}.{}",
-                        provider.id, catalog_kind
-                    ))
-                    .ok()
-                    .flatten()
-                })
-            };
-            match crate::commands::providers::fetch_provider_model_catalog(
+        if let (Some(provider), Some(connection)) =
+            (&route_execution.provider, route_execution.gateway.as_ref())
+        {
+            let key_alias = route_execution
+                .api_key
+                .as_ref()
+                .and_then(|key| key.alias.as_deref());
+            match crate::services::model_catalog::gateway_catalog(
                 provider,
-                key,
-                Some(catalog_kind),
-                user_agent.as_deref(),
-                None,
+                connection,
+                Some(req.headers()),
             )
             .await
             {
-                Ok(catalog) => {
+                Ok(snapshot) => {
                     state.emit_console(ConsoleEvent::ok(
                         &request_id,
                         &method_str,
@@ -435,16 +496,16 @@ pub async fn proxy_handler(
                         start_time.elapsed().as_millis() as u64,
                         &route_execution.upstream_url,
                         Some(provider.name.as_str()),
-                        key.alias.as_deref(),
+                        key_alias,
                         false,
                     ));
-                    return Ok(axum::Json(catalog).into_response());
+                    return Ok(axum::Json(snapshot.catalog).into_response());
                 }
                 Err(error) => {
                     emit.upstream_error(
                         &route_execution.upstream_url,
                         Some(provider.name.as_str()),
-                        key.alias.as_deref(),
+                        key_alias,
                         &error,
                     );
                     return Err(error_response(StatusCode::BAD_GATEWAY, &error));
@@ -622,7 +683,9 @@ pub async fn proxy_handler(
         return Ok(ws_upgrade
             .on_upgrade(move |socket| async move {
                 let _request_permits = request_permits;
-                if let Some(failure) = ws_relay(socket, upstream, route_execution).await {
+                if let Some(failure) =
+                    ws_relay(socket, upstream, route_execution, ws_state.db.clone()).await
+                {
                     match failure {
                         WsRelayFailure::Upstream(error) => {
                             ws_state.emit_console(ConsoleEvent::upstream_error(
@@ -634,6 +697,15 @@ pub async fn proxy_handler(
                                 ws_provider_name.as_deref(),
                                 ws_key_alias.as_deref(),
                                 &error,
+                            ));
+                        }
+                        WsRelayFailure::Policy => {
+                            ws_state.emit_console(ConsoleEvent::rejected(
+                                &ws_request_id,
+                                &ws_method,
+                                &ws_path,
+                                ws_start_time.elapsed().as_millis() as u64,
+                                "Gateway policy changed; WebSocket closed",
                             ));
                         }
                         WsRelayFailure::Client(error) => {
@@ -658,12 +730,33 @@ pub async fn proxy_handler(
     let method = req.method().clone();
     let mut headers = req.headers().clone();
 
-    if let Err(error) = apply_upstream_auth_headers(&mut headers, &route_execution, &req_path) {
-        emit.reject(error);
-        return Err(error_response(StatusCode::BAD_REQUEST, error));
+    if let (Some(provider), Some(connection)) = (
+        route_execution.provider.as_ref(),
+        route_execution.gateway.as_ref(),
+    ) {
+        // One policy for every gateway path: filter protected/hop-by-hop
+        // headers, merge provider additive headers, apply the explicit gateway
+        // auth, then the final User-Agent priority.
+        match gateway_connection::build_headers(
+            Some(&headers),
+            provider,
+            connection,
+            GatewayTraffic::Forward,
+            None,
+        ) {
+            Ok(gateway_headers) => headers = gateway_headers,
+            Err(error) => {
+                emit.reject(&error);
+                return Err(error_response(StatusCode::BAD_REQUEST, &error));
+            }
+        }
+    } else {
+        if let Err(error) = apply_upstream_auth_headers(&mut headers, &route_execution, &req_path) {
+            emit.reject(error);
+            return Err(error_response(StatusCode::BAD_REQUEST, error));
+        }
+        strip_hop_by_hop_headers(&mut headers);
     }
-
-    strip_hop_by_hop_headers(&mut headers);
     headers.remove("accept-encoding");
     headers.remove("host");
     headers.remove("content-length");
@@ -678,6 +771,13 @@ pub async fn proxy_handler(
             ));
         }
     };
+
+    if let Some(policy) = route_execution.gateway_policy.as_ref() {
+        if let Err((status, reason)) = gateway_model_policy::validate_body(policy, &body_bytes) {
+            emit.reject(reason);
+            return Err(error_response(status, reason));
+        }
+    }
 
     let request_json = serde_json::from_slice::<serde_json::Value>(&body_bytes).ok();
     let request_model = request_json
@@ -705,10 +805,12 @@ pub async fn proxy_handler(
         .as_ref()
         .filter(|body| is_claude_messages && super::auto_mode::is_classifier(body))
         .map(|_| "auto_mode".to_string());
-    apply_provider_headers(&mut headers, &route_execution);
-    // Last, and by replacement: a chosen UA is the final word on what the
-    // upstream sees, so a provider default must not survive it.
-    apply_chosen_user_agent(&mut headers, &route_execution, emit.request_id);
+    if route_execution.gateway.is_none() {
+        apply_provider_headers(&mut headers, &route_execution);
+        // Last, and by replacement: a chosen UA is the final word on what the
+        // upstream sees, so a provider default must not survive it.
+        apply_chosen_user_agent(&mut headers, &route_execution, emit.request_id);
+    }
     let forwarded_request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
         .and_then(|value| {
@@ -1304,54 +1406,84 @@ fn build_route_execution(
             } else {
                 req_path.to_string()
             };
-            let client_config_key = session_client_config_key(cli_type.as_deref());
-            // Resolve base_url: clientConfigs[cli_type].baseUrl > provider.baseUrl
-            let resolved_base_url = api_key
-                .client_configs
-                .as_ref()
-                .and_then(|configs| configs.get(client_config_key))
-                .and_then(|cfg| cfg.get("baseUrl"))
-                .and_then(|v| v.as_str())
-                .unwrap_or(&provider.base_url);
-            // A gateway client reaches us at the root, so its OpenAI-style
-            // paths may omit `/v1`. Complete the upstream path here, using the
-            // same rule as the provider model-list query.
-            let upstream_req_path = if transparent {
-                ensure_v1_path(resolved_base_url, &upstream_req_path)
+
+            // A gateway resolves one connection shared by every path: model
+            // discovery, HTTP/SSE forwarding and the WebSocket handshake all
+            // read this object, so they cannot disagree about URL, auth or UA.
+            let (upstream_url, auth_scheme, user_agent, gateway) = if transparent {
+                let connection = gateway_connection::resolve(
+                    &provider,
+                    &api_key,
+                    session.connection_config.as_ref(),
+                )
+                .map_err(|error| {
+                    emit.reject(&error);
+                    error_response(StatusCode::BAD_GATEWAY, &error)
+                })?;
+                // Strict aliases must name the same effective endpoint that
+                // the policy validates; all-mode keeps its existing routing.
+                let gateway_request_path = if matches!(
+                    session.model_policy.as_ref(),
+                    Some(GatewayModelPolicy::Selected { .. })
+                ) {
+                    let (path, query) = upstream_req_path
+                        .split_once('?')
+                        .map_or((upstream_req_path.as_str(), None), |(path, query)| {
+                            (path, Some(query))
+                        });
+                    let canonical =
+                        gateway_model_policy::canonical_inference_path(path).unwrap_or(path);
+                    query.map_or_else(
+                        || canonical.to_string(),
+                        |query| format!("{canonical}?{query}"),
+                    )
+                } else {
+                    upstream_req_path.clone()
+                };
+                let upstream_url = gateway_connection::join_upstream_path(
+                    &connection.effective_base_url,
+                    &gateway_request_path,
+                )
+                .map_err(|error| {
+                    emit.reject(&error);
+                    error_response(StatusCode::BAD_GATEWAY, &error)
+                })?;
+                let user_agent = connection.user_agent_override.clone();
+                (upstream_url, None, user_agent, Some(connection))
             } else {
-                upstream_req_path
+                let client_config_key = session_client_config_key(cli_type.as_deref());
+                // Resolve base_url: clientConfigs[cli_type].baseUrl > provider.baseUrl
+                let resolved_base_url = api_key
+                    .client_configs
+                    .as_ref()
+                    .and_then(|configs| configs.get(client_config_key))
+                    .and_then(|cfg| cfg.get("baseUrl"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&provider.base_url);
+                let client_config = api_key
+                    .client_configs
+                    .as_ref()
+                    .and_then(|configs| configs.get(client_config_key));
+                let user_agent = client_config
+                    .and_then(|config| config.get("proxyUserAgent"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                let upstream_url =
+                    build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
+                (
+                    upstream_url,
+                    client_config.and_then(read_auth_scheme),
+                    user_agent,
+                    None,
+                )
             };
-            let client_config = api_key
-                .client_configs
-                .as_ref()
-                .and_then(|configs| configs.get(client_config_key));
-            // Gateway forwarding prefers the key's own User-Agent. When that
-            // is unset, reuse the provider's configured model-query UA: it is
-            // the identity this provider already accepted for the same key.
-            let user_agent = client_config
-                .and_then(|config| config.get("proxyUserAgent"))
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-                .or_else(|| {
-                    if !transparent {
-                        return None;
-                    }
-                    db.settings_get_value(&format!(
-                        "model-catalog-user-agent.{}.{}",
-                        provider.id, client_config_key
-                    ))
-                    .ok()
-                    .flatten()
-                    .filter(|value| !value.trim().is_empty())
-                });
-            let upstream_url =
-                build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
+
             Ok(RouteExecution {
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
                 api_key: Some(api_key.clone()),
                 model_mapping: mapping,
-                auth_scheme: client_config.and_then(read_auth_scheme),
+                auth_scheme,
                 log_ctx: Some(ResolvedSessionContext {
                     session_token: session.session_token,
                     provider_id: session.provider_id,
@@ -1366,6 +1498,12 @@ fn build_route_execution(
                 cli_type,
                 aliases,
                 transparent,
+                gateway,
+                gateway_policy: if transparent {
+                    Some(session.model_policy.unwrap_or_default())
+                } else {
+                    None
+                },
             })
         }
         RoutePlan::PassThrough => {
@@ -1392,6 +1530,8 @@ fn build_route_execution(
                 cli_type: None,
                 aliases: std::collections::BTreeMap::new(),
                 transparent: false,
+                gateway: None,
+                gateway_policy: None,
             })
         }
         RoutePlan::RejectMissingAuth => {
@@ -1419,14 +1559,7 @@ fn is_codex_responses_request_path(req_path: &str) -> bool {
 }
 
 fn is_model_discovery_path(path: &str) -> bool {
-    matches!(
-        path,
-        "/v1/models"
-            | "/models"
-            | "/claude-desktop/v1/models"
-            | "/claude/v1/models"
-            | "/openai/v1/models"
-    )
+    gateway_model_policy::is_discovery_path(path)
 }
 
 fn resolve_session_resources(
@@ -1605,30 +1738,6 @@ fn session_client_config_key(cli_type: Option<&str>) -> &str {
         Some("claude") => "claude_code",
         Some(value) => value,
         None => "claude_code",
-    }
-}
-
-/// Gateway clients can address the gateway root and send `/chat/completions`
-/// or `/models` without `/v1`. Mirror `build_model_list_endpoint`: add `/v1`
-/// unless the provider base already ends with it or the request already has it.
-fn ensure_v1_path(base_url: &str, req_path: &str) -> String {
-    let (path, query) = req_path.split_once('?').unwrap_or((req_path, ""));
-    let base_has_v1 = url::Url::parse(base_url.trim_end_matches('/'))
-        .map(|url| url.path().trim_end_matches('/').ends_with("/v1"))
-        .unwrap_or(false);
-    let trimmed = path.trim_start_matches('/');
-    let path_has_v1 = trimmed == "v1" || trimmed.starts_with("v1/");
-    let normalized = if base_has_v1 || path_has_v1 {
-        path.to_string()
-    } else if path.starts_with('/') {
-        format!("/v1{}", path)
-    } else {
-        format!("/v1/{}", path)
-    };
-    if query.is_empty() {
-        normalized
-    } else {
-        format!("{}?{}", normalized, query)
     }
 }
 
@@ -2135,7 +2244,12 @@ fn apply_provider_headers(headers: &mut HeaderMap, route: &RouteExecution) {
             continue;
         }
 
-        let resolved = crate::shared_runtime::request_headers::resolve(&value, &provider.base_url);
+        let base_url = route
+            .gateway
+            .as_ref()
+            .map(|connection| connection.effective_base_url.as_str())
+            .unwrap_or(provider.base_url.as_str());
+        let resolved = crate::shared_runtime::request_headers::resolve(&value, base_url);
         match HeaderValue::from_str(&resolved) {
             Ok(header_value) => {
                 headers.insert(header_name, header_value);
@@ -2150,31 +2264,7 @@ fn apply_provider_headers(headers: &mut HeaderMap, route: &RouteExecution) {
 }
 
 fn strip_hop_by_hop_headers(headers: &mut HeaderMap) {
-    let connection_headers = headers
-        .get_all("connection")
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(','))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .filter_map(|value| value.parse::<axum::http::header::HeaderName>().ok())
-        .collect::<Vec<_>>();
-
-    for name in connection_headers {
-        headers.remove(name);
-    }
-    for name in [
-        "connection",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailer",
-        "transfer-encoding",
-        "upgrade",
-    ] {
-        headers.remove(name);
-    }
+    gateway_connection::strip_hop_by_hop_headers(headers);
 }
 
 fn read_auth_scheme(config: &serde_json::Value) -> Option<UpstreamAuthScheme> {
@@ -2892,9 +2982,27 @@ fn build_upstream_ws_request(
 ) -> Result<tokio_tungstenite::tungstenite::http::Request<()>, String> {
     use tokio_tungstenite::tungstenite;
 
-    let mut forwarded_headers = incoming_headers.clone();
-    apply_upstream_auth_headers(&mut forwarded_headers, route, req_path).map_err(str::to_string)?;
-    strip_hop_by_hop_headers(&mut forwarded_headers);
+    // The WebSocket handshake uses the same provider-header/auth/UA policy as
+    // HTTP; only the transport-specific handshake headers are left to
+    // tokio-tungstenite (which also generates Host and the Sec-WebSocket-* set).
+    let mut forwarded_headers = if let (Some(provider), Some(connection)) =
+        (route.provider.as_ref(), route.gateway.as_ref())
+    {
+        gateway_connection::build_headers(
+            Some(incoming_headers),
+            provider,
+            connection,
+            GatewayTraffic::Forward,
+            None,
+        )
+        .map_err(|error| error)?
+    } else {
+        let mut headers = incoming_headers.clone();
+        apply_upstream_auth_headers(&mut headers, route, req_path).map_err(str::to_string)?;
+        strip_hop_by_hop_headers(&mut headers);
+        apply_chosen_user_agent(&mut headers, route, "WebSocket handshake");
+        headers
+    };
     for name in [
         "host",
         "content-length",
@@ -2904,8 +3012,6 @@ fn build_upstream_ws_request(
     ] {
         forwarded_headers.remove(name);
     }
-
-    apply_chosen_user_agent(&mut forwarded_headers, route, "WebSocket handshake");
 
     let mut request = tungstenite::http::Request::builder()
         .uri(upstream_url)
@@ -3115,6 +3221,46 @@ fn upstream_close_to_axum(
 enum WsRelayFailure {
     Client(String),
     Upstream(String),
+    Policy,
+}
+
+/// Re-read persisted authorization for every application frame of a gateway WS.
+/// No policy snapshot from the handshake may keep an old all grant alive.
+fn gateway_ws_frame_allowed(db: &Arc<Mutex<Database>>, route: &RouteExecution) -> bool {
+    if !route.transparent {
+        return true;
+    }
+    let Some(context) = route.log_ctx.as_ref() else {
+        return false;
+    };
+    let Ok(db) = db.lock() else {
+        return false;
+    };
+    let Ok(Some(session)) = db.proxy_session_get(&context.session_token) else {
+        return false;
+    };
+    if !session.is_active
+        || session.revoked_at.is_some()
+        || session
+            .expires_at
+            .as_deref()
+            .is_some_and(session_time_has_passed)
+        || session.provider_id != context.provider_id
+        || session.api_key_id != context.api_key_id
+        || !matches!(
+            session.model_policy.unwrap_or_default(),
+            GatewayModelPolicy::All
+        )
+    {
+        return false;
+    }
+    let Ok(Some(provider)) = db.provider_get(&session.provider_id) else {
+        return false;
+    };
+    let Ok(Some(key)) = db.api_key_get(&session.api_key_id) else {
+        return false;
+    };
+    provider.is_active && key.is_active && !key.is_exhausted && key.provider_id == provider.id
 }
 
 /// Relay frames until either side closes. Returns `Some(failure)` when the relay
@@ -3125,6 +3271,7 @@ async fn ws_relay(
     mut client: WebSocket,
     mut upstream: UpstreamWebSocket,
     route: RouteExecution,
+    db: Arc<Mutex<Database>>,
 ) -> Option<WsRelayFailure> {
     use tokio_tungstenite::tungstenite;
 
@@ -3137,6 +3284,12 @@ async fn ws_relay(
             msg = client.recv() => {
                 match msg {
                     Some(Ok(WsMessage::Text(t))) => {
+                        if !gateway_ws_frame_allowed(&db, &route) {
+                            let _ = client.send(WsMessage::Close(Some(AxumCloseFrame {code: 1008, reason: "Gateway policy changed".into()}))).await;
+                            close_sent_to_client = true;
+                            relay_error = Some(WsRelayFailure::Policy);
+                            break;
+                        }
                         let bytes = apply_model_mapping(axum::body::Bytes::from(t.to_string()), &route);
                         let text = String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| t.to_string());
                         if let Err(error) = upstream.send(tungstenite::Message::Text(text.into())).await {
@@ -3145,6 +3298,12 @@ async fn ws_relay(
                         }
                     }
                     Some(Ok(WsMessage::Binary(b))) => {
+                        if !gateway_ws_frame_allowed(&db, &route) {
+                            let _ = client.send(WsMessage::Close(Some(AxumCloseFrame {code: 1008, reason: "Gateway policy changed".into()}))).await;
+                            close_sent_to_client = true;
+                            relay_error = Some(WsRelayFailure::Policy);
+                            break;
+                        }
                         let bytes = apply_model_mapping(axum::body::Bytes::from(b.to_vec()), &route);
                         if let Err(error) = upstream.send(tungstenite::Message::Binary(bytes.to_vec().into())).await {
                             relay_error = Some(WsRelayFailure::Upstream(format!("Failed to forward to upstream: {}", error)));
@@ -3551,6 +3710,8 @@ mod tests {
             cli_type: cli_type.map(str::to_string),
             aliases: Default::default(),
             transparent: false,
+            gateway: None,
+            gateway_policy: None,
         }
     }
 
@@ -3883,6 +4044,8 @@ mod tests {
             cli_type: Some("codex-app".to_string()),
             display_name: None,
             is_active: true,
+            connection_config: None,
+            model_policy: None,
         })
         .unwrap();
 

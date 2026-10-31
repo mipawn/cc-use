@@ -17,6 +17,7 @@ mod keychain_migration;
 pub mod managed_instances;
 mod model_config_cleanup;
 pub mod projects;
+pub mod provider_model_catalogs;
 pub mod providers;
 pub mod proxy_sessions;
 pub mod request_logs;
@@ -28,6 +29,65 @@ use rusqlite::Connection;
 use std::path::PathBuf;
 
 use keychain_migration::{LegacySecretReadError, LegacySecretReader, SystemKeychainReader};
+
+/// Convert a stored-config problem into a SQLite error whose Display never
+/// repeats the stored JSON (it can contain user-typed configuration).
+fn connection_config_error(message: String) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(
+        0,
+        rusqlite::types::Type::Text,
+        Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            message,
+        )),
+    )
+}
+
+/// Build the gateway connection snapshot for one legacy row from the bound
+/// key's Claude Code client configuration. Only explicit non-empty Base URL,
+/// Claude Code User-Agent and a valid explicit auth scheme are copied; model
+/// mappings, roles, query preferences and startup settings are not.
+fn snapshot_legacy_gateway_config(
+    client_configs: Option<&str>,
+) -> Result<crate::models::GatewayConnectionConfig, rusqlite::Error> {
+    let mut config = crate::models::GatewayConnectionConfig::default();
+    let Some(raw) = client_configs.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(config);
+    };
+    let parsed: serde_json::Value = serde_json::from_str(raw).map_err(|_| {
+        connection_config_error(
+            "The bound API key's stored client configuration is invalid".to_string(),
+        )
+    })?;
+    let Some(claude_code) = parsed.get("claude_code") else {
+        return Ok(config);
+    };
+    let Some(claude_code) = claude_code.as_object() else {
+        return Ok(config);
+    };
+    config.base_url = claude_code
+        .get("baseUrl")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    config.user_agent = claude_code
+        .get("proxyUserAgent")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(scheme) = claude_code
+        .get("authScheme")
+        .and_then(|value| value.as_str())
+        .and_then(|value| {
+            crate::shared_runtime::gateway_connection::GatewayAuthScheme::parse(value)
+        })
+    {
+        config.auth_scheme = scheme.as_str().to_string();
+    }
+    Ok(config)
+}
 
 pub struct Database {
     pub conn: Connection,
@@ -124,6 +184,13 @@ impl Database {
                 request_adapter TEXT NOT NULL DEFAULT 'none',
                 is_active INTEGER DEFAULT 1,
                 sort_order INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS provider_model_catalogs (
+                provider_id TEXT PRIMARY KEY REFERENCES providers(id) ON DELETE CASCADE,
+                models_json TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                updated_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -236,7 +303,10 @@ impl Database {
                 -- v3.15.0: gateway outlets reuse this table; only gateway rows
                 -- use display_name and is_active.
                 display_name TEXT,
-                is_active INTEGER NOT NULL DEFAULT 1
+                is_active INTEGER NOT NULL DEFAULT 1,
+                -- v3.16.0: gateway-only JSON connection overrides.
+                gateway_connection_config TEXT,
+                gateway_model_policy TEXT
             );
 
             CREATE TABLE IF NOT EXISTS gateway_request_events (
@@ -289,6 +359,9 @@ impl Database {
 
         // Run ALTER TABLE migrations for backward compatibility with existing databases
         self.run_alter_migrations();
+        // Snapshot the old implicit Claude Code connection exactly once, after
+        // the column exists and before anything can read a gateway row.
+        self.migrate_gateway_connection_config()?;
         self.clear_shipped_go_model_defaults()?;
         self.clear_retired_model_overrides()?;
         self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
@@ -588,6 +661,9 @@ impl Database {
             // v3.15.0: persistent gateway outlets reused proxy_sessions.
             "ALTER TABLE proxy_sessions ADD COLUMN display_name TEXT",
             "ALTER TABLE proxy_sessions ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
+            // v3.16.0: each gateway outlet stores its own connection overrides.
+            "ALTER TABLE proxy_sessions ADD COLUMN gateway_connection_config TEXT",
+            "ALTER TABLE proxy_sessions ADD COLUMN gateway_model_policy TEXT",
             // v3.7.0: failed requests are recorded too, so every row states its outcome.
             "ALTER TABLE request_logs ADD COLUMN outcome TEXT",
             // Measured output span; historical rows intentionally stay NULL.
@@ -664,6 +740,53 @@ impl Database {
 
         // v3.2.3: Drop transform-related columns (provider_type, api_format, transform_enabled).
         self.drop_transform_columns();
+    }
+
+    /// One-time snapshot of the connection settings the old gateway branch
+    /// implicitly read from the bound key's `clientConfigs.claude_code`.
+    ///
+    /// Marker-guarded and transactional: a failure (including corrupt JSON in a
+    /// key's client configuration) rolls the whole step back and leaves the
+    /// column NULL so the next boot can retry. Values that are already stored
+    /// are never overwritten. The copied strings are not validated: an invalid
+    /// historical URL/User-Agent stays visible for repair and is only refused
+    /// when it is used or re-saved.
+    fn migrate_gateway_connection_config(&self) -> Result<(), rusqlite::Error> {
+        const MARKER: &str = "migration.gatewayConnectionConfig.v1";
+        if self.settings_get_value(MARKER)?.is_some() {
+            return Ok(());
+        }
+        let transaction = self.conn.unchecked_transaction()?;
+        let legacy_rows: Vec<(String, Option<String>)> = {
+            let mut statement = transaction.prepare(
+                "SELECT ps.session_token, k.client_configs
+                 FROM proxy_sessions ps
+                 LEFT JOIN api_keys k ON k.id = ps.api_key_id
+                 WHERE ps.session_kind = 'gateway'
+                   AND ps.gateway_connection_config IS NULL",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for (session_token, client_configs) in legacy_rows {
+            let config = snapshot_legacy_gateway_config(client_configs.as_deref())?;
+            let serialized = crate::shared_runtime::gateway_connection::config_to_json(&config)
+                .map_err(connection_config_error)?;
+            transaction.execute(
+                "UPDATE proxy_sessions
+                 SET gateway_connection_config = ?1
+                 WHERE session_token = ?2 AND session_kind = 'gateway'
+                   AND gateway_connection_config IS NULL",
+                rusqlite::params![serialized, session_token],
+            )?;
+        }
+        transaction.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, '1')",
+            [MARKER],
+        )?;
+        transaction.commit()
     }
 
     fn restore_legacy_keychain_secrets(

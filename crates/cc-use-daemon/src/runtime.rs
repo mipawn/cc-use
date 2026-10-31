@@ -10,6 +10,7 @@ use cc_use_lib::{
     proxy::build_proxy_state_with_console_log,
     proxy::handler::proxy_handler,
     services::console_log_store::{console_log_dir, ConsoleLogHandle, ConsoleLogSource},
+    shared_runtime::proxy_bind_address,
 };
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -67,20 +68,28 @@ pub async fn run_foreground() -> Result<(), String> {
     // to broadcast into. Any `log::info!` from here on is observable by the
     // Console page once a subscriber connects.
     crate::console_logger::install(proxy_state.console_tx.clone(), Arc::clone(&console_log));
-    log::info!("daemon booted; binding 127.0.0.1:{}", settings.proxy_port);
+    // The listen scope is an explicit opt-in (R8): `lan` binds every IPv4
+    // interface so other devices can reach the gateway, everything else
+    // (missing/legacy/invalid) stays loopback-only. The management API is
+    // guarded independently in `management::management_routes`.
+    let bind_address = proxy_bind_address(&settings.proxy_listen_scope, settings.proxy_port as u16);
+    log::info!(
+        "daemon booted; binding {} (listen scope: {})",
+        bind_address,
+        cc_use_lib::shared_runtime::normalize_listen_scope(&settings.proxy_listen_scope)
+    );
 
     let state = build_daemon_state(db.clone(), proxy_state, console_log)?;
     spawn_managed_instance_sweeper(db);
 
     let app = build_daemon_router(state);
-    let addr = SocketAddr::from(([127, 0, 0, 1], settings.proxy_port as u16));
-    let listener = tokio::net::TcpListener::bind(addr)
+    let listener = tokio::net::TcpListener::bind(bind_address)
         .await
         .map_err(|e| format!("Failed to bind daemon port {}: {}", settings.proxy_port, e))?;
 
     axum::serve(
         listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
     .map_err(|e| format!("Daemon server exited with error: {}", e))

@@ -138,6 +138,8 @@ fn setup(upstream_port: u16, cli_type: Option<&str>, proxy_user_agent: Option<&s
                 cli_type: cli_type.map(str::to_string),
                 display_name: None,
                 is_active: true,
+                connection_config: None,
+                model_policy: None,
             })
             .expect("create proxy session");
     }

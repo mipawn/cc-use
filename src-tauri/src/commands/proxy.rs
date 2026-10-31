@@ -2,7 +2,7 @@ use crate::daemon_client::{
     probe_tcp_port, read_daemon_status, restart_daemon, start_daemon, stop_daemon,
 };
 use crate::db::Database;
-use crate::models::{ProxySession, ProxyStatus};
+use crate::models::{ProxyLanInfo, ProxySession, ProxyStatus};
 use crate::shared_runtime::new_session_token;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -194,6 +194,24 @@ fn read_proxy_port(db: &Arc<Mutex<Database>>) -> Result<i32, String> {
     Ok(settings.proxy_port)
 }
 
+/// Read-only LAN view for the settings and gateway screens: the current port,
+/// the normalized listen scope and the `http://<ip>:<port>` entries another
+/// device on the local network could use.
+///
+/// Nothing secret is returned (no management token, no session token, no paths)
+/// and nothing is mutated. Address enumeration lives in
+/// `shared_runtime::network` so the daemon's bind decision and this view share
+/// the same scope rules.
+#[tauri::command]
+pub fn proxy_lan_addresses(db: State<'_, Arc<Mutex<Database>>>) -> Result<ProxyLanInfo, String> {
+    let (port, listen_scope) = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let settings = db.settings_get().map_err(|e| e.to_string())?;
+        (settings.proxy_port, settings.proxy_listen_scope)
+    };
+    Ok(crate::shared_runtime::lan_info(port as u16, &listen_scope))
+}
+
 /// Poll until a TCP connection to 127.0.0.1:port succeeds or the timeout
 /// elapses. probe_tcp_port is blocking, so we push each attempt onto the
 /// blocking pool to avoid stalling the tokio reactor while launchd is
@@ -259,6 +277,8 @@ pub fn session_create(
         cli_type,
         display_name: None,
         is_active: true,
+        connection_config: None,
+        model_policy: None,
     };
     db.proxy_session_create(&session)
         .map_err(|e| e.to_string())?;

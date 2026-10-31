@@ -1017,6 +1017,8 @@ pub async fn codex_config_takeover_inner(
                 cli_type: Some("codex-app".to_string()),
                 display_name: None,
                 is_active: true,
+                connection_config: None,
+                model_policy: None,
             })
             .map_err(|e| format!("创建 session 失败: {}", e))?;
         }

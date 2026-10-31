@@ -15,8 +15,7 @@ const CLAUDE_DESKTOP_GATEWAY_TOKEN_SETTING_KEY: &str = "claudeDesktopGatewayToke
 
 /// Tray menu labels for i18n
 struct TrayLabels {
-    show: &'static str,
-    hide: &'static str,
+    open_main_window: &'static str,
     quit: &'static str,
     proxy_running: &'static str,
     proxy_stopped: &'static str,
@@ -34,8 +33,7 @@ struct TrayLabels {
 }
 
 const ZH_LABELS: TrayLabels = TrayLabels {
-    show: "显示窗口",
-    hide: "隐藏窗口",
+    open_main_window: "打开主界面",
     quit: "退出",
     proxy_running: "代理: ● 运行中",
     proxy_stopped: "代理: ○ 已停止",
@@ -53,8 +51,7 @@ const ZH_LABELS: TrayLabels = TrayLabels {
 };
 
 const EN_LABELS: TrayLabels = TrayLabels {
-    show: "Show Window",
-    hide: "Hide Window",
+    open_main_window: "Open Main Window",
     quit: "Quit",
     proxy_running: "Proxy: ● Running",
     proxy_stopped: "Proxy: ○ Stopped",
@@ -80,21 +77,36 @@ fn get_labels() -> &'static TrayLabels {
     }
 }
 
-fn is_window_visible(app: &AppHandle) -> bool {
-    if let Some(win) = app.get_webview_window("main") {
-        win.is_visible().unwrap_or(false)
+/// Menu id of the first tray entry. It is a fixed action rather than a
+/// visibility-dependent show/hide toggle.
+const OPEN_MAIN_WINDOW_ITEM_ID: &str = "open_main_window";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayWindowAction {
+    OpenMainWindow,
+}
+
+/// The primary tray entry: hidden, minimized, unfocused and already-open
+/// windows all get exactly this label and menu id.
+fn primary_tray_item(labels: &TrayLabels) -> (&'static str, &'static str) {
+    (OPEN_MAIN_WINDOW_ITEM_ID, labels.open_main_window)
+}
+
+fn tray_window_action(menu_id: &str) -> Option<TrayWindowAction> {
+    if menu_id == OPEN_MAIN_WINDOW_ITEM_ID {
+        Some(TrayWindowAction::OpenMainWindow)
     } else {
-        false
+        None
     }
 }
 
 pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error> {
     let labels = get_labels();
-    let visible = is_window_visible(app);
 
-    // Show/Hide toggle
-    let toggle_label = if visible { labels.hide } else { labels.show };
-    let toggle_item = MenuItem::with_id(app, "toggle_window", toggle_label, true, None::<&str>)?;
+    // Fixed "open main window" entry: show -> unminimize -> focus, no toggle.
+    let (open_item_id, open_item_label) = primary_tray_item(labels);
+    let open_window_item =
+        MenuItem::with_id(app, open_item_id, open_item_label, true, None::<&str>)?;
 
     let sep1 = PredefinedMenuItem::separator(app)?;
 
@@ -163,7 +175,7 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
     let menu = Menu::with_items(
         app,
         &[
-            &toggle_item,
+            &open_window_item,
             &sep1,
             &proxy_status_item,
             &claude_instance_item,
@@ -529,11 +541,15 @@ fn did_local_day_roll_over(
 }
 
 fn handle_menu_event(app: &AppHandle, id: &str) {
+    // The primary entry opens the main window regardless of hidden, minimized,
+    // unfocused or already-open state. `show_main_window` does show ->
+    // unminimize -> focus without navigating or recreating the window.
+    if let Some(TrayWindowAction::OpenMainWindow) = tray_window_action(id) {
+        show_main_window(app);
+        return;
+    }
+
     match id {
-        "toggle_window" => {
-            toggle_window(app);
-            refresh_tray_menu(app);
-        }
         "restart_proxy" => {
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -667,16 +683,6 @@ fn restore_desktop_config(app: &AppHandle, client_kind: &str) {
     });
 }
 
-fn toggle_window(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        if win.is_visible().unwrap_or(false) {
-            let _ = win.hide();
-        } else {
-            show_main_window(app);
-        }
-    }
-}
-
 /// Show and focus the main window without ever bringing the app back to the Dock.
 /// Used by the tray menu and by `RunEvent::Reopen` (Finder/Spotlight).
 pub fn show_main_window(app: &AppHandle) {
@@ -762,7 +768,8 @@ fn calculate_tray_badge_text(app: &AppHandle) -> String {
 mod tests {
     use super::{
         did_local_day_roll_over, key_available_for_client, mask_key_value, normalize_client_kind,
-        tray_title_for_badge,
+        primary_tray_item, tray_title_for_badge, tray_window_action, TrayWindowAction, EN_LABELS,
+        OPEN_MAIN_WINDOW_ITEM_ID, ZH_LABELS,
     };
     use crate::models::ApiKey;
 
@@ -795,6 +802,35 @@ mod tests {
         let day_two = chrono::NaiveDate::from_ymd_opt(2026, 8, 10).unwrap();
         assert!(!did_local_day_roll_over(day_one, day_one));
         assert!(did_local_day_roll_over(day_one, day_two));
+    }
+
+    #[test]
+    fn primary_tray_entry_is_a_fixed_open_main_window_action() {
+        // The first entry takes no window-visibility input: hidden, minimized,
+        // unfocused and already-open windows all get the same id and label.
+        for labels in [&ZH_LABELS, &EN_LABELS] {
+            let (menu_id, label) = primary_tray_item(labels);
+            assert_eq!(menu_id, OPEN_MAIN_WINDOW_ITEM_ID);
+            assert_eq!(menu_id, "open_main_window");
+            assert!(!label.trim().is_empty());
+            assert_eq!(
+                tray_window_action(menu_id),
+                Some(TrayWindowAction::OpenMainWindow)
+            );
+            // Calling it twice describes the same fixed entry (no toggle state).
+            assert_eq!(primary_tray_item(labels), (menu_id, label));
+        }
+        assert_eq!(ZH_LABELS.open_main_window, "打开主界面");
+        assert_eq!(EN_LABELS.open_main_window, "Open Main Window");
+    }
+
+    #[test]
+    fn removed_toggle_entry_is_not_a_window_action() {
+        // The previous visibility-dependent "show/hide window" item is gone;
+        // its old id must not silently keep toggling the window.
+        assert_eq!(tray_window_action("toggle_window"), None);
+        assert_eq!(tray_window_action("quit"), None);
+        assert_eq!(tray_window_action(""), None);
     }
 
     #[test]

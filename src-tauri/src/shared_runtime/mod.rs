@@ -1,7 +1,10 @@
 pub mod account_scripts;
+pub mod gateway_connection;
+pub mod gateway_model_policy;
 pub mod launch_preview;
 pub mod management_token;
 pub mod model_mapping;
+pub mod network;
 pub mod project_session;
 pub mod provider_presets;
 pub mod request_headers;
@@ -16,6 +19,11 @@ pub use launch_preview::{
 };
 pub use management_token::{
     ensure_management_token, read_management_token, validate_management_token, ManagementTokenPaths,
+};
+pub use network::{
+    collect_lan_addresses, default_listen_scope_string, is_lan_scope, lan_info,
+    normalize_listen_scope, proxy_bind_address, LanCandidate, LISTEN_SCOPE_LAN,
+    LISTEN_SCOPE_LOOPBACK,
 };
 pub use project_session::{
     plan_project_session, ExistingProjectSession, PlanProjectSessionError, ProjectSessionContext,
