@@ -15,6 +15,9 @@ interface Props {
   inputId?: string
   /** Control-level error state (red border); the caller still renders the error text. */
   invalid?: boolean
+  /** Whether this entry may write and delete entries in the shared UA library.
+   * Default true (keys/model list). The gateway dialog reads only. */
+  libraryActions?: boolean
 }
 
 export default function UserAgentField({
@@ -25,6 +28,7 @@ export default function UserAgentField({
   disabled = false,
   inputId,
   invalid,
+  libraryActions = true,
 }: Props) {
   const { t } = useTranslation()
   const message = useAppMessage()
@@ -116,28 +120,32 @@ export default function UserAgentField({
             onApply?.(next)
           }}
         />
-        <Button
-          loading={saving}
-          disabled={
-            disabled ||
-            deleting ||
-            !value.trim() ||
-            USER_AGENT_PRESETS.some((preset) => preset.value === value.trim()) ||
-            saved.includes(value.trim())
-          }
-          onClick={() => void save()}
-        >
-          {t('keys.uaSave')}
-        </Button>
-        {saved.includes(value.trim()) && (
-          <Button
-            danger
-            loading={deleting}
-            disabled={disabled || saving}
-            onClick={() => void remove()}
-          >
-            {t('keys.uaDelete')}
-          </Button>
+        {libraryActions && (
+          <>
+            <Button
+              loading={saving}
+              disabled={
+                disabled ||
+                deleting ||
+                !value.trim() ||
+                USER_AGENT_PRESETS.some((preset) => preset.value === value.trim()) ||
+                saved.includes(value.trim())
+              }
+              onClick={() => void save()}
+            >
+              {t('keys.uaSave')}
+            </Button>
+            {saved.includes(value.trim()) && (
+              <Button
+                danger
+                loading={deleting}
+                disabled={disabled || saving}
+                onClick={() => void remove()}
+              >
+                {t('keys.uaDelete')}
+              </Button>
+            )}
+          </>
         )}
       </div>
       {error && (

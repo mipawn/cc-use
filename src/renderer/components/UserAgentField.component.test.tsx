@@ -149,3 +149,24 @@ it('shows the error status only when invalid is set', async () => {
     'ant-input-status-error',
   )
 })
+
+it('offers no library writing or deleting when libraryActions is off', async () => {
+  // The gateway entry reads the shared library; it must not mutate it.
+  await render('custom-agent/1.0', false, ['custom-agent/1.0'], { libraryActions: false })
+
+  // The antd Select is a combobox, not a <button>; the input's clear icon is
+  // not an ant-btn. With the library controls off, no ant-btn remains.
+  expect([...container.querySelectorAll('button.ant-btn')]).toEqual([])
+  // Typing still works; the value only travels through onChange.
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="User-Agent"]')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'gateway-agent/9.9',
+    )
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(api.save).not.toHaveBeenCalled()
+  expect(api.delete).not.toHaveBeenCalled()
+  expect(container.querySelector('[role="combobox"]')).not.toBeNull()
+})

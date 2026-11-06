@@ -940,13 +940,16 @@ export default function GatewayPage() {
                             selection and typing only mutate the local draft; the
                             save button turns a blank into null (follow). The
                             CR/LF check stays here so the hint keeps its three
-                            states — the field only mirrors the error state. */}
+                            states — the field only mirrors the error state. The
+                            gateway entry reads the shared library but never
+                            writes it, so save/delete are not offered here. */}
                         <UserAgentField
                           value={userAgent}
                           placeholder={t('gateway.userAgentPlaceholder')}
                           inputId='gateway-user-agent'
                           invalid={userAgentInvalid}
                           disabled={saving}
+                          libraryActions={false}
                           onChange={(value) => {
                             setFormError(null)
                             setUserAgent(value)

@@ -509,6 +509,39 @@ it('offers built-in and saved UA groups and saves the selected preset', async ()
   })
 })
 
+it('lets the gateway read the shared UA list but never write or delete it', async () => {
+  mocks.list.mockResolvedValue([])
+  await renderPage()
+  await openCreate()
+  await fill(input('#gateway-name'), 'UA reader')
+  await chooseSelect(0, 'DeepSeek')
+  await chooseSelect(1, 'main')
+
+  await click(modalBody().querySelector('.ant-collapse-header'))
+
+  const libraryButtons = () =>
+    [...modalBody().querySelectorAll('button')].filter(
+      (element) => element.textContent === 'keys.uaSave' || element.textContent === 'keys.uaDelete',
+    )
+  expect(libraryButtons()).toEqual([])
+
+  // The dropdown still reads the shared library, including saved values.
+  await openDropdown(uaCombobox())
+  expect(document.body.textContent).toContain('custom-agent/1.0')
+  await click(option('custom-agent/1.0'))
+  expect(libraryButtons()).toEqual([])
+  expect(mocks.userAgentSave).not.toHaveBeenCalled()
+  expect(mocks.userAgentDelete).not.toHaveBeenCalled()
+
+  // And a hand-typed value stays a gateway-draft concern, not a library write.
+  await fill(input('#gateway-user-agent', modalBody()), 'gateway-agent/3.1')
+  expect(libraryButtons()).toEqual([])
+  await saveModal()
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({ userAgent: 'gateway-agent/3.1' })
+  expect(mocks.userAgentSave).not.toHaveBeenCalled()
+  expect(mocks.userAgentDelete).not.toHaveBeenCalled()
+})
+
 const crlfGateway: Gateway = {
   ...gateway,
   connectionConfig: { ...gateway.connectionConfig, userAgent: 'bad\nagent' },
