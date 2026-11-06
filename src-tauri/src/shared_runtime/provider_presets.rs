@@ -18,6 +18,7 @@ pub const PRESET_CUSTOM: &str = "custom";
 pub const PRESET_OPENCODE_GO: &str = "opencode-go";
 pub const PRESET_DEEPSEEK: &str = "deepseek";
 pub const PRESET_NEWAPI: &str = "newapi";
+pub const PRESET_COMMAND_CODE: &str = "command-code";
 
 /// Request adapter ids. An adapter is saved configuration, not something the
 /// preset label forces: editing the provider keeps whichever one is stored.
@@ -233,6 +234,41 @@ fn opencode_go_preset() -> ProviderPreset {
     }
 }
 
+/// Command Code: the provider is billed in credits and reports the account
+/// from three of its own endpoints, so the wallet query is a whole
+/// named-request script rather than one route. The account credential is the
+/// inference key itself, borrowed by the script's `{{apiKey}}`.
+fn command_code_preset() -> ProviderPreset {
+    ProviderPreset {
+        id: PRESET_COMMAND_CODE.to_string(),
+        default_name: "command code".to_string(),
+        base_url: "https://api.commandcode.ai/provider".to_string(),
+        // No dedicated icon ships; like Go, Claude's is the closest and stays
+        // the user's to change.
+        icon: "claude".to_string(),
+        requires_site_address: false,
+        needs_account_credential: false,
+        wallet_balance_type: "command-code".to_string(),
+        wallet_balance_url: Some(account_scripts::COMMAND_CODE_CREDITS_URL.to_string()),
+        wallet_balance_headers: Some(account_scripts::COMMAND_CODE_CREDITS_HEADERS.to_string()),
+        wallet_balance_script: Some(account_scripts::command_code_script().to_string()),
+        usage_type: "none".to_string(),
+        usage_url: None,
+        usage_headers: None,
+        request_adapter: ADAPTER_NONE.to_string(),
+        default_key_config: DefaultKeyConfig {
+            types: vec!["claude_code".to_string(), "codex".to_string()],
+            // Both clients speak to the provider root with a Bearer key, the
+            // way DeepSeek's codex client does.
+            client_configs: serde_json::json!({
+                "claude_code": { "baseUrl": "https://api.commandcode.ai/provider", "authScheme": "bearer" },
+                "codex": { "baseUrl": "https://api.commandcode.ai/provider", "authScheme": "bearer" },
+            }),
+            ..DefaultKeyConfig::default()
+        },
+    }
+}
+
 /// Blank template: nothing pre-filled, no capability assumed.
 fn custom_preset() -> ProviderPreset {
     ProviderPreset {
@@ -261,6 +297,7 @@ pub fn provider_presets() -> Vec<ProviderPreset> {
         deepseek_preset(),
         newapi_preset(),
         opencode_go_preset(),
+        command_code_preset(),
     ]
 }
 
@@ -611,6 +648,112 @@ mod tests {
 
         assert_eq!(clients["claude_code"]["authScheme"], "x-api-key");
         assert_eq!(clients["codex"]["authScheme"], "bearer");
+    }
+
+    /// The credits preset: the provider root, the three named endpoints in one
+    /// script with only the two optional ones marked, credits as the unit, and
+    /// key defaults that speak to the provider root with a Bearer key.
+    #[test]
+    fn command_code_carries_the_whole_three_request_script() {
+        let preset = provider_preset(PRESET_COMMAND_CODE).expect("command code preset");
+
+        assert_eq!(preset.id, "command-code");
+        assert_eq!(preset.default_name, "command code");
+        assert_eq!(preset.base_url, "https://api.commandcode.ai/provider");
+        assert_eq!(preset.icon, "claude");
+        assert!(!preset.requires_site_address);
+        assert!(!preset.needs_account_credential);
+        assert_eq!(preset.wallet_balance_type, "command-code");
+
+        // The wallet columns carry the one required request whole.
+        assert_eq!(
+            preset.wallet_balance_url.as_deref(),
+            Some("https://api.commandcode.ai/alpha/billing/credits")
+        );
+        assert!(preset
+            .wallet_balance_headers
+            .as_deref()
+            .is_some_and(|headers| headers.contains("Bearer {{apiKey}}")));
+
+        let script = preset
+            .wallet_balance_script
+            .as_deref()
+            .expect("script preset");
+        assert!(script.contains(r#""https://api.commandcode.ai/alpha/billing/credits""#));
+        assert!(script.contains(r#""https://api.commandcode.ai/alpha/billing/subscriptions""#));
+        assert!(script.contains(r#""https://api.commandcode.ai/alpha/usage/summary""#));
+        assert!(script.contains("{{apiKey}}"));
+        assert_eq!(script.matches("optional: true").count(), 2);
+        assert!(script.contains(r#"unit: "credits""#));
+
+        // The script is the account query; there is no second usage route.
+        assert_eq!(preset.usage_type, "none");
+        assert!(preset.usage_url.is_none());
+        assert_eq!(preset.request_adapter, ADAPTER_NONE);
+    }
+
+    #[test]
+    fn command_code_key_defaults_speak_bearer_to_the_provider_root() {
+        let preset = provider_preset(PRESET_COMMAND_CODE).expect("command code preset");
+        let clients = &preset.default_key_config.client_configs;
+
+        assert_eq!(
+            preset.default_key_config.types,
+            vec!["claude_code".to_string(), "codex".to_string()]
+        );
+        assert_eq!(
+            clients["claude_code"]["baseUrl"],
+            "https://api.commandcode.ai/provider"
+        );
+        assert_eq!(clients["claude_code"]["authScheme"], "bearer");
+        assert_eq!(
+            clients["codex"]["baseUrl"],
+            "https://api.commandcode.ai/provider"
+        );
+        assert_eq!(clients["codex"]["authScheme"], "bearer");
+        assert!(preset.default_key_config.model_mapping.is_none());
+    }
+
+    #[test]
+    fn the_catalogue_appends_command_code_after_the_older_entries() {
+        let presets = provider_presets();
+        let ids = presets
+            .iter()
+            .map(|preset| preset.id.as_str())
+            .collect::<Vec<&str>>();
+
+        assert_eq!(
+            ids,
+            vec![
+                PRESET_CUSTOM,
+                PRESET_DEEPSEEK,
+                PRESET_NEWAPI,
+                PRESET_OPENCODE_GO,
+                PRESET_COMMAND_CODE,
+            ]
+        );
+    }
+
+    #[test]
+    fn creating_from_command_code_fills_the_query_and_the_key_defaults() {
+        let merged = apply_preset_defaults(blank_input(Some(PRESET_COMMAND_CODE)));
+
+        assert_eq!(merged.name, "command code");
+        assert_eq!(merged.base_url, "https://api.commandcode.ai/provider");
+        assert_eq!(merged.wallet_balance_type.as_deref(), Some("command-code"));
+        assert_eq!(
+            merged.wallet_balance_url.as_deref(),
+            Some("https://api.commandcode.ai/alpha/billing/credits")
+        );
+        assert_eq!(merged.usage_type.as_deref(), Some("none"));
+        let defaults = merged.default_key_config.expect("defaults filled in");
+        assert_eq!(defaults.types.len(), 2);
+        assert!(defaults.model_mapping.is_none());
+        // The script itself is carried on the preset and reaches the stored
+        // provider through the form, not through this merge.
+        assert!(provider_preset(PRESET_COMMAND_CODE)
+            .and_then(|preset| preset.wallet_balance_script)
+            .is_some());
     }
 
     #[test]

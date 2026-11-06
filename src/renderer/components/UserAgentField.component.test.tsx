@@ -2,6 +2,7 @@
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
+import type { ComponentProps } from 'react'
 import UserAgentField from './UserAgentField'
 
 const api = vi.hoisted(() => ({ list: vi.fn(), save: vi.fn(), delete: vi.fn() }))
@@ -25,7 +26,12 @@ globalThis.ResizeObserver = class {
 }
 let root: Root
 let container: HTMLDivElement
-async function render(value = '', failLoad = false, saved: string[] = []) {
+async function render(
+  value = '',
+  failLoad = false,
+  saved: string[] = [],
+  extra: Partial<ComponentProps<typeof UserAgentField>> = {},
+) {
   if (failLoad) api.list.mockRejectedValue(new Error('load failed'))
   else api.list.mockResolvedValue(saved)
   container = document.createElement('div')
@@ -33,7 +39,14 @@ async function render(value = '', failLoad = false, saved: string[] = []) {
   root = createRoot(container)
   function Harness() {
     const [current, setCurrent] = useState(value)
-    return <UserAgentField value={current} placeholder='Keep client UA' onChange={setCurrent} />
+    return (
+      <UserAgentField
+        value={current}
+        placeholder='Keep client UA'
+        onChange={setCurrent}
+        {...extra}
+      />
+    )
   }
   await act(async () => root.render(<Harness />))
 }
@@ -105,4 +118,34 @@ it('retains the saved value and reports an error if deletion fails', async () =>
   await act(async () => remove.click())
   expect(container.querySelector('[role="alert"]')!.textContent).toContain('delete failed')
   expect(container.textContent).toContain('keys.uaDelete')
+})
+
+it('leaves id and status alone when the optional props are absent', async () => {
+  await render('claude-cli/2.1.161 (external, cli)', false, ['custom-agent/1.0'])
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="User-Agent"]')!
+  expect(input.hasAttribute('id')).toBe(false)
+  expect(input.className).not.toContain('ant-input-status-error')
+})
+
+it('passes inputId to the inner input so an external label can target it', async () => {
+  const label = document.createElement('label')
+  label.htmlFor = 'gateway-user-agent'
+  await render('', false, [], { inputId: 'gateway-user-agent' })
+  const input = container.querySelector<HTMLInputElement>('#gateway-user-agent')!
+  expect(input).not.toBeNull()
+  expect(input.id).toBe('gateway-user-agent')
+  expect(label.htmlFor).toBe(input.id)
+})
+
+it('shows the error status only when invalid is set', async () => {
+  await render('line\nbreak', false, [], { invalid: true })
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="User-Agent"]')!
+  // antd marks the affix wrapper, not the bare input.
+  const wrapper = input.closest('.ant-input-affix-wrapper')!
+  expect(wrapper.className).toContain('ant-input-status-error')
+  await render('plain-value')
+  const plain = container.querySelector<HTMLInputElement>('input[aria-label="User-Agent"]')!
+  expect(plain.closest('.ant-input-affix-wrapper')!.className).not.toContain(
+    'ant-input-status-error',
+  )
 })

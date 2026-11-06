@@ -47,6 +47,7 @@ import { useApiKeyStore } from '../stores/apiKeyStore'
 import { useProviderStore } from '../stores/providerStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useProviderModelCatalogStore } from '../stores/providerModelCatalogStore'
+import UserAgentField from '../components/UserAgentField'
 import styles from './GatewayPage.module.css'
 
 const DEFAULT_CONNECTION: GatewayConnectionConfig = { authScheme: 'bearer' }
@@ -935,16 +936,20 @@ export default function GatewayPage() {
                         <label htmlFor='gateway-user-agent' className={styles.fieldLabel}>
                           {t('gateway.userAgent')}
                         </label>
-                        <Input
-                          id='gateway-user-agent'
-                          disabled={saving}
+                        {/* Same draft semantics as the key/model-list entries:
+                            selection and typing only mutate the local draft; the
+                            save button turns a blank into null (follow). The
+                            CR/LF check stays here so the hint keeps its three
+                            states — the field only mirrors the error state. */}
+                        <UserAgentField
                           value={userAgent}
                           placeholder={t('gateway.userAgentPlaceholder')}
-                          allowClear
-                          status={userAgentInvalid ? 'error' : undefined}
-                          onChange={(event) => {
+                          inputId='gateway-user-agent'
+                          invalid={userAgentInvalid}
+                          disabled={saving}
+                          onChange={(value) => {
                             setFormError(null)
-                            setUserAgent(event.target.value)
+                            setUserAgent(value)
                           }}
                         />
                         <div className={userAgentInvalid ? styles.fieldError : styles.fieldHint}>

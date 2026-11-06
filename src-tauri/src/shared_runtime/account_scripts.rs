@@ -1,14 +1,18 @@
 //! The account queries the catalogue ships.
 //!
-//! Every service answers "how much of this account is left" with one request,
-//! so every service is one script. The request differs, and so does the reading
-//! of the answer, but the shape the script returns is the same — which is what
-//! lets the card render DeepSeek's balance and OpenCode Go's metering periods
-//! without knowing which vendor answered.
+//! Most services answer "how much of this account is left" with one request,
+//! so each is one script. The request differs, and so does the reading of the
+//! answer, but the shape the script returns is the same — which is what lets
+//! the card render DeepSeek's balance and OpenCode Go's metering periods
+//! without knowing which vendor answered. The exception is Command Code,
+//! which answers the account question with three named requests to three
+//! endpoints in one script.
 //!
 //! The scripts are composed rather than written out whole, because the
 //! migration that lifts a pre-script provider onto this model has to keep the
-//! address that provider was actually using.
+//! address that provider was actually using. The Command Code script ships
+//! whole instead: a named request map is not a legacy column, so there is
+//! nothing to lift it from.
 
 /// One service's account query, in the two parts that vary independently.
 pub struct AccountScript {
@@ -130,6 +134,152 @@ const OPENCODE_GO: AccountScript = AccountScript {
     return { windows: windows }
   }"#,
 };
+
+/// The credits route and its header, the one request of the Command Code
+/// set that is not optional. The preset stores these in the wallet columns,
+/// so the settings dialog shows the same request the script first sends.
+pub const COMMAND_CODE_CREDITS_URL: &str = "https://api.commandcode.ai/alpha/billing/credits";
+pub const COMMAND_CODE_CREDITS_HEADERS: &str = r#"{"Authorization": "Bearer {{apiKey}}"}"#;
+
+/// Command Code answers the account question with three named requests:
+/// billing/credits (required), billing/subscriptions (optional) and
+/// usage/summary (optional). The reading gathers what arrived — the balance
+/// and the 5h/weekly windows from credits, and a monthly row below them:
+/// when credits reports `windowLimits` (a plan account) the row is always
+/// emitted, with percent and reset time left blank until the pair answers;
+/// when it does not (a metered account) no window row is invented at all.
+///
+/// The plan-total table is a snapshot of the client's 1.88.4 map, kept inside
+/// the script precisely so it stays editable when plans change; it is matched
+/// by exact planId, never by prefix. Missed amounts are reported as invalid
+/// rather than built into a fabricated zero.
+pub const COMMAND_CODE: &str = r#"({
+  requests: {
+    credit: {                                     // 必需
+      url: "https://api.commandcode.ai/alpha/billing/credits",
+      method: "GET",
+      headers: { Authorization: "Bearer {{apiKey}}" }
+    },
+    subscription: {                               // 可选：查不到 → 月窗留 loading，不整刷失败
+      url: "https://api.commandcode.ai/alpha/billing/subscriptions",
+      method: "GET",
+      headers: { Authorization: "Bearer {{apiKey}}" },
+      optional: true
+    },
+    summary: {                                    // 可选：月度"已用"来源
+      url: "https://api.commandcode.ai/alpha/usage/summary",
+      method: "GET",
+      headers: { Authorization: "Bearer {{apiKey}}" },
+      optional: true
+    }
+  },
+  extractor: function (responses) {
+    // 套餐月总额（credits 单位），按 subscriptions 返回的 planId 精确查表；
+    // 这是客户端 1.88.4 的快照，套餐新增/改名需要手动改这里。
+    var planTotal = { "individual-go":10, "individual-go-v1":10, "individual-goat":70,
+      "individual-pro":30, "individual-pro-v1":80, "individual-provider":15,
+      "individual-max":150, "individual-ultra":300, "teams-pro":40 }
+
+    var num = function (value) {
+      if (value == null) return null
+      var n = Number(value)
+      return isFinite(n) ? n : null
+    }
+    var msToIso = function (value) {
+      var ms = num(value)
+      if (ms == null) return null
+      var date = new Date(ms)
+      return isNaN(date.getTime()) ? null : date.toISOString()
+    }
+    var anyIso = function (value) {           // resetAt 可能是毫秒数字或可解析时间串
+      var ms = num(value)
+      if (ms != null) {
+        var date = new Date(ms)
+        return isNaN(date.getTime()) ? null : date.toISOString()
+      }
+      if (value == null) return null
+      var parsed = new Date(String(value))
+      return isNaN(parsed.getTime()) ? null : parsed.toISOString()
+    }
+    // credits 块：客户端存在两种嵌套读法（research.md 复核节）
+    var top = function (body) {
+      if (body == null || typeof body !== "object") return null
+      var outer = body.credits
+      if (outer == null || typeof outer !== "object") return null
+      var amounts = outer.credits != null && typeof outer.credits === "object" ? outer.credits : outer
+      var limits = outer.windowLimits != null && typeof outer.windowLimits === "object"
+        ? outer.windowLimits
+        : (amounts.windowLimits != null && typeof amounts.windowLimits === "object"
+          ? amounts.windowLimits
+          : null)
+      return { amounts: amounts, limits: limits,
+        planId: (outer.planId != null ? outer.planId : (amounts.planId != null ? amounts.planId : null)) }
+    }
+    var credits = top(responses.credit)
+    if (credits == null) return { isValid: false, invalidMessage: "响应里没有可读的 credits 对象" }
+    var monthly = num(credits.amounts.monthlyCredits)
+    var purchased = num(credits.amounts.purchasedCredits)
+    var free = num(credits.amounts.freeCredits)
+    // 三个数值全缺＝接口正常但没报余额，不得汇总成 0（真实 0 剩余会是具体数字）
+    if (monthly == null && purchased == null && free == null) {
+      return { isValid: false, invalidMessage: "credits 数值缺失" }
+    }
+    var usage = {
+      remaining: (monthly != null && monthly > 0 ? monthly : 0)
+        + (purchased != null && purchased > 0 ? purchased : 0)
+        + (free != null && free > 0 ? free : 0),
+      unit: "credits"   // usage-value units；不做 $ 换算、不标 USD
+    }
+    var windows = []
+    var push = function (id, limit) {
+      if (limit == null || typeof limit !== "object") return
+      var cap = num(limit.cap)
+      var used = num(limit.used)
+      windows.push({
+        id: id,                                   // rolling/weekly/monthly：UI 字典给文案与排序
+        usedPercent: cap != null && cap > 0 && used != null
+          ? Math.min(100, used / cap * 100)
+          : null,                                 // cap 缺失/≤0 → 未返回
+        resetsAt: msToIso(limit.resetAt)          // 毫秒 → ISO 落到 UI 既有倒计时
+      })
+    }
+    // windowLimits 存在＝套餐账号：5h/周窗照常，月窗行始终产出（查不到的输入 →
+    // percent 留空为"未返回"，不虚构）；windowLimits 不在＝按量账号，连月窗也不虚构造行。
+    if (credits.limits != null) {
+      push("rolling", credits.limits.fiveHour)
+      push("weekly", credits.limits.weekly)
+
+      // 月窗："已用"来自 summary.totalCost，"总额度"来自 subscription.planId → planTotal；
+      // 任一缺失 → 百分比留空（loading/未返回），不虚构。subscription 未查到时
+      // 状态无法确认，百分比同样留空；resetAt 只在订阅体里有时才有。
+      var subResp = responses.subscription
+      var sumResp = responses.summary
+      var sub = subResp != null && subResp.data != null && typeof subResp.data === "object" ? subResp.data : null
+      var sum = sumResp != null && typeof sumResp === "object" ? sumResp : null
+      var rawPlanId = sub != null && sub.planId != null ? sub.planId : credits.planId
+      var planKey = rawPlanId != null ? String(rawPlanId).toLowerCase().replace(/_/g, "-") : null
+      var total = planKey != null ? planTotal[planKey] : null    // 精确匹配；未知 → null
+      // summary 体形未在客户端留痕（CLI 只读顶层 totalCost），data 包裹时再降一层，
+      // 两处都没有就用不上"已用"，百分比留空，不虚构。
+      var sumData = sum != null && sum.data != null && typeof sum.data === "object" ? sum.data : sum
+      var used = sumData != null ? num(sumData.totalCost) : null
+      var periodEnd = sub != null && sub.currentPeriodEnd != null ? anyIso(sub.currentPeriodEnd) : null
+      var statusOk = sub != null
+        && (sub.status == null || sub.status === "active" || sub.status === "trialing")
+      var percent = total != null && total > 0 && used != null && used >= 0 && statusOk
+        ? Math.min(100, Math.max(0, used / total * 100))
+        : null
+      windows.push({ id: "monthly", usedPercent: percent, resetsAt: periodEnd })
+    }
+    usage.windows = windows
+    return usage
+  }
+})"#;
+
+/// The whole Command Code script, as the catalogue ships it.
+pub fn command_code_script() -> &'static str {
+    COMMAND_CODE
+}
 
 /// Look up a service's query by the id the stored columns used.
 pub fn for_legacy_kind(kind: &str) -> Option<&'static AccountScript> {
@@ -479,5 +629,58 @@ mod tests {
         assert!(for_legacy_kind("none").is_none());
         assert!(key_usage_for_legacy_kind("newapi").is_some());
         assert!(key_usage_for_legacy_kind("custom").is_none());
+    }
+
+    /// Command Code ships whole: a named request map is not a legacy column,
+    /// so nothing may pretend to lift it from one.
+    #[test]
+    fn command_code_is_served_by_its_script_and_not_by_the_legacy_columns() {
+        assert!(for_legacy_kind("command-code").is_none());
+    }
+
+    #[test]
+    fn the_command_code_script_names_three_requests_with_their_optionality() {
+        let script = command_code_script();
+
+        assert!(script.contains(r#""https://api.commandcode.ai/alpha/billing/credits""#));
+        assert!(script.contains(r#""https://api.commandcode.ai/alpha/billing/subscriptions""#));
+        assert!(script.contains(r#""https://api.commandcode.ai/alpha/usage/summary""#));
+        // The account credential the script borrows, once per request.
+        assert_eq!(script.matches("{{apiKey}}").count(), 3);
+        assert!(script.contains(r#"unit: "credits""#));
+        // Only the two requests that may fail carry the flag.
+        assert_eq!(script.matches("optional: true").count(), 2);
+    }
+
+    /// The shipped text resolves under the engine's named contract; its
+    /// runtime behaviour is covered by `services::query_script`.
+    #[test]
+    fn the_command_code_script_resolves_into_its_named_set() {
+        let resolved = crate::services::query_script::resolve_requests(
+            command_code_script(),
+            &crate::services::query_script::ScriptVars {
+                api_key: Some("sk-fixture".to_string()),
+                ..Default::default()
+            },
+            &crate::services::query_script::ScriptLimits::default(),
+        )
+        .expect("the shipped script is a named set");
+
+        let crate::services::query_script::ResolvedRequests::Many(named) = resolved else {
+            panic!("Command Code resolves to Many");
+        };
+        assert_eq!(named.len(), 3);
+        let credit = &named["credit"].request;
+        assert_eq!(
+            credit.url,
+            "https://api.commandcode.ai/alpha/billing/credits"
+        );
+        assert_eq!(
+            credit.headers.get("Authorization").map(String::as_str),
+            Some("Bearer sk-fixture")
+        );
+        assert!(!named["credit"].optional);
+        assert!(named["subscription"].optional);
+        assert!(named["summary"].optional);
     }
 }

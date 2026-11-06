@@ -34,6 +34,13 @@
   font-size: 16px;
 }
 
+.balancePending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
 .lastChecked {
   font-size: 11px;
 }

@@ -12,6 +12,13 @@
 .window {
   min-width: 0;
 }
+.pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-height: 16px;
+}
 .heading {
   display: flex;
   justify-content: space-between;

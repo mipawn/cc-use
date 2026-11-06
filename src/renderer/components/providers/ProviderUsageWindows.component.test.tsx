@@ -70,3 +70,26 @@ it('says a missing percentage is missing rather than showing it as zero', async 
   expect(text).toContain('providers.usageWindowUnknown')
   expect(text).not.toContain('providers.usageWindowUsed')
 })
+
+it('shows one pending row for a configured query whose answer has not arrived', async () => {
+  await act(async () => root.render(<ProviderUsageWindows windows={[]} pending />))
+
+  const text = container.textContent ?? ''
+  expect(text).toContain('providers.usagePending')
+  // The placeholder is a status row with a spinner, not meter data.
+  expect(container.querySelector('[role="status"]')).not.toBeNull()
+  expect(container.querySelector('.anticon-loading')).not.toBeNull()
+  expect(text).not.toContain('providers.usageWindowUnknown')
+  expect(text).not.toContain('providers.usageWindowUsed')
+})
+
+it('keeps ordinary window rendering when pending is not requested', async () => {
+  await act(async () =>
+    root.render(<ProviderUsageWindows windows={[window('rolling', '5h', 0.4)]} />),
+  )
+
+  const text = container.textContent ?? ''
+  expect(text).toContain('providers.usageWindowUsed')
+  expect(text).not.toContain('providers.usagePending')
+  expect(container.querySelector('[role="status"]')).toBeNull()
+})

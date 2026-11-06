@@ -577,6 +577,7 @@ export default {
     queryNotChecked: '尚未查询额度',
     usageStatus: { exceeded: '已超额', exhausted: '已用尽', limited: '已限额', active: '可用' },
     usageWindowUnknown: '未返回',
+    usagePending: '查询中…',
     usageWindowUsed: '已用 {{percent}}%',
     usageWindowResetsAt: '重置时间 {{time}}',
     usageWindowResetting: '即将重置',

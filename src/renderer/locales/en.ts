@@ -604,6 +604,7 @@ export default {
       active: 'Active',
     },
     usageWindowUnknown: 'Not reported',
+    usagePending: 'Checking…',
     usageWindowUsed: '{{percent}}% used',
     usageWindowResetsAt: 'Resets {{time}}',
     usageWindowResetting: 'Resetting soon',

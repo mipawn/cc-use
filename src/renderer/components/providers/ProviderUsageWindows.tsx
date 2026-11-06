@@ -1,5 +1,6 @@
 import styles from './ProviderUsageWindows.module.css'
 import { formatUsedPercent, orderUsageWindows, usageWindowLabel } from '../../utils/accountQuery'
+import { LoadingOutlined } from '@ant-design/icons'
 import { Progress, Typography, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { UsageGroup, UsageWindow } from '@shared/types'
@@ -14,16 +15,33 @@ const { Text } = Typography
  * says so instead of showing 0%. Groups (when a provider meters per model) are
  * listed separately for the same reason — averaging them would invent a total
  * that does not exist.
+ *
+ * `pending` renders one "checking…" row for a configured query whose answer
+ * has not arrived yet (never checked, or a refresh still running); the caller
+ * decides when that is, so this component stays purely presentational.
  */
 export default function ProviderUsageWindows({
   windows,
   groups = [],
+  pending = false,
 }: {
   windows: UsageWindow[]
   groups?: UsageGroup[]
+  pending?: boolean
 }) {
   const { t } = useTranslation()
   const { token } = theme.useToken()
+
+  if (pending) {
+    return (
+      <div className={styles.windows}>
+        <Text type='secondary' className={styles.pending} role='status'>
+          <LoadingOutlined spin aria-hidden='true' />
+          {t('providers.usagePending')}
+        </Text>
+      </div>
+    )
+  }
 
   if (groups.length > 0) {
     return (

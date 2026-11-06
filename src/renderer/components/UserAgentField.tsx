@@ -11,9 +11,21 @@ interface Props {
   onChange: (value: string) => void
   onApply?: (value: string) => void
   disabled?: boolean
+  /** Associates an explicit caller-rendered <label htmlFor>; harmless next to the aria-label. */
+  inputId?: string
+  /** Control-level error state (red border); the caller still renders the error text. */
+  invalid?: boolean
 }
 
-export default function UserAgentField({ value, placeholder, onChange, onApply, disabled = false }: Props) {
+export default function UserAgentField({
+  value,
+  placeholder,
+  onChange,
+  onApply,
+  disabled = false,
+  inputId,
+  invalid,
+}: Props) {
   const { t } = useTranslation()
   const message = useAppMessage()
   const [saved, setSaved] = useState<string[]>([])
@@ -66,6 +78,8 @@ export default function UserAgentField({ value, placeholder, onChange, onApply, 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Input
           aria-label='User-Agent'
+          id={inputId}
+          status={invalid ? 'error' : undefined}
           style={{ flex: '1 1 220px' }}
           value={value}
           disabled={disabled}
@@ -105,7 +119,8 @@ export default function UserAgentField({ value, placeholder, onChange, onApply, 
         <Button
           loading={saving}
           disabled={
-            disabled || deleting ||
+            disabled ||
+            deleting ||
             !value.trim() ||
             USER_AGENT_PRESETS.some((preset) => preset.value === value.trim()) ||
             saved.includes(value.trim())
@@ -115,7 +130,12 @@ export default function UserAgentField({ value, placeholder, onChange, onApply, 
           {t('keys.uaSave')}
         </Button>
         {saved.includes(value.trim()) && (
-          <Button danger loading={deleting} disabled={disabled || saving} onClick={() => void remove()}>
+          <Button
+            danger
+            loading={deleting}
+            disabled={disabled || saving}
+            onClick={() => void remove()}
+          >
             {t('keys.uaDelete')}
           </Button>
         )}

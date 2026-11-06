@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   apiKeyList: vi.fn(),
   providerList: vi.fn(),
   lanAddresses: vi.fn(),
+  userAgentList: vi.fn(),
+  userAgentSave: vi.fn(),
+  userAgentDelete: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
   writeText: vi.fn(),
@@ -101,6 +104,11 @@ vi.mock('../api', () => ({
     provider: { list: mocks.providerList, getModelCatalog: mocks.getModelCatalog },
     apiKey: { list: mocks.apiKeyList },
     proxy: { lanAddresses: mocks.lanAddresses },
+    userAgent: {
+      list: mocks.userAgentList,
+      save: mocks.userAgentSave,
+      delete: mocks.userAgentDelete,
+    },
   }),
 }))
 vi.mock('../hooks/useServiceStatus', () => ({
@@ -174,6 +182,7 @@ beforeEach(() => {
   mocks.writeText.mockResolvedValue(undefined)
   mocks.settings.proxyListenScope = 'loopback'
   mocks.lanAddresses.mockResolvedValue({ port: 22345, scope: 'loopback', addresses: [] })
+  mocks.userAgentList.mockResolvedValue(['custom-agent/1.0'])
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -273,6 +282,33 @@ async function chooseSelect(index: number, optionText: string) {
 
 async function choosePolicy(mode: 'all' | 'selected') {
   await click(modalBody().querySelector(`input[type="radio"][value="${mode}"]`))
+}
+
+/** The UA field's own dropdown, located next to the gateway-user-agent input. */
+function uaCombobox(): HTMLElement {
+  const uaInput = input('#gateway-user-agent', modalBody())
+  expect(uaInput).not.toBeNull()
+  let node: HTMLElement | null = uaInput!.parentElement
+  while (node && !node.querySelector('[role="combobox"]')) node = node.parentElement
+  const combobox = node?.querySelector<HTMLElement>('[role="combobox"]') ?? null
+  expect(combobox).not.toBeNull()
+  return combobox!
+}
+
+/** Selects open on mousedown, not click. */
+async function openDropdown(combobox: HTMLElement) {
+  await act(async () => {
+    combobox.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+  })
+  await flush()
+}
+
+function option(text: string): HTMLElement {
+  const match = Array.from(
+    document.body.querySelectorAll<HTMLElement>('.ant-select-item-option'),
+  ).find((candidate) => (candidate.textContent ?? '').includes(text))
+  expect(match).toBeDefined()
+  return match!
 }
 
 async function saveModal() {
@@ -444,18 +480,87 @@ it('creates a gateway with the full connection draft object', async () => {
   await fill(input('#gateway-user-agent'), 'custom-agent/1.0')
   await saveModal()
 
-  expect(mocks.create).toHaveBeenCalledWith(
-    'New route',
-    'provider-2',
-    'key-2',
-    {
-      baseUrl: 'https://custom.example.com/v1',
-      authScheme: 'x-api-key',
-      userAgent: 'custom-agent/1.0',
-    },
-    { mode: 'all' },
-  )
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({ userAgent: 'custom-agent/1.0' })
   expect(mocks.success).toHaveBeenCalledWith('gateway.saved')
+})
+
+it('offers built-in and saved UA groups and saves the selected preset', async () => {
+  mocks.list.mockResolvedValue([])
+  await renderPage()
+  await openCreate()
+  await fill(input('#gateway-name'), 'UA route')
+  await chooseSelect(0, 'DeepSeek')
+  await chooseSelect(1, 'main')
+
+  await click(modalBody().querySelector('.ant-collapse-header'))
+  await openDropdown(uaCombobox())
+  const dropdownText = document.body.textContent ?? ''
+  expect(dropdownText).toContain('keys.uaBuiltin')
+  expect(dropdownText).toContain('keys.uaLocal')
+  expect(dropdownText).toContain('claude-cli/2.1.161 (external, cli)')
+  await click(option('claude-cli/2.1.161 (external, cli)'))
+  expect(input('#gateway-user-agent', modalBody())?.value).toBe(
+    'claude-cli/2.1.161 (external, cli)',
+  )
+
+  await saveModal()
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({
+    userAgent: 'claude-cli/2.1.161 (external, cli)',
+  })
+})
+
+const crlfGateway: Gateway = {
+  ...gateway,
+  connectionConfig: { ...gateway.connectionConfig, userAgent: 'bad\nagent' },
+}
+
+it('blocks save and shows the error state for a UA containing a line break', async () => {
+  // Text inputs strip line breaks on input, so the draft reaches the page from
+  // the stored value (or a saved list entry); the guard lives on the draft.
+  mocks.list.mockResolvedValue([crlfGateway])
+  await renderPage()
+  await openEdit()
+
+  expect(modalBody().textContent).toContain('gateway.invalidUserAgent')
+  expect(
+    input('#gateway-user-agent', modalBody())!.closest('.ant-input-affix-wrapper')!.className,
+  ).toContain('ant-input-status-error')
+  await saveModal()
+  expect(mocks.update).not.toHaveBeenCalled()
+  expect(modalBody().textContent).toContain('gateway.invalidUserAgent')
+})
+
+it('saves null when the UA draft is cleared', async () => {
+  await renderPage()
+  await openEdit()
+
+  expect(input('#gateway-user-agent', modalBody())?.value).toBe('gateway-agent/2.0')
+  await fill(input('#gateway-user-agent', modalBody()), '')
+  await saveModal()
+
+  expect(mocks.update).toHaveBeenCalledWith(
+    gateway.sessionToken,
+    expect.objectContaining({
+      connectionConfig: {
+        baseUrl: 'https://gateway.example.com/v1',
+        authScheme: 'x-api-key',
+        userAgent: null,
+      },
+    }),
+  )
+})
+
+it('cancel keeps the stored UA and calls no write API', async () => {
+  await renderPage()
+  await openEdit()
+  await fill(input('#gateway-user-agent', modalBody()), 'draft-agent/9.0')
+  await click(buttonByText('common.cancel', modal()))
+
+  expect(mocks.update).not.toHaveBeenCalled()
+  expect(mocks.userAgentSave).not.toHaveBeenCalled()
+  expect(mocks.userAgentDelete).not.toHaveBeenCalled()
+  await openEdit()
+  expect(input('#gateway-user-agent', modalBody())?.value).toBe('gateway-agent/2.0')
 })
 
 it('keeps validation inline, never echoes secrets and does not save an invalid draft', async () => {

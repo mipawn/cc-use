@@ -23,6 +23,12 @@
 //! The script is evaluated in a sandbox with a hard memory ceiling and a wall
 //! clock, because the expression is only ever arithmetic over one response and
 //! has no legitimate need for more.
+//!
+//! A script carries one of two request contracts. The original one asks for a
+//! single `request` and reads `extractor(response)`; the named one asks for a
+//! map of `requests` and reads `extractor(responses)`, where every request
+//! name resolves to the response it returned (or `null` when an optional one
+//! failed). A script may use one or the other, never both.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -69,6 +75,20 @@ pub struct ScriptRequest {
 
 fn default_method() -> String {
     "GET".to_string()
+}
+
+/// One named request of the many-request contract.
+///
+/// The request half is the same shape the single contract uses, flattened
+/// into the name's object; `optional` is the only thing a name adds — a failed
+/// optional request answers `null` to the extractor instead of failing the
+/// whole refresh.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NamedRequest {
+    #[serde(flatten)]
+    pub request: ScriptRequest,
+    #[serde(default)]
+    pub optional: bool,
 }
 
 /// The standard shape an extractor returns.
@@ -210,6 +230,93 @@ pub fn resolve_request(
     Ok(request)
 }
 
+/// Which request form a script uses.
+///
+/// The one-request contract is carried verbatim: its branch is the same
+/// [`resolve_request`] call it always was, so an existing single-request
+/// script resolves exactly as it did before named requests existed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedRequests {
+    Single(ScriptRequest),
+    Many(BTreeMap<String, NamedRequest>),
+}
+
+/// The sandboxed probe's answer: which request form the script carries.
+///
+/// `JSON.stringify` drops keys whose value is `undefined`, so the evaluation
+/// of `{request: s.request, requests: s.requests}` reads back an absent form
+/// as one that is simply not there.
+#[derive(Deserialize)]
+struct RequestProbe {
+    #[serde(default)]
+    request: Option<Value>,
+    #[serde(default)]
+    requests: Option<BTreeMap<String, NamedRequest>>,
+}
+
+/// Read the requests a script describes, in either contract.
+///
+/// `request` and `requests` are exclusive: both present is a script error, two
+/// present at write time being the one mistake a user cannot fix by picking a
+/// form later. The single form delegates to [`resolve_request`], which keeps
+/// the old contract byte-for-byte — including the error a script that names
+/// neither form always gave.
+pub fn resolve_requests(
+    script: &str,
+    vars: &ScriptVars,
+    limits: &ScriptLimits,
+) -> Result<ResolvedRequests, QueryScriptError> {
+    let source = substitute(script, vars);
+    let json = evaluate(
+        &format!(
+            "JSON.stringify((function(){{var s=({source});\
+              return {{request: s.request, requests: s.requests}};}})())"
+        ),
+        limits,
+    )?;
+
+    let probe: RequestProbe = serde_json::from_str(&json)
+        .map_err(|error| QueryScriptError::Script(format!("request is not usable: {error}")))?;
+
+    match (probe.request, probe.requests) {
+        (Some(_), Some(_)) => Err(QueryScriptError::Script(
+            "request 与 requests 二选一，不要同时写".to_string(),
+        )),
+        (Some(_), None) => resolve_request(script, vars, limits).map(ResolvedRequests::Single),
+        (None, Some(requests)) => {
+            validate_named_requests(&requests)?;
+            Ok(ResolvedRequests::Many(requests))
+        }
+        (None, None) => resolve_request(script, vars, limits).map(ResolvedRequests::Single),
+    }
+}
+
+/// The requirements the named contract adds: a request must have a name for
+/// the extractor to reference, a URL to send, and GET.
+fn validate_named_requests(
+    requests: &BTreeMap<String, NamedRequest>,
+) -> Result<(), QueryScriptError> {
+    for (name, named) in requests {
+        if name.trim().is_empty() {
+            return Err(QueryScriptError::Script(
+                "request name must not be empty".to_string(),
+            ));
+        }
+        if named.request.url.trim().is_empty() {
+            return Err(QueryScriptError::Script(format!(
+                "request \"{name}\" has an empty url"
+            )));
+        }
+        if !named.request.method.eq_ignore_ascii_case("GET") {
+            return Err(QueryScriptError::Script(format!(
+                "only GET is supported, the request \"{name}\" asked for {}",
+                named.request.method
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Run the extractor over a response.
 pub fn run_extractor(
     script: &str,
@@ -231,7 +338,64 @@ pub fn run_extractor(
         limits,
     )?;
 
-    let value: Value = serde_json::from_str(&json).map_err(|error| {
+    parse_usage(&json)
+}
+
+/// Run an extractor over a named set of responses.
+///
+/// The map is the object the script asked for via `requests`: every request
+/// name resolves to the parsed response that returned, and a failed optional
+/// request answers `null`. One sandbox evaluation covers the whole set under
+/// the same limits the single contract keeps; each response travels as a JSON
+/// string literal, the escaping `serde_json` produces being valid here too.
+pub fn run_extractor_many(
+    script: &str,
+    vars: &ScriptVars,
+    responses: &BTreeMap<String, Option<Value>>,
+    limits: &ScriptLimits,
+) -> Result<AccountUsage, QueryScriptError> {
+    let source = substitute(script, vars);
+
+    let names: Vec<&str> = responses.keys().map(String::as_str).collect();
+    let payloads: Vec<Value> = responses
+        .values()
+        .map(|response| match response {
+            // A body travels as a JSON string holding the JSON text, the way
+            // the single contract feeds one body: `serde_json` escapes the
+            // text into a JS string literal, and `JSON.parse` reads the
+            // object the wire delivered.
+            Some(body) => serde_json::to_string(body)
+                .map(serde_json::Value::String)
+                .map_err(|error| QueryScriptError::Result(error.to_string())),
+            // A failed optional request is the JSON null, parsed like any body.
+            None => Ok(serde_json::Value::String("null".to_string())),
+        })
+        .collect::<Result<Vec<Value>, QueryScriptError>>()?;
+
+    let json = evaluate(
+        &format!(
+            "(function(){{var names={names},payloads={payloads};\
+              const responses={{}};\
+              for (var i=0;i<names.length;i++){{responses[names[i]]=JSON.parse(payloads[i]);}}\
+              return JSON.stringify(({source}).extractor(responses));}})()",
+            names = serde_json::to_string(&names)
+                .map_err(|error| QueryScriptError::Result(error.to_string()))?,
+            payloads = serde_json::to_string(&payloads)
+                .map_err(|error| QueryScriptError::Result(error.to_string()))?,
+        ),
+        limits,
+    )?;
+
+    parse_usage(&json)
+}
+
+/// Read an extractor's JSON answer into the standard shape.
+///
+/// Shared by both contracts: unknown fields are reported rather than dropped,
+/// windows may arrive with just an id, and a script that answered nothing
+/// fails rather than reading as an empty success.
+fn parse_usage(json: &str) -> Result<AccountUsage, QueryScriptError> {
+    let value: Value = serde_json::from_str(json).map_err(|error| {
         QueryScriptError::Result(format!("extractor returned no object: {error}"))
     })?;
 
@@ -345,6 +509,7 @@ pub fn is_permitted_target(url: &str, provider_base_url: &str) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared_runtime::account_scripts::command_code_script;
     use serde_json::json;
 
     fn vars() -> ScriptVars {
@@ -598,5 +763,490 @@ mod tests {
         )
         .unwrap();
         assert_eq!(zero.remaining, Some(0.0));
+    }
+
+    // The named-request contract. Every check here runs against the shipped
+    // Command Code template — the script the preset installs — so the parser,
+    // the sandbox assembly and one real multi-request script stay in step.
+
+    const NAMED_SIMPLE: &str = r#"({
+        request: { url: "{{baseUrl}}/single" },
+        requests: { first: { url: "{{baseUrl}}/named" } },
+        extractor: (responses) => ({})
+    })"#;
+
+    #[test]
+    fn both_request_forms_in_one_script_are_rejected_with_the_reported_cause() {
+        let error = resolve_requests(NAMED_SIMPLE, &vars(), &ScriptLimits::default())
+            .expect_err("rejected");
+
+        assert!(
+            matches!(error, QueryScriptError::Script(message) if message == "request 与 requests 二选一，不要同时写")
+        );
+    }
+
+    #[test]
+    fn a_script_using_one_form_yields_what_the_form_always_did() {
+        let via_named = resolve_requests(SIMPLE, &vars(), &ScriptLimits::default()).unwrap();
+        assert_eq!(
+            via_named,
+            ResolvedRequests::Single(
+                resolve_request(SIMPLE, &vars(), &ScriptLimits::default()).unwrap()
+            )
+        );
+
+        // The error for a script that names neither form is the one the single
+        // contract always gave, left as the fallback path it is.
+        let old = resolve_request(
+            "({ extractor: () => ({}) })",
+            &vars(),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        let named = resolve_requests(
+            "({ extractor: () => ({}) })",
+            &vars(),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        assert_eq!(old, named);
+    }
+
+    #[test]
+    fn a_named_script_resolves_each_request_under_its_name() {
+        let resolved = resolve_requests(
+            r#"({
+                requests: {
+                    credit: { url: "{{baseUrl}}/credits", headers: { Authorization: "Bearer {{apiKey}}" } },
+                    glance: { url: "{{baseUrl}}/glance", optional: true }
+                },
+                extractor: (responses) => ({})
+            })"#,
+            &vars(),
+            &ScriptLimits::default(),
+        )
+        .expect("resolves");
+
+        let ResolvedRequests::Many(named) = resolved else {
+            panic!("a named set resolves to Many, got {resolved:?}");
+        };
+        assert_eq!(named.len(), 2);
+        assert_eq!(
+            named["credit"].request.url,
+            "https://relay.example.com/credits"
+        );
+        // The placeholder is substituted in every request, not just the first.
+        assert_eq!(
+            named["credit"]
+                .request
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer sk-live")
+        );
+        assert!(!named["credit"].optional);
+        assert!(named["glance"].optional);
+    }
+
+    #[test]
+    fn a_single_request_that_also_carries_requests_optional_is_not_flattened() {
+        // `optional` belongs to the named form only; a single request is
+        // resolved by the legacy path, which must not start reading it.
+        let resolved = resolve_requests(
+            "({ request: { url: 'https://relay.example.com/x', optional: true } })",
+            &ScriptVars::default(),
+            &ScriptLimits::default(),
+        )
+        .expect("still the legacy shape");
+
+        let ResolvedRequests::Single(request) = resolved else {
+            panic!("the legacy form resolves to Single, got {resolved:?}");
+        };
+        assert_eq!(request.url, "https://relay.example.com/x");
+    }
+
+    #[test]
+    fn named_requests_keep_the_same_per_request_rules() {
+        let base = "https://relay.example.com";
+
+        let error = resolve_requests(
+            r#"({ requests: { first: { url: "  " } }, extractor: () => ({}) })"#,
+            &ScriptVars::default(),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, QueryScriptError::Script(message) if message.contains("has an empty url"))
+        );
+
+        let error = resolve_requests(
+            r#"({ requests: { first: { url: "...", method: "POST" } } })"#
+                .replace("...", &format!("{base}/up"))
+                .as_str(),
+            &ScriptVars::default(),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, QueryScriptError::Script(message) if message.contains("only GET is supported"))
+        );
+
+        let error = resolve_requests(
+            r#"({ requests: { "": { url: "https://relay.example.com/x" } } })"#,
+            &ScriptVars::default(),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, QueryScriptError::Script(message) if message.contains("must not be empty"))
+        );
+    }
+
+    /// The responses travel into the sandbox as one object under their names.
+    fn run_command_code(
+        credit: serde_json::Value,
+        subscription: Option<serde_json::Value>,
+        summary: Option<serde_json::Value>,
+    ) -> Result<AccountUsage, QueryScriptError> {
+        run_extractor_many(
+            command_code_script(),
+            &vars(),
+            &BTreeMap::from([
+                ("credit".to_string(), Some(credit)),
+                ("subscription".to_string(), subscription),
+                ("summary".to_string(), summary),
+            ]),
+            &ScriptLimits::default(),
+        )
+    }
+
+    /// The first documented credits nesting: amounts and the window limits
+    /// both live on `body.credits` itself.
+    fn flat_credits_body() -> serde_json::Value {
+        json!({
+            "credits": {
+                "monthlyCredits": 10,
+                "purchasedCredits": 4,
+                "freeCredits": 1,
+                "planId": "individual_provider",
+                "windowLimits": {
+                    "fiveHour": { "used": 2, "cap": 10, "resetAt": 1767225600000i64 },
+                    "weekly": { "used": 7, "cap": 0, "resetAt": 0 }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn the_command_code_template_reads_the_flat_credits_shape() {
+        let usage = run_command_code(
+            flat_credits_body(),
+            Some(json!({
+                "success": true,
+                "data": {
+                    "planId": "individual-provider",
+                    "status": "active",
+                    "currentPeriodStart": 1764547200000i64,
+                    "currentPeriodEnd": 1767225600000i64
+                }
+            })),
+            Some(json!({ "totalCost": 3.75 })),
+        )
+        .expect("reads");
+
+        // max(0, monthly) + max(0, purchased) + max(0, free), and credits is a
+        // unit, never a currency.
+        assert_eq!(usage.remaining, Some(15.0));
+        assert_eq!(usage.unit.as_deref(), Some("credits"));
+
+        let by_id = |id: &str| usage.windows.iter().find(|window| window.id == id).cloned();
+        let rolling = by_id("rolling").expect("the 5h window was reported");
+        assert_eq!(rolling.used_percent, Some(20.0));
+        assert_eq!(
+            rolling.resets_at.as_deref(),
+            Some("2026-01-01T00:00:00.000Z")
+        );
+
+        // cap <= 0 is "was never reported", not a window that is empty.
+        let weekly = by_id("weekly").expect("the weekly window was reported");
+        assert_eq!(weekly.used_percent, None);
+
+        let monthly = by_id("monthly").expect("the pair arrived, so the month was reported");
+        assert_eq!(monthly.used_percent, Some(25.0));
+        assert_eq!(
+            monthly.resets_at.as_deref(),
+            Some("2026-01-01T00:00:00.000Z")
+        );
+    }
+
+    /// The second documented nesting: the amounts another layer down, and the
+    /// window limits either beside them or on the outer object.
+    #[test]
+    fn the_command_code_template_reads_the_nested_credits_shape() {
+        let usage = run_command_code(
+            json!({
+                "credits": {
+                    "credits": {
+                        "monthlyCredits": 8,
+                        "purchasedCredits": 0,
+                        "freeCredits": 0,
+                        "planId": "individual-max",
+                        "windowLimits": {
+                            "fiveHour": { "used": 1, "cap": 4, "resetAt": 0 },
+                            // cap and resetAt missing entirely: still a
+                            // window, its numbers just were not said.
+                            "weekly": { "used": 3 }
+                        }
+                    }
+                }
+            }),
+            None,
+            None,
+        )
+        .expect("reads");
+
+        assert_eq!(usage.remaining, Some(8.0));
+        // The account does report windows, so the monthly row is present but
+        // honest about having nothing to compute with yet.
+        let ids: Vec<&str> = usage
+            .windows
+            .iter()
+            .map(|window| window.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["rolling", "weekly", "monthly"]);
+        assert_eq!(usage.windows[0].used_percent, Some(25.0));
+        assert_eq!(
+            usage.windows[0].resets_at.as_deref(),
+            Some("1970-01-01T00:00:00.000Z")
+        );
+        // cap missing → percent "未返回"; resetAt missing → no reset time.
+        assert_eq!(usage.windows[1].used_percent, None);
+        assert_eq!(usage.windows[1].resets_at, None);
+        assert_eq!(usage.windows[2].used_percent, None);
+        assert_eq!(usage.windows[2].resets_at, None);
+    }
+
+    #[test]
+    fn a_monthly_percent_stays_missing_when_its_inputs_do_not_add_up() {
+        // An unknown planId: the row is there with the reset time, but no
+        // fabricated percentage.
+        let usage = run_command_code(
+            flat_credits_body(),
+            Some(json!({
+                "success": true,
+                "data": { "planId": "individual-mystery", "status": "active",
+                    "currentPeriodEnd": 1767225600000i64 }
+            })),
+            Some(json!({ "totalCost": 3.75 })),
+        )
+        .expect("reads");
+        let monthly = usage.windows.iter().find(|w| w.id == "monthly");
+        assert_eq!(monthly.map(|window| window.used_percent), Some(None));
+
+        // A status that is neither active nor trialing does not count a
+        // cancelled period's spend against the plan.
+        let usage = run_command_code(
+            flat_credits_body(),
+            Some(json!({
+                "success": true,
+                "data": { "planId": "individual-provider", "status": "canceled" }
+            })),
+            Some(json!({ "totalCost": 3.75 })),
+        )
+        .expect("reads");
+        let monthly = usage.windows.iter().find(|w| w.id == "monthly");
+        assert_eq!(monthly.map(|window| window.used_percent), Some(None));
+    }
+
+    #[test]
+    fn a_string_period_end_is_accepted_like_a_millisecond_number() {
+        let usage = run_command_code(
+            flat_credits_body(),
+            Some(json!({
+                "success": true,
+                "data": { "planId": "individual-provider", "status": "active",
+                    "currentPeriodEnd": "2026-02-01T00:00:00.000Z" }
+            })),
+            Some(json!({ "totalCost": 3.75 })),
+        )
+        .expect("reads");
+
+        let monthly = usage
+            .windows
+            .iter()
+            .find(|window| window.id == "monthly")
+            .expect("the month was reported");
+        assert_eq!(
+            monthly.resets_at.as_deref(),
+            Some("2026-02-01T00:00:00.000Z")
+        );
+    }
+
+    #[test]
+    fn a_summary_envelope_wrapped_in_data_is_read_the_same() {
+        // The CLI only ever reads a top-level totalCost; a `data` wrapper is
+        // read one level below before the month is left unreported, so the
+        // two plausible envelopes answer the same question.
+        let usage = run_command_code(
+            flat_credits_body(),
+            Some(json!({
+                "success": true,
+                "data": { "planId": "individual-provider", "status": "active",
+                    "currentPeriodEnd": 1767225600000i64 }
+            })),
+            Some(json!({ "data": { "totalCost": 3.75 } })),
+        )
+        .expect("reads");
+
+        let monthly = usage
+            .windows
+            .iter()
+            .find(|window| window.id == "monthly")
+            .expect("the month was reported");
+        assert_eq!(monthly.used_percent, Some(25.0));
+    }
+
+    #[test]
+    fn a_plan_id_falls_back_to_the_one_credits_reported() {
+        // subscriptions did not name a plan; credits did, spelled the old way
+        // with an underscore, and the pair still synthesizes the month.
+        let usage = run_command_code(
+            flat_credits_body(),
+            Some(json!({
+                "success": true,
+                "data": { "status": "active", "currentPeriodEnd": 1767225600000i64 }
+            })),
+            Some(json!({ "totalCost": 3.75 })),
+        )
+        .expect("reads");
+
+        let monthly = usage
+            .windows
+            .iter()
+            .find(|window| window.id == "monthly")
+            .expect("the month was reported");
+        assert_eq!(monthly.used_percent, Some(25.0));
+    }
+
+    /// All three amounts missing is the endpoint reporting nothing — which is
+    /// a different fact from an empty account, and gets its own message.
+    #[test]
+    fn amount_less_credits_are_reported_invalid_not_read_as_zero() {
+        let usage = run_command_code(
+            json!({ "credits": { "planId": "individual-provider" } }),
+            None,
+            None,
+        )
+        .expect("the template answers with a standard reading");
+
+        assert_eq!(usage.is_valid, Some(false));
+        assert_eq!(usage.invalid_message.as_deref(), Some("credits 数值缺失"));
+        assert_eq!(usage.remaining, None);
+    }
+
+    /// A real zero is a number the endpoint reported, and survives as 0.
+    #[test]
+    fn a_real_zero_balance_survives_as_zero() {
+        let usage = run_command_code(
+            json!({ "credits": { "monthlyCredits": 0, "purchasedCredits": 0, "freeCredits": 0 } }),
+            None,
+            None,
+        )
+        .expect("reads");
+
+        assert_eq!(usage.remaining, Some(0.0));
+        assert_eq!(usage.is_valid, None);
+        assert!(usage.windows.is_empty(), "no windowLimits, no window rows");
+    }
+
+    #[test]
+    fn a_failed_optional_request_reaches_the_extractor_as_null() {
+        // The null entries are what optional failures inject; the windows
+        // the account does report stay, the month keeps its row but honestly
+        // has nothing filled in.
+        let usage = run_command_code(flat_credits_body(), None, None).expect("reads");
+
+        let ids: Vec<&str> = usage
+            .windows
+            .iter()
+            .map(|window| window.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["rolling", "weekly", "monthly"]);
+        let monthly = usage
+            .windows
+            .iter()
+            .find(|window| window.id == "monthly")
+            .expect("a plan account always carries the monthly row");
+        assert_eq!(monthly.used_percent, None);
+        assert_eq!(monthly.resets_at, None);
+        assert_eq!(usage.remaining, Some(15.0));
+        assert_eq!(usage.unit.as_deref(), Some("credits"));
+    }
+
+    /// A pay-as-you-go account reports no windowLimits: nothing may be
+    /// invented for it, not even the monthly row, while the optional pair
+    /// answered.
+    #[test]
+    fn a_metered_account_with_no_window_limits_gets_no_window_rows_at_all() {
+        let usage = run_command_code(
+            json!({
+                "credits": {
+                    "monthlyCredits": 40,
+                    "purchasedCredits": 0,
+                    "freeCredits": 0,
+                    "planId": "individual-go"
+                }
+            }),
+            Some(json!({
+                "success": true,
+                "data": { "planId": "individual-go", "status": "active",
+                    "currentPeriodEnd": 1767225600000i64 }
+            })),
+            Some(json!({ "totalCost": 1.25 })),
+        )
+        .expect("reads");
+
+        assert!(
+            usage.windows.is_empty(),
+            "no windows were invented: {usage:?}"
+        );
+        assert_eq!(usage.remaining, Some(40.0));
+    }
+
+    #[test]
+    fn the_named_contract_keeps_the_standard_shape_checks() {
+        // An unknown field still fails loudly rather than being dropped.
+        let error = run_extractor_many(
+            "({requests:{a:{url:'https://x/y'}},extractor:()=>({remaning: 1})})",
+            &ScriptVars::default(),
+            &BTreeMap::from([("a".to_string(), Some(json!({})))]),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, QueryScriptError::Result(message) if message.contains("unexpected"))
+        );
+
+        // An answer with nothing in it is not a successful empty query.
+        let error = run_extractor_many(
+            "({requests:{a:{url:'https://x/y'}},extractor:()=>({})})",
+            &ScriptVars::default(),
+            &BTreeMap::from([("a".to_string(), Some(json!({})))]),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        assert!(error
+            .message()
+            .contains("查询未返回余额或用量，请检查查询脚本中的字段路径"));
+
+        // A missing extractor is a script error, like the single contract.
+        let error = run_extractor_many(
+            "({requests:{a:{url:'https://x/y'}}})",
+            &ScriptVars::default(),
+            &BTreeMap::from([("a".to_string(), Some(json!({})))]),
+            &ScriptLimits::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(error, QueryScriptError::Script(_)));
     }
 }

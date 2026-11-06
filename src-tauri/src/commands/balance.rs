@@ -1,5 +1,5 @@
 use crate::db::Database;
-use crate::services::query_script::{self, ScriptLimits, ScriptVars};
+use crate::services::query_script::{self, ResolvedRequests, ScriptLimits, ScriptVars};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -10,8 +10,17 @@ use tauri::State;
 /// only surface the next time a balance was refreshed. This evaluates it —
 /// still without sending anything, and without any credential — and reports
 /// what it would ask for, so the editor can refuse a script that cannot work.
+///
+/// A single-request script reports the one request it always did; a
+/// named-request script reports one entry per name, carrying `optional` so
+/// the editor can show what is allowed to fail. No request actually leaves
+/// the process on save.
 #[tauri::command]
 pub fn provider_script_check(script: String, base_url: String) -> Result<Value, String> {
+    provider_script_check_inner(&script, &base_url)
+}
+
+fn provider_script_check_inner(script: &str, base_url: &str) -> Result<Value, String> {
     let limits = ScriptLimits::default();
     // No credentials: placeholders that need one stay visible in the result,
     // which is what the editor shows back rather than a half-resolved request.
@@ -20,15 +29,42 @@ pub fn provider_script_check(script: String, base_url: String) -> Result<Value, 
         ..ScriptVars::default()
     };
 
-    let request = query_script::resolve_request(&script, &vars, &limits)
+    let resolved = query_script::resolve_requests(script, &vars, &limits)
         .map_err(|error| error.message().to_string())?;
-    query_script::is_permitted_target(&request.url, &base_url)?;
 
-    Ok(serde_json::json!({
-        "url": request.url,
-        "method": request.method,
-        "headers": request.headers,
-    }))
+    match resolved {
+        ResolvedRequests::Single(request) => {
+            query_script::is_permitted_target(&request.url, base_url)?;
+            Ok(serde_json::json!({
+                "url": request.url,
+                "method": request.method,
+                "headers": request.headers,
+            }))
+        }
+        ResolvedRequests::Many(named) => {
+            // Every named request is checked, optional ones included: a
+            // destination a credential must not reach is a save problem even
+            // when failing is supposed not to be fatal.
+            for named_request in named.values() {
+                query_script::is_permitted_target(&named_request.request.url, base_url)?;
+            }
+            let requests = named
+                .into_iter()
+                .map(|(name, named_request)| {
+                    (
+                        name,
+                        serde_json::json!({
+                            "url": named_request.request.url,
+                            "method": named_request.request.method,
+                            "headers": named_request.request.headers,
+                            "optional": named_request.optional,
+                        }),
+                    )
+                })
+                .collect::<serde_json::Map<String, Value>>();
+            Ok(serde_json::json!({ "requests": Value::Object(requests) }))
+        }
+    }
 }
 
 /// Run a provider's account query and cache what it answered.
@@ -133,4 +169,76 @@ pub async fn key_usage_refresh(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared_runtime::account_scripts::command_code_script;
+
+    #[test]
+    fn a_single_script_reports_its_request_the_way_it_always_did() {
+        let report = provider_script_check_inner(
+            "({request:{url:'{{baseUrl}}/api/user/self',method:'GET',headers:{Authorization:'Bearer {{apiKey}}'}},extractor:()=>({})})",
+            "https://newapi.example.com",
+        )
+        .expect("check passes");
+
+        assert_eq!(report["url"], "https://newapi.example.com/api/user/self");
+        assert_eq!(report["method"], "GET");
+        // No credential was available to substitute; the placeholder shows.
+        assert_eq!(report["headers"]["Authorization"], "Bearer {{apiKey}}");
+        assert!(report.get("requests").is_none());
+    }
+
+    #[test]
+    fn a_named_script_reports_every_request_with_its_optionality() {
+        let report = provider_script_check_inner(
+            command_code_script(),
+            "https://api.commandcode.ai/provider",
+        )
+        .expect("check passes");
+
+        let credit = &report["requests"]["credit"];
+        assert_eq!(
+            credit["url"],
+            "https://api.commandcode.ai/alpha/billing/credits"
+        );
+        assert_eq!(credit["method"], "GET");
+        assert_eq!(credit["headers"]["Authorization"], "Bearer {{apiKey}}");
+        assert_eq!(credit["optional"], false);
+        assert_eq!(report["requests"]["subscription"]["optional"], true);
+        assert_eq!(report["requests"]["summary"]["optional"], true);
+        assert!(report.get("url").is_none());
+    }
+
+    #[test]
+    fn the_check_still_refuses_a_foreign_destination() {
+        // Single form, as before.
+        let error = provider_script_check_inner(
+            "({request:{url:'https://evil.example.com/collect'},extractor:()=>({})})",
+            "https://relay.example.com",
+        )
+        .unwrap_err();
+        assert!(error.contains("the provider's own origin"));
+
+        // Named form: every entry is checked, optional ones included.
+        let error = provider_script_check_inner(
+            "({requests:{first:{url:'https://relay.example.com/ok'},leak:{url:'http://relay.example.com/clear'}},extractor:()=>({})})",
+            "https://relay.example.com",
+        )
+        .unwrap_err();
+        assert_eq!(error, "the query URL must use https");
+    }
+
+    #[test]
+    fn both_forms_in_one_script_fail_the_check_with_the_reported_cause() {
+        let error = provider_script_check_inner(
+            "({request:{url:'https://x.example.com/a'},requests:{first:{url:'https://x.example.com/b'}},extractor:()=>({})})",
+            "https://x.example.com",
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "request 与 requests 二选一，不要同时写");
+    }
 }

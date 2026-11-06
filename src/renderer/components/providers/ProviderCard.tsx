@@ -9,6 +9,7 @@ import {
   CloseCircleOutlined,
   LinkOutlined,
   CopyOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import clsx from 'clsx'
@@ -80,6 +81,26 @@ export default function ProviderCard({
 
   // Metering periods come from the usage endpoint, not the balance endpoint.
   const windows = provider.cachedUsage?.windows ?? []
+  const groups = provider.cachedUsage?.groups ?? []
+
+  /**
+   * A configured account query answers both blocks. Until an answer for a
+   * block arrives — never checked, or a refresh still in flight — that block
+   * alone shows a pending placeholder instead of vanishing, while blocks with
+   * data keep rendering (command-code design D7: purely data-driven, no
+   * preset branching). After a completed check nothing new appears: a
+   * reported row without a percentage keeps its existing 未返回 terminal
+   * state, and a missing balance leaves the block out, as before.
+   */
+  const usagePending =
+    hasProviderQuery(provider) &&
+    windows.length === 0 &&
+    groups.length === 0 &&
+    (refreshing || !provider.lastUsageCheckedAt)
+  const balancePending =
+    hasProviderQuery(provider) &&
+    provider.cachedWalletBalance == null &&
+    (refreshing || !provider.lastBalanceCheckedAt)
 
   const formatLastChecked = (timestamp: string | null) => {
     if (!timestamp) return t('common.never')
@@ -181,7 +202,7 @@ export default function ProviderCard({
           </Text>
         )}
 
-        {windows.length > 0 && (
+        {(windows.length > 0 || usagePending) && (
           <div className={styles.balanceBox}>
             <Space direction='vertical' size={4} className='w-full'>
               <Space className='justify-between w-full'>
@@ -194,22 +215,34 @@ export default function ProviderCard({
               </Space>
               {/* Every period the provider reports, visible without opening
                   anything — these are not a single balance. */}
-              <ProviderUsageWindows windows={windows} groups={provider.cachedUsage?.groups ?? []} />
+              <ProviderUsageWindows windows={windows} groups={groups} pending={usagePending} />
             </Space>
           </div>
         )}
 
-        {hasProviderQuery(provider) && provider.cachedWalletBalance != null && (
+        {(balancePending ||
+          (hasProviderQuery(provider) && provider.cachedWalletBalance != null)) && (
           <div className={styles.balanceBox}>
             <Space direction='vertical' size={0} className='w-full'>
               <Space className='justify-between w-full'>
                 <Text type='secondary'>{t('providers.balance')}</Text>
-                <Text strong className={styles.balanceAmount} style={{ color: token.colorPrimary }}>
-                  {formatBalance(
-                    provider.cachedWalletBalance,
-                    provider.cachedWalletBalanceCurrency,
-                  )}
-                </Text>
+                {balancePending ? (
+                  <Text type='secondary' className={styles.balancePending} role='status'>
+                    <LoadingOutlined spin aria-hidden='true' />
+                    {t('providers.usagePending')}
+                  </Text>
+                ) : (
+                  <Text
+                    strong
+                    className={styles.balanceAmount}
+                    style={{ color: token.colorPrimary }}
+                  >
+                    {formatBalance(
+                      provider.cachedWalletBalance,
+                      provider.cachedWalletBalanceCurrency,
+                    )}
+                  </Text>
+                )}
               </Space>
               <Text type='secondary' className={styles.lastChecked}>
                 {t('providers.lastChecked')}: {formatLastChecked(provider.lastBalanceCheckedAt)}
