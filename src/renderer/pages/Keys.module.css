@@ -227,6 +227,15 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Icon and value centre on their own metrics: without a line-height here
+     the value inherits the card's 1.57, its box towers over the icon, and the
+     pair reads as vertically off-centre ("今日: 0" next to its icon). */
+  line-height: 1;
+}
+
+.statItem .anticon {
+  font-size: 14px;
+  line-height: 1;
 }
 
 .statItemClickable {
@@ -244,6 +253,7 @@
 .statValue {
   font-size: 13px;
   font-family: var(--font-mono);
+  line-height: 1;
 }
 
 .keyCardActions {
