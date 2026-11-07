@@ -190,3 +190,39 @@
 ### Next Steps
 
 - 发布 v3.16.0 并观察 GitHub Actions 构建；原生 WebView/真实上游人工验收仍待用户
+
+## Session 7: Command Code 多接口查询与网关 UA 统一（实施完成）
+
+<!-- trellis-session: v=2 fp=n/a lead-only -->
+
+**Date**: 2026-11-06
+**Task**: 11-06-command-code-gateway-ua（两子任务）
+**Package**: cc-use
+**Branch**: `main`
+
+### Summary
+
+GPT 在规划态留下的三个任务，Lead 完成终版调研/设计并分派实施：Rust teammates 完成 query_script 多请求引擎（requests/extractor(responses)、optional 语义、必需失败留缓存）、balance_service 可注入发送与聚合、provider_script_check 双形态 DTO、Command Code 模板与 preset；frontend teammate 完成网关 UA 复用 UserAgentField（inputId/invalid 可选 prop）与 ProviderCard 缺项 loading 占位（数据驱动）。Opencode Go 按用户拍板保持现状。
+
+### Key Decisions
+
+- 2026-11-06 18:16 用户拍板：月度已用/总额度来自 /alpha/usage/summary + /alpha/billing/subscriptions（credits 必需，两者可选）；模板内嵌 planTotal 快照（勘误 individual-provider）；查到展示、缺项 loading。
+- 月窗行规则（Lead 拍板）：windowLimits 存在 → 月窗行恒产出（缺输入=未返回）；windowLimits 缺失（按量账号）→ 不虚构任何窗口行。
+- credits 响应双嵌套形态防御式读取；summary tolled data 包裹亦兼容（test: a_summary_envelope_wrapped_in_data_is_read_the_same）。
+
+### Testing
+
+- [OK] cargo test --workspace 657+ 通过；cargo fmt --check；clippy 无新警告
+- [OK] vitest 42 files/345 用例 + node 脚本测试；typecheck/lint 通过；改动文件 prettier 干净
+- [OK] 无真实鉴权调用；全部离线 fixture；用户真实 Key 未读取
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d30dd5` | feat(provider): ✨ Command Code 内置供应商与多接口账户查询 |
+| `9a158ef` | docs(spec): 📝 沉淀账户查询脚本契约 |
+
+### Status
+
+[OK] 实现完成，待用户以真实 Command Code 账户做首次刷新验收（可选接口/月窗/余额是否如契约返回）
