@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/11-06-command-code-multi-query/prd.md", "reason": "Verify every acceptance criterion A1-A6 has a concrete test or documented behavior"}
+{"file": ".trellis/tasks/11-06-command-code-multi-query/design.md", "reason": "Check implementation matches D1-D9 decisions, especially no fabricated zeros and single/requests exclusivity"}
+{"file": ".trellis/spec/cc-use/backend/quality-and-testing.md", "reason": "Intentional-untested list, forbidden patterns, review checklist"}
+{"file": ".trellis/spec/cc-use/backend/tauri-commands.md", "reason": "provider_script_check stays a thin command; business logic in service layer"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Script text crosses Rust sandbox, SQLite column, export/import and the TS API bridge"}

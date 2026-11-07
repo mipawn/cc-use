@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/cc-use/frontend/ui-and-styling.md", "reason": "Shared component inventory and antd conventions for swapping the gateway UA input"}
+{"file": ".trellis/spec/cc-use/frontend/i18n.md", "reason": "Gateway UA strings must stay paired in zh/en; expect no new keys"}
+{"file": ".trellis/spec/cc-use/frontend/testing-and-quality.md", "reason": "Page/component test placement and gate commands"}
+{"file": ".trellis/tasks/11-06-gateway-user-agent/prd.md", "reason": "Requirements R1-R5 and acceptance A1-A5"}
+{"file": ".trellis/tasks/11-06-gateway-user-agent/design.md", "reason": "Optional props inputId/invalid, gateway wiring point, save semantics table"}

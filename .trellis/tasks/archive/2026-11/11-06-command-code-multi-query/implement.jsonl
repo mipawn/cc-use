@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/cc-use/backend/architecture.md", "reason": "Tauri-free boundary: scripts/presets must stay in shared_runtime without tauri imports"}
+{"file": ".trellis/spec/cc-use/backend/data-model-contract.md", "reason": "AccountUsage/envelope and check DTO shapes must stay Rust↔TS compatible; no new IPC fields expected"}
+{"file": ".trellis/spec/cc-use/backend/errors-and-logging.md", "reason": "Refresh failure paths are user-visible strings; keep messages actionable and secret-free"}
+{"file": ".trellis/spec/cc-use/backend/quality-and-testing.md", "reason": "Test layout and gates for the query_script/balance_service changes"}
+{"file": ".trellis/tasks/11-06-command-code-multi-query/research.md", "reason": "Verified Command Code billing endpoints, credit shapes, plan totals, resetAt epoch-ms"}
+{"file": ".trellis/tasks/11-06-command-code-multi-query/design.md", "reason": "Contract decisions: requests-object script form, optional requests, credits template, failure semantics"}
+{"file": ".trellis/tasks/11-06-command-code-multi-query/prd.md", "reason": "Requirements R1-R6 and acceptance A1-A6 the implementation must satisfy"}
