@@ -19,12 +19,17 @@ jobs:
       matrix:
         include:
           # macOS ARM (Apple Silicon)
-          - platform: macos-14
+          # GitHub retired the macOS 14 images on 2026-11-02: naming a retired
+          # image cancels the job before any step runs with
+          # "The configuration 'macos-14-arm64-us-default' is not supported".
+          # macos-latest tracks the newest arm64 image (currently macos-26), so
+          # the label cannot expire again; both targets cross-build on arm64.
+          - platform: macos-latest
             args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
             assetName: '[name]-[version]-mac-arm[ext]'
           # macOS Intel (x86_64)
-          - platform: macos-14
+          - platform: macos-latest
             args: --target x86_64-apple-darwin
             target: x86_64-apple-darwin
             assetName: '[name]-[version]-mac-intel[ext]'
