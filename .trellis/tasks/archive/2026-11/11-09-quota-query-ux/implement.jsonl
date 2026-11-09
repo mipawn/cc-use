@@ -1,0 +1,10 @@
+{"file":".trellis/tasks/11-09-quota-query-ux/prd.md","reason":"R1-R7/A1-A7 and user-confirmed D1-D5"}
+{"file":".trellis/tasks/11-09-quota-query-ux/design.md","reason":"QueryConfig, scope catalogue, draft-test and cache contracts"}
+{"file":".trellis/tasks/11-09-quota-query-ux/implement.md","reason":"Ordered steps, write boundaries and review gates"}
+{"file":".trellis/spec/cc-use/backend/query-script.md","reason":"Preserve single/multi GET, origin, optional and existing Command Code upgrade behavior"}
+{"file":".trellis/spec/cc-use/backend/database.md","reason":"CREATE plus ALTER, transactional rewrite and full mapper/write coverage"}
+{"file":".trellis/spec/cc-use/backend/data-model-contract.md","reason":"Rust/TS and import/export optional-field contract"}
+{"file":".trellis/spec/cc-use/frontend/api-bridge.md","reason":"Typed command wiring and IPC contract tests"}
+{"file":".trellis/spec/cc-use/frontend/data-and-ux.md","reason":"Async state, error handling and refresh patterns"}
+{"file":".trellis/spec/cc-use/frontend/ui-and-styling.md","reason":"Antd v6 and local UI conventions"}
+{"file":".trellis/spec/cc-use/frontend/i18n.md","reason":"Synchronized zh/en user-facing messages"}

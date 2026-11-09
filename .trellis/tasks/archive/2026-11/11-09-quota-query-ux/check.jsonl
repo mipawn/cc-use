@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/11-09-quota-query-ux/prd.md","reason":"Verify every A1-A7 and preservation/scope decision"}
+{"file":".trellis/tasks/11-09-quota-query-ux/design.md","reason":"Check drafts never persist, scope never leaks and stale results cannot write back"}
+{"file":".trellis/spec/cc-use/backend/quality-and-testing.md","reason":"Rust/temp DB tests, no secrets and workspace verification"}
+{"file":".trellis/spec/cc-use/backend/query-script.md","reason":"Existing offline save checks and Command Code regression tests remain intact"}
+{"file":".trellis/spec/cc-use/frontend/testing-and-quality.md","reason":"Component/utility/API tests, lint and typecheck gates"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Round-trip DTO/cache and async ownership review"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Single template owner and shared query UI/runtime helpers"}
