@@ -149,6 +149,12 @@ pub const COMMAND_CODE_CREDITS_HEADERS: &str = r#"{"Authorization": "Bearer {{ap
 /// emitted, with percent and reset time left blank until the pair answers;
 /// when it does not (a metered account) no window row is invented at all.
 ///
+/// The live credits answer puts the amounts under `credits` and
+/// `windowLimits` beside it on the response body — the same level the public
+/// client reads (`usageData.credits.windowLimits`, where `usageData.credits`
+/// is that body). The inner placements are kept as fallbacks for answers
+/// seen from other builds; the limits are never invented when none match.
+///
 /// The plan-total table is a snapshot of the client's 1.88.4 map, kept inside
 /// the script precisely so it stays editable when plans change; it is matched
 /// by exact planId, never by prefix. Missed amounts are reported as invalid
@@ -201,17 +207,21 @@ pub const COMMAND_CODE: &str = r#"({
       var parsed = new Date(String(value))
       return isNaN(parsed.getTime()) ? null : parsed.toISOString()
     }
-    // credits 块：客户端存在两种嵌套读法（research.md 复核节）
+    // credits 块：线上响应为 body.windowLimits + body.credits{amounts}（客户端
+    // projectUsageView 的读取位置）；旧版把 windowLimits 放在 credits 内层的
+    // 两种形态继续兜底，三种都不在时保持 limits=null，不虚构窗口。
     var top = function (body) {
       if (body == null || typeof body !== "object") return null
       var outer = body.credits
       if (outer == null || typeof outer !== "object") return null
       var amounts = outer.credits != null && typeof outer.credits === "object" ? outer.credits : outer
-      var limits = outer.windowLimits != null && typeof outer.windowLimits === "object"
-        ? outer.windowLimits
-        : (amounts.windowLimits != null && typeof amounts.windowLimits === "object"
-          ? amounts.windowLimits
-          : null)
+      var limits = body.windowLimits != null && typeof body.windowLimits === "object"
+        ? body.windowLimits
+        : (outer.windowLimits != null && typeof outer.windowLimits === "object"
+          ? outer.windowLimits
+          : (amounts.windowLimits != null && typeof amounts.windowLimits === "object"
+            ? amounts.windowLimits
+            : null))
       return { amounts: amounts, limits: limits,
         planId: (outer.planId != null ? outer.planId : (amounts.planId != null ? amounts.planId : null)) }
     }
@@ -648,6 +658,8 @@ mod tests {
         // The account credential the script borrows, once per request.
         assert_eq!(script.matches("{{apiKey}}").count(), 3);
         assert!(script.contains(r#"unit: "credits""#));
+        // The limits sit beside `credits` on the live answer, not inside it.
+        assert!(script.contains("body.windowLimits"));
         // Only the two requests that may fail carry the flag.
         assert_eq!(script.matches("optional: true").count(), 2);
     }

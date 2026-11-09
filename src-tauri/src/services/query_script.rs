@@ -1026,6 +1026,92 @@ mod tests {
         assert_eq!(usage.windows[2].resets_at, None);
     }
 
+    /// The live answer (2026-11-09): the amounts under `credits`, and
+    /// `windowLimits` beside it on the response body — the level the public
+    /// client reads (`usageData.credits.windowLimits` names that body). The
+    /// shipped template originally looked only inside `credits`, so a real
+    /// refresh produced a balance and no windows at all.
+    #[test]
+    fn the_command_code_template_reads_the_live_credits_shape() {
+        let usage = run_command_code(
+            json!({
+                "credits": {
+                    "belowThreshold": false,
+                    "creditThreshold": 0,
+                    "monthlyCredits": 63.2690194024,
+                    "purchasedCredits": 0,
+                    "freeCredits": 0
+                },
+                "windowLimits": {
+                    "limited": true,
+                    "exceeded": null,
+                    "fiveHour": {
+                        "used": 0.4135450662,
+                        "cap": 14,
+                        "exceeded": false,
+                        "resetAt": 1794209929502i64
+                    },
+                    "weekly": {
+                        "used": 6.7204242476,
+                        "cap": 35,
+                        "exceeded": false,
+                        "resetAt": 1794210865746i64
+                    }
+                },
+                "sandboxAccess": true
+            }),
+            Some(json!({
+                "success": true,
+                "data": {
+                    "planId": "individual-goat",
+                    "status": "active",
+                    "currentPeriodStart": "2026-10-16T08:29:24.000Z",
+                    "currentPeriodEnd": "2026-11-16T08:29:24.000Z",
+                    "cancelAtPeriodEnd": false
+                }
+            })),
+            Some(json!({ "totalCost": 6.724491370799999 })),
+        )
+        .expect("reads");
+
+        assert_eq!(usage.remaining, Some(63.2690194024));
+        assert_eq!(usage.unit.as_deref(), Some("credits"));
+
+        let by_id = |id: &str| usage.windows.iter().find(|window| window.id == id).cloned();
+        let approx = |actual: Option<f64>, expected: f64| {
+            let actual = actual.expect("the window reported its percentage");
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "expected {expected}, got {actual}"
+            );
+        };
+
+        // 5h 0.4135/14 and weekly 6.7204/35 come from the limits next to the
+        // amounts; the old reading found neither.
+        let rolling = by_id("rolling").expect("the 5h window was reported");
+        approx(rolling.used_percent, 2.9538933299999997);
+        assert_eq!(
+            rolling.resets_at.as_deref(),
+            Some("2026-11-09T07:38:49.502Z")
+        );
+
+        let weekly = by_id("weekly").expect("the weekly window was reported");
+        approx(weekly.used_percent, 19.201212136);
+        assert_eq!(
+            weekly.resets_at.as_deref(),
+            Some("2026-11-09T07:54:25.746Z")
+        );
+
+        // The month pairs summary.totalCost with the plan snapshot
+        // (individual-goat → 70) and keeps the subscription's period end.
+        let monthly = by_id("monthly").expect("the plan account carries a month row");
+        approx(monthly.used_percent, 9.606416243999998);
+        assert_eq!(
+            monthly.resets_at.as_deref(),
+            Some("2026-11-16T08:29:24.000Z")
+        );
+    }
+
     #[test]
     fn a_monthly_percent_stays_missing_when_its_inputs_do_not_add_up() {
         // An unknown planId: the row is there with the reset time, but no
