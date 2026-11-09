@@ -56,6 +56,16 @@ vi.mock('../api', () => ({
     balance: {
       refresh: async () => ({ balance: null, isValid: true, error: null }),
       checkScript: async () => ({ url: '', method: 'GET', headers: {} }),
+      // The editor renders the shared query section, which reads the catalogue
+      // through the bridge; an empty list means only the custom entry shows.
+      schemes: async () => [],
+      testDraft: async () => ({
+        scope: 'key',
+        usage: null,
+        isValid: false,
+        invalidMessage: null,
+        error: null,
+      }),
     },
     requestLog: {
       getProviderGatewayMetrics: async () => [],

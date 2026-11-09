@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
-import type { Provider, ProviderPreset } from '@shared/types'
+import type { Provider, ProviderPreset, QuerySchemeInfo } from '@shared/types'
 import ProviderModal from './ProviderModal'
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -14,6 +14,8 @@ const presets = vi.fn()
 const checkScript = vi.fn()
 const iconList = vi.fn()
 const iconDelete = vi.fn()
+const schemes = vi.fn()
+const testDraft = vi.fn()
 
 vi.mock('../../api', () => ({
   getApi: () => ({
@@ -24,7 +26,7 @@ vi.mock('../../api', () => ({
       read: async () => 'data:image/png;base64,aWNvbg==',
       delete: iconDelete,
     },
-    balance: { checkScript },
+    balance: { checkScript, schemes, testDraft },
   }),
 }))
 vi.mock('react-i18next', () => ({
@@ -64,6 +66,43 @@ const NEWAPI_SCRIPT = `({
              headers: { Authorization: "{{accessToken}}", "New-Api-User": "{{userId}}" } },
   extractor: function (response) { return { remaining: response.data.quota / 500000 } }
 })`
+
+const GO_SCRIPT = `({
+  request: { url: "{{baseUrl}}/v1/usage", method: "GET",
+             headers: { Authorization: "Bearer {{apiKey}}" } },
+  extractor: function (response) { return { windows: response.windows } }
+})`
+
+/** The account schemes the section picks from; scripts are the saved truth. */
+const accountSchemes: QuerySchemeInfo[] = [
+  {
+    id: 'deepseek-account',
+    scope: 'account',
+    labelKey: 'querySchemes.deepseekAccount',
+    descriptionKey: 'querySchemes.deepseekAccountDescription',
+    credentialRequirements: ['apiKey'],
+    supportsWindows: false,
+    script: DEEPSEEK_SCRIPT,
+  },
+  {
+    id: 'newapi-account',
+    scope: 'account',
+    labelKey: 'querySchemes.newApiAccount',
+    descriptionKey: 'querySchemes.newApiAccountDescription',
+    credentialRequirements: ['accessToken', 'userId'],
+    supportsWindows: false,
+    script: NEWAPI_SCRIPT,
+  },
+  {
+    id: 'opencode-go-account',
+    scope: 'account',
+    labelKey: 'querySchemes.openCodeGoAccount',
+    descriptionKey: 'querySchemes.openCodeGoAccountDescription',
+    credentialRequirements: ['apiKey'],
+    supportsWindows: true,
+    script: GO_SCRIPT,
+  },
+]
 
 const deepseek: ProviderPreset = {
   id: 'deepseek',
@@ -134,6 +173,16 @@ beforeEach(() => {
   checkScript.mockReset()
   checkScript.mockResolvedValue({ url: 'https://relay.example.com', method: 'GET', headers: {} })
   presets.mockResolvedValue([custom, deepseek])
+  schemes.mockReset()
+  schemes.mockResolvedValue(accountSchemes)
+  testDraft.mockReset()
+  testDraft.mockResolvedValue({
+    scope: 'account',
+    usage: { remaining: 10, unit: 'USD', isUnlimited: false },
+    isValid: true,
+    invalidMessage: null,
+    error: null,
+  })
 })
 
 afterEach(async () => {
@@ -152,13 +201,9 @@ function fieldValue(name: string): string | undefined {
   return document.body.querySelector<HTMLInputElement>(`input#${name}`)?.value
 }
 
-/** The account query editor, then the request-header editor beneath it. */
-function scriptEditor(): HTMLTextAreaElement {
-  return document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]')[0]!
-}
-
+/** The request-header editor in advanced settings, after the query block. */
 function headersEditor(): HTMLTextAreaElement {
-  return document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]')[1]!
+  return document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]')[0]!
 }
 
 async function render(provider: Provider | null, onSave = vi.fn()) {
@@ -178,7 +223,18 @@ async function render(provider: Provider | null, onSave = vi.fn()) {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  await settle()
   return onSave
+}
+
+/** The scheme catalogue arrives and recognition has been applied. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
 }
 
 async function clickPreset(index: number) {
@@ -187,6 +243,57 @@ async function clickPreset(index: number) {
     ;(chips[index] as HTMLElement).click()
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  await settle()
+}
+
+/** The section picks a scheme by opening its dropdown and choosing an option. */
+async function chooseScheme(label: string) {
+  const trigger = document.body.querySelector('.ant-select input[role="combobox"]')
+  expect(trigger).not.toBeNull()
+  await act(async () => {
+    ;(trigger as HTMLElement).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', keyCode: 40, bubbles: true }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  const option = Array.from(document.body.querySelectorAll('.ant-select-item-option')).find(
+    (item) => item.textContent === label,
+  )
+  expect(option).toBeDefined()
+  await act(async () => {
+    ;(option as HTMLElement).click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  await settle()
+}
+
+/** The selected scheme, read from the select's own rendering. */
+function schemeSelectValue(): string {
+  return (
+    document.body
+      .querySelector('.ant-select')
+      ?.querySelector('.ant-select-content-value')
+      ?.getAttribute('title') ?? ''
+  )
+}
+
+async function clickButton(text: string) {
+  const button = Array.from(document.body.querySelectorAll('button')).find(
+    (item) => item.textContent === text,
+  )!
+  expect(button).toBeDefined()
+  await act(async () => {
+    button.click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  await settle()
+}
+
+function scriptEditor(): HTMLTextAreaElement | undefined {
+  const node = document.body.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="querySchemes.customScriptLabel"]',
+  )
+  return node ?? undefined
 }
 
 async function typeInto(element: HTMLInputElement | HTMLTextAreaElement, text: string) {
@@ -202,6 +309,7 @@ async function typeInto(element: HTMLInputElement | HTMLTextAreaElement, text: s
     element.dispatchEvent(new Event('input', { bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  await settle()
 }
 
 /** A new provider cannot be saved without these. */
@@ -222,6 +330,7 @@ async function submit() {
     ok!.click()
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  await settle()
 }
 
 function providerFixture(overrides: Partial<Provider> = {}): Provider {
@@ -255,6 +364,7 @@ function providerFixture(overrides: Partial<Provider> = {}): Provider {
     requestAdapter: 'none',
     walletBalanceScript: null,
     requestHeaders: null,
+    queryConfig: null,
     ...overrides,
   }
 }
@@ -374,13 +484,32 @@ it('offers the catalogue on a new provider', async () => {
   expect(document.body.querySelectorAll('[class*="iconItem"]').length).toBe(4 + 1)
 })
 
-it('writes a chosen preset script into the editor', async () => {
+it('starts a new provider with the query off, no scheme and an empty script', async () => {
+  await render(null)
+
+  // The account query is a section to configure, not a code template to read:
+  // nothing here enables itself, and no starter script exists any more (D3).
+  expect(document.body.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
+  expect(document.body.textContent).toContain('providers.accountQuerySection')
+  expect(document.body.textContent).not.toContain('providers.scriptPlaceholder')
+  // No query configuration exists yet, so the editor has nothing to show.
+  expect(scriptEditor()).toBeUndefined()
+  expect(schemeSelectValue()).toBe('')
+})
+
+it('recognises a chosen preset script and pre-fills the scheme without enabling it', async () => {
   await render(null)
   await clickPreset(1) // deepseek
 
   expect(fieldValue('baseUrl')).toBe('https://api.deepseek.com')
   expect(fieldValue('name')).toBe('deepseek')
-  expect(scriptEditor().value).toBe(DEEPSEEK_SCRIPT)
+  // Display-only recognition: the scheme marker shows, the switch stays off,
+  // and the script text lives behind the custom affordance (D3).
+  expect(schemeSelectValue()).toBe('querySchemes.deepseekAccount')
+  expect(document.body.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
+
+  await clickButton('querySchemes.basedOnScheme')
+  expect(scriptEditor()?.value).toBe(DEEPSEEK_SCRIPT)
 })
 
 it('resets the address when a template that has none of its own is chosen', async () => {
@@ -397,28 +526,21 @@ it('resets the address when a template that has none of its own is chosen', asyn
   expect(fieldValue('name')).toBe('')
 })
 
-it('starts a new provider on the starter script', async () => {
-  await render(null)
-
-  // The query is a field to complete, not a switch to find: a new provider
-  // opens on a script that shows the shape rather than on nothing at all.
-  expect(scriptEditor().value).toContain('{{baseUrl}}')
-  expect(scriptEditor().value).toContain('extractor')
-})
-
-it('returns to the starter script when the blank template is chosen', async () => {
-  presets.mockResolvedValue([custom, deepseek])
+it('clears the query the same way the blank template clears the other fields', async () => {
   await render(null)
 
   await clickPreset(1)
-  expect(scriptEditor().value).toBe(DEEPSEEK_SCRIPT)
+  expect(schemeSelectValue()).toBe('querySchemes.deepseekAccount')
 
+  // The blank template owns the query field too: it empties it and clears the
+  // marker, and nothing re-enables by itself (D3).
   await clickPreset(0)
-  expect(scriptEditor().value).not.toBe(DEEPSEEK_SCRIPT)
-  expect(scriptEditor().value).toContain('extractor')
+  expect(schemeSelectValue()).toBe('')
+  expect(document.body.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
+  expect(document.body.textContent).not.toContain('querySchemes.customize')
 })
 
-it('saves the script a preset shipped', async () => {
+it('stores a preset script as a parked, disabled configuration', async () => {
   const onSave = await render(null)
   await clickPreset(1)
   await submit()
@@ -429,6 +551,10 @@ it('saves the script a preset shipped', async () => {
     baseUrl: 'https://api.deepseek.com',
     name: 'deepseek',
     walletBalanceScript: DEEPSEEK_SCRIPT,
+    walletBalanceType: 'custom',
+    // Prefill is not configuration: the switch the user never touched stays
+    // off, and the scheme marker records where the script came from (D3).
+    queryConfig: { enabled: false, schemeId: 'deepseek-account' },
     usageType: 'none',
   })
   expect(onSave.mock.calls[0][0].defaultKeyConfig).toMatchObject({
@@ -440,19 +566,30 @@ it('saves the script as the user edited it, not as the preset shipped it', async
   const onSave = await render(null)
   await clickPreset(1)
 
-  await typeInto(scriptEditor(), '({ request: { url: "https://x/y" }, extractor: () => ({}) })')
+  await clickButton('querySchemes.basedOnScheme')
+  await typeInto(scriptEditor()!, '({ request: { url: "https://x/y" }, extractor: () => ({}) })')
   await submit()
 
   expect(onSave.mock.calls[0][0].walletBalanceScript).toBe(
     '({ request: { url: "https://x/y" }, extractor: () => ({}) })',
   )
+  expect(onSave.mock.calls[0][0].queryConfig).toMatchObject({
+    enabled: false,
+    schemeId: 'custom',
+  })
 })
 
 it('checks the script before saving, and refuses one the engine rejects', async () => {
   checkScript.mockRejectedValue('第 1 行无法识别')
   const onSave = await render(null)
-  await fillRequiredFields()
 
+  // The offline check runs on the text that will be stored. Reaching the code
+  // is always a user decision: pick custom in the scheme select, then enter the
+  // script, then save — nothing was ever sent.
+  await fillRequiredFields()
+  await chooseScheme('querySchemes.customize')
+  await clickButton('querySchemes.customize')
+  await typeInto(scriptEditor()!, 'not a script')
   await submit()
 
   expect(checkScript).toHaveBeenCalledWith(expect.any(String), 'https://relay.example.com')
@@ -462,27 +599,81 @@ it('checks the script before saving, and refuses one the engine rejects', async 
 
 it('does not ask the engine about a provider with no query', async () => {
   const onSave = await render(null)
-  await typeInto(scriptEditor(), '')
   await fillRequiredFields()
   await submit()
 
   expect(checkScript).not.toHaveBeenCalled()
   expect(onSave).toHaveBeenCalledTimes(1)
   expect(onSave.mock.calls[0][0].walletBalanceScript).toBeUndefined()
+  expect(onSave.mock.calls[0][0].queryConfig).toEqual({ enabled: false, schemeId: 'custom' })
 })
 
-it('shows the stored script when editing, without re-applying a template', async () => {
-  const onSave = await render(providerFixture({ walletBalanceScript: DEEPSEEK_SCRIPT }))
+it('opens a saved query with the switch on and keeps the script behind the custom affordance', async () => {
+  // A pre-config legacy row: no stored config, a non-empty script means on.
+  const onSave = await render(
+    providerFixture({
+      walletBalanceScript: DEEPSEEK_SCRIPT,
+      queryConfig: null,
+    }),
+  )
 
-  expect(scriptEditor().value).toBe(DEEPSEEK_SCRIPT)
-  // No preset picker on edit: the stored config is the source of truth.
+  expect(document.body.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true')
   expect(document.body.querySelectorAll('[class*="presetChip"]').length).toBe(0)
+  expect(schemeSelectValue()).toBe('querySchemes.deepseekAccount')
+  // The code is hidden until the explicit entry; nothing is lost by the reveal.
+  expect(scriptEditor()).toBeUndefined()
   await submit()
 
   expect(onSave.mock.calls[0][0]).toMatchObject({
     id: 'provider-1',
     presetId: 'newapi',
     walletBalanceScript: DEEPSEEK_SCRIPT,
+    queryConfig: { enabled: true, schemeId: 'deepseek-account' },
+  })
+
+  // Entering the code is an explicit choice: the marker becomes custom while
+  // the script text stays verbatim.
+  await clickButton('querySchemes.basedOnScheme')
+  expect(scriptEditor()?.value).toBe(DEEPSEEK_SCRIPT)
+})
+
+it('classifies an unrecognised legacy script as custom with the original text preserved', async () => {
+  const handWritten = '({ hand: "written" })'
+  const onSave = await render(
+    providerFixture({
+      walletBalanceScript: handWritten,
+      queryConfig: null,
+    }),
+  )
+
+  // No catalogue entry owns the text, so the explicit custom entry is the
+  // affordance and the original text is displayed in full (D5).
+  expect(schemeSelectValue()).toBe('querySchemes.customize')
+  await clickButton('querySchemes.customize')
+  expect(scriptEditor()?.value).toBe(handWritten)
+  await submit()
+
+  expect(onSave.mock.calls[0][0]).toMatchObject({
+    walletBalanceScript: handWritten,
+    queryConfig: { enabled: true, schemeId: 'custom' },
+  })
+})
+
+it('keeps the stored configuration and text when editing without touching the query', async () => {
+  const stored = providerFixture({
+    walletBalanceScript: '({ hand: "written" })',
+    queryConfig: { enabled: false, schemeId: 'opencode-go-account' },
+  })
+  const onSave = await render(stored)
+
+  await submit()
+
+  expect(onSave.mock.calls[0][0]).toMatchObject({
+    id: 'provider-1',
+    walletBalanceScript: '({ hand: "written" })',
+    walletBalanceType: 'custom',
+    // The user's stored choice survives untouched (A5/D5).
+    queryConfig: { enabled: false, schemeId: 'opencode-go-account' },
   })
 })
 
@@ -516,14 +707,15 @@ it('shows nothing — rather than a broken path — when no mark was chosen', as
   expect(document.body.querySelectorAll('[class*="iconItemActive"]').length).toBe(0)
 })
 
-it('asks for the access token only when the script names it', async () => {
+it('asks for the access credentials that the chosen scheme needs', async () => {
   presets.mockResolvedValue([custom, deepseek, newapi])
 
   await render(null)
-  await clickPreset(1) // deepseek: its script uses {{apiKey}}, not {{accessToken}}
+  await clickPreset(1) // deepseek: borrows a saved key, no account token
   expect(document.body.querySelector('input#token')).toBeNull()
+  expect(document.body.querySelector('input#walletBalanceUserId')).toBeNull()
 
-  await clickPreset(2) // newapi: names both {{accessToken}} and {{userId}}
+  await clickPreset(2) // newapi: names both the account token and the user id
   expect(document.body.querySelector('input#token')).not.toBeNull()
   expect(document.body.querySelector('input#walletBalanceUserId')).not.toBeNull()
 })
@@ -542,44 +734,69 @@ it('reuses an uploaded icon from the local library', async () => {
 
 it('persists an explicitly cleared account query', async () => {
   const onSave = await render(providerFixture({ walletBalanceScript: DEEPSEEK_SCRIPT }))
-  await typeInto(scriptEditor(), '')
+  await clickButton('querySchemes.basedOnScheme')
+
+  await typeInto(scriptEditor()!, '')
   await submit()
   expect(onSave.mock.calls[0][0].walletBalanceScript).toBe('')
   expect(onSave.mock.calls[0][0].walletBalanceType).toBe('none')
 })
 
-it('adds a Go query to an existing provider without applying model defaults', async () => {
-  const goScript = '({request: {url: "{{baseUrl}}/v1/usage"}, extractor: r => ({windows: []})})'
-  presets.mockResolvedValue([{ ...deepseek, id: 'opencode-go', walletBalanceScript: goScript }])
-  const provider = providerFixture({ walletBalanceScript: null, presetId: 'custom' })
+it('picking a scheme writes the scheme script and leaves every other field alone', async () => {
+  const provider = providerFixture({
+    defaultKeyConfig: { types: ['claude_code', 'codex'] },
+    requestHeaders: '{"X-Keep": "1"}',
+  })
   const onSave = await render(provider)
-  const button = Array.from(document.body.querySelectorAll('button')).find(
-    (element) => element.textContent === 'providers.queryTemplates',
-  )!
-  await act(async () => button.click())
-  const item = Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
-    (element) => element.textContent === 'opencode-go',
-  ) as HTMLElement
-  await act(async () => item.click())
+  await chooseScheme('querySchemes.openCodeGoAccount')
   await submit()
-  expect(onSave.mock.calls[0][0].name).toBe(provider.name)
-  expect(onSave.mock.calls[0][0].baseUrl).toBe(provider.baseUrl)
-  expect(onSave.mock.calls[0][0].walletBalanceScript).toBe(goScript)
-  expect(onSave.mock.calls[0][0].defaultKeyConfig).toEqual(provider.defaultKeyConfig ?? undefined)
-  expect(onSave.mock.calls[0][0].presetId).toBe('custom')
+
+  const saved = onSave.mock.calls[0][0]
+  expect(saved.walletBalanceScript).toBe(GO_SCRIPT)
+  expect(saved.queryConfig).toEqual({ enabled: true, schemeId: 'opencode-go-account' })
+  // Query work never touches the rest of the provider (A7).
+  expect(saved.name).toBe(provider.name)
+  expect(saved.baseUrl).toBe(provider.baseUrl)
+  expect(saved.requestHeaders).toBe('{\n  "X-Keep": "1"\n}')
+  expect(saved.defaultKeyConfig).toEqual(provider.defaultKeyConfig ?? undefined)
+  // The stored origin template is untouched by a scheme change.
+  expect(saved.presetId).toBe('newapi')
 })
 
-it('offers the rolling window example in one dropdown when creating or editing', async () => {
-  await render(providerFixture())
-  const buttons = Array.from(document.body.querySelectorAll('button')).filter(
-    (button) => button.textContent === 'providers.queryTemplates',
-  )
-  expect(buttons).toHaveLength(1)
-  await act(async () => buttons[0].click())
-  const item = Array.from(document.body.querySelectorAll('[role="menuitem"]')).find(
-    (element) => element.textContent === 'providers.rollingWindowTemplate',
-  ) as HTMLElement
-  await act(async () => item.click())
-  expect(scriptEditor().value).toContain('rolling_5h')
-  expect(scriptEditor().value).toContain('window.resets_at')
+it('offers the query schemes through one select, with nothing chosen for a new provider', async () => {
+  await render(null)
+
+  // The section owns the choice; a fresh provider shows the placeholder, not a
+  // defaulted scheme (D3).
+  expect(schemeSelectValue()).toBe('')
+  expect(document.body.textContent).toContain('querySchemes.schemePlaceholder')
+  const trigger = document.body.querySelector('.ant-select input[role="combobox"]')
+  expect(trigger).not.toBeNull()
+})
+
+it('runs the draft test against the current provider draft and shows the answer', async () => {
+  const provider = providerFixture({
+    id: 'provider-1',
+    baseUrl: 'https://custom.example.com',
+    token: 'tok-draft',
+  })
+  await render(provider)
+
+  await chooseScheme('querySchemes.deepseekAccount')
+  await clickButton('querySchemes.test')
+  await settle()
+
+  // The account test sends the draft's address and account credentials; it
+  // borrows a saved key server-side through the provider id, never a value.
+  expect(testDraft).toHaveBeenCalledTimes(1)
+  const input = testDraft.mock.calls[0][0]
+  expect(input).toMatchObject({
+    scope: 'account',
+    baseUrl: 'https://custom.example.com',
+    script: DEEPSEEK_SCRIPT,
+    providerId: 'provider-1',
+  })
+  expect(input.apiKey).toBeUndefined()
+  expect(document.body.textContent).toContain('querySchemes.testSuccess')
+  expect(document.body.textContent).toContain('$10.00')
 })

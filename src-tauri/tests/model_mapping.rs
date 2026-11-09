@@ -108,6 +108,7 @@ fn setup_provider_with_mapping(
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "test-provider".to_string(),
@@ -134,6 +135,7 @@ fn setup_provider_with_mapping(
 
     let api_key = db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some(format!("{}-key", provider_type)),

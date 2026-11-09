@@ -55,6 +55,7 @@ fn setup_proxy(
     let db = Database::open_at(&path).expect("create test database");
     let provider = db
         .provider_create(&CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "websocket-provider".to_string(),
@@ -80,6 +81,7 @@ fn setup_proxy(
         .unwrap();
     let key = db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("websocket-key".to_string()),
@@ -311,6 +313,7 @@ fn setup_gateway_proxy(upstream_port: u16) -> (Arc<cc_use_lib::proxy::ProxyState
     let db = Database::open_at(&path).expect("create test database");
     let provider = db
         .provider_create(&CreateProviderInput {
+            query_config: None,
             request_headers: Some(r#"{"X-Relay":"cc-use-ws"}"#.to_string()),
             wallet_balance_script: None,
             name: "gateway-ws-provider".to_string(),
@@ -336,6 +339,7 @@ fn setup_gateway_proxy(upstream_port: u16) -> (Arc<cc_use_lib::proxy::ProxyState
         .unwrap();
     let key = db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("gateway-ws-key".to_string()),

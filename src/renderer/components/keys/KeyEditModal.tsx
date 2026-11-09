@@ -3,9 +3,9 @@
  * 统一新增和编辑体验
  * 各启动台独立模型配置，仅 Claude Code 提供局部配置
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getApi } from '../../api'
-import { Button, Modal, Form, Input, Typography, Space, Select, Tabs, Switch } from 'antd'
+import { Alert, Button, Modal, Form, Input, Typography, Space, Select, Tabs } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import { DesktopOutlined, CodeOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
@@ -18,6 +18,8 @@ import type {
   TerminalLaunchPreview,
   ClientConfig,
   UpstreamAuthScheme,
+  QueryTestInput,
+  QueryTestResult,
 } from '@shared/types'
 import { CLIENT_KIND_CONFIGS, getClientKindConfig } from '@shared/types'
 import UserAgentField from '../UserAgentField'
@@ -33,14 +35,18 @@ import {
 } from '../../utils/modelMapping'
 import { isOfficialDeepSeekProvider } from '../../utils/officialProviders'
 import { hasClientOverride, mergeClientConfig } from '../../utils/clientConfig'
-import { STARTER_ACCOUNT_SCRIPT } from '../../utils/providerQueryDefaults'
+import { effectiveQuery } from '../../utils/accountQuery'
+import { isAccountShapedScript } from '../../utils/queryScriptShape'
+import QuerySettingsSection, {
+  type QueryScriptValue,
+  type QuerySectionTestInput,
+} from '../query/QuerySettingsSection'
 import ModelMappingEditor from './ModelMappingEditor'
 import { readClaudeConfig } from '../../utils/claudeConfig'
 import type { ModelEditorActions } from './ModelEditorView'
 import styles from './KeyEditModal.module.css'
 
 const { Text } = Typography
-const { TextArea } = Input
 
 interface KeyEditModalProps {
   open: boolean
@@ -80,11 +86,17 @@ export default function KeyEditModal({
   const [launchPreview, setLaunchPreview] = useState<TerminalLaunchPreview | null>(null)
   const { globalSettings } = useSettingsStore()
 
-  // This key's own quota query, and whether it runs. The script is filled in
-  // from the start so its shape is visible; the switch is what decides, so a
-  // query is never asked by accident because a field happened to have text.
-  const [usageEnabled, setUsageEnabled] = useState(false)
-  const [usageScript, setUsageScript] = useState(STARTER_ACCOUNT_SCRIPT)
+  // This key's own quota query: switch + scheme marker + script text. The
+  // script is the user's document (kept through every change and save); the
+  // switch decides whether the query runs (D3/D4 below).
+  const [queryValue, setQueryValue] = useState<QueryScriptValue>({
+    enabled: false,
+    schemeId: '',
+    script: '',
+  })
+  // A create's seed text comes from the provider template; an untouched,
+  // disabled seed is not configuration and is not stored.
+  const seededUsageScriptRef = useRef('')
   const [mapping, setMapping] = useState<ModelMappingFields>(EMPTY_MODEL_MAPPING)
   const [clientConfigs, setClientConfigs] = useState<Partial<Record<ClientKind, ClientConfig>>>({})
   const [activeTab, setActiveTab] = useState('usage')
@@ -109,6 +121,30 @@ export default function KeyEditModal({
   )
   const parseConfig = (json: string): CliConfig => readClaudeConfig(json).config
 
+  // The key value is the only credential a per-key test may use; the address
+  // comes from the provider this key belongs to. This callback's identity is
+  // the section's input-freshness signal (A6): a re-keyed draft invalidates a
+  // pending test's result.
+  const draftKeyValue = Form.useWatch('value', form)
+
+  const handleDraftTest = useCallback(
+    async (input: QuerySectionTestInput): Promise<QueryTestResult> => {
+      const apiKey = String(draftKeyValue ?? '').trim()
+      const draft: QueryTestInput = {
+        scope: 'key',
+        baseUrl: currentProvider?.baseUrl ?? '',
+        script: input.script,
+        // No accessToken/userId belongs in a per-key answer, and no provider
+        // fallback credential may be borrowed either — the backend refuses
+        // both on this scope.
+      }
+      if (apiKey) draft.apiKey = apiKey
+      return getApi().balance.testDraft(draft)
+    },
+    // The provider address shapes the same draft the editor holds.
+    [currentProvider?.baseUrl, draftKeyValue],
+  )
+
   useEffect(() => {
     if (!open) return
 
@@ -129,6 +165,18 @@ export default function KeyEditModal({
       const config = { ...(source.config || {}) }
       delete config.prelaunchCommand
       setClaudeConfigJson(JSON.stringify(config, null, 2))
+      // The stored config owns the switch and the scheme; a pre-config row
+      // keeps its implicit enabled state from the script. Either way the
+      // script text stays exactly as saved (A5).
+      const script = source.usageScript || ''
+      const effective = effectiveQuery(source.queryConfig, source.usageScript)
+      setQueryValue({
+        enabled: effective?.enabled ?? false,
+        schemeId: source.queryConfig ? source.queryConfig.schemeId : script.trim() ? 'custom' : '',
+        script,
+      })
+      setMapping(parseModelMapping(source.modelMapping))
+      setClientConfigs(source.clientConfigs || {})
     } else {
       // A new key inherits its provider's saved defaults, so filling in only
       // the key value still stores the endpoints, mapping and quota settings
@@ -140,17 +188,16 @@ export default function KeyEditModal({
         isOfficialDeepSeek ? defaults.types.filter((type) => type !== 'grok') : defaults.types,
       )
       setClaudeConfigJson(defaults.claudeConfigJson)
-      setUsageScript(defaults.usageScript)
-      setUsageEnabled(false)
+      // The inherited seed is display only: the query stays off and nothing is
+      // stored unless the user turns it on or writes their own text (D3).
+      seededUsageScriptRef.current = defaults.usageScript
+      setQueryValue({
+        enabled: false,
+        schemeId: defaults.usageScript.trim() ? 'custom' : '',
+        script: defaults.usageScript,
+      })
       setMapping(defaults.mapping)
       setClientConfigs(defaults.clientConfigs)
-    }
-
-    if (source) {
-      setUsageScript(source.usageScript || STARTER_ACCOUNT_SCRIPT)
-      setUsageEnabled(Boolean(source.usageScript?.trim()))
-      setMapping(parseModelMapping(source.modelMapping))
-      setClientConfigs(source.clientConfigs || {})
     }
 
     // A copy exists to be re-pointed at another model mapping, so start there.
@@ -274,19 +321,28 @@ export default function KeyEditModal({
       }
       // Evaluated before saving, so a typo is caught here rather than on the
       // next refresh. Nothing is sent and no credential is involved.
-      const keyScript = usageEnabled ? usageScript.trim() : ''
-      if (usageEnabled && !keyScript) {
+      const keyScript = queryValue.enabled ? queryValue.script.trim() : queryValue.script
+      if (queryValue.enabled && !keyScript) {
+        // Turning the query on without writing anything is a blocked state,
+        // not a silently enabled empty query.
         message.error(t('keys.queryScriptRequired'))
         return
       }
-      if (keyScript) {
+      if (keyScript.trim()) {
         try {
-          await getApi().balance.checkScript(keyScript, currentProvider?.baseUrl ?? '')
+          await getApi().balance.checkScript(keyScript.trim(), currentProvider?.baseUrl ?? '')
         } catch (error) {
           message.error(String(error))
           return
         }
       }
+
+      // An untouched, disabled seed from the provider template was never the
+      // user's configuration and is not stored.
+      const seededDraft =
+        mode === 'create' &&
+        !queryValue.enabled &&
+        queryValue.script === seededUsageScriptRef.current
 
       const serializedModelMapping = modelMappingValueForSave(mapping, mode !== 'create')
       await onSave({
@@ -297,7 +353,11 @@ export default function KeyEditModal({
         value: values.value?.trim(),
         types: selectedTypes,
         config: localConfig,
-        usageScript: mode === 'edit' ? keyScript : keyScript || undefined,
+        usageScript: seededDraft ? undefined : mode === 'edit' ? keyScript : keyScript || undefined,
+        queryConfig: {
+          enabled: queryValue.enabled,
+          schemeId: queryValue.schemeId || 'custom',
+        },
         modelMapping: serializedModelMapping,
         clientConfigs,
       })
@@ -494,32 +554,26 @@ export default function KeyEditModal({
               items={[
                 {
                   key: 'usage',
-                  label: t('keys.usageConfig') || '额度查询配置',
+                  label: t('keys.quotaSection'),
                   children: (
                     <div className={styles.tabPane}>
-                      <div className={styles.usageSwitchRow}>
-                        <Switch
-                          checked={usageEnabled}
-                          onChange={setUsageEnabled}
-                          aria-label={t('keys.usageEnabled') || '查询这把密钥的额度'}
+                      {/* A pre-config key whose script asks the account
+                          question is explained as a repair, never rewritten. */}
+                      {queryValue.enabled && isAccountShapedScript(queryValue.script) && (
+                        <Alert
+                          type='warning'
+                          showIcon
+                          title={t('keys.legacyAccountScriptHint')}
+                          className={styles.legacyQueryAlert}
                         />
-                        <Text>{t('keys.usageEnabled') || '查询这把密钥的额度'}</Text>
-                      </div>
-                      <TextArea
-                        value={usageScript}
-                        onChange={(event) => setUsageScript(event.target.value)}
-                        disabled={!usageEnabled}
-                        autoSize={{ minRows: 8, maxRows: 20 }}
-                        spellCheck={false}
-                        className={styles.jsonEditor}
+                      )}
+                      <QuerySettingsSection
+                        scope='key'
+                        value={queryValue}
+                        onChange={setQueryValue}
+                        testVisible
+                        onDraftTest={handleDraftTest}
                       />
-                      <Text
-                        type='secondary'
-                        style={{ fontSize: 12, display: 'block', marginTop: 8 }}
-                      >
-                        {t('keys.usageScriptHint') ||
-                          '脚本与供应商的账户查询同构：{{baseUrl}} 供应商地址，{{apiKey}} 这把密钥'}
-                      </Text>
                     </div>
                   ),
                 },

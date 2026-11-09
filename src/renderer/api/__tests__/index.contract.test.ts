@@ -58,6 +58,49 @@ describe('renderer api contract', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(6, 'settings_get', undefined)
   })
 
+  it('maps the query scheme catalogue and draft-test commands', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+
+    await api.balance.schemes()
+    await api.balance.schemes('account')
+    await api.balance.schemes('key')
+    await api.balance.testDraft({
+      scope: 'key',
+      baseUrl: 'https://service.example.com',
+      script: '({request:{},extractor:()=>({})})',
+      apiKey: 'sk-draft',
+    })
+    await api.balance.testDraft({
+      scope: 'account',
+      baseUrl: 'https://service.example.com',
+      script: '({request:{},extractor:()=>({})})',
+      providerId: 'provider-1',
+    })
+
+    // An omitted scope asks for both; a given one narrows.
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'query_schemes', {})
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'query_schemes', { scope: 'account' })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'query_schemes', { scope: 'key' })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'query_test', {
+      input: {
+        scope: 'key',
+        baseUrl: 'https://service.example.com',
+        script: '({request:{},extractor:()=>({})})',
+        apiKey: 'sk-draft',
+      },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'query_test', {
+      input: {
+        scope: 'account',
+        baseUrl: 'https://service.example.com',
+        script: '({request:{},extractor:()=>({})})',
+        providerId: 'provider-1',
+      },
+    })
+  })
+
   it('converts ArrayBuffer payloads for icon upload', async () => {
     invokeMock.mockResolvedValue('uploaded-icon.png')
     const { getApi } = await loadApiModule()

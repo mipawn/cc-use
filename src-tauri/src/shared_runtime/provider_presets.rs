@@ -402,6 +402,7 @@ mod tests {
 
     fn blank_input(preset_id: Option<&str>) -> crate::models::CreateProviderInput {
         crate::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: String::new(),

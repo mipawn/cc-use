@@ -22,6 +22,20 @@ const apiMock = vi.hoisted(() => ({
   })),
   getQueryPreference: vi.fn(async () => null as string | null),
   saveQueryPreference: vi.fn(async () => {}),
+  // The key editor renders the shared query section, which reads this
+  // catalogue; the factory body only runs after the fixture below is defined.
+  schemes: vi.fn(() => Promise.resolve(keySchemes)),
+  // The one-argument call signature is part of the contract the tests pin.
+  testDraft: vi.fn((input: unknown) => {
+    void input
+    return Promise.resolve({
+      scope: 'key',
+      usage: { remaining: 12, unit: 'USD', isUnlimited: false },
+      isValid: true,
+      invalidMessage: null,
+      error: null,
+    })
+  }),
 }))
 
 vi.mock('../../api', () => ({
@@ -33,7 +47,11 @@ vi.mock('../../api', () => ({
     },
     apiKey: { retiredMappingReport: async () => [] },
     // The quota script is checked before saving; the mock accepts it.
-    balance: { checkScript: async () => ({ url: '', method: 'GET', headers: {} }) },
+    balance: {
+      checkScript: async () => ({ url: '', method: 'GET', headers: {} }),
+      schemes: apiMock.schemes,
+      testDraft: apiMock.testDraft,
+    },
     userAgent: {
       list: async () => [],
       save: async (value: string) => [value],
@@ -45,8 +63,14 @@ vi.mock('../../api', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh' } }),
 }))
+const messageMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+}))
 vi.mock('../../hooks/useAppMessage', () => ({
-  useAppMessage: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
+  useAppMessage: () => messageMock,
 }))
 vi.mock('../../stores/settingsStore', () => ({
   useSettingsStore: () => ({ globalSettings: {} }),
@@ -87,8 +111,30 @@ afterEach(async () => {
   apiMock.modelCatalogPreview.mockReset()
   apiMock.getModelCatalog.mockResolvedValue({ models: [], revision: 0, updatedAt: null })
   useProviderModelCatalogStore.setState({ catalogs: {}, loading: {}, errors: {}, requests: {} })
+  messageMock.success.mockClear()
+  messageMock.error.mockClear()
+  messageMock.warning.mockClear()
   vi.clearAllMocks()
 })
+
+/** The scheme catalogue the key editor tests render against. */
+const KEY_SCHEME_SCRIPT = `({
+  request: { url: "{{baseUrl}}/api/usage/token/", method: "GET",
+             headers: { Authorization: "Bearer {{apiKey}}" } },
+  extractor: function (response) { return { remaining: response.data.quota / 500000 } }
+})`
+
+const keySchemes = [
+  {
+    id: 'newapi-key',
+    scope: 'key',
+    labelKey: 'querySchemes.newApiKey',
+    descriptionKey: 'querySchemes.newApiKeyDescription',
+    credentialRequirements: ['apiKey'],
+    supportsWindows: false,
+    script: KEY_SCHEME_SCRIPT,
+  },
+]
 
 const presetProvider: Provider = {
   ...({
@@ -158,6 +204,7 @@ const deepseekProvider: Provider = {
   requestAdapter: 'none',
   walletBalanceScript: null,
   requestHeaders: null,
+  queryConfig: null,
 }
 
 function sourceKey(): ApiKey {
@@ -175,6 +222,7 @@ function sourceKey(): ApiKey {
     usageUrl: null,
     usagePath: null,
     usageHeaders: null,
+    queryConfig: null,
     cachedUsage: null,
     lastUsageCheckedAt: null,
     modelMapping: JSON.stringify({ haiku: 'source-haiku', sonnet: 'source-sonnet' }),
@@ -286,12 +334,6 @@ it('fills every tab from the source key when duplicating', async () => {
   expect(query('input[type="password"]')?.value).toBe('sk-source-credential')
   expect(query('input#alias')?.value).toBe('daily（副本）')
 
-  // Quota settings travel with the copy instead of resetting to the defaults.
-  const fieldValues = Array.from(document.body.querySelectorAll('input, textarea')).map(
-    (field) => (field as HTMLInputElement | HTMLTextAreaElement).value,
-  )
-  expect(fieldValues).toContain(SOURCE_QUOTA_SCRIPT)
-
   // The copy opens on the model mapping so it can be re-pointed immediately.
   expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain(
     'keys.modelConfiguration',
@@ -299,6 +341,15 @@ it('fills every tab from the source key when duplicating', async () => {
   await openCode()
   expect(selectedValue('Claude Code haiku keys.upstreamModel')).toBe('source-haiku')
   expect(selectedValue('Claude Code sonnet keys.upstreamModel')).toBe('source-sonnet')
+
+  // Quota settings travel with the copy instead of resetting to the defaults.
+  // The script text lives behind the explicit custom entry.
+  await openTab('keys.quotaSection')
+  await clickButton('querySchemes.customize')
+  const fieldValues = Array.from(document.body.querySelectorAll('input, textarea')).map(
+    (field) => (field as HTMLInputElement | HTMLTextAreaElement).value,
+  )
+  expect(fieldValues).toContain(SOURCE_QUOTA_SCRIPT)
 })
 
 it('keeps provider defaults out of the duplicated draft', async () => {
@@ -314,7 +365,7 @@ it('still starts a plain create from provider defaults', async () => {
 
   expect(query('input[type="password"]')?.value).toBe('')
   expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain(
-    'keys.usageConfig',
+    'keys.quotaSection',
   )
 
   await openTab('keys.modelConfiguration')
@@ -417,8 +468,11 @@ it('seeds a new key from the provider defaults instead of a hardcoded template',
 
   // The provider's own defaults show up without opening any advanced tab.
   expect(document.body.querySelector('.ant-tabs-tab-active')?.textContent).toContain(
-    'keys.usageConfig',
+    'keys.quotaSection',
   )
+  // The seeded script is the provider's own saved per-key text, so it is
+  // reachable behind the custom entry and never shown as live code.
+  await clickButton('querySchemes.customize')
   const seeded = Array.from(document.body.querySelectorAll('input, textarea')).map(
     (field) => (field as HTMLInputElement | HTMLTextAreaElement).value,
   )
@@ -440,11 +494,111 @@ it('seeds a new key from the provider defaults instead of a hardcoded template',
   expect(onSave).not.toHaveBeenCalled() // value is required and still empty
 })
 
-it('clears a previously configured quota script when the switch is turned off', async () => {
+it('starts a new key with the query off, no scheme and an empty script', async () => {
+  await render('create', null)
+
+  await openTab('keys.quotaSection')
+  expect(document.body.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
+  expect(document.body.textContent).toContain('querySchemes.schemePlaceholder')
+  // The old starter template is gone: no code exists until the user writes it.
+  expect(
+    document.body.querySelector('textarea[aria-label="querySchemes.customScriptLabel"]'),
+  ).toBeNull()
+})
+
+it('carries the whole query configuration through a duplicate', async () => {
+  const source = {
+    ...sourceKey(),
+    usageScript: '({ kept: "per-key script" })',
+    queryConfig: { enabled: false, schemeId: 'newapi-key' },
+  }
+  const onSave = await render('duplicate', buildDuplicatedKeyDraft(source))
+  await openTab('keys.quotaSection')
+
+  // The copy opens exactly as the source was saved: configured, switched off,
+  // with its scheme marker — a parked query, not a suggestion.
+  expect(document.body.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false')
+  await clickButton('querySchemes.customize')
+  const editor = document.body.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="querySchemes.customScriptLabel"]',
+  )
+  expect(editor?.value).toBe(source.usageScript!)
+  await fillKeyValue()
+  await submit()
+
+  expect(onSave.mock.calls[0][0].usageScript).toBe(source.usageScript)
+  expect(onSave.mock.calls[0][0].queryConfig).toEqual({ enabled: false, schemeId: 'newapi-key' })
+})
+
+it('explains a legacy account-shaped script and keeps the original text', async () => {
+  const accountScript =
+    '({ request: { url: "https://api.deepseek.com/user/balance" }, extractor: () => ({}) })'
+  const onSave = await render('edit', { ...sourceKey(), usageScript: accountScript })
+
+  // The backend refuses to run this as a key query; the editor says so and
+  // never rewrites the user's text.
+  expect(document.body.textContent).toContain('keys.legacyAccountScriptHint')
+  await clickButton('querySchemes.customize')
+  const editor = document.body.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="querySchemes.customScriptLabel"]',
+  )
+  expect(editor?.value).toBe(accountScript)
+  await submit()
+
+  expect(onSave.mock.calls[0][0].usageScript).toBe(accountScript)
+  expect(onSave.mock.calls[0][0].queryConfig).toEqual({ enabled: true, schemeId: 'custom' })
+})
+
+it('tests the draft with this key only and shows the answer', async () => {
+  await render('edit', sourceKey())
+  await openTab('keys.quotaSection')
+  await clickButton('querySchemes.test')
+  await settleQueryResult()
+
+  expect(apiMock.testDraft).toHaveBeenCalledTimes(1)
+  const input = apiMock.testDraft.mock.calls[0]?.[0] as unknown as Record<string, unknown>
+  expect(input).toMatchObject({
+    scope: 'key',
+    baseUrl: 'https://api.deepseek.com/anthropic',
+    apiKey: 'sk-source-credential',
+    script: SOURCE_QUOTA_SCRIPT,
+  })
+  // A per-key answer has no place for account credentials or a borrow rule.
+  expect(input).not.toHaveProperty('accessToken')
+  expect(input).not.toHaveProperty('userId')
+  expect(input).not.toHaveProperty('providerId')
+  expect(document.body.textContent).toContain('querySchemes.testSuccess')
+  expect(document.body.textContent).toContain('$12.00')
+})
+
+it('refuses to enable the query without a script and leaves it off', async () => {
+  const onSave = await render('create', null)
+  await fillKeyValue()
+  await toggleQuota()
+  await submit()
+
+  expect(messageMock.error).toHaveBeenCalledWith('keys.queryScriptRequired')
+  expect(onSave).not.toHaveBeenCalled()
+})
+
+async function settleQueryResult() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+it('keeps the saved script and scheme when the switch is turned off', async () => {
   const onSave = await render('edit', sourceKey())
   await toggleQuota()
   await submit()
-  expect(onSave.mock.calls[0][0].usageScript).toBe('')
+
+  // Turning the query off stops it and keeps the configuration: the script and
+  // the scheme survive the save and reappear on reload (D4/A5).
+  expect(onSave.mock.calls[0][0].usageScript).toBe(SOURCE_QUOTA_SCRIPT)
+  expect(onSave.mock.calls[0][0].queryConfig).toEqual({ enabled: false, schemeId: 'custom' })
 })
 
 async function fillInput(selector: string, value: string) {

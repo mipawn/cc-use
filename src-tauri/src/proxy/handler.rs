@@ -3781,6 +3781,7 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let provider = db
             .provider_create(&CreateProviderInput {
+                query_config: None,
                 request_headers: None,
                 wallet_balance_script: None,
                 name: "grok-provider".to_string(),
@@ -3806,6 +3807,7 @@ mod tests {
             .unwrap();
         let grok_key = db
             .api_key_create(&CreateApiKeyInput {
+                query_config: None,
                 usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: None,
@@ -4074,6 +4076,7 @@ mod tests {
         let raw_db = Database::new_in_memory().unwrap();
         let provider = raw_db
             .provider_create(&CreateProviderInput {
+                query_config: None,
                 request_headers: None,
                 wallet_balance_script: None,
                 name: "codex-provider".to_string(),
@@ -4099,6 +4102,7 @@ mod tests {
             .unwrap();
         let api_key = raw_db
             .api_key_create(&CreateApiKeyInput {
+                query_config: None,
                 usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("codex-key".to_string()),
@@ -4333,6 +4337,7 @@ mod tests {
         let raw_db = Database::new_in_memory().unwrap();
         let provider = raw_db
             .provider_create(&CreateProviderInput {
+                query_config: None,
                 request_headers: None,
                 wallet_balance_script: None,
                 name: "claude-provider".to_string(),
@@ -4358,6 +4363,7 @@ mod tests {
             .unwrap();
         let api_key = raw_db
             .api_key_create(&CreateApiKeyInput {
+                query_config: None,
                 usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("claude-key".to_string()),

@@ -1346,6 +1346,7 @@ mod tests {
 
         let provider = db
             .provider_create(&CreateProviderInput {
+                query_config: None,
                 request_headers: None,
                 wallet_balance_script: None,
                 name: "Example".to_string(),
@@ -1371,6 +1372,7 @@ mod tests {
             .unwrap();
         let key = db
             .api_key_create(&CreateApiKeyInput {
+                query_config: None,
                 usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("alpha".to_string()),

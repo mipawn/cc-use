@@ -11,6 +11,7 @@ fn api_key_crud() {
     let key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("Test Key".to_string()),
@@ -50,6 +51,7 @@ fn api_key_crud() {
     let updated = fixture
         .db
         .api_key_update(&UpdateApiKeyInput {
+            query_config: None,
             usage_script: None,
             id: key.id.clone(),
             value: Some("sk-updated-456".to_string()),
@@ -83,6 +85,7 @@ fn api_key_model_mapping_can_be_explicitly_cleared() {
     let key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id,
             alias: None,
@@ -103,6 +106,7 @@ fn api_key_model_mapping_can_be_explicitly_cleared() {
     let cleared = fixture
         .db
         .api_key_update(&UpdateApiKeyInput {
+            query_config: None,
             usage_script: None,
             id: key.id.clone(),
             value: None,
@@ -143,6 +147,7 @@ fn api_key_empty_model_mapping_is_normalized_on_create() {
     let key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id,
             alias: None,
@@ -172,6 +177,7 @@ fn plaintext_remains_in_sqlite_after_reopen() {
         let provider = create_provider(&db, "Legacy", "claude");
         let key = db
             .api_key_create(&CreateApiKeyInput {
+                query_config: None,
                 usage_script: None,
                 provider_id: provider.id,
                 alias: None,
@@ -226,6 +232,7 @@ fn cascade_delete_removes_api_keys() {
     fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: None,
@@ -258,6 +265,7 @@ fn api_key_create_returns_proper_result() {
     let fixture = TempDb::new();
     let provider = create_provider(&fixture.db, "Test", "claude");
     let result = fixture.db.api_key_create(&CreateApiKeyInput {
+        query_config: None,
         usage_script: None,
         provider_id: provider.id,
         alias: Some("Test".to_string()),
@@ -284,6 +292,7 @@ fn api_key_update_no_changes() {
     let key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id,
             alias: Some("Test".to_string()),
@@ -302,6 +311,7 @@ fn api_key_update_no_changes() {
         .unwrap();
 
     let result = fixture.db.api_key_update(&UpdateApiKeyInput {
+        query_config: None,
         usage_script: None,
         id: key.id.clone(),
         alias: None,
@@ -332,6 +342,7 @@ fn api_key_types_round_trip() {
     let key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("Multi client".to_string()),
@@ -365,6 +376,7 @@ fn api_key_types_round_trip() {
     let updated = fixture
         .db
         .api_key_update(&UpdateApiKeyInput {
+            query_config: None,
             usage_script: None,
             id: key.id,
             alias: None,
@@ -395,6 +407,7 @@ fn api_key_client_configs_round_trip() {
     let key = fixture
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id,
             alias: Some("Company account".to_string()),
@@ -421,6 +434,7 @@ fn api_key_client_configs_round_trip() {
     let updated = fixture
         .db
         .api_key_update(&UpdateApiKeyInput {
+            query_config: None,
             usage_script: None,
             id: key.id.clone(),
             alias: None,

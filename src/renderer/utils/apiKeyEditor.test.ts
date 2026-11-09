@@ -90,6 +90,7 @@ function sourceKey(): ApiKey {
     usageUrl: 'https://quota.example.com',
     usagePath: 'data.remaining',
     usageHeaders: '{"x-token":"abc"}',
+    queryConfig: null,
     cachedUsage: {
       total: 10,
       used: 4,
@@ -109,7 +110,8 @@ function sourceKey(): ApiKey {
 
 describe('duplicated key drafts', () => {
   it('keeps the credential and copyable configuration', () => {
-    const draft = buildDuplicatedKeyDraft(sourceKey())
+    const source = sourceKey()
+    const draft = buildDuplicatedKeyDraft(source)
 
     expect(draft.value).toBe('sk-secret')
     expect(draft.types).toEqual(['claude_code'])
@@ -120,6 +122,9 @@ describe('duplicated key drafts', () => {
     expect(draft.usageUrl).toBe('https://quota.example.com')
     expect(draft.usagePath).toBe('data.remaining')
     expect(draft.usageHeaders).toBe('{"x-token":"abc"}')
+    // The quota configuration rides along exactly: scheme, switch and text (A5).
+    expect(draft.queryConfig).toEqual(source.queryConfig)
+    expect(draft.usageScript).toBe(source.usageScript)
   })
 
   it('drops identity and per-instance state', () => {
@@ -158,6 +163,17 @@ describe('new key defaults', () => {
     // Claude Code owns auto mode; cc-use only injects the local-classifier env
     // when the user explicitly enables compatibility and names a model.
     expect(newKeyDefaults(null, false).mapping.autoMode.enabled).toBe(false)
+  })
+
+  it('starts the query text empty: scripts are a choice, not an example', () => {
+    expect(newKeyDefaults(null, false).usageScript).toBe('')
+    expect(newKeyDefaults({}, false).usageScript).toBe('')
+  })
+
+  it('keeps a per-key script a provider template explicitly saved', () => {
+    expect(newKeyDefaults({ usageScript: '({ perKey: true })' }, false).usageScript).toBe(
+      '({ perKey: true })',
+    )
   })
 
   it('keeps an explicit provider template decision', () => {

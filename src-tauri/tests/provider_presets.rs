@@ -15,6 +15,7 @@ use support::TempDb;
 /// Every optional field is `None`, which for an update means "leave it alone".
 fn provider_patch(id: &str) -> UpdateProviderInput {
     UpdateProviderInput {
+        query_config: None,
         request_headers: None,
         wallet_balance_script: None,
         id: id.to_string(),
@@ -48,6 +49,7 @@ fn provider_patch(id: &str) -> UpdateProviderInput {
 
 fn provider_input(name: &str) -> CreateProviderInput {
     CreateProviderInput {
+        query_config: None,
         request_headers: None,
         wallet_balance_script: None,
         name: name.to_string(),
@@ -206,6 +208,7 @@ fn export_and_import_round_trip_preset_data() {
     source
         .db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("main".to_string()),

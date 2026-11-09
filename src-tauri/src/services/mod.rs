@@ -6,4 +6,5 @@ pub mod http_client;
 pub mod import_export;
 pub mod model_catalog;
 pub mod query_script;
+pub mod query_test;
 pub mod usage_service;

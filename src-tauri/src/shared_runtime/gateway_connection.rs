@@ -417,6 +417,7 @@ mod tests {
 
     fn provider(base_url: &str) -> Provider {
         Provider {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             id: "provider-1".to_string(),
@@ -451,6 +452,7 @@ mod tests {
 
     fn api_key(value: &str) -> ApiKey {
         ApiKey {
+            query_config: None,
             usage_script: None,
             id: "key-1".to_string(),
             provider_id: "provider-1".to_string(),

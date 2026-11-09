@@ -70,6 +70,7 @@ fn setup(upstream_port: u16, cli_type: Option<&str>, proxy_user_agent: Option<&s
         let guard = db.lock().unwrap();
         let provider = guard
             .provider_create(&CreateProviderInput {
+                query_config: None,
                 request_headers: None,
                 wallet_balance_script: None,
                 name: "ua-provider".to_string(),

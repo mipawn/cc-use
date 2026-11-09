@@ -36,6 +36,18 @@ pub async fn refresh_balance(
         return Ok(not_configured());
     };
 
+    let config = crate::shared_runtime::query_schemes::effective_query_config(
+        provider.query_config.as_ref(),
+        provider.wallet_balance_script.as_deref(),
+    );
+    if let Some(config) = config {
+        if !config.enabled {
+            // An explicit switch wins over the script sitting beside it:
+            // disabled stays disabled even though the text is still stored.
+            return Ok(disabled());
+        }
+    }
+
     let vars = vars_for(provider, fallback_api_keys);
     let usage = run(provider, script, &vars).await?;
     Ok(envelope(usage))
@@ -58,6 +70,51 @@ pub(super) async fn run(
     .await
 }
 
+/// Resolve a script into its request plan.
+///
+/// Pure probe: evaluates the request half in the sandbox and names what would
+/// actually be sent. Callers that must check a scope boundary read the plan
+/// before anything leaves the process.
+pub(super) fn resolve(
+    script: &str,
+    vars: &ScriptVars,
+    limits: &ScriptLimits,
+) -> Result<ResolvedRequests, String> {
+    query_script::resolve_requests(script, vars, limits)
+        .map_err(|error| error.message().to_string())
+}
+
+/// Send an already-resolved plan to the provider address.
+///
+/// The send seam `run_with` and the key-scope caller share: identical
+/// per-request credential and origin checks, aggregation and extraction for
+/// both scopes, with only the pre-send guard differing.
+pub(super) async fn execute<F, Fut>(
+    base_url: &str,
+    script: &str,
+    vars: &ScriptVars,
+    limits: &ScriptLimits,
+    resolved: ResolvedRequests,
+    send: F,
+) -> Result<AccountUsage, String>
+where
+    F: Fn(ScriptRequest) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
+    match resolved {
+        ResolvedRequests::Single(request) => {
+            ensure_query_credentials(&request)?;
+            query_script::is_permitted_target(&request.url, base_url)?;
+            let response = send(request).await?;
+            query_script::run_extractor(script, vars, &response, limits)
+                .map_err(|error| error.message().to_string())
+        }
+        ResolvedRequests::Many(named) => {
+            run_many(base_url, script, vars, limits, named, send).await
+        }
+    }
+}
+
 /// Run a script against a provider address, with the sender injectable.
 ///
 /// `send` is the seam that keeps the offline tests offline: it takes the
@@ -76,21 +133,8 @@ where
     F: Fn(ScriptRequest) -> Fut,
     Fut: std::future::Future<Output = Result<Value, String>>,
 {
-    let resolved = query_script::resolve_requests(script, vars, limits)
-        .map_err(|error| error.message().to_string())?;
-
-    match resolved {
-        ResolvedRequests::Single(request) => {
-            ensure_query_credentials(&request)?;
-            query_script::is_permitted_target(&request.url, base_url)?;
-            let response = send(request).await?;
-            query_script::run_extractor(script, vars, &response, limits)
-                .map_err(|error| error.message().to_string())
-        }
-        ResolvedRequests::Many(named) => {
-            run_many(base_url, script, vars, limits, named, send).await
-        }
-    }
+    let resolved = resolve(script, vars, limits)?;
+    execute(base_url, script, vars, limits, resolved, send).await
 }
 
 /// Send the named requests and read them in one extraction.
@@ -157,6 +201,54 @@ fn ensure_query_credentials(request: &ScriptRequest) -> Result<(), String> {
     Ok(())
 }
 
+/// The key-scope wording of the same check.
+///
+/// A key quota runs on that key's value only: `{{accessToken}}` /
+/// `{{userId}}` name account credentials the key scope must not borrow, so
+/// the message states the boundary instead of asking for an account token
+/// that would teach the wrong fix.
+pub(super) fn ensure_key_query_credentials(request: &ScriptRequest) -> Result<(), String> {
+    for (placeholder, message) in [
+        ("{{apiKey}}", "请先填写或保存当前 API 密钥"),
+        (
+            "{{accessToken}}",
+            "{{accessToken}} 是账户令牌；密钥额度只来自当前密钥，请改用 {{apiKey}}",
+        ),
+        (
+            "{{userId}}",
+            "{{userId}} 是账户用户 ID；密钥额度只来自当前密钥",
+        ),
+    ] {
+        if request.url.contains(placeholder)
+            || request
+                .headers
+                .values()
+                .any(|value| value.contains(placeholder))
+        {
+            return Err(message.to_string());
+        }
+    }
+    Ok(())
+}
+
+/// The "query is configured but switched off" envelope.
+///
+/// Distinct from `not_configured()`: here the scheme and the script are
+/// remembered exactly as the user left them, and the card says so.
+pub(super) fn disabled() -> Value {
+    serde_json::json!({
+        "balance": Value::Null,
+        "total": Value::Null,
+        "used": Value::Null,
+        "unlimited": false,
+        "currency": Value::Null,
+        "windows": Vec::<Value>::new(),
+        "isValid": true,
+        "invalidMessage": Value::Null,
+        "error": "额度查询已关闭",
+    })
+}
+
 /// Merge per-request outcomes into the responses object the extractor reads.
 ///
 /// Pure, so the many-request contract is provable offline: a required failure
@@ -185,7 +277,10 @@ fn aggregate_responses(
     Ok(responses)
 }
 
-async fn send(provider: &Provider, request: &ScriptRequest) -> Result<Value, String> {
+/// The HTTP seam: parser errors and non-2xx become the failure message the
+/// refresh or the draft test reports. Shared by both scopes; pub(crate) so
+/// the draft-test command can wire the same transport to draft values.
+pub(crate) async fn send(provider: &Provider, request: &ScriptRequest) -> Result<Value, String> {
     let mut outgoing = crate::services::http_client::outbound_client_for_provider(Some(provider))?
         .get(&request.url)
         .header("Content-Type", "application/json");
@@ -249,7 +344,7 @@ fn non_empty(value: Option<String>) -> Option<String> {
 }
 
 /// The credential a query borrows when it names none of its own.
-pub(super) fn pick_first_available_key(api_keys: &[ApiKey]) -> Option<String> {
+pub(crate) fn pick_first_available_key(api_keys: &[ApiKey]) -> Option<String> {
     api_keys
         .iter()
         .filter(|key| key.is_active && !key.is_exhausted && !key.value.trim().is_empty())
@@ -316,6 +411,7 @@ mod tests {
             request_adapter: "none".to_string(),
             wallet_balance_script: None,
             request_headers: None,
+            query_config: None,
         }
     }
 

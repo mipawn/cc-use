@@ -489,9 +489,15 @@ export default function Keys() {
       input.mode === 'edit'
         ? await updateApiKey(toUpdateApiKeyInput(input))
         : await createApiKey(toCreateApiKeyInput(input))
+    // A first query, a changed query (script, scheme or switch), or a changed
+    // credential each invalidate the saved answer — refresh so the card never
+    // shows a number from a configuration that no longer exists.
+    const configChanged =
+      previous?.usageScript !== saved.usageScript ||
+      JSON.stringify(previous?.queryConfig ?? null) !== JSON.stringify(saved.queryConfig ?? null)
     if (
       hasKeyQuery(saved) &&
-      (!previous?.cachedUsage || previous.usageScript !== saved.usageScript)
+      (!previous?.cachedUsage || configChanged || previous.value !== saved.value)
     ) {
       await handleRefreshKeyUsage(saved.id)
     }
@@ -867,17 +873,10 @@ export default function Keys() {
                           </div>
                         </div>
 
-                        {hasKeyQuery(key) &&
-                          Boolean(
-                            key.cachedUsage?.windows?.length || key.cachedUsage?.groups?.length,
-                          ) && (
-                            <div className={styles.keyQuota}>
-                              <ProviderUsageWindows
-                                windows={key.cachedUsage?.windows ?? []}
-                                groups={key.cachedUsage?.groups ?? []}
-                              />
-                            </div>
-                          )}
+                        {/* Key scope shows only this key's own quota: metering
+                            periods belong to the account question, and a key
+                            result never contains them (the backend strips
+                            them, so nothing arrives to render). */}
 
                         {/* Actions */}
                         <div className={styles.keyCardActions}>

@@ -285,6 +285,8 @@ export interface Provider {
    * Additive: a header the client already sent is never overwritten.
    */
   requestHeaders: string | null
+  /** Query switch + scheme. Null on pre-config rows (script shows the intent). */
+  queryConfig: QueryConfig | null
 }
 
 /**
@@ -303,6 +305,7 @@ export interface ProviderDefaultKeyConfig {
   usageHeaders?: string
   /** The quota query a new key for this provider starts with, if any. */
   usageScript?: string
+  queryConfig?: QueryConfig
 }
 
 /**
@@ -337,6 +340,59 @@ export interface ProviderPreset {
   defaultKeyConfig: ProviderDefaultKeyConfig
 }
 
+/**
+ * The persisted query switch + scheme choice for a provider (account scope)
+ * or a key (key scope). Absent on rows saved before the switch existed, where
+ * a non-empty script carried the implicit enabled state.
+ */
+export interface QueryConfig {
+  enabled: boolean
+  /** A catalogue scheme id, or `custom` for a hand-written script. */
+  schemeId: string
+}
+
+export type QueryScope = 'account' | 'key'
+
+/** One named scheme of the backend catalogue. Config, not behaviour. */
+export interface QuerySchemeInfo {
+  id: string
+  scope: QueryScope
+  /** i18n key for the user-facing name. */
+  labelKey: string
+  /** i18n key for one line naming the endpoint and the credential. */
+  descriptionKey: string
+  credentialRequirements: ('apiKey' | 'accessToken' | 'userId')[]
+  /** Whether the service reports metering periods. Account schemes only. */
+  supportsWindows: boolean
+  /** The whole script the scheme runs; stored verbatim when saved. */
+  script: string
+}
+
+/** The input of an explicit, unsaved-draft query test. Nothing is persisted. */
+export interface QueryTestInput {
+  scope: QueryScope
+  baseUrl: string
+  script: string
+  httpProxy?: string
+  /** The draft's own key value. For keys this is the only credential there is. */
+  apiKey?: string
+  /** Account-scope only: the service's account token. */
+  accessToken?: string
+  /** Account-scope only: the service's account user id. */
+  userId?: string
+  /** Account scope only: a saved provider whose borrow rule may apply. */
+  providerId?: string
+}
+
+/** What a draft test answered. Domain failures land in `error`; no raw response. */
+export interface QueryTestResult {
+  scope: QueryScope
+  usage: UsageData | null
+  isValid: boolean
+  invalidMessage: string | null
+  error: string | null
+}
+
 export interface CreateProviderInput {
   name: string
   baseUrl: string
@@ -356,6 +412,8 @@ export interface CreateProviderInput {
   usageHeaders?: string
   walletBalanceScript?: string
   requestHeaders?: string
+  /** Query switch + scheme; absent lets the stored script decide. */
+  queryConfig?: QueryConfig
   /** Origin template; absent means the provider was created by hand. */
   presetId?: string
   /** Defaults a new key for this provider inherits. */
@@ -388,6 +446,8 @@ export interface ApiKey {
   usageHeaders: string | null
   /** This key's own quota query. Empty or null means none is configured. */
   usageScript: string | null
+  /** Quota switch + scheme for this key. Null on pre-config rows. */
+  queryConfig: QueryConfig | null
   cachedUsage: UsageData | null
   lastUsageCheckedAt: string | null
   modelMapping: string | null
@@ -412,6 +472,7 @@ export interface CreateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   usageScript?: string
+  queryConfig?: QueryConfig
   modelMapping?: string
   clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
 }
@@ -430,6 +491,7 @@ export interface UpdateApiKeyInput {
   usagePath?: string
   usageHeaders?: string
   usageScript?: string
+  queryConfig?: QueryConfig
   modelMapping?: string
   clientConfigs?: Partial<Record<ClientKind, ClientConfig>>
 }
@@ -725,6 +787,7 @@ export interface ExportProvider {
   usageHeaders?: string
   walletBalanceScript?: string
   requestHeaders?: string
+  queryConfig?: QueryConfig
   apiKeys: ExportApiKey[]
 }
 
@@ -734,6 +797,8 @@ export interface ExportApiKey {
   value: string
   types?: ProviderType[]
   priority: number
+  usageScript?: string
+  queryConfig?: QueryConfig
 }
 
 /** v3.7.0: request outcome recorded on every logged request. */

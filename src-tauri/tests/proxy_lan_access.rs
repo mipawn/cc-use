@@ -108,6 +108,7 @@ fn remove_temp_db(path: &Path) {
 
 fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Provider {
     db.provider_create(&CreateProviderInput {
+        query_config: None,
         request_headers: None,
         wallet_balance_script: None,
         name: "lan-provider".to_string(),

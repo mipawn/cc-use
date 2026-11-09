@@ -16,6 +16,7 @@ use tokio::net::TcpListener;
 
 fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Provider {
     db.provider_create(&CreateProviderInput {
+        query_config: None,
         request_headers: None,
         wallet_balance_script: None,
         name: "console-provider".to_string(),
@@ -43,6 +44,7 @@ fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Prov
 
 fn create_key(db: &Database, provider_id: &str) -> cc_use_lib::models::ApiKey {
     db.api_key_create(&CreateApiKeyInput {
+        query_config: None,
         usage_script: None,
         provider_id: provider_id.to_string(),
         alias: Some("console-key".to_string()),

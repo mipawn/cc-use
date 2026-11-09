@@ -109,6 +109,47 @@ changes, so the UI keeps the stored value and lets status polling reflect the re
 
 When a backend command changes shape, update `src/renderer/api/types.ts`, `buildApi`, the shared types in `src/shared/types/index.ts`, the Rust model/serializer, and the contract test in the same change. That is the cross-layer contract the backend spec must mirror.
 
+## Scenario: Query scheme catalogue, the draft test and the persisted switch (v3.18)
+
+### 1. Scope / Trigger
+
+The amount-query UX: every renderer change to a query's scheme, switch,
+script or test must keep the four coordinated edits plus the Rust contract
+(`query_schemes.rs`, `services/query_test.rs`, `commands/balance.rs`) in one
+change.
+
+### 2. Signatures
+
+- `balance.schemes(scope?)` → `query_schemes({scope})`; the scope argument is
+  omitted when unset (both scopes).
+- `balance.testDraft(input: QueryTestInput)` → `query_test({input})`.
+- `balance.checkScript(script, baseUrl)` → a single request report or a
+  `requests` map (the multi-request form reports one entry per name with its
+  `optional` flag).
+- `Provider.queryConfig` / `ApiKey.queryConfig` (`QueryConfig | null`) ride
+  the standard provider/key create/update inputs; omitted on update keeps the
+  stored switch.
+
+### 3. Contracts
+
+The section component owns the switch, scheme list, custom entry and test;
+the modals own the credentials and the address. A key-scope test input never
+carries `accessToken`/`userId`/`providerId`; an account test may borrow via
+`providerId` only when the draft names no key. Any value-identity change
+(state object identity, or the memoised `onDraftTest` identity rebuilding the
+input) bumps a revision; a late `testDraft` response whose revision is stale
+is dropped, and a displayed result is cleared (`QuerySettingsSection` A6
+guard). A draft test result is never persisted by the renderer: no cache key,
+no store write, no last-checked timestamp.
+
+### 4. Wrong vs Correct
+
+Wrong: derive scheme capabilities from `presetId` labels or from looking for
+`{{apiKey}}` in the script. Correct: read `QuerySchemeInfo`
+(credentialRequirements / supportsWindows / script) from the catalogue;
+recognition against stored text is whole-text equality, display-only, and an
+unrecognised script keeps its text and reads as the custom tier.
+
 
 ## Scenario: Saved provider catalogs, gateway restrictions and uploaded icon deletion (R9)
 

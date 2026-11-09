@@ -238,6 +238,7 @@ pub async fn provider_model_catalog_preview(
         model_mapping: None,
         client_configs,
         usage_script: None,
+        query_config: None,
     };
     let snapshot = crate::services::model_catalog::preview_catalog(
         db.inner(),
@@ -282,6 +283,7 @@ mod tests {
             last_usage_checked_at: None,
             model_mapping: None,
             client_configs: None,
+            query_config: None,
         }
     }
 

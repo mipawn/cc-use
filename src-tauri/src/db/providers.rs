@@ -58,6 +58,9 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         request_headers: row
             .get::<_, Option<String>>(28)?
             .filter(|value| !value.trim().is_empty()),
+        query_config: crate::shared_runtime::query_schemes::parse_query_config(
+            row.get::<_, Option<String>>(29)?.as_deref(),
+        ),
     })
 }
 
@@ -69,7 +72,7 @@ const PROVIDER_COLUMNS: &str = "id, name, base_url, http_proxy, website, remark,
         usage_type, usage_url, usage_path, usage_headers,
         cached_usage, last_usage_checked_at,
         is_active, sort_order, preset_id, default_key_config, cached_wallet_balance_currency,
-        request_adapter, wallet_balance_script, request_headers";
+        request_adapter, wallet_balance_script, request_headers, query_config";
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
@@ -136,8 +139,8 @@ impl Database {
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
                 sort_order, preset_id, default_key_config, request_adapter, wallet_balance_script,
-                request_headers)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21, ?22, ?23)",
+                request_headers, query_config)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             rusqlite::params![
                 id,
                 input.name,
@@ -176,6 +179,15 @@ impl Database {
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty()),
+                // Absent input falls back to the pre-config rule so a script
+                // written by an older save still reads as on; storing the
+                // derived config here makes that state explicit from day one.
+                crate::shared_runtime::query_schemes::effective_query_config(
+                    input.query_config.as_ref(),
+                    input.wallet_balance_script.as_deref(),
+                )
+                .as_ref()
+                .and_then(crate::shared_runtime::query_schemes::serialize_query_config),
             ],
         )?;
 
@@ -311,6 +323,15 @@ impl Database {
             ));
         }
 
+        // `Some(config)` replaces the whole query config (switch + scheme);
+        // absent leaves the stored one untouched.
+        if let Some(ref config) = input.query_config {
+            sets.push("query_config = ?".to_string());
+            params.push(Box::new(
+                crate::shared_runtime::query_schemes::serialize_query_config(config),
+            ));
+        }
+
         if sets.is_empty() {
             return self
                 .provider_get(&input.id)?
@@ -322,10 +343,65 @@ impl Database {
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params.iter().map(|p| p.as_ref()).collect();
-        self.conn.execute(&sql, param_refs.as_slice())?;
 
-        self.provider_get(&input.id)?
-            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+        // Everything happens in one transaction so a crash cannot leave a
+        // half-invalidated state behind: either the change lands with its
+        // caches cleared, or neither happens. Cached values are set to NULL
+        // explicitly — an Option-typed partial update would silently keep a
+        // stale number and dress it up as current.
+        let transaction = self.conn.unchecked_transaction()?;
+        let previous = transaction
+            .prepare_cached(&format!(
+                "SELECT {PROVIDER_COLUMNS} FROM providers WHERE id = ?1"
+            ))?
+            .query_row([input.id.as_str()], row_to_provider)
+            .ok();
+        transaction.execute(&sql, param_refs.as_slice())?;
+
+        let updated = transaction
+            .prepare_cached(&format!(
+                "SELECT {PROVIDER_COLUMNS} FROM providers WHERE id = ?1"
+            ))?
+            .query_row([input.id.as_str()], row_to_provider)?;
+
+        if let Some(previous) = previous {
+            // The account query depends on the address, the outbound proxy,
+            // the credentials it borrows (`token` / `walletBalanceUserId`),
+            // the script and the switch. Any of those changing means no saved
+            // result may keep claiming to be current.
+            let account_invalidating = previous.base_url != updated.base_url
+                || previous.http_proxy != updated.http_proxy
+                || previous.token != updated.token
+                || previous.wallet_balance_user_id != updated.wallet_balance_user_id
+                || previous.wallet_balance_script != updated.wallet_balance_script
+                || previous.query_config != updated.query_config;
+            // Keys run their own quota query against the provider's address
+            // and outbound proxy, so both invalidate theirs. A token or user
+            // id change does not: the key scope borrows neither.
+            let keys_invalidating =
+                previous.base_url != updated.base_url || previous.http_proxy != updated.http_proxy;
+
+            if account_invalidating {
+                transaction.execute(
+                    "UPDATE providers SET cached_wallet_balance = NULL,
+                        cached_wallet_balance_currency = NULL, cached_usage = NULL,
+                        last_balance_checked_at = NULL, last_usage_checked_at = NULL
+                     WHERE id = ?1",
+                    [input.id.as_str()],
+                )?;
+            }
+            if keys_invalidating {
+                transaction.execute(
+                    "UPDATE api_keys SET cached_usage = NULL, last_usage_checked_at = NULL
+                     WHERE provider_id = ?1",
+                    [input.id.as_str()],
+                )?;
+            }
+        }
+
+        transaction.commit()?;
+
+        Ok(updated)
     }
 
     pub fn provider_reorder(

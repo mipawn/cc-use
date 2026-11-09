@@ -7,6 +7,7 @@ pub mod model_mapping;
 pub mod network;
 pub mod project_session;
 pub mod provider_presets;
+pub mod query_schemes;
 pub mod request_headers;
 pub mod route_plan;
 pub mod session_token;
@@ -34,6 +35,14 @@ pub use provider_presets::{
     normalize_request_adapter, parse_default_key_config, provider_preset, provider_presets,
     serialize_default_key_config, DefaultKeyConfig, ProviderPreset, ADAPTER_NONE, PRESET_CUSTOM,
     PRESET_DEEPSEEK, PRESET_NEWAPI, PRESET_OPENCODE_GO,
+};
+pub use query_schemes::{
+    account_schemes, account_target_urls, effective_query_config, key_schemes, legacy_query_config,
+    parse_query_config, recognise_account_scheme, recognise_key_scheme, scheme_for,
+    scheme_infos_for_scope, scheme_script, serialize_query_config, CredentialRequirement,
+    QueryConfig, QueryScheme, QuerySchemeInfo, KEY_QUERY_ACCOUNT_TARGET_MESSAGE,
+    SCHEME_COMMAND_CODE_ACCOUNT, SCHEME_CUSTOM, SCHEME_DEEPSEEK_ACCOUNT, SCHEME_NEWAPI_ACCOUNT,
+    SCHEME_NEWAPI_KEY, SCHEME_OPENCODE_GO_ACCOUNT, SCOPE_ACCOUNT, SCOPE_KEY,
 };
 pub use route_plan::{classify_request_auth, decide_route_plan, RequestAuth, RoutePlan};
 pub use session_token::{

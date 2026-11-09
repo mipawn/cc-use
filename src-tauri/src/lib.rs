@@ -99,6 +99,8 @@ pub fn run() {
             // Balance commands
             commands::balance::balance_refresh,
             commands::balance::provider_script_check,
+            commands::balance::query_schemes,
+            commands::balance::query_test,
             commands::balance::key_usage_refresh,
             // Import/Export commands
             commands::import_export::export_providers,

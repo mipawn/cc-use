@@ -41,6 +41,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                         None
                     },
                     usage_script: k.usage_script,
+                    query_config: k.query_config,
                 })
                 .collect();
 
@@ -80,6 +81,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 preset_id: Some(provider.preset_id),
                 default_key_config: provider.default_key_config,
                 request_adapter: Some(provider.request_adapter),
+                query_config: provider.query_config,
                 api_keys: export_keys,
             });
         }
@@ -212,6 +214,7 @@ pub fn import_all(
                         usage_path: ek.usage_path.clone(),
                         usage_headers: ek.usage_headers.clone(),
                         usage_script: ek.usage_script.clone(),
+                        query_config: ek.query_config.clone(),
                         model_mapping: ek.model_mapping.clone(),
                     },
                 ) {
@@ -244,6 +247,7 @@ pub fn import_all(
                 request_adapter: ep.request_adapter.clone(),
                 wallet_balance_script: ep.wallet_balance_script.clone(),
                 request_headers: ep.request_headers.clone(),
+                query_config: ep.query_config.clone(),
             }) {
                 Ok(provider) => {
                     for ek in &ep.api_keys {
@@ -264,6 +268,7 @@ pub fn import_all(
                             usage_path: ek.usage_path.clone(),
                             usage_headers: ek.usage_headers.clone(),
                             usage_script: ek.usage_script.clone(),
+                            query_config: ek.query_config.clone(),
                             model_mapping: ek.model_mapping.clone(),
                         }) {
                             errors.push(format!("Failed to import key for {}: {}", ep.name, e));

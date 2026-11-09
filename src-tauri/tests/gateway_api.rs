@@ -35,6 +35,7 @@ fn remove_temp_db(path: &PathBuf) {
 
 fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Provider {
     db.provider_create(&CreateProviderInput {
+        query_config: None,
         request_headers: None,
         wallet_balance_script: None,
         name: "gateway-provider".to_string(),
@@ -62,6 +63,7 @@ fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Prov
 
 fn create_gateway_key(db: &Database, provider_id: &str, value: &str) -> cc_use_lib::models::ApiKey {
     db.api_key_create(&CreateApiKeyInput {
+        query_config: None,
         usage_script: None,
         provider_id: provider_id.to_string(),
         alias: Some("gateway-key".to_string()),
@@ -1524,6 +1526,7 @@ async fn gateway_requests_are_attributed_once_in_request_logs() {
     let broken_proxy_port = closed_local_port();
     let broken_provider = db
         .provider_create(&CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "broken-provider".to_string(),

@@ -19,6 +19,10 @@ import type {
   ProviderPreset,
   UsageData,
   UsageWindow,
+  QuerySchemeInfo,
+  QueryScope,
+  QueryTestInput,
+  QueryTestResult,
   ExportData,
   ExportOptions,
   ImportOptions,
@@ -209,11 +213,31 @@ export interface Api {
       error: string | null
     }>
     /// Evaluate a query script without sending anything, so a typo is caught
-    /// by the editor rather than by the next refresh.
+    /// by the editor rather than by the next refresh. A single-request
+    /// script reports one request; a named-request script reports one entry
+    /// per name, with its `optional` flag.
     checkScript: (
       script: string,
       baseUrl: string,
-    ) => Promise<{ url: string; method: string; headers: Record<string, string> }>
+    ) => Promise<
+      | { url: string; method: string; headers: Record<string, string> }
+      | {
+          requests: Record<
+            string,
+            {
+              url: string
+              method: string
+              headers: Record<string, string>
+              optional: boolean
+            }
+          >
+        }
+    >
+    /// The named query schemes one or both scopes can pick from.
+    schemes: (scope?: QueryScope) => Promise<QuerySchemeInfo[]>
+    /// Run an unsaved draft's query exactly the way a refresh would: nothing
+    /// is persisted, no cache is written, no credential is echoed back.
+    testDraft: (input: QueryTestInput) => Promise<QueryTestResult>
   }
   keyUsage: {
     refresh: (keyId: string) => Promise<{

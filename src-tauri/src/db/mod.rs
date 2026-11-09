@@ -11,6 +11,7 @@ macro_rules! add_field {
 }
 
 pub mod api_keys;
+mod command_code_script_upgrade;
 pub mod gateway_metrics;
 mod go_preset_cleanup;
 mod keychain_migration;
@@ -177,6 +178,10 @@ impl Database {
                 -- v3.11.0: the account query — request and reader in one
                 -- editable script. Empty means no account query configured.
                 wallet_balance_script TEXT,
+                -- v3.18.0: the account query switch and catalogue scheme, as
+                -- a serialised QueryConfig. NULL means a row saved before a
+                -- per-scheme switch existed (script presence was the intent).
+                query_config TEXT,
                 -- v3.12.0: extra headers this provider's traffic carries.
                 request_headers TEXT,
                 -- v3.10.0: request-shaping adapter. Saved config, not a label
@@ -212,6 +217,8 @@ impl Database {
                 last_usage_checked_at TEXT,
                 -- v3.11.0: this key's own quota query.
                 usage_script TEXT,
+                -- v3.18.0: the quota query switch and catalogue scheme.
+                query_config TEXT,
                 client_configs TEXT
             );
 
@@ -364,6 +371,9 @@ impl Database {
         self.migrate_gateway_connection_config()?;
         self.clear_shipped_go_model_defaults()?;
         self.clear_retired_model_overrides()?;
+        // The shipped Command Code template read windowLimits from the wrong
+        // nesting; rescue untouched copies of it once.
+        self.upgrade_command_code_scripts()?;
         self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
 
         Ok(())
@@ -638,6 +648,9 @@ impl Database {
             // v3.11.0: the account and quota queries as editable scripts.
             "ALTER TABLE providers ADD COLUMN wallet_balance_script TEXT",
             "ALTER TABLE api_keys ADD COLUMN usage_script TEXT",
+            // v3.18.0: the query switches and catalogue schemes.
+            "ALTER TABLE providers ADD COLUMN query_config TEXT",
+            "ALTER TABLE api_keys ADD COLUMN query_config TEXT",
             "ALTER TABLE providers ADD COLUMN request_headers TEXT",
             "ALTER TABLE api_keys ADD COLUMN secret_ref TEXT",
             "ALTER TABLE projects ADD COLUMN api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL",
@@ -1152,6 +1165,7 @@ mod tests {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                query_config: None,
             })
             .unwrap();
         assert_eq!(provider.preset_id, "custom");

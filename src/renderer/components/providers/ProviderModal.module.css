@@ -246,6 +246,11 @@
   margin-bottom: 20px;
 }
 
+/* The account-query credential fields sit beside the scheme choice. */
+.queryCredential {
+  margin-top: 8px;
+}
+
 .queryHeader {
   display: flex;
   align-items: center;

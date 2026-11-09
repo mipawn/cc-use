@@ -174,6 +174,7 @@ fn setup_session_with_type(
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: format!("{}-provider", provider_type),
@@ -419,6 +420,7 @@ async fn provider_type_none_defaults_to_x_api_key() {
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "no-type-provider".to_string(),
@@ -483,6 +485,7 @@ async fn codex_app_responses_request_uses_session_and_passes_responses_through()
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "openai-provider".to_string(),
@@ -569,6 +572,7 @@ async fn codex_responses_request_with_legacy_session_type_passes_responses_throu
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "DeepSeek".to_string(),
@@ -650,6 +654,7 @@ async fn codex_responses_request_with_non_session_auth_uses_takeover_session() {
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "DeepSeek".to_string(),
@@ -742,6 +747,7 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "DeepSeek".to_string(),
@@ -768,6 +774,7 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
 
     let api_key = db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("deepseek-key".to_string()),
@@ -844,6 +851,7 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
 
     let provider = db
         .provider_create(&cc_use_lib::models::CreateProviderInput {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             name: "DeepSeek".to_string(),
@@ -870,6 +878,7 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
 
     let api_key = db
         .api_key_create(&CreateApiKeyInput {
+            query_config: None,
             usage_script: None,
             provider_id: provider.id.clone(),
             alias: Some("deepseek-off-key".to_string()),

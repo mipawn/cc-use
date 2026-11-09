@@ -1,9 +1,25 @@
-import type { ApiKey, Provider, UsageWindow } from '@shared/types'
+import type { ApiKey, Provider, QueryConfig, UsageWindow } from '@shared/types'
 
-export const hasProviderQuery = (provider: Pick<Provider, 'walletBalanceScript'>) =>
-  Boolean(provider.walletBalanceScript?.trim())
+/**
+ * The effective query switch: the stored config wins when present; rows saved
+ * before a per-scheme switch existed read a non-empty script as the (on)
+ * intent — the same rule the Rust runtime applies.
+ */
+export function effectiveQuery(
+  config: QueryConfig | null | undefined,
+  script: string | null | undefined,
+): QueryConfig | null {
+  if (config) return config
+  return script?.trim() ? { enabled: true, schemeId: 'custom' } : null
+}
 
-export const hasKeyQuery = (key: Pick<ApiKey, 'usageScript'>) => Boolean(key.usageScript?.trim())
+/** Whether the provider's account query actually runs. */
+export const hasProviderQuery = (provider: Pick<Provider, 'walletBalanceScript'> & Partial<Pick<Provider, 'queryConfig'>>) =>
+  effectiveQuery(provider.queryConfig, provider.walletBalanceScript)?.enabled === true
+
+/** Whether this key's own quota query actually runs. */
+export const hasKeyQuery = (key: Pick<ApiKey, 'usageScript'> & Partial<Pick<ApiKey, 'queryConfig'>>) =>
+  effectiveQuery(key.queryConfig, key.usageScript)?.enabled === true
 
 export function providerQueryMissingCredential(provider: Provider, keys: ApiKey[]): string | null {
   const script = provider.walletBalanceScript ?? ''

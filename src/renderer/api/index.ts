@@ -118,6 +118,10 @@ function buildApi(): Api {
       refresh: (providerId) => invoke('balance_refresh', { providerId }),
       // Checks a query script without sending anything.
       checkScript: (script, baseUrl) => invoke('provider_script_check', { script, baseUrl }),
+      // The named schemes one or both scopes can pick from.
+      schemes: (scope) => invoke('query_schemes', { ...(scope ? { scope } : {}) }),
+      // Runs an unsaved draft once; nothing is persisted or cached.
+      testDraft: (input) => invoke('query_test', { input }),
     },
     keyUsage: {
       refresh: (keyId) => invoke('key_usage_refresh', { keyId }),

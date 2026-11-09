@@ -548,6 +548,7 @@ mod tests {
 
     fn test_provider() -> Provider {
         Provider {
+            query_config: None,
             request_headers: None,
             wallet_balance_script: None,
             id: "provider-1".to_string(),
@@ -582,6 +583,7 @@ mod tests {
 
     fn test_key(client_kind: &str, client_configs: Option<serde_json::Value>) -> ApiKey {
         ApiKey {
+            query_config: None,
             usage_script: None,
             id: "key-1".to_string(),
             provider_id: "provider-1".to_string(),

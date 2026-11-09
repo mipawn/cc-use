@@ -801,6 +801,7 @@ mod tests {
 
     fn key_with_mapping(mapping: &str) -> ApiKey {
         ApiKey {
+            query_config: None,
             id: "key-1".to_string(),
             provider_id: "provider-1".to_string(),
             alias: None,
@@ -976,6 +977,7 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let provider = db
             .provider_create(&CreateProviderInput {
+                query_config: None,
                 request_headers: None,
                 wallet_balance_script: None,
                 name: "No Probe Provider".to_string(),
@@ -1001,6 +1003,7 @@ mod tests {
             .unwrap();
         let api_key = db
             .api_key_create(&CreateApiKeyInput {
+                query_config: None,
                 usage_script: None,
                 provider_id: provider.id.clone(),
                 alias: Some("Claude Desktop".to_string()),

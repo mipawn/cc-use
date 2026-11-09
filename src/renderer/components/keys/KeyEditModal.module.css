@@ -135,6 +135,12 @@
   border-radius: 10px;
 }
 
+/* A key whose saved script asks the account question is stopped and
+   explained, not silently run. */
+.legacyQueryAlert {
+  margin-bottom: 12px;
+}
+
 @media (max-width: 760px) {
   .form {
     grid-template-columns: 1fr;

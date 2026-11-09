@@ -274,6 +274,7 @@ async fn recorded_request_row_shares_the_console_request_id() {
         // failure without reaching any real upstream.
         let provider = db
             .provider_create(&CreateProviderInput {
+                query_config: None,
                 request_headers: None,
                 wallet_balance_script: None,
                 name: "id-link".to_string(),

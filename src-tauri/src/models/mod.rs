@@ -55,6 +55,11 @@ pub struct Provider {
     /// JSON object. Additive: a header the client sent is never overwritten.
     #[serde(default)]
     pub request_headers: Option<String>,
+    /// v3.18.0: the account query switch and the catalogue scheme it runs.
+    /// Absent on rows saved before a per-scheme switch existed, where a
+    /// non-empty script was the intent.
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +83,10 @@ pub struct CreateProviderInput {
     pub usage_headers: Option<String>,
     pub wallet_balance_script: Option<String>,
     pub request_headers: Option<String>,
+    /// Query switch + scheme. Absent lets the stored script decide (pre-config
+    /// rows keep their implicit enabled state).
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
     /// Origin template. Absent means the provider was created by hand.
     #[serde(default)]
     pub preset_id: Option<String>,
@@ -111,6 +120,10 @@ pub struct UpdateProviderInput {
     pub usage_headers: Option<String>,
     pub wallet_balance_script: Option<String>,
     pub request_headers: Option<String>,
+    /// `Some` replaces the whole query config (enabling or disabling, with a
+    /// scheme); absent leaves the stored one untouched.
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
     pub is_active: Option<bool>,
     pub cached_wallet_balance: Option<f64>,
     pub cached_wallet_balance_currency: Option<String>,
@@ -154,6 +167,9 @@ pub struct ApiKey {
     /// v3.11.0: this key's own quota query.
     #[serde(default)]
     pub usage_script: Option<String>,
+    /// v3.18.0: this key's quota query switch and scheme.
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +187,9 @@ pub struct CreateApiKeyInput {
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
     pub usage_script: Option<String>,
+    /// Quota switch + scheme; absent keeps the stored value.
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
     pub model_mapping: Option<String>,
     pub client_configs: Option<serde_json::Value>,
 }
@@ -191,6 +210,8 @@ pub struct UpdateApiKeyInput {
     pub usage_path: Option<String>,
     pub usage_headers: Option<String>,
     pub usage_script: Option<String>,
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
     pub cached_usage: Option<UsageData>,
     pub last_usage_checked_at: Option<String>,
     pub model_mapping: Option<String>,
@@ -904,6 +925,10 @@ pub struct ExportProvider {
     /// v3.10.0: request-shaping adapter for this provider.
     #[serde(default)]
     pub request_adapter: Option<String>,
+    /// v3.18.0: the account query switch + scheme, so a round-trip reopens
+    /// with the same state (including disabled-but-remembered).
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
     /// Absent in the oldest exports, which listed providers without keys.
     #[serde(default)]
     pub api_keys: Vec<ExportApiKey>,
@@ -941,6 +966,47 @@ pub struct ExportApiKey {
     /// v3.11.0: this key's own quota query.
     #[serde(default)]
     pub usage_script: Option<String>,
+    /// v3.18.0: this key's quota query switch + scheme.
+    #[serde(default)]
+    pub query_config: Option<crate::shared_runtime::QueryConfig>,
+}
+
+// ── Query draft test ──
+
+/// The input of an explicit, unsaved-draft query test.
+///
+/// Nothing here is persisted: the test sends no entity, writes no cache and
+/// stamps no check time. `apiKey` (and the account-only `accessToken` /
+/// `userId`) are the draft's own values; the account scope may borrow the
+/// provider's lowest-priority enabled key as a fallback when the draft names
+/// none, which is exactly what a saved refresh would do.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryTestInput {
+    /// `account` or `key`. A key test never reads provider credentials.
+    pub scope: String,
+    /// The service address the draft would run against.
+    pub base_url: String,
+    pub script: String,
+    pub http_proxy: Option<String>,
+    pub api_key: Option<String>,
+    pub access_token: Option<String>,
+    pub user_id: Option<String>,
+    /// Account scope only: an optional saved provider whose parameters may
+    /// supply a value the draft does not carry. Never used by the key scope.
+    pub provider_id: Option<String>,
+}
+
+/// What a draft test answered. Normalised quota fields only — never the raw
+/// response, the request headers, or any URL carrying a credential.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryTestResult {
+    pub scope: String,
+    pub usage: Option<UsageData>,
+    pub is_valid: bool,
+    pub invalid_message: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

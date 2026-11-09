@@ -565,6 +565,7 @@ export default {
       'opencode-go': 'OpenCode Go',
     },
     accountQuery: 'Account balance and usage',
+    accountQuerySection: 'Account balance and usage',
     accountRules: {
       none: 'Do not query',
       newapi: 'NewAPI',
@@ -629,6 +630,44 @@ export default {
     usage: 'Usage',
     importedCount: 'Imported {{count}} providers',
     additionalInfo: 'Additional Info',
+  },
+  // The shared query scheme catalogue (Rust query_schemes ships labelKey /
+  // descriptionKey; zh and en copy both live here).
+  querySchemes: {
+    deepseekAccount: 'DeepSeek account balance',
+    deepseekAccountDescription: 'Queries api.deepseek.com/user/balance with any available API key',
+    newApiAccount: 'New API account quota',
+    newApiAccountDescription:
+      'Queries {{baseUrl}}/api/user/self with the account access token and user ID',
+    openCodeGo: 'OpenCode Go usage',
+    openCodeGoAccountDescription: 'Queries {{baseUrl}}/v1/usage with any available API key',
+    commandCodeAccount: 'Command Code account usage',
+    commandCodeAccountDescription:
+      'Combines the credits, subscriptions and summary endpoints with any available API key',
+    newApiKey: 'New API key quota',
+    newApiKeyDescription:
+      'Queries {{baseUrl}}/api/usage/token/ with this key only — it answers for itself',
+    enabledLabel: 'Enable quota query',
+    schemePlaceholder: 'Choose a query scheme',
+    schemeSelectLabel: 'Query scheme',
+    customize: 'Custom script',
+    customScriptLabel: 'Custom script',
+    customHint:
+      'A custom script mirrors the account query: {{baseUrl}} service address, {{apiKey}} this key; it returns remaining / total / used / unit / isUnlimited / expireAt',
+    basedOnScheme: 'Customise from this scheme',
+    test: 'Test query',
+    testing: 'Testing…',
+    testFailed: 'Test failed',
+    testSuccess: 'Test succeeded',
+    testNeedScript: 'Pick a scheme or write a custom script first',
+    capabilityWindows: 'Metering periods',
+    capabilityAmount: 'Balance amount',
+    credentialApiKey: 'API key',
+    credentialAccessToken: 'Access token',
+    credentialUserId: 'User ID',
+    resultRemaining: 'Remaining',
+    resultUnlimited: 'Unlimited quota',
+    resultExpireAt: 'Expires',
   },
   projects: {
     title: 'Projects',
@@ -795,6 +834,9 @@ export default {
     refreshQuotaFailed: 'Failed to refresh quota',
     queryScriptRequired: 'Enter a quota query script or turn off quota queries',
     usageConfig: 'Quota Query Config',
+    quotaSection: 'Key Quota',
+    legacyAccountScriptHint:
+      'This script probably reads the account quota while a key answers for itself only; switch to a built-in scheme.',
     usageScriptPlaceholder: '({ request: {...}, extractor: (response) => ({ remaining: ... }) })',
     usageEnabled: "Query this key's quota",
     usageScriptHint:
