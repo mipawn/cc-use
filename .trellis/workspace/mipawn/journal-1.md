@@ -226,3 +226,27 @@ GPT 在规划态留下的三个任务，Lead 完成终版调研/设计并分派�
 ### Status
 
 [OK] 实现完成，待用户以真实 Command Code 账户做首次刷新验收（可选接口/月窗/余额是否如契约返回）
+
+
+## Session 8: 统一供应商与密钥额度查询交互（实施完成）
+<!-- trellis-session: v=2 fp=74e4a00faf25f828 -->
+
+**Date**: 2026-11-10
+**Task**: 统一供应商与密钥额度查询交互（实施完成）
+**Package**: cc-use
+**Branch**: `main`
+
+### Summary
+
+Rust teammates 之外 Lead 独立完成后端（query_schemes 方案目录/QueryConfig 持久化/query_test 草稿测试/key-scope 边界与凭据隔离/缓存一致性与迟到写回 guard），fresh subagent 完成前端（QuerySettingsSection 共享查询区、ProviderModal 账户查询区、KeyEditModal 密钥额度区、locale 双语与组件/contract 测试）；D1-D5 用户决策全部落地（密钥仅自身额度、关闭保留配置、选方案即启用、旧脚本不静默升级、Command Code 修复保留并入库）。质量门禁：cargo workspace 693/0、fmt、clippy 相对基线无新增；tsc 0、eslint 0、vitest 43 files/375 通过、build:frontend 通过。手工 WebView/真实供应商验收留给用户。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c835263` | fix(provider): 🐛 Command Code 窗口极限读取位置迁移与常驻升级 |
+| `b9938d7` | feat(query): ✨ 统一供应商与密钥额度查询交互 |
+
+### Status
+
+[OK] **Completed**
