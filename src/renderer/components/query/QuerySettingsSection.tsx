@@ -58,8 +58,6 @@ interface QuerySettingsSectionProps {
    */
   onDraftTest: (input: QuerySectionTestInput) => Promise<QueryTestResult>
   className?: string
-  /** Account scope: one line explaining where the account credential lives. */
-  accountCredentialHint?: string | null
 }
 
 export default function QuerySettingsSection({
@@ -69,7 +67,6 @@ export default function QuerySettingsSection({
   testVisible,
   onDraftTest,
   className,
-  accountCredentialHint,
 }: QuerySettingsSectionProps) {
   const { t } = useTranslation()
   const [schemes, setSchemes] = useState<QuerySchemeInfo[]>([])
@@ -140,12 +137,6 @@ export default function QuerySettingsSection({
     ...schemes.map((scheme) => ({ value: scheme.id, label: t(scheme.labelKey) })),
     { value: CUSTOM_SCHEME_ID, label: t('querySchemes.customize') },
   ]
-
-  const descriptionLine = selectedScheme
-    ? t(selectedScheme.descriptionKey)
-    : value.schemeId === CUSTOM_SCHEME_ID || storedScriptIsUnrecognised
-      ? t('querySchemes.customHint')
-      : ''
 
   const credentialLabels = (selectedScheme?.credentialRequirements ?? []).map((credential) =>
     t(`querySchemes.credential${credential.charAt(0).toUpperCase()}${credential.slice(1)}`),
@@ -235,12 +226,6 @@ export default function QuerySettingsSection({
 
   return (
     <div className={`${styles.section} ${className ?? ''}`}>
-      {scope === 'account' && accountCredentialHint && (
-        <Text type='secondary' className={styles.hint}>
-          {accountCredentialHint}
-        </Text>
-      )}
-
       <div className={styles.switchRow}>
         <Switch
           checked={value.enabled}
@@ -258,9 +243,6 @@ export default function QuerySettingsSection({
         className={styles.schemeSelect}
         aria-label={t('querySchemes.schemeSelectLabel')}
       />
-      <Text type='secondary' className={styles.description}>
-        {descriptionLine}
-      </Text>
 
       {selectedScheme && (
         <div className={styles.capabilities}>

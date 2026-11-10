@@ -607,23 +607,15 @@ export default {
   // 共享的查询方案目录（Rust query_schemes 返回 labelKey/descriptionKey）。
   querySchemes: {
     deepseekAccount: 'DeepSeek 账户余额',
-    deepseekAccountDescription: '查询 api.deepseek.com/user/balance；用一把可用的 API 密钥',
     newApiAccount: 'New API 账户额度',
-    newApiAccountDescription: '查询服务地址 /api/user/self；用账户访问令牌加用户 ID',
     openCodeGo: 'OpenCode Go 用量',
-    openCodeGoAccountDescription: '查询服务地址 /v1/usage；用一把可用的 API 密钥',
     commandCodeAccount: 'Command Code 账户用量',
-    commandCodeAccountDescription:
-      '组合 credits / subscriptions / summary 三个接口；用一把可用的 API 密钥',
     newApiKey: 'New API 密钥额度',
-    newApiKeyDescription: '查询服务地址 /api/usage/token/；只统计当前这把密钥',
     enabledLabel: '启用额度查询',
     schemePlaceholder: '选择查询方案',
     schemeSelectLabel: '查询方案',
     customize: '自定义脚本',
     customScriptLabel: '自定义脚本',
-    customHint:
-      '自定义脚本与账户查询同构：{{baseUrl}} 服务地址，{{apiKey}} 这把密钥；返回 remaining / total / used / unit / isUnlimited / expireAt',
     basedOnScheme: '基于此方案自定义',
     test: '测试查询',
     testing: '查询中…',

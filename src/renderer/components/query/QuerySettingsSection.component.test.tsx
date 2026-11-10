@@ -92,7 +92,6 @@ let mounted: { root: Root; container: HTMLElement } | null = null
 interface HarnessOptions {
   scope?: QueryScope
   onDraftTest?: (input: QuerySectionTestInput) => Promise<QueryTestResult>
-  accountCredentialHint?: string | null
 }
 
 /** A fixture `QueryTestResult` builder keeps the mock closures typed. */
@@ -154,7 +153,6 @@ async function renderSection(
           onChange={record}
           testVisible
           onDraftTest={onDraftTest}
-          accountCredentialHint={options.accountCredentialHint}
         />
       </div>
     )
@@ -372,18 +370,17 @@ it('does not render metering periods or capability tags in the key scope', async
   expect(document.body.querySelector('[class*="windows"]')).toBeNull()
 })
 
-it('shows the account credential hint only in the account scope', async () => {
+it('renders no scheme description line: the scheme choice is self-named', async () => {
   await renderSection(
-    { enabled: false, schemeId: '', script: '' },
-    { scope: 'account', accountCredentialHint: 'providers.accountCredentialHint' },
+    { enabled: true, schemeId: 'deepseek-account', script: '({})' },
+    { scope: 'account' },
   )
-  expect(document.body.textContent).toContain('providers.accountCredentialHint')
-
+  expect(document.body.textContent).not.toContain('querySchemes.deepseekAccountDescription')
   await renderSection(
-    { enabled: false, schemeId: '', script: '' },
-    { scope: 'key', accountCredentialHint: 'providers.accountCredentialHint' },
+    { enabled: true, schemeId: 'custom', script: '({request:{}})' },
+    { scope: 'account' },
   )
-  expect(document.body.textContent).not.toContain('providers.accountCredentialHint')
+  expect(document.body.textContent).not.toContain('querySchemes.customHint')
 })
 
 it('disables the test button while no script is configured and explains it', async () => {

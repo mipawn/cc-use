@@ -613,7 +613,6 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                 onChange={handleQueryChange}
                 testVisible
                 onDraftTest={handleDraftTest}
-                accountCredentialHint={t('providers.accountCredentialHint')}
               />
               {/* Only the credentials the chosen query actually asks for;
                   these live beside the choice they answer. */}

@@ -167,7 +167,6 @@ export default function Keys() {
 
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
-  const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
 
   // Token stats per key (today and total)
   const [keyTokenStats, setKeyTokenStats] = useState<
@@ -326,7 +325,6 @@ export default function Keys() {
 
   // Handle key usage refresh
   const handleRefreshKeyUsage = async (keyId: string) => {
-    setRefreshingKeyUsageIds((prev) => new Set(prev).add(keyId))
     try {
       const result = await getApi().keyUsage.refresh(keyId)
       if (result.error) {
@@ -340,12 +338,6 @@ export default function Keys() {
       await fetchAllApiKeys(providers.map((p) => p.id))
     } catch (error) {
       message.error(`${t('keys.refreshQuotaFailed')}: ${String(error)}`)
-    } finally {
-      setRefreshingKeyUsageIds((prev) => {
-        const next = new Set(prev)
-        next.delete(keyId)
-        return next
-      })
     }
   }
 
@@ -808,32 +800,24 @@ export default function Keys() {
 
                         {/* Stats Row */}
                         <div className={styles.statsRow}>
-                          {/* Key Quota - 额度 */}
+                          {/* Key Quota - 额度。A passive stat: the value
+                              refreshes when the query config changes on save,
+                              not on click — the account refresh icon stays
+                              the only manual trigger on the cards. */}
                           {hasKeyQuery(key) && (
-                            <Tooltip title={t('keys.refreshQuota')}>
-                              <button
-                                type='button'
-                                aria-label={t('keys.refreshQuota')}
-                                disabled={refreshingKeyUsageIds.has(key.id)}
-                                className={`${styles.statItem} ${styles.statItemClickable}`}
-                                onClick={() => handleRefreshKeyUsage(key.id)}
-                              >
-                                <DollarOutlined style={{ color: token.colorSuccess }} />
-                                <span className={styles.statValue}>
-                                  {key.cachedUsage?.isUnlimited
-                                    ? '∞'
-                                    : key.cachedUsage?.remaining != null
-                                      ? formatAccountAmount(
-                                          key.cachedUsage.remaining,
-                                          key.cachedUsage.unit,
-                                        )
-                                      : t('providers.queryNow')}
-                                </span>
-                                {refreshingKeyUsageIds.has(key.id) && (
-                                  <ReloadOutlined spin style={{ fontSize: 12, marginLeft: 4 }} />
-                                )}
-                              </button>
-                            </Tooltip>
+                            <div className={styles.statItem}>
+                              <DollarOutlined style={{ color: token.colorSuccess }} />
+                              <span className={styles.statValue}>
+                                {key.cachedUsage?.isUnlimited
+                                  ? '∞'
+                                  : key.cachedUsage?.remaining != null
+                                    ? formatAccountAmount(
+                                        key.cachedUsage.remaining,
+                                        key.cachedUsage.unit,
+                                      )
+                                    : t('providers.queryNow')}
+                              </span>
+                            </div>
                           )}
                           {/* Today's tokens */}
                           <div className={styles.statItem}>
