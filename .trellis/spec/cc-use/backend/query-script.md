@@ -55,13 +55,22 @@ are absent the result is `isValid: false` ("credits 数值缺失"), while a real
 
 ## Presets carry the whole request, and their label is not behavior
 
-- A preset that queries ships `wallet_balance_script` **and** the wallet URL /
-  headers columns (`shared_runtime/provider_presets.rs`), so the settings
-  dialog shows what will actually be sent.
-- `preset_id` records origin only. Never branch runtime behavior on it
+- A preset whose service has an **account** query ships
+  `wallet_balance_script` **and** the wallet URL / headers columns
+  (`shared_runtime/provider_presets.rs`), so the settings dialog shows what
+  will actually be sent. A preset whose service is queried **per key**
+  (OpenCode Go, Command Code) ships no account query at all; its quota
+  configuration is chosen on each key, and its `query_scope = "key"` makes
+  the provider form hide the account-query section.
+- At creation only, the preset decides the stored `query_scope`
+  (`query_scope_for_preset`): this is the same kind of template fill as
+  `base_url` or `wallet_balance_type`, not a runtime lookup. Editing a
+  provider never re-derives scope from the template, and an unknown preset id
+  means `account`.
+- `preset_id` records origin only. Never branch *runtime* behavior on it
   (doc header of `provider_presets.rs`); capabilities are data (script text,
-  columns), not preset names — the loading-placeholder UI keys off
-  "query configured + no cache / in flight", not off preset ids.
+  stored `query_scope`, columns), not preset names — the loading-placeholder
+  UI keys off "query configured + no cache / in flight", not off preset ids.
 
 ## Shipped templates are copied into the database
 
@@ -109,10 +118,15 @@ are absent the result is `isValid: false` ("credits 数值缺失"), while a real
 ## Two scopes: account and per-key — separated by evidence, not labels
 (Authoritative module: `shared_runtime/query_schemes.rs`, `services/usage_service.rs`)
 
-- The catalogue ships two disjoint scheme sets: `account` (DeepSeek, New API,
-  OpenCode Go, Command Code) and `key` (only New API's `/api/usage/token/`
-  per-key route). No account entry doubles as a key scheme; `supports_windows`
-  is account-only capability metadata.
+- The catalogue ships two disjoint scheme sets. `account` holds the services
+  whose left-over amount belongs to one account billed apart from the keys
+  (DeepSeek balance, New API account). `key` holds the services whose quota is
+  asked with an inference key and belongs to that key's account: New API's
+  `/api/usage/token/`, OpenCode Go's `/v1/usage` and Command Code's three
+  named billing/usage requests. A key scheme never doubles as an account
+  scheme; `supports_windows` is a per-scheme capability, valid in either
+  scope (it says "the answer may carry metering periods", not "account
+  only").
 - A key query resolves `{{apiKey}}` with the key's own value; provider
   `token` / `walletBalanceUserId` do NOT enter the key-scope variable set.
   Placeholders naming account credentials in a key script are refused with
@@ -122,11 +136,43 @@ are absent the result is `isValid: false` ("credits 数值缺失"), while a real
   provider; a key script whose resolved request lands on one is refused with
   "该脚本查询的是账户级额度…" (`KEY_QUERY_ACCOUNT_TARGET_MESSAGE`) — the draft
   test runs the exact same refusal before sending (`usage_service::
-  guard_key_scope_targets`, `query_test.rs` shares the guards).
-- Key results strip windows/groups (`strip_to_key_usage`); a window-only
-  answer fails the refresh with a repair message instead of decorating an
-  account reading as the key's quota. A real `0` is a real `0`: absent data is
-  an error, never 0, never success.
+  guard_key_scope_targets`, `query_test.rs` shares the guards). Only the
+  endpoints that are still account questions are listed: DeepSeek's balance,
+  New API's `/api/user/self` and the relay `/api/user/balance`. OpenCode Go's
+  `/v1/usage` and Command Code's endpoints were moved to the key scope with
+  their schemes, so they are legal key targets and must not be blocked.
+- Key results keep the metering windows (`finalize_key_usage`): the answer is
+  usable when it reports an amount field *or* a non-empty window list, and a
+  window-only answer (OpenCode Go) is a valid per-key answer. Nothing is
+  invented: an answer with neither amounts nor windows fails with "查询未返回
+  当前密钥的额度"; a real `0` stays `0`.
+
+## Provider quota ownership (`queryScope`)
+(Authoritative: `models::Provider.query_scope`, `shared_runtime/provider_presets.rs`,
+`db/quota_scope_upgrade.rs`, renderer `providerQuotaIsPerKey`)
+
+- `providers.query_scope` (`account` | `key`, default `account`) records where
+  a provider's quota is asked. It is set at creation from the preset (`key`
+  for `opencode-go` / `command-code`, `account` otherwise) and is not edited
+  by the provider form; exports carry it.
+- On an upgraded database the one-time migration
+  `migration.quota-scope.key-level` marks providers that used the old
+  account query as `key` and clears their account-query columns, legacy query
+  columns and account caches. Evidence is the stored script being
+  byte-identical to the shipped OpenCode Go / Command Code account template;
+  a provider with **no** account script is matched by its legacy
+  `wallet_balance_type` or its preset origin, and is only re-scoped. A script
+  that differs from the shipped text is a saved choice: the provider keeps
+  the account scope, its script and its cache, and is not touched. The
+  migration does not copy anything into keys and does not touch key scripts;
+  the user configures each key's own scheme explicitly. Clearing the legacy
+  kind/url/headers in the same pass keeps `lift_queries_onto_scripts` from
+  rebuilding the deleted script on the next boot, and the marker stops a
+  re-run from wiping query configuration the user sets up later.
+- `queryScope = key` hides the account query affordances on the provider: the
+  provider editor's account-query section (replaced by a "quota is per key"
+  hint), the "set up query" / refresh-balance buttons, and the provider-level
+  balance/window display. The quota lives on each key card instead.
 
 ## Persisted scheme switch (`query_config`)
 

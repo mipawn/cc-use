@@ -61,6 +61,11 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
         query_config: crate::shared_runtime::query_schemes::parse_query_config(
             row.get::<_, Option<String>>(29)?.as_deref(),
         ),
+        query_scope: row
+            .get::<_, Option<String>>(30)?
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(crate::shared_runtime::default_query_scope_string),
     })
 }
 
@@ -72,7 +77,7 @@ const PROVIDER_COLUMNS: &str = "id, name, base_url, http_proxy, website, remark,
         usage_type, usage_url, usage_path, usage_headers,
         cached_usage, last_usage_checked_at,
         is_active, sort_order, preset_id, default_key_config, cached_wallet_balance_currency,
-        request_adapter, wallet_balance_script, request_headers, query_config";
+        request_adapter, wallet_balance_script, request_headers, query_config, query_scope";
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
@@ -130,6 +135,10 @@ impl Database {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or(crate::shared_runtime::PRESET_CUSTOM);
+        // The scope is an origin property, not a form field: OpenCode Go and
+        // Command Code ask their quota per key, every other origin (including
+        // an unknown one) is the provider-level account scope.
+        let query_scope = crate::shared_runtime::query_scope_for_preset(Some(preset_id));
         let default_key_config = input
             .default_key_config
             .as_ref()
@@ -139,8 +148,8 @@ impl Database {
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
                 sort_order, preset_id, default_key_config, request_adapter, wallet_balance_script,
-                request_headers, query_config)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                request_headers, query_config, query_scope)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             rusqlite::params![
                 id,
                 input.name,
@@ -188,6 +197,7 @@ impl Database {
                 )
                 .as_ref()
                 .and_then(crate::shared_runtime::query_schemes::serialize_query_config),
+                query_scope,
             ],
         )?;
 

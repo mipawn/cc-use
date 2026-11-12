@@ -14,12 +14,22 @@ export function effectiveQuery(
 }
 
 /** Whether the provider's account query actually runs. */
-export const hasProviderQuery = (provider: Pick<Provider, 'walletBalanceScript'> & Partial<Pick<Provider, 'queryConfig'>>) =>
-  effectiveQuery(provider.queryConfig, provider.walletBalanceScript)?.enabled === true
+export const hasProviderQuery = (
+  provider: Pick<Provider, 'walletBalanceScript'> & Partial<Pick<Provider, 'queryConfig'>>,
+) => effectiveQuery(provider.queryConfig, provider.walletBalanceScript)?.enabled === true
 
 /** Whether this key's own quota query actually runs. */
-export const hasKeyQuery = (key: Pick<ApiKey, 'usageScript'> & Partial<Pick<ApiKey, 'queryConfig'>>) =>
-  effectiveQuery(key.queryConfig, key.usageScript)?.enabled === true
+export const hasKeyQuery = (
+  key: Pick<ApiKey, 'usageScript'> & Partial<Pick<ApiKey, 'queryConfig'>>,
+) => effectiveQuery(key.queryConfig, key.usageScript)?.enabled === true
+
+/**
+ * Whether the provider's quota belongs to its keys rather than to an account.
+ * A per-key provider exposes no account query: the quota is asked per key, by
+ * the key's own scheme, and the provider level only groups them.
+ */
+export const providerQuotaIsPerKey = (provider: Pick<Provider, 'queryScope'>) =>
+  provider.queryScope === 'key'
 
 export function providerQueryMissingCredential(provider: Provider, keys: ApiKey[]): string | null {
   const script = provider.walletBalanceScript ?? ''

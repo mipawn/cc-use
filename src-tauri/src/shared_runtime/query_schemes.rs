@@ -8,14 +8,18 @@
 //! stays the single owner of what a supported query actually sends.
 //!
 //! Two scopes exist and they do not share entries:
-//! - `account` — "how much does this provider account have left / which
-//!   metering periods run". These are the provider-level queries.
-//! - `key` — "how much does *this one API key* have left, on its own". Only
-//!   services with a verified per-key endpoint ship an entry here.
+//! - `account` — "how much does this provider account have left". These are
+//!   the provider-level queries (DeepSeek, New API).
+//! - `key` — "how much does *this one API key* have left, on its own". New
+//!   API's per-key route, plus OpenCode Go's and Command Code's metering
+//!   queries, whose quotas are per key: one key is one account.
 //!
 //! The boundary is enforced where queries run, not asserted by labels: a
-//! script whose requests point at account destinations may not be run as a
-//! key quota query (see [`account_target_urls`] and its runtime guard).
+//! script whose requests point at the remaining account destinations may not
+//! be run as a key quota query (see [`account_target_urls`] and its runtime
+//! guard). The OpenCode Go `/v1/usage` and Command Code billing endpoints are
+//! deliberately *not* on that list any more — they are legitimate key-scope
+//! targets now.
 
 /// Scope ids as they appear in `queryConfig.schemeId` and the IPC surface.
 pub const SCOPE_ACCOUNT: &str = "account";
@@ -24,10 +28,10 @@ pub const SCOPE_KEY: &str = "key";
 /// The per-provider account schemes.
 pub const SCHEME_DEEPSEEK_ACCOUNT: &str = "deepseek-account";
 pub const SCHEME_NEWAPI_ACCOUNT: &str = "newapi-account";
-pub const SCHEME_OPENCODE_GO_ACCOUNT: &str = "opencode-go-account";
-pub const SCHEME_COMMAND_CODE_ACCOUNT: &str = "command-code-account";
-/// The one verified per-key quota scheme.
+/// The verified per-key quota schemes.
 pub const SCHEME_NEWAPI_KEY: &str = "newapi-key";
+pub const SCHEME_OPENCODE_GO_KEY: &str = "opencode-go-key";
+pub const SCHEME_COMMAND_CODE_KEY: &str = "command-code-key";
 /// Any script the catalogue cannot recognise is the user's own.
 pub const SCHEME_CUSTOM: &str = "custom";
 
@@ -86,24 +90,29 @@ pub struct QueryScheme {
     /// i18n key for one line naming the endpoint and the credential.
     pub description_key: &'static str,
     pub credentials: &'static [CredentialRequirement],
-    /// `true` only when the service reports metering periods. Account-only:
-    /// the key scope never renders windows.
+    /// `true` when the service reports metering periods (5h / weekly /
+    /// monthly) rather than only an amount. A capability of the scheme in
+    /// either scope: the key scope renders windows too.
     pub supports_windows: bool,
 }
 
 /// The full script text a scheme runs, in the engine's single form. The
 /// multi-request Command Code script ships whole already.
 pub fn scheme_script(id: &str) -> Option<String> {
-    use super::account_scripts::{for_legacy_kind, key_usage_for_legacy_kind, script_for};
+    use super::account_scripts::{
+        command_code_script, for_legacy_kind, key_usage_for_legacy_kind, script_for,
+    };
 
     let script = match id {
         SCHEME_DEEPSEEK_ACCOUNT => script_for(for_legacy_kind("deepseek")?),
         SCHEME_NEWAPI_ACCOUNT => script_for(for_legacy_kind("newapi")?),
-        SCHEME_OPENCODE_GO_ACCOUNT => script_for(for_legacy_kind("opencode-go")?),
         SCHEME_NEWAPI_KEY => script_for(key_usage_for_legacy_kind("newapi")?),
+        // The Go account script is the per-key script: it answers with the
+        // key's own metering periods and needs nothing but `{{apiKey}}`.
+        SCHEME_OPENCODE_GO_KEY => script_for(for_legacy_kind("opencode-go")?),
         // Command Code's multi-request script is a constant, not a composed
         // single form.
-        SCHEME_COMMAND_CODE_ACCOUNT => super::account_scripts::command_code_script().to_string(),
+        SCHEME_COMMAND_CODE_KEY => command_code_script().to_string(),
         _ => return None,
     };
     Some(script)
@@ -131,37 +140,38 @@ pub fn account_schemes() -> Vec<QueryScheme> {
             ],
             supports_windows: false,
         },
+    ]
+}
+
+/// The key-scope entries, in display order. Only services whose quota is
+/// genuinely per key ship here; no account entry doubles as one.
+pub fn key_schemes() -> Vec<QueryScheme> {
+    vec![
         QueryScheme {
-            id: SCHEME_OPENCODE_GO_ACCOUNT,
-            scope: SCOPE_ACCOUNT,
-            label_key: "querySchemes.openCodeGoAccount",
-            description_key: "querySchemes.openCodeGoAccountDescription",
+            id: SCHEME_NEWAPI_KEY,
+            scope: SCOPE_KEY,
+            label_key: "querySchemes.newApiKey",
+            description_key: "querySchemes.newApiKeyDescription",
+            credentials: &[CredentialRequirement::ApiKey],
+            supports_windows: false,
+        },
+        QueryScheme {
+            id: SCHEME_OPENCODE_GO_KEY,
+            scope: SCOPE_KEY,
+            label_key: "querySchemes.openCodeGoKey",
+            description_key: "querySchemes.openCodeGoKeyDescription",
             credentials: &[CredentialRequirement::ApiKey],
             supports_windows: true,
         },
         QueryScheme {
-            id: SCHEME_COMMAND_CODE_ACCOUNT,
-            scope: SCOPE_ACCOUNT,
-            label_key: "querySchemes.commandCodeAccount",
-            description_key: "querySchemes.commandCodeAccountDescription",
+            id: SCHEME_COMMAND_CODE_KEY,
+            scope: SCOPE_KEY,
+            label_key: "querySchemes.commandCodeKey",
+            description_key: "querySchemes.commandCodeKeyDescription",
             credentials: &[CredentialRequirement::ApiKey],
             supports_windows: true,
         },
     ]
-}
-
-/// The key-scope entries. Deliberately short: a per-key scheme ships only when
-/// the service has a verified per-key endpoint, and no account entry doubles
-/// as one.
-pub fn key_schemes() -> Vec<QueryScheme> {
-    vec![QueryScheme {
-        id: SCHEME_NEWAPI_KEY,
-        scope: SCOPE_KEY,
-        label_key: "querySchemes.newApiKey",
-        description_key: "querySchemes.newApiKeyDescription",
-        credentials: &[CredentialRequirement::ApiKey],
-        supports_windows: false,
-    }]
 }
 
 pub fn scheme_for(scope: &str, id: &str) -> Option<QueryScheme> {
@@ -319,12 +329,6 @@ pub fn account_target_urls(base_url: &str) -> Vec<String> {
             SCHEME_NEWAPI_ACCOUNT => {
                 urls.push(format!("{base}/api/user/self"));
             }
-            SCHEME_OPENCODE_GO_ACCOUNT => {
-                urls.push(format!("{base}/v1/usage"));
-            }
-            SCHEME_COMMAND_CODE_ACCOUNT => {
-                urls.push(super::account_scripts::COMMAND_CODE_CREDITS_URL.to_string());
-            }
             _ => {}
         }
     }
@@ -332,8 +336,6 @@ pub fn account_target_urls(base_url: &str) -> Vec<String> {
     // answers the account question even though no catalogue entry owns the
     // template.
     urls.push(format!("{base}/api/user/balance"));
-    urls.push("https://api.commandcode.ai/alpha/billing/subscriptions".to_string());
-    urls.push("https://api.commandcode.ai/alpha/usage/summary".to_string());
     urls
 }
 
@@ -350,18 +352,86 @@ mod tests {
         let account_ids: Vec<_> = account_schemes().iter().map(|s| s.id).collect();
         let key_ids: Vec<_> = key_schemes().iter().map(|s| s.id).collect();
 
-        assert!(!account_ids.is_empty());
-        assert!(account_ids.contains(&SCHEME_COMMAND_CODE_ACCOUNT));
-        // The account scope multi-request script must never be offered as a
-        // key scheme; the per-key catalogue only lists verified per-key
-        // endpoints.
-        assert!(!key_ids.contains(&SCHEME_COMMAND_CODE_ACCOUNT));
-        assert_eq!(key_ids, [SCHEME_NEWAPI_KEY]);
+        assert_eq!(
+            account_ids,
+            [SCHEME_DEEPSEEK_ACCOUNT, SCHEME_NEWAPI_ACCOUNT],
+            "OpenCode Go / Command Code no longer offer an account query"
+        );
+        assert_eq!(
+            key_ids,
+            [
+                SCHEME_NEWAPI_KEY,
+                SCHEME_OPENCODE_GO_KEY,
+                SCHEME_COMMAND_CODE_KEY
+            ],
+            "the key catalogue lists one scheme per verified per-key service"
+        );
         for scheme in key_schemes() {
-            assert!(!scheme.supports_windows, "window reporting is account-only");
+            assert_eq!(scheme.scope, SCOPE_KEY);
+            assert_eq!(scheme.credentials.len(), 1);
+            assert_eq!(scheme.credentials[0], CredentialRequirement::ApiKey);
+        }
+        for scheme in account_schemes() {
+            assert_eq!(scheme.scope, SCOPE_ACCOUNT);
         }
         assert!(scheme_for(SCOPE_KEY, SCHEME_DEEPSEEK_ACCOUNT).is_none());
         assert!(scheme_for(SCOPE_ACCOUNT, SCHEME_NEWAPI_KEY).is_none());
+        assert!(scheme_for(SCOPE_ACCOUNT, SCHEME_OPENCODE_GO_KEY).is_none());
+        assert!(scheme_for(SCOPE_KEY, SCHEME_COMMAND_CODE_KEY).is_some());
+        // The retired account ids are no longer recognised by any catalogue;
+        // the migration clears the provider rows that carried them.
+        assert!(scheme_for(SCOPE_ACCOUNT, "opencode-go-account").is_none());
+        assert!(scheme_for(SCOPE_ACCOUNT, "command-code-account").is_none());
+    }
+
+    /// `supports_windows` is a capability of the scheme, not of the scope: the
+    /// two metering services report windows as key schemes now.
+    #[test]
+    fn window_capability_follows_the_service_not_the_scope() {
+        for scheme in key_schemes() {
+            match scheme.id {
+                SCHEME_OPENCODE_GO_KEY | SCHEME_COMMAND_CODE_KEY => {
+                    assert!(scheme.supports_windows, "{} meters by period", scheme.id)
+                }
+                _ => assert!(!scheme.supports_windows),
+            }
+        }
+        for scheme in account_schemes() {
+            assert!(!scheme.supports_windows, "{} is amount-only", scheme.id);
+        }
+    }
+
+    /// The multi-request Command Code script ships whole as a key scheme and
+    /// resolves to its three named requests.
+    #[test]
+    fn the_command_code_key_scheme_resolves_to_its_three_requests() {
+        let script = scheme_script(SCHEME_COMMAND_CODE_KEY).expect("command code script");
+        let vars = crate::services::query_script::ScriptVars {
+            base_url: "https://api.commandcode.ai/provider".to_string(),
+            api_key: Some("sk-live".to_string()),
+            access_token: None,
+            user_id: None,
+        };
+        let resolved = crate::services::query_script::resolve_requests(
+            &script,
+            &vars,
+            &crate::services::query_script::ScriptLimits::default(),
+        )
+        .expect("the shipped key script resolves");
+
+        let crate::services::query_script::ResolvedRequests::Many(named) = resolved else {
+            panic!("the command code script is a named-request script");
+        };
+        let mut names: Vec<&str> = named.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["credit", "subscription", "summary"]);
+        assert!(!named["credit"].optional);
+        assert!(named["subscription"].optional);
+        assert!(named["summary"].optional);
+        assert_eq!(
+            named["credit"].request.url,
+            super::super::account_scripts::COMMAND_CODE_CREDITS_URL
+        );
     }
 
     #[test]
@@ -408,7 +478,7 @@ mod tests {
     fn stored_configs_parse_and_survive_roundtrip() {
         let config = QueryConfig {
             enabled: false,
-            scheme_id: SCHEME_COMMAND_CODE_ACCOUNT.to_string(),
+            scheme_id: SCHEME_COMMAND_CODE_KEY.to_string(),
         };
         let raw = serialize_query_config(&config).expect("serialises");
         assert_eq!(parse_query_config(Some(&raw)), Some(config));
@@ -436,14 +506,20 @@ mod tests {
     }
 
     #[test]
-    fn account_targets_cover_every_verified_account_destination() {
+    fn account_targets_cover_every_remaining_account_destination() {
         let targets = account_target_urls("https://relay.example.com/");
         assert!(targets.contains(&"https://api.deepseek.com/user/balance".to_string()));
         assert!(targets.contains(&"https://relay.example.com/api/user/self".to_string()));
-        assert!(targets.contains(&"https://relay.example.com/v1/usage".to_string()));
         assert!(targets.contains(&"https://relay.example.com/api/user/balance".to_string()));
-        assert!(
-            targets.contains(&super::super::account_scripts::COMMAND_CODE_CREDITS_URL.to_string())
-        );
+        // OpenCode Go's /v1/usage and the Command Code billing routes are key
+        // targets now: refusing them would refuse the shipped key schemes.
+        assert!(!targets.contains(&"https://relay.example.com/v1/usage".to_string()));
+        assert!(!targets.iter().any(|url| url.contains("commandcode.ai")));
+        // The full-text key script for Command Code targets that host, so it
+        // must not be blocked by the account-target guard.
+        let key_script = scheme_script(SCHEME_COMMAND_CODE_KEY).expect("command code script");
+        assert!(key_script.contains("api.commandcode.ai"));
+        let key_script = scheme_script(SCHEME_OPENCODE_GO_KEY).expect("opencode script");
+        assert!(key_script.contains("{{baseUrl}}/v1/usage"));
     }
 }

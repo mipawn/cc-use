@@ -28,6 +28,10 @@
 | :-------------------------------------------: | :------------------------------------------------: |
 | ![设置](./screenshots/workspace-settings.png) | ![运行实例](./screenshots/workspace-instances.png) |
 
+**密钥额度查询**：每个密钥独立查询自己的剩余额度与 5 小时 / 每周 / 每月用量。
+
+![密钥额度查询](./screenshots/workspace-key-quota.png)
+
 ## 功能
 
 - **供应商与密钥管理** - 在「供应商密钥」页面统一管理供应商和 API 密钥；每个密钥可勾选 Claude Code、Grok Build、Codex Desktop、Claude Desktop，支持优先级排序、额度查询和模型映射

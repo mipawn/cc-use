@@ -6,6 +6,7 @@ import {
   hasKeyQuery,
   hasProviderQuery,
   orderUsageWindows,
+  providerQuotaIsPerKey,
   usageWindowLabel,
   providerQueryMissingCredential,
 } from './accountQuery'
@@ -47,6 +48,10 @@ describe('account query presentation', () => {
     const provider = { walletBalanceScript: 'query', walletBalanceType: 'none' }
     expect(hasProviderQuery(provider)).toBe(true)
     expect(hasProviderQuery({ walletBalanceScript: '  ' })).toBe(false)
+  })
+  it('tells a per-key provider from an account-scoped one', () => {
+    expect(providerQuotaIsPerKey({ queryScope: 'key' })).toBe(true)
+    expect(providerQuotaIsPerKey({ queryScope: 'account' })).toBe(false)
   })
   it('preserves zero and the reported currency', () => {
     expect(formatAccountAmount(0, 'CNY')).toBe('¥0.00')

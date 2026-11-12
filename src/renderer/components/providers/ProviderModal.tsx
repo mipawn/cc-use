@@ -289,6 +289,13 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
     [provider?.id, draftBaseUrl, draftProxy, draftToken, draftUserId],
   )
 
+  // The account query belongs to account-scoped providers only. A per-key
+  // provider's quota lives on its keys, so the whole account section is hidden
+  // and the provider level only says where the quota is asked. An edited row
+  // follows its stored scope; a new one follows the selected template.
+  const accountQueryAvailable =
+    (provider?.queryScope ?? preset?.queryScope ?? 'account') === 'account'
+
   const handleSubmit = async () => {
     try {
       setLoading(true)
@@ -297,7 +304,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
       // A script is text until something evaluates it, so it is evaluated here
       // — without sending anything, and without a credential — rather than
       // left to fail the next time the balance is refreshed.
-      const script = queryValue.script.trim()
+      const script = accountQueryAvailable ? queryValue.script.trim() : ''
       if (script) {
         try {
           await getApi().balance.checkScript(script, values.baseUrl?.trim() ?? '')
@@ -318,17 +325,26 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         remark: values.remark?.trim(),
         token: values.token?.trim(),
         icon: iconValue || undefined,
+        // A key-scope provider has no account query to write: the fields are
+        // hidden, so they are left untouched instead of being cleared by a
+        // draft the user never saw (the backend keeps its stored values).
         // The script outlives the switch: a parked (off) query keeps its text,
         // and enabling again runs exactly what was there (D4).
-        walletBalanceScript: provider ? script : script || undefined,
+        walletBalanceScript: accountQueryAvailable
+          ? provider
+            ? script
+            : script || undefined
+          : undefined,
         requestHeaders: requestHeaders.trim() || undefined,
         // The account query is the script now; there is no service kind left
         // to record, and these columns are what the migration reads.
-        walletBalanceType: script ? 'custom' : 'none',
-        queryConfig: {
-          enabled: queryValue.enabled,
-          schemeId: queryValue.schemeId || 'custom',
-        },
+        walletBalanceType: accountQueryAvailable ? (script ? 'custom' : 'none') : undefined,
+        queryConfig: accountQueryAvailable
+          ? {
+              enabled: queryValue.enabled,
+              schemeId: queryValue.schemeId || 'custom',
+            }
+          : undefined,
         usageType: 'none',
         requestAdapter: provider ? provider.requestAdapter : (preset?.requestAdapter ?? 'none'),
         // The template's key defaults travel with the provider. Editing the
@@ -601,47 +617,57 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
             {/* The account query has its own dedicated section above the
                 advanced settings: the switch, the scheme choice and the draft
                 test are the everyday path, and the code stays behind an
-                explicit custom entry. */}
+                explicit custom entry. A per-key provider has no account query
+                at all: the section is replaced by a hint pointing at the key
+                cards, where its quota is asked. */}
             <div className={styles.queryBlock}>
-              <div className={styles.sectionHeader}>
-                <WalletOutlined className={styles.sectionIcon} />
-                <Text strong>{t('providers.accountQuerySection')}</Text>
-              </div>
-              <QuerySettingsSection
-                scope='account'
-                value={queryValue}
-                onChange={handleQueryChange}
-                testVisible
-                onDraftTest={handleDraftTest}
-              />
-              {/* Only the credentials the chosen query actually asks for;
-                  these live beside the choice they answer. */}
-              {queriesToken && (
-                <Form.Item
-                  name='token'
-                  label={t('providers.token')}
-                  extra={t('providers.accountCredentialHint')}
-                  className={styles.queryCredential}
-                >
-                  <Input.Password
-                    placeholder={t('providers.tokenPlaceholder')}
-                    size='large'
-                    className={styles.input}
+              {accountQueryAvailable ? (
+                <>
+                  <div className={styles.sectionHeader}>
+                    <WalletOutlined className={styles.sectionIcon} />
+                    <Text strong>{t('providers.accountQuerySection')}</Text>
+                  </div>
+                  <QuerySettingsSection
+                    scope='account'
+                    value={queryValue}
+                    onChange={handleQueryChange}
+                    testVisible
+                    onDraftTest={handleDraftTest}
                   />
-                </Form.Item>
-              )}
-              {queriesUserId && (
-                <Form.Item
-                  name='walletBalanceUserId'
-                  label={t('providers.userId')}
-                  className={styles.queryCredential}
-                >
-                  <Input placeholder={t('providers.userIdPlaceholder')} />
-                </Form.Item>
-              )}
-              {queryError && (
-                <Text type='danger' role='alert' className={styles.queryNote}>
-                  {queryError}
+                  {/* Only the credentials the chosen query actually asks for;
+                      these live beside the choice they answer. */}
+                  {queriesToken && (
+                    <Form.Item
+                      name='token'
+                      label={t('providers.token')}
+                      extra={t('providers.accountCredentialHint')}
+                      className={styles.queryCredential}
+                    >
+                      <Input.Password
+                        placeholder={t('providers.tokenPlaceholder')}
+                        size='large'
+                        className={styles.input}
+                      />
+                    </Form.Item>
+                  )}
+                  {queriesUserId && (
+                    <Form.Item
+                      name='walletBalanceUserId'
+                      label={t('providers.userId')}
+                      className={styles.queryCredential}
+                    >
+                      <Input placeholder={t('providers.userIdPlaceholder')} />
+                    </Form.Item>
+                  )}
+                  {queryError && (
+                    <Text type='danger' role='alert' className={styles.queryNote}>
+                      {queryError}
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <Text type='secondary' className={styles.queryNote}>
+                  {t('providers.keyScopeQueryHint')}
                 </Text>
               )}
             </div>

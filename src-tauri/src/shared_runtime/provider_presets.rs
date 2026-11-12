@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::account_scripts;
+use super::{account_scripts, query_schemes};
 
 pub const PRESET_CUSTOM: &str = "custom";
 pub const PRESET_OPENCODE_GO: &str = "opencode-go";
@@ -83,6 +83,11 @@ pub struct ProviderPreset {
     /// Root address of the service. Empty when the user must supply one.
     pub base_url: String,
     pub icon: String,
+    /// Which scope this service's quota is asked in: `account` for a provider
+    /// account query, `key` when the quota belongs to each API key (one key is
+    /// one account). A new provider inherits it from the preset it is created
+    /// from, and the editor never changes it afterwards.
+    pub query_scope: String,
     /// The site address is the user's own and cannot be preset (New API).
     pub requires_site_address: bool,
     /// Balance / quota queries need a separate account credential that is not
@@ -120,6 +125,7 @@ fn deepseek_preset() -> ProviderPreset {
         default_name: "deepseek".to_string(),
         base_url: "https://api.deepseek.com".to_string(),
         icon: "deepseek".to_string(),
+        query_scope: query_schemes::SCOPE_ACCOUNT.to_string(),
         requires_site_address: false,
         needs_account_credential: false,
         wallet_balance_type: "deepseek".to_string(),
@@ -178,6 +184,7 @@ fn newapi_preset() -> ProviderPreset {
         default_name: "".to_string(),
         base_url: String::new(),
         icon: "newapi".to_string(),
+        query_scope: query_schemes::SCOPE_ACCOUNT.to_string(),
         requires_site_address: true,
         needs_account_credential: true,
         wallet_balance_type: "newapi".to_string(),
@@ -196,26 +203,28 @@ fn newapi_preset() -> ProviderPreset {
 
 /// OpenCode Go: speaks the client's own protocols per model, and its session
 /// rule is an adapter rather than a URL rewrite.
+///
+/// Its quota is per key — one key is one account — so the preset ships no
+/// account query at all. The `/v1/usage` script is offered as the
+/// `opencode-go-key` key scheme instead.
 fn opencode_go_preset() -> ProviderPreset {
     ProviderPreset {
         id: PRESET_OPENCODE_GO.to_string(),
         default_name: "opencode go".to_string(),
         base_url: "https://opencode.ai/zen/go".to_string(),
         icon: "claude".to_string(),
+        query_scope: query_schemes::SCOPE_KEY.to_string(),
         requires_site_address: false,
         needs_account_credential: false,
+        // No account query: the quota lives on each key, where the user opts
+        // into the shipped key scheme per key.
         wallet_balance_type: "none".to_string(),
         wallet_balance_url: None,
         wallet_balance_headers: None,
-        // The account query for Go: it reports metering periods rather than a
-        // balance, so the answer is read differently, but it is still one
-        // request and it is still editable.
-        usage_type: "opencode-go".to_string(),
-        usage_url: Some(script_of("opencode-go").url.to_string()),
-        usage_headers: Some(script_of("opencode-go").headers.to_string()),
-        wallet_balance_script: Some(account_scripts::script_for(
-            &account_scripts::for_legacy_kind("opencode-go").expect("go script"),
-        )),
+        wallet_balance_script: None,
+        usage_type: "none".to_string(),
+        usage_url: None,
+        usage_headers: None,
         // The Go adapter is gone; the preset no longer shapes the request.
         request_adapter: ADAPTER_NONE.to_string(),
         default_key_config: DefaultKeyConfig {
@@ -234,10 +243,9 @@ fn opencode_go_preset() -> ProviderPreset {
     }
 }
 
-/// Command Code: the provider is billed in credits and reports the account
-/// from three of its own endpoints, so the wallet query is a whole
-/// named-request script rather than one route. The account credential is the
-/// inference key itself, borrowed by the script's `{{apiKey}}`.
+/// Command Code: the provider is billed per key in credits, so the preset
+/// ships no account query. Its three-request credits script is offered as the
+/// `command-code-key` key scheme instead.
 fn command_code_preset() -> ProviderPreset {
     ProviderPreset {
         id: PRESET_COMMAND_CODE.to_string(),
@@ -246,12 +254,14 @@ fn command_code_preset() -> ProviderPreset {
         // No dedicated icon ships; like Go, Claude's is the closest and stays
         // the user's to change.
         icon: "claude".to_string(),
+        query_scope: query_schemes::SCOPE_KEY.to_string(),
         requires_site_address: false,
         needs_account_credential: false,
-        wallet_balance_type: "command-code".to_string(),
-        wallet_balance_url: Some(account_scripts::COMMAND_CODE_CREDITS_URL.to_string()),
-        wallet_balance_headers: Some(account_scripts::COMMAND_CODE_CREDITS_HEADERS.to_string()),
-        wallet_balance_script: Some(account_scripts::command_code_script().to_string()),
+        // No account query: each key answers for itself.
+        wallet_balance_type: "none".to_string(),
+        wallet_balance_url: None,
+        wallet_balance_headers: None,
+        wallet_balance_script: None,
         usage_type: "none".to_string(),
         usage_url: None,
         usage_headers: None,
@@ -276,6 +286,7 @@ fn custom_preset() -> ProviderPreset {
         default_name: "".to_string(),
         base_url: String::new(),
         icon: "custom".to_string(),
+        query_scope: query_schemes::SCOPE_ACCOUNT.to_string(),
         requires_site_address: false,
         needs_account_credential: false,
         wallet_balance_type: "none".to_string(),
@@ -307,6 +318,25 @@ pub fn provider_preset(id: &str) -> Option<ProviderPreset> {
     provider_presets()
         .into_iter()
         .find(|preset| preset.id == id)
+}
+
+/// Which query scope a provider created from this origin starts in.
+///
+/// `opencode-go` and `command-code` ask their quota per key — one key is one
+/// account — so a provider created from either starts in the `key` scope.
+/// Every other origin, including an unknown/newer preset id, is the
+/// provider-level `account` scope. The id is trimmed the same way
+/// `provider_create` normalises the stored `preset_id`.
+pub fn query_scope_for_preset(preset_id: Option<&str>) -> &'static str {
+    match preset_id.map(str::trim) {
+        Some(PRESET_OPENCODE_GO) | Some(PRESET_COMMAND_CODE) => query_schemes::SCOPE_KEY,
+        _ => query_schemes::SCOPE_ACCOUNT,
+    }
+}
+
+/// `account`, owned, for `#[serde(default = ...)]` on `Provider.query_scope`.
+pub fn default_query_scope_string() -> String {
+    query_schemes::SCOPE_ACCOUNT.to_string()
 }
 
 /// Adapter ids this build implements. Anything else is rejected on save rather
@@ -387,11 +417,26 @@ mod tests {
                 );
             }
             assert!(!preset.default_key_config.types.is_empty());
+            assert!(
+                preset.query_scope == query_schemes::SCOPE_ACCOUNT
+                    || preset.query_scope == query_schemes::SCOPE_KEY,
+                "{} needs a known query scope",
+                preset.id
+            );
         }
+
+        // The quota scope is a property of the service, not of the preset
+        // count: only the two per-key metering services are `key`.
+        let presets = provider_presets();
+        let key_scoped: Vec<&str> = presets
+            .iter()
+            .filter(|preset| preset.query_scope == query_schemes::SCOPE_KEY)
+            .map(|preset| preset.id.as_str())
+            .collect();
+        assert_eq!(key_scoped, vec![PRESET_OPENCODE_GO, PRESET_COMMAND_CODE]);
 
         // An empty address means the user supplies it: the blank template, and
         // the one preset whose whole point is a site the user owns.
-        let presets = provider_presets();
         let addressless: Vec<&str> = presets
             .iter()
             .filter(|preset| preset.base_url.is_empty())
@@ -514,6 +559,7 @@ mod tests {
         let preset = provider_preset(PRESET_DEEPSEEK).expect("deepseek preset");
 
         assert_eq!(preset.base_url, "https://api.deepseek.com");
+        assert_eq!(preset.query_scope, query_schemes::SCOPE_ACCOUNT);
         assert_eq!(preset.wallet_balance_type, "deepseek");
         assert_eq!(
             preset.wallet_balance_url.as_deref(),
@@ -551,8 +597,13 @@ mod tests {
                     "{}: balance headers",
                     preset.id
                 );
+                assert!(
+                    preset.wallet_balance_script.is_some(),
+                    "{}: balance script",
+                    preset.id
+                );
             }
-            if matches!(preset.usage_type.as_str(), "newapi" | "opencode-go") {
+            if !matches!(preset.usage_type.as_str(), "none" | "custom") {
                 assert!(preset.usage_url.is_some(), "{}: usage url", preset.id);
                 assert!(
                     preset.usage_headers.is_some(),
@@ -561,22 +612,44 @@ mod tests {
                 );
             }
         }
+        // The two per-key services ship no account query at all; their script
+        // lives in the key-scope catalogue instead.
+        for id in [PRESET_OPENCODE_GO, PRESET_COMMAND_CODE] {
+            let preset = provider_preset(id).expect("preset");
+            assert_eq!(preset.wallet_balance_type, "none");
+            assert_eq!(preset.usage_type, "none");
+            assert!(preset.wallet_balance_script.is_none());
+            assert!(preset.wallet_balance_url.is_none());
+        }
     }
 
-    /// The account query is on for every preset that knows how to ask; only the
-    /// blank template leaves it off, because it knows nothing to ask.
+    /// The account query is on for the account-scoped presets that know how to
+    /// ask; the blank template and the two per-key services leave it off.
     #[test]
-    fn a_preset_queries_the_account_by_default_except_the_blank_one() {
+    fn only_the_account_scope_presets_ship_an_account_query() {
         let presets = provider_presets();
         let silent: Vec<&str> = presets
             .iter()
             .filter(|preset| {
-                preset.wallet_balance_type == "none" && preset.usage_type != "opencode-go"
+                preset.wallet_balance_type == "none"
+                    && preset.wallet_balance_script.is_none()
+                    && preset.usage_type == "none"
             })
             .map(|preset| preset.id.as_str())
             .collect();
 
-        assert_eq!(silent, vec![PRESET_CUSTOM]);
+        assert_eq!(
+            silent,
+            vec![PRESET_CUSTOM, PRESET_OPENCODE_GO, PRESET_COMMAND_CODE]
+        );
+        for id in [PRESET_DEEPSEEK, PRESET_NEWAPI] {
+            let preset = provider_preset(id).expect("preset");
+            assert!(
+                preset.wallet_balance_script.is_some(),
+                "{} keeps its account query",
+                preset.id
+            );
+        }
     }
 
     /// DeepSeek's Claude Code guide, carried into the key defaults so a new
@@ -631,10 +704,15 @@ mod tests {
         let preset = provider_preset(PRESET_OPENCODE_GO).expect("go preset");
 
         assert_eq!(preset.base_url, "https://opencode.ai/zen/go");
-        // The Go adapter is retired: the preset still brings the endpoint and
-        // the account query, but no longer shapes the request.
+        // The Go adapter is retired: the preset brings the endpoint but no
+        // longer shapes the request.
         assert_eq!(preset.request_adapter, ADAPTER_NONE);
-        assert_eq!(preset.usage_type, "opencode-go");
+        // The quota is per key now; the preset carries no account query.
+        assert_eq!(preset.query_scope, query_schemes::SCOPE_KEY);
+        assert_eq!(preset.wallet_balance_type, "none");
+        assert_eq!(preset.usage_type, "none");
+        assert!(preset.wallet_balance_script.is_none());
+        assert!(preset.usage_url.is_none());
 
         assert!(preset.default_key_config.model_mapping.is_none());
     }
@@ -651,46 +729,37 @@ mod tests {
         assert_eq!(clients["codex"]["authScheme"], "bearer");
     }
 
-    /// The credits preset: the provider root, the three named endpoints in one
-    /// script with only the two optional ones marked, credits as the unit, and
-    /// key defaults that speak to the provider root with a Bearer key.
+    /// The credits service is billed per key: the preset keeps its address and
+    /// key defaults but ships no account query. The three-request script lives
+    /// in the key-scope catalogue (`query_schemes`), not here.
     #[test]
-    fn command_code_carries_the_whole_three_request_script() {
+    fn command_code_preset_declares_the_key_scope_and_no_account_query() {
         let preset = provider_preset(PRESET_COMMAND_CODE).expect("command code preset");
 
         assert_eq!(preset.id, "command-code");
         assert_eq!(preset.default_name, "command code");
         assert_eq!(preset.base_url, "https://api.commandcode.ai/provider");
         assert_eq!(preset.icon, "claude");
+        assert_eq!(preset.query_scope, query_schemes::SCOPE_KEY);
         assert!(!preset.requires_site_address);
         assert!(!preset.needs_account_credential);
-        assert_eq!(preset.wallet_balance_type, "command-code");
 
-        // The wallet columns carry the one required request whole.
-        assert_eq!(
-            preset.wallet_balance_url.as_deref(),
-            Some("https://api.commandcode.ai/alpha/billing/credits")
-        );
-        assert!(preset
-            .wallet_balance_headers
-            .as_deref()
-            .is_some_and(|headers| headers.contains("Bearer {{apiKey}}")));
-
-        let script = preset
-            .wallet_balance_script
-            .as_deref()
-            .expect("script preset");
-        assert!(script.contains(r#""https://api.commandcode.ai/alpha/billing/credits""#));
-        assert!(script.contains(r#""https://api.commandcode.ai/alpha/billing/subscriptions""#));
-        assert!(script.contains(r#""https://api.commandcode.ai/alpha/usage/summary""#));
-        assert!(script.contains("{{apiKey}}"));
-        assert_eq!(script.matches("optional: true").count(), 2);
-        assert!(script.contains(r#"unit: "credits""#));
-
-        // The script is the account query; there is no second usage route.
+        // Everything that would have made it an account query is gone.
+        assert_eq!(preset.wallet_balance_type, "none");
+        assert!(preset.wallet_balance_url.is_none());
+        assert!(preset.wallet_balance_headers.is_none());
+        assert!(preset.wallet_balance_script.is_none());
         assert_eq!(preset.usage_type, "none");
         assert!(preset.usage_url.is_none());
         assert_eq!(preset.request_adapter, ADAPTER_NONE);
+
+        // The script itself is still shipped — as the key scheme it now is.
+        let key_script = query_schemes::scheme_script(query_schemes::SCHEME_COMMAND_CODE_KEY)
+            .expect("command code key script");
+        assert!(key_script.contains(r#""https://api.commandcode.ai/alpha/billing/credits""#));
+        assert!(key_script.contains(r#""https://api.commandcode.ai/alpha/billing/subscriptions""#));
+        assert!(key_script.contains(r#""https://api.commandcode.ai/alpha/usage/summary""#));
+        assert_eq!(key_script.matches("optional: true").count(), 2);
     }
 
     #[test]
@@ -736,25 +805,57 @@ mod tests {
     }
 
     #[test]
-    fn creating_from_command_code_fills_the_query_and_the_key_defaults() {
+    fn creating_from_command_code_fills_the_address_and_key_defaults_without_an_account_query() {
         let merged = apply_preset_defaults(blank_input(Some(PRESET_COMMAND_CODE)));
 
         assert_eq!(merged.name, "command code");
         assert_eq!(merged.base_url, "https://api.commandcode.ai/provider");
-        assert_eq!(merged.wallet_balance_type.as_deref(), Some("command-code"));
-        assert_eq!(
-            merged.wallet_balance_url.as_deref(),
-            Some("https://api.commandcode.ai/alpha/billing/credits")
-        );
+        // No account query is pre-filled: the quota is enabled per key.
+        assert_eq!(merged.wallet_balance_type.as_deref(), Some("none"));
+        assert!(merged.wallet_balance_url.is_none());
         assert_eq!(merged.usage_type.as_deref(), Some("none"));
+        assert!(merged.wallet_balance_script.is_none());
         let defaults = merged.default_key_config.expect("defaults filled in");
         assert_eq!(defaults.types.len(), 2);
         assert!(defaults.model_mapping.is_none());
-        // The script itself is carried on the preset and reaches the stored
-        // provider through the form, not through this merge.
+        // The preset itself carries no account script any more.
         assert!(provider_preset(PRESET_COMMAND_CODE)
             .and_then(|preset| preset.wallet_balance_script)
-            .is_some());
+            .is_none());
+    }
+
+    /// The create path derives the stored scope from the origin: these two
+    /// services ask their quota per key, every other origin is an account.
+    #[test]
+    fn a_preset_decides_the_query_scope_of_a_new_provider() {
+        assert_eq!(query_scope_for_preset(Some(PRESET_OPENCODE_GO)), "key");
+        assert_eq!(query_scope_for_preset(Some(PRESET_COMMAND_CODE)), "key");
+        assert_eq!(query_scope_for_preset(Some(" opencode-go ")), "key");
+        for account in [
+            Some(PRESET_CUSTOM),
+            Some(PRESET_DEEPSEEK),
+            Some(PRESET_NEWAPI),
+            Some("from-a-newer-build"),
+            None,
+        ] {
+            assert_eq!(query_scope_for_preset(account), "account");
+        }
+        assert_eq!(default_query_scope_string(), "account");
+    }
+
+    /// `ProviderPreset` crosses IPC with camelCase names; the new field has to
+    /// reach the renderer as `queryScope`.
+    #[test]
+    fn the_preset_wire_shape_names_the_scope_query_scope() {
+        let preset = provider_preset(PRESET_OPENCODE_GO).expect("go preset");
+        let value = serde_json::to_value(&preset).expect("serialises");
+
+        assert_eq!(value["queryScope"], "key");
+        assert!(value.get("query_scope").is_none());
+        // The removed account query is absent from the wire too.
+        assert_eq!(value["walletBalanceType"], "none");
+        assert_eq!(value["usageType"], "none");
+        assert!(value["walletBalanceScript"].is_null());
     }
 
     #[test]

@@ -228,11 +228,14 @@ fn export_and_import_round_trip_preset_data() {
         })
         .unwrap();
 
+    // The scope is derived from the origin and exported with it.
+    assert_eq!(provider.query_scope, "key");
     let export = export_selected(&source.db, &ExportOptions::default()).unwrap();
     assert_eq!(
         export.providers[0].preset_id.as_deref(),
         Some(PRESET_OPENCODE_GO)
     );
+    assert_eq!(export.providers[0].query_scope.as_deref(), Some("key"));
     assert!(export.providers[0].default_key_config.is_some());
     // The configuration half of a key survives; its secret does not, by default.
     assert!(export.providers[0].api_keys[0].value.is_empty());
@@ -258,6 +261,7 @@ fn export_and_import_round_trip_preset_data() {
     let restored = target.db.provider_list().unwrap();
     assert_eq!(restored.len(), 1);
     assert_eq!(restored[0].preset_id, PRESET_OPENCODE_GO);
+    assert_eq!(restored[0].query_scope, "key");
     assert_eq!(
         restored[0].default_key_config,
         Some(preset.default_key_config)
@@ -298,6 +302,8 @@ fn an_older_export_without_preset_fields_still_imports() {
     let providers = target.db.provider_list().unwrap();
     assert_eq!(providers.len(), 1);
     assert_eq!(providers[0].preset_id, "custom");
+    // No scope in the file: the account default applies.
+    assert_eq!(providers[0].query_scope, "account");
     assert!(providers[0].default_key_config.is_none());
 }
 
@@ -327,4 +333,45 @@ fn stored_key_defaults_that_are_unreadable_do_not_become_a_guess() {
     };
     let raw = serialize_default_key_config(&config).expect("serialize");
     assert_eq!(parse_default_key_config(Some(&raw)), Some(config));
+}
+
+/// A file from before stable IDs has no import path through the row mapper:
+/// it goes through `provider_create`, which derives the scope from the preset.
+/// An explicit `queryScope` in the file must still win.
+#[test]
+fn an_older_export_with_an_explicit_query_scope_keeps_it() {
+    let payload = serde_json::json!({
+        "version": "3.9.0",
+        "exportedAt": "2026-09-01T00:00:00Z",
+        "providers": [{
+            "id": "legacy-scoped",
+            "name": "Legacy scoped",
+            "type": "custom",
+            "baseUrl": "https://legacy.example.com",
+            "queryScope": "key"
+        }],
+        "usageLogs": [],
+        "requestLogs": []
+    });
+    let data: cc_use_lib::models::ExportData = serde_json::from_value(payload).unwrap();
+    let target = TempDb::new();
+    let result = import_all(
+        &target.db,
+        &data,
+        &cc_use_lib::models::ImportOptions { overwrite: false },
+    )
+    .unwrap();
+    assert!(
+        result.errors.is_empty(),
+        "import errors: {:?}",
+        result.errors
+    );
+
+    let providers = target.db.provider_list().unwrap();
+    assert_eq!(providers.len(), 1);
+    // The preset is the blank one (`account`); the file said `key`, which is
+    // preserved rather than re-derived.
+    assert_eq!(providers[0].preset_id, "custom");
+    assert_eq!(providers[0].query_scope, "key");
+    assert_eq!(providers[0].wallet_balance_script, None);
 }

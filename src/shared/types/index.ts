@@ -287,6 +287,12 @@ export interface Provider {
   requestHeaders: string | null
   /** Query switch + scheme. Null on pre-config rows (script shows the intent). */
   queryConfig: QueryConfig | null
+  /**
+   * Which scope this provider's quota belongs to. `account` queries the
+   * service account and owns the account query UI; `key` means the quota is
+   * per API key, so the provider level exposes no account query at all.
+   */
+  queryScope: QueryScope
 }
 
 /**
@@ -322,6 +328,11 @@ export interface ProviderPreset {
   requiresSiteAddress: boolean
   /** Balance / quota queries need an account credential separate from the key. */
   needsAccountCredential: boolean
+  /**
+   * The scope a provider created from this template starts with. `key` means
+   * the service meters each key, so the template carries no account query.
+   */
+  queryScope: QueryScope
   walletBalanceType: Provider['walletBalanceType']
   /**
    * The request the balance query sends, complete with its headers: the
@@ -362,7 +373,7 @@ export interface QuerySchemeInfo {
   /** i18n key for one line naming the endpoint and the credential. */
   descriptionKey: string
   credentialRequirements: ('apiKey' | 'accessToken' | 'userId')[]
-  /** Whether the service reports metering periods. Account schemes only. */
+  /** Whether the scheme reports metering periods, on either scope. */
   supportsWindows: boolean
   /** The whole script the scheme runs; stored verbatim when saved. */
   script: string

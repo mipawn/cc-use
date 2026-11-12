@@ -7,8 +7,8 @@
  * provider or a key is: callers pass the current `value` (`enabled` /
  * `schemeId` / `script`), receive `onChange` on every user action, and supply
  * `onDraftTest` so the credentials and the address of a draft test stay with
- * the opening modal. `scope` alone decides the scheme catalogue, the test
- * inputs and what a result may show.
+ * the opening modal. `scope` decides the scheme catalogue and the test inputs;
+ * a result renders whatever the answer actually reports, on either scope.
  *
  * User decisions drive everything (D3): opening a modal, prefilling text or
  * recognising a stored script never flips the switch — only the switch itself
@@ -314,24 +314,27 @@ export default function QuerySettingsSection({
       {result !== null && failureMessage === null && result.usage !== null && (
         <div className={styles.result} role='status'>
           <Text>{t('querySchemes.testSuccess')}</Text>
-          <div className={styles.resultRow}>
-            <Text type='secondary'>{t('querySchemes.resultRemaining')}</Text>
-            <Text strong>
-              {result.usage.isUnlimited
-                ? '∞'
-                : formatAccountAmount(result.usage.remaining, result.usage.unit)}
-            </Text>
-          </div>
+          {/* The remaining row only exists when the answer reports an amount:
+              a windows-only answer is a success, not a fabricated zero or —. */}
+          {(result.usage.isUnlimited || result.usage.remaining != null) && (
+            <div className={styles.resultRow}>
+              <Text type='secondary'>{t('querySchemes.resultRemaining')}</Text>
+              <Text strong>
+                {result.usage.isUnlimited
+                  ? '∞'
+                  : formatAccountAmount(result.usage.remaining, result.usage.unit)}
+              </Text>
+            </div>
+          )}
           {result.usage.expireAt && (
             <div className={styles.resultRow}>
               <Text type='secondary'>{t('querySchemes.resultExpireAt')}</Text>
               <Text>{dayjs(result.usage.expireAt).format('YYYY-MM-DD HH:mm')}</Text>
             </div>
           )}
-          {/* Metering periods belong to the account question only. The key
-              scope strips them server-side; nothing about them is rendered even
-              if a rogue answer carried them (D1). */}
-          {scope === 'account' && (
+          {/* Metering periods are what the answer carries — the key scope keeps
+              them now, so nothing about the result is scope-specific. */}
+          {((result.usage.windows?.length ?? 0) > 0 || (result.usage.groups?.length ?? 0) > 0) && (
             <ProviderUsageWindows
               windows={result.usage.windows ?? []}
               groups={result.usage.groups ?? []}

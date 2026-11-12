@@ -28,6 +28,10 @@ These screenshots show the current UI using demo data.
 | :-----------------------------------------------: | :---------------------------------------------------------: |
 | ![Settings](./screenshots/workspace-settings.png) | ![Running Instances](./screenshots/workspace-instances.png) |
 
+**Key quota** — every key asks for its own remaining quota and 5-hour / weekly / monthly usage.
+
+![Key quota](./screenshots/workspace-key-quota.png)
+
 ## Features
 
 - **Provider & Key Management** - Manage providers and API keys on the unified Keys page; each key can target Claude Code, Grok Build, Codex Desktop, and Claude Desktop, with priority ordering, balance/usage queries, and model mapping

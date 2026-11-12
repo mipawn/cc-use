@@ -67,12 +67,6 @@ const NEWAPI_SCRIPT = `({
   extractor: function (response) { return { remaining: response.data.quota / 500000 } }
 })`
 
-const GO_SCRIPT = `({
-  request: { url: "{{baseUrl}}/v1/usage", method: "GET",
-             headers: { Authorization: "Bearer {{apiKey}}" } },
-  extractor: function (response) { return { windows: response.windows } }
-})`
-
 /** The account schemes the section picks from; scripts are the saved truth. */
 const accountSchemes: QuerySchemeInfo[] = [
   {
@@ -93,15 +87,6 @@ const accountSchemes: QuerySchemeInfo[] = [
     supportsWindows: false,
     script: NEWAPI_SCRIPT,
   },
-  {
-    id: 'opencode-go-account',
-    scope: 'account',
-    labelKey: 'querySchemes.openCodeGoAccount',
-    descriptionKey: 'querySchemes.openCodeGoAccountDescription',
-    credentialRequirements: ['apiKey'],
-    supportsWindows: true,
-    script: GO_SCRIPT,
-  },
 ]
 
 const deepseek: ProviderPreset = {
@@ -111,6 +96,7 @@ const deepseek: ProviderPreset = {
   icon: 'deepseek',
   requiresSiteAddress: false,
   needsAccountCredential: false,
+  queryScope: 'account',
   walletBalanceType: 'deepseek',
   walletBalanceUrl: 'https://api.deepseek.com/user/balance',
   walletBalanceHeaders: '{"Authorization": "Bearer {key}"}',
@@ -133,6 +119,7 @@ const custom: ProviderPreset = {
   icon: 'custom',
   requiresSiteAddress: false,
   needsAccountCredential: false,
+  queryScope: 'account',
   walletBalanceType: 'none',
   walletBalanceUrl: null,
   walletBalanceHeaders: null,
@@ -151,6 +138,7 @@ const newapi: ProviderPreset = {
   icon: 'newapi',
   requiresSiteAddress: true,
   needsAccountCredential: true,
+  queryScope: 'account',
   walletBalanceType: 'newapi',
   walletBalanceUrl: '{baseUrl}/api/user/self',
   walletBalanceHeaders: '{"Authorization": "{token}", "New-Api-User": "{userId}"}',
@@ -158,6 +146,26 @@ const newapi: ProviderPreset = {
   usageUrl: null,
   usageHeaders: null,
   walletBalanceScript: NEWAPI_SCRIPT,
+  requestAdapter: 'none',
+  defaultKeyConfig: { types: ['claude_code'] },
+}
+
+/** A per-key template: it ships no account query and hides the account block. */
+const opencodeGo: ProviderPreset = {
+  id: 'opencode-go',
+  defaultName: 'OpenCode Go',
+  baseUrl: 'https://opencode.ai/zen/go',
+  icon: 'claude',
+  requiresSiteAddress: false,
+  needsAccountCredential: false,
+  queryScope: 'key',
+  walletBalanceType: 'none',
+  walletBalanceUrl: null,
+  walletBalanceHeaders: null,
+  usageType: 'none',
+  usageUrl: null,
+  usageHeaders: null,
+  walletBalanceScript: null,
   requestAdapter: 'none',
   defaultKeyConfig: { types: ['claude_code'] },
 }
@@ -365,6 +373,7 @@ function providerFixture(overrides: Partial<Provider> = {}): Provider {
     walletBalanceScript: null,
     requestHeaders: null,
     queryConfig: null,
+    queryScope: 'account',
     ...overrides,
   }
 }
@@ -748,12 +757,12 @@ it('picking a scheme writes the scheme script and leaves every other field alone
     requestHeaders: '{"X-Keep": "1"}',
   })
   const onSave = await render(provider)
-  await chooseScheme('querySchemes.openCodeGoAccount')
+  await chooseScheme('querySchemes.newApiAccount')
   await submit()
 
   const saved = onSave.mock.calls[0][0]
-  expect(saved.walletBalanceScript).toBe(GO_SCRIPT)
-  expect(saved.queryConfig).toEqual({ enabled: true, schemeId: 'opencode-go-account' })
+  expect(saved.walletBalanceScript).toBe(NEWAPI_SCRIPT)
+  expect(saved.queryConfig).toEqual({ enabled: true, schemeId: 'newapi-account' })
   // Query work never touches the rest of the provider (A7).
   expect(saved.name).toBe(provider.name)
   expect(saved.baseUrl).toBe(provider.baseUrl)
@@ -799,4 +808,56 @@ it('runs the draft test against the current provider draft and shows the answer'
   expect(input.apiKey).toBeUndefined()
   expect(document.body.textContent).toContain('querySchemes.testSuccess')
   expect(document.body.textContent).toContain('$10.00')
+})
+
+it('hides the account query for a per-key template and points at the key cards', async () => {
+  presets.mockResolvedValue([custom, opencodeGo])
+  await render(null)
+
+  await clickPreset(1) // opencode-go: the quota is asked per key
+
+  expect(document.body.textContent).toContain('providers.keyScopeQueryHint')
+  // No switch, no scheme select, no account credentials: the section is gone.
+  expect(document.body.querySelector('[role="switch"]')).toBeNull()
+  expect(document.body.querySelector('.ant-select input[role="combobox"]')).toBeNull()
+  expect(document.body.querySelector('input#token')).toBeNull()
+  expect(document.body.querySelector('input#walletBalanceUserId')).toBeNull()
+})
+
+it('updates account query availability when the template changes', async () => {
+  presets.mockResolvedValue([custom, deepseek, opencodeGo])
+  await render(null)
+
+  await clickPreset(1) // deepseek: account scope, the section is offered
+  expect(document.body.querySelector('[role="switch"]')).not.toBeNull()
+  expect(document.body.textContent).not.toContain('providers.keyScopeQueryHint')
+
+  await clickPreset(2) // opencode-go: per key, the section is withdrawn
+  expect(document.body.querySelector('[role="switch"]')).toBeNull()
+  expect(document.body.textContent).toContain('providers.keyScopeQueryHint')
+
+  await clickPreset(1) // and back again
+  expect(document.body.querySelector('[role="switch"]')).not.toBeNull()
+})
+
+it('leaves the hidden account query of an edited per-key provider untouched', async () => {
+  const onSave = await render(
+    providerFixture({
+      queryScope: 'key',
+      walletBalanceScript: '({})',
+      queryConfig: { enabled: true, schemeId: 'custom' },
+    }),
+  )
+
+  // The stored account query is not rendered (and not evaluated); saving the
+  // provider must not clear it either.
+  expect(document.body.textContent).toContain('providers.keyScopeQueryHint')
+  expect(document.body.querySelector('[role="switch"]')).toBeNull()
+  await submit()
+
+  const saved = onSave.mock.calls[0][0]
+  expect(saved.walletBalanceScript).toBeUndefined()
+  expect(saved.queryConfig).toBeUndefined()
+  expect(saved.walletBalanceType).toBeUndefined()
+  expect(checkScript).not.toHaveBeenCalled()
 })

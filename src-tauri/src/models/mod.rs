@@ -40,6 +40,12 @@ pub struct Provider {
     /// configuration rather than re-derived from this id.
     #[serde(default = "crate::shared_runtime::default_preset_id")]
     pub preset_id: String,
+    /// v3.19.0: which scope this provider's quota is asked in. `account` is the
+    /// provider-level account query; `key` means the quota belongs to each API
+    /// key (one key is one account) and every key opts into its own scheme.
+    /// Derived from the creation preset and preserved on update.
+    #[serde(default = "crate::shared_runtime::default_query_scope_string")]
+    pub query_scope: String,
     /// v3.10.0: the configuration a new key for this provider inherits.
     #[serde(default)]
     pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
@@ -919,6 +925,10 @@ pub struct ExportProvider {
     /// export from a newer build round-trips instead of being flattened.
     #[serde(default)]
     pub preset_id: Option<String>,
+    /// v3.19.0: which scope the provider's quota is asked in. Absent in older
+    /// exports, where the account scope was the only one.
+    #[serde(default)]
+    pub query_scope: Option<String>,
     /// v3.10.0: defaults a new key inherits. Never contains an inference key.
     #[serde(default)]
     pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,

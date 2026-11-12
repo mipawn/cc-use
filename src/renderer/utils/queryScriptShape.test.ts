@@ -6,9 +6,13 @@ describe('account-shaped query scripts', () => {
     expect(isAccountShapedScript('{{baseUrl}}/api/user/self')).toBe(true)
     expect(isAccountShapedScript('GET {{baseUrl}}/api/user/balance')).toBe(true)
     expect(isAccountShapedScript('https://api.deepseek.com/user/balance')).toBe(true)
+  })
+
+  it('leaves command-code endpoints alone: they are legitimate per-key targets', () => {
     expect(isAccountShapedScript('https://api.commandcode.ai/alpha/billing/subscriptions')).toBe(
-      true,
+      false,
     )
+    expect(isAccountShapedScript('https://api.commandcode.ai/alpha/billing/usage')).toBe(false)
   })
 
   it('is case-insensitive and tolerant of surrounding whitespace', () => {

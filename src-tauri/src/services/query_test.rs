@@ -10,7 +10,8 @@
 //! The scope boundary from the runtime applies here, and deliberately more
 //! strictly: a key-scope draft answers with the one credential the editor
 //! holds, and cannot use `providerId` to fetch account credentials into a
-//! per-key answer.
+//! per-key answer. Windows are kept in both scopes — they are part of a
+//! metering service's answer, not an account-only decoration.
 
 use crate::models::{Provider, QueryTestInput, QueryTestResult, UsageData};
 use crate::services::balance_service;
@@ -138,38 +139,38 @@ where
                 data: if error.is_some() {
                     None
                 } else {
-                    Some(UsageData {
-                        total: usage.total,
-                        used: usage.used,
-                        remaining: usage.remaining,
-                        unit: usage.unit.clone(),
-                        is_unlimited: usage.is_unlimited,
-                        expire_at: usage.expire_at.clone(),
-                        windows: usage.windows.iter().cloned().map(usage_window).collect(),
-                        groups: Vec::new(),
-                    })
+                    Some(usage_data(&usage))
                 },
                 error,
             })
         }
         Scope::Key => {
-            // The same stripping the saved refresh runs: a draft is a per-key
-            // answer, never an account reading wearing a different label.
-            let stripped = usage_service::strip_to_key_usage(usage)?;
+            // The same reporting rule the saved refresh runs, windows
+            // included: a per-key metering answer is a real answer.
+            let finalized = usage_service::finalize_key_usage(usage)?;
             Ok(DraftAnswer {
-                data: Some(UsageData {
-                    total: stripped.total,
-                    used: stripped.used,
-                    remaining: stripped.remaining,
-                    unit: stripped.unit,
-                    is_unlimited: stripped.is_unlimited,
-                    expire_at: stripped.expire_at,
-                    windows: Vec::new(),
-                    groups: Vec::new(),
-                }),
+                data: Some(usage_data(&finalized)),
                 error: None,
             })
         }
+    }
+}
+
+/// The IPC usage shape both scopes return.
+///
+/// Windows are mapped with the label falling back to the id, so a period this
+/// build has no name for is still renderable and the stored shape still parses
+/// as `UsageData`. Groups stay empty: neither scope reports per-group windows.
+fn usage_data(usage: &AccountUsage) -> UsageData {
+    UsageData {
+        total: usage.total,
+        used: usage.used,
+        remaining: usage.remaining,
+        unit: usage.unit.clone(),
+        is_unlimited: usage.is_unlimited,
+        expire_at: usage.expire_at.clone(),
+        windows: usage.windows.iter().cloned().map(usage_window).collect(),
+        groups: Vec::new(),
     }
 }
 
@@ -379,9 +380,11 @@ mod tests {
     #[tokio::test]
     async fn a_key_draft_pointing_at_account_endpoints_is_refused_before_sending() {
         for script in [
-            account_scripts::command_code_script().to_string(),
             account_scripts::script_for(
-                account_scripts::for_legacy_kind("newapi").expect("account script"),
+                account_scripts::for_legacy_kind("deepseek").expect("deepseek script"),
+            ),
+            account_scripts::script_for(
+                account_scripts::for_legacy_kind("newapi").expect("newapi account script"),
             ),
         ] {
             let mut key_input = input("key", &script);
@@ -399,6 +402,84 @@ mod tests {
                 Some(query_schemes::KEY_QUERY_ACCOUNT_TARGET_MESSAGE)
             );
         }
+    }
+
+    /// The Command Code script is a key-scope answer now: it passes both key
+    /// guards and, with the fake transport, reports its credits balance plus
+    /// the metering windows — the draft keeps them.
+    #[tokio::test]
+    async fn a_key_draft_with_the_command_code_script_keeps_the_balance_and_windows() {
+        let script = query_schemes::scheme_script(query_schemes::SCHEME_COMMAND_CODE_KEY)
+            .expect("shipped key script");
+        let mut key_input = input("key", &script);
+        // The shipped script addresses Command Code's own origin directly, so
+        // the draft's address has to be that origin (as the preset's is).
+        key_input.base_url = "https://api.commandcode.ai/provider".to_string();
+        key_input.api_key = Some("sk-live".to_string());
+
+        let result = run_draft_query_test(&key_input, None, |request: ScriptRequest| {
+            Box::pin(async move {
+                if request.url.ends_with("/alpha/billing/credits") {
+                    Ok(serde_json::json!({
+                        "credits": {
+                            "monthlyCredits": 10,
+                            "purchasedCredits": 2,
+                            "freeCredits": 1
+                        },
+                        "windowLimits": {
+                            "fiveHour": { "cap": 100, "used": 20 },
+                            "weekly": { "cap": 500, "used": 100 }
+                        }
+                    }))
+                } else {
+                    // The two optional requests may be unavailable; the
+                    // extractor reports the monthly row with a missing
+                    // percentage instead of failing the whole answer.
+                    Err("optional request unavailable".to_string())
+                }
+            }) as SentFuture
+        })
+        .await
+        .expect("a domain answer");
+
+        assert_eq!(result.error, None);
+        assert!(result.is_valid);
+        let usage = result.usage.expect("usage");
+        assert_eq!(usage.remaining, Some(13.0));
+        assert_eq!(usage.unit.as_deref(), Some("credits"));
+        let ids: Vec<&str> = usage.windows.iter().map(|w| w.id.as_str()).collect();
+        assert_eq!(ids, ["rolling", "weekly", "monthly"]);
+        // A period the script named no label for stays readable.
+        assert_eq!(usage.windows[0].label, "rolling");
+        assert_eq!(usage.windows[2].label, "monthly");
+        assert_eq!(usage.windows[2].used_percent, None);
+    }
+
+    /// A window-only per-key answer is valid and keeps its windows.
+    #[tokio::test]
+    async fn a_key_answer_with_windows_keeps_its_windows() {
+        let script = "({request:{url:'{{baseUrl}}/v1/usage',headers:{Authorization:'Bearer {{apiKey}}'}},extractor:function(r){return {windows:r.usage}}})";
+        let mut key_input = input("key", script);
+        key_input.api_key = Some("sk-live".to_string());
+
+        let result = run_draft_query_test(&key_input, None, |_request: ScriptRequest| {
+            Box::pin(async move {
+                Ok(serde_json::json!({
+                    "usage": [
+                        { "id": "rolling_5h", "label": "5h", "usedPercent": 30.0 }
+                    ]
+                }))
+            }) as SentFuture
+        })
+        .await
+        .expect("a domain answer");
+
+        assert_eq!(result.error, None);
+        let usage = result.usage.expect("usage");
+        assert_eq!(usage.remaining, None);
+        assert_eq!(usage.windows.len(), 1);
+        assert_eq!(usage.windows[0].id, "rolling_5h");
+        assert_eq!(usage.windows[0].label, "5h");
     }
 
     #[tokio::test]

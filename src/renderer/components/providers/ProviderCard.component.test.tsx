@@ -85,6 +85,7 @@ async function renderCard(options: FixtureOptions = {}) {
     cachedWalletBalanceCurrency: options.currency ?? null,
     lastUsageCheckedAt: options.lastUsageCheckedAt ?? null,
     lastBalanceCheckedAt: options.lastBalanceCheckedAt ?? null,
+    queryScope: 'account',
   } as unknown as Provider
   await act(async () =>
     root.render(

@@ -45,6 +45,10 @@ const DEEPSEEK_TEXT = `({
   request: { url: "https://api.deepseek.com/user/balance", method: "GET" },
   extractor: function (response) { return { remaining: response.balance } }
 })`
+const NEWAPI_TEXT = `({
+  request: { url: "{{baseUrl}}/api/user/self", method: "GET" },
+  extractor: function (response) { return { remaining: response.data.quota / 500000 } }
+})`
 const GO_TEXT = `({
   request: { url: "{{baseUrl}}/v1/usage", method: "GET" },
   extractor: function (response) { return { windows: response.windows } }
@@ -52,6 +56,11 @@ const GO_TEXT = `({
 const KEY_TEXT = `({
   request: { url: "{{baseUrl}}/api/usage/token/", method: "GET" },
   extractor: function (response) { return { remaining: response.quota / 500000 } }
+})`
+const COMMAND_CODE_TEXT = `({
+  request: { url: "https://api.commandcode.ai/alpha/billing/usage", method: "GET",
+             headers: { Authorization: "Bearer {{apiKey}}" } },
+  extractor: function (response) { return { windows: response.windows } }
 })`
 
 const accountSchemes: QuerySchemeInfo[] = [
@@ -65,13 +74,13 @@ const accountSchemes: QuerySchemeInfo[] = [
     script: DEEPSEEK_TEXT,
   },
   {
-    id: 'opencode-go-account',
+    id: 'newapi-account',
     scope: 'account',
-    labelKey: 'querySchemes.openCodeGoAccount',
-    descriptionKey: 'querySchemes.openCodeGoAccountDescription',
-    credentialRequirements: ['accessToken'],
-    supportsWindows: true,
-    script: GO_TEXT,
+    labelKey: 'querySchemes.newApiAccount',
+    descriptionKey: 'querySchemes.newApiAccountDescription',
+    credentialRequirements: ['accessToken', 'userId'],
+    supportsWindows: false,
+    script: NEWAPI_TEXT,
   },
 ]
 
@@ -84,6 +93,24 @@ const keySchemes: QuerySchemeInfo[] = [
     credentialRequirements: ['apiKey'],
     supportsWindows: false,
     script: KEY_TEXT,
+  },
+  {
+    id: 'opencode-go-key',
+    scope: 'key',
+    labelKey: 'querySchemes.openCodeGoKey',
+    descriptionKey: 'querySchemes.openCodeGoKeyDescription',
+    credentialRequirements: ['apiKey'],
+    supportsWindows: true,
+    script: GO_TEXT,
+  },
+  {
+    id: 'command-code-key',
+    scope: 'key',
+    labelKey: 'querySchemes.commandCodeKey',
+    descriptionKey: 'querySchemes.commandCodeKeyDescription',
+    credentialRequirements: ['apiKey'],
+    supportsWindows: true,
+    script: COMMAND_CODE_TEXT,
   },
 ]
 
@@ -355,19 +382,20 @@ it('shows the stored text behind the custom entry when the script is not a schem
 
 it('shows scheme capabilities and credentials for the selected scheme', async () => {
   await renderSection(
-    { enabled: true, schemeId: 'opencode-go-account', script: GO_TEXT },
-    { scope: 'account' },
+    { enabled: true, schemeId: 'opencode-go-key', script: GO_TEXT },
+    { scope: 'key' },
   )
 
   expect(document.body.textContent).toContain('querySchemes.capabilityWindows')
-  expect(document.body.textContent).toContain('querySchemes.credentialAccessToken')
+  expect(document.body.textContent).toContain('querySchemes.credentialApiKey')
 })
 
-it('does not render metering periods or capability tags in the key scope', async () => {
+it('tags a scheme by its own window capability, not by the scope', async () => {
   await renderSection({ enabled: true, schemeId: 'newapi-key', script: KEY_TEXT }, { scope: 'key' })
 
+  // A key scheme may still be amount-only; the tag follows supportsWindows.
+  expect(document.body.textContent).toContain('querySchemes.capabilityAmount')
   expect(document.body.textContent).not.toContain('querySchemes.capabilityWindows')
-  expect(document.body.querySelector('[class*="windows"]')).toBeNull()
 })
 
 it('renders no scheme description line: the scheme choice is self-named', async () => {
@@ -460,7 +488,7 @@ it('renders a failure as a failure and never as a number', async () => {
   expect(document.body.textContent).not.toContain('querySchemes.testSuccess')
 })
 
-it('renders missing amounts as — and unlimited as ∞, never as zero', async () => {
+it('renders unlimited as ∞ and omits an amount the answer never reported', async () => {
   let call = 0
   const onDraftTest: HarnessOptions['onDraftTest'] = vi.fn(async () => {
     call += 1
@@ -468,7 +496,8 @@ it('renders missing amounts as — and unlimited as ∞, never as zero', async (
       isValid: true,
       usage:
         call === 1
-          ? // No remaining field at all: the renderer must not invent a zero.
+          ? // No remaining field at all: the renderer must not invent a zero,
+            // and there is no amount row to print a dash from.
             { unit: 'USD', isUnlimited: false }
           : { unit: 'USD', isUnlimited: true },
     })
@@ -479,7 +508,9 @@ it('renders missing amounts as — and unlimited as ∞, never as zero', async (
   )
 
   await runTest()
-  expect(successPanel()?.textContent).toContain('—')
+  expect(successPanel()).toBeDefined()
+  expect(successPanel()?.textContent).not.toContain('querySchemes.resultRemaining')
+  expect(successPanel()?.textContent).not.toContain('—')
   expect(document.body.textContent).not.toContain('$0.00')
 
   await runTest()
@@ -512,7 +543,7 @@ it('shows the expiry time the answer carries', async () => {
   )
 })
 
-it('renders account metering periods but never in the key scope', async () => {
+it('renders the metering periods an answer carries, on either scope', async () => {
   const usage = {
     remaining: 4,
     unit: 'USD',
@@ -529,14 +560,44 @@ it('renders account metering periods but never in the key scope', async () => {
   await runTest()
   expect(document.body.querySelectorAll('[role="progressbar"]').length).toBeGreaterThan(0)
 
+  // The key scope keeps windows now: a key answer may be metering periods too.
   await renderSection(
     { enabled: true, schemeId: 'custom', script: KEY_TEXT },
     {
       scope: 'key',
-      // A rogue key-side answer carrying windows must stay invisible too.
       onDraftTest: async () => asResult({ scope: 'key', usage, isValid: true }),
     },
   )
   await runTest()
-  expect(document.body.querySelectorAll('[role="progressbar"]')).toHaveLength(0)
+  expect(document.body.querySelectorAll('[role="progressbar"]').length).toBeGreaterThan(0)
+  expect(successPanel()?.textContent).toContain('$4.00')
+})
+
+it('renders a key-scope window-only answer as a success with every period', async () => {
+  const usage = {
+    windows: ['rolling', 'weekly', 'monthly'].map((id) => ({
+      id,
+      label: id,
+      usedPercent: 42,
+      resetsAt: null,
+      status: 'ok',
+    })),
+  }
+  await renderSection(
+    { enabled: true, schemeId: 'command-code-key', script: COMMAND_CODE_TEXT },
+    {
+      scope: 'key',
+      onDraftTest: async () => asResult({ scope: 'key', usage, isValid: true }),
+    },
+  )
+  await runTest()
+
+  // Windows only: a success with periods, no fabricated amount row.
+  expect(successPanel()).toBeDefined()
+  expect(document.body.querySelectorAll('[role="progressbar"]')).toHaveLength(3)
+  expect(successPanel()?.textContent).toContain('providers.periodRolling')
+  expect(successPanel()?.textContent).toContain('providers.periodWeekly')
+  expect(successPanel()?.textContent).toContain('providers.periodMonthly')
+  expect(successPanel()?.textContent).not.toContain('querySchemes.resultRemaining')
+  expect(document.body.textContent).not.toContain('$0.00')
 })

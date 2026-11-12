@@ -21,6 +21,7 @@ pub mod projects;
 pub mod provider_model_catalogs;
 pub mod providers;
 pub mod proxy_sessions;
+mod quota_scope_upgrade;
 pub mod request_logs;
 pub mod settings;
 pub mod usage_logs;
@@ -174,6 +175,9 @@ impl Database {
                 -- v3.10.0: which template this account started from, and the
                 -- full configuration a new key for it inherits.
                 preset_id TEXT NOT NULL DEFAULT 'custom',
+                -- v3.19.0: which scope the quota is asked in — `account` for a
+                -- provider-level query, `key` when each API key carries its own.
+                query_scope TEXT NOT NULL DEFAULT 'account',
                 default_key_config TEXT,
                 -- v3.11.0: the account query — request and reader in one
                 -- editable script. Empty means no account query configured.
@@ -374,6 +378,9 @@ impl Database {
         // The shipped Command Code template read windowLimits from the wrong
         // nesting; rescue untouched copies of it once.
         self.upgrade_command_code_scripts()?;
+        // OpenCode Go and Command Code moved their quota to the key scope: mark
+        // the providers that used the old account query and clear its columns.
+        self.upgrade_quota_scope()?;
         self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
 
         Ok(())
@@ -632,6 +639,9 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN wallet_balance_headers TEXT",
             // v3.10.0: template origin and the per-provider key defaults.
             "ALTER TABLE providers ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'custom'",
+            // v3.19.0: the quota scope, so a key-scoped provider never reopens
+            // with an account query block.
+            "ALTER TABLE providers ADD COLUMN query_scope TEXT NOT NULL DEFAULT 'account'",
             "ALTER TABLE providers ADD COLUMN default_key_config TEXT",
             "ALTER TABLE providers ADD COLUMN cached_wallet_balance_currency TEXT",
             "ALTER TABLE providers ADD COLUMN request_adapter TEXT NOT NULL DEFAULT 'none'",
@@ -1107,6 +1117,7 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         for column in [
             "preset_id",
+            "query_scope",
             "default_key_config",
             "wallet_balance_type",
             "wallet_balance_url",
@@ -1131,6 +1142,7 @@ mod tests {
             .collect();
         for column in [
             "preset_id",
+            "query_scope",
             "default_key_config",
             "wallet_balance_type",
             "wallet_balance_url",

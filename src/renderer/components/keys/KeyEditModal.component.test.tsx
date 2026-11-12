@@ -163,6 +163,7 @@ const presetProvider: Provider = {
     isActive: true,
     sortOrder: 0,
     presetId: 'opencode-go',
+    queryScope: 'key',
   } as Provider),
   defaultKeyConfig: {
     types: ['claude_code', 'codex'],
@@ -205,6 +206,7 @@ const deepseekProvider: Provider = {
   walletBalanceScript: null,
   requestHeaders: null,
   queryConfig: null,
+  queryScope: 'account',
 }
 
 function sourceKey(): ApiKey {
@@ -546,6 +548,24 @@ it('explains a legacy account-shaped script and keeps the original text', async 
   await submit()
 
   expect(onSave.mock.calls[0][0].usageScript).toBe(accountScript)
+  expect(onSave.mock.calls[0][0].queryConfig).toEqual({ enabled: true, schemeId: 'custom' })
+})
+
+it('does not flag a command-code script: it is a legitimate per-key target', async () => {
+  const commandCodeScript =
+    '({ request: { url: "https://api.commandcode.ai/alpha/billing/usage" }, extractor: () => ({ windows: [] }) })'
+  const onSave = await render('edit', { ...sourceKey(), usageScript: commandCodeScript })
+
+  // Command Code endpoints are per-key targets now, not account queries.
+  expect(document.body.textContent).not.toContain('keys.legacyAccountScriptHint')
+  await clickButton('querySchemes.customize')
+  const editor = document.body.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="querySchemes.customScriptLabel"]',
+  )
+  expect(editor?.value).toBe(commandCodeScript)
+  await submit()
+
+  expect(onSave.mock.calls[0][0].usageScript).toBe(commandCodeScript)
   expect(onSave.mock.calls[0][0].queryConfig).toEqual({ enabled: true, schemeId: 'custom' })
 })
 

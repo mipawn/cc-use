@@ -563,6 +563,7 @@ export default {
       deepseek: 'DeepSeek',
       newapi: 'New API',
       'opencode-go': 'OpenCode Go',
+      'command-code': 'Command Code',
     },
     accountQuery: 'Account balance and usage',
     accountQuerySection: 'Account balance and usage',
@@ -597,6 +598,8 @@ export default {
     queryUpdated: 'Quota updated',
     configureQuery: 'Set up query',
     queryNow: 'Check quota',
+    keyScopeQueryHint:
+      'This provider meters quota per API key. Pick a scheme for each key under Key Quota.',
     queryNotChecked: 'Quota not checked yet',
     usageStatus: {
       exceeded: 'Exceeded',
@@ -636,8 +639,12 @@ export default {
   querySchemes: {
     deepseekAccount: 'DeepSeek account balance',
     newApiAccount: 'New API account quota',
-    openCodeGo: 'OpenCode Go usage',
-    commandCodeAccount: 'Command Code account usage',
+    openCodeGoKey: 'OpenCode Go key quota',
+    commandCodeKey: 'Command Code key quota',
+    openCodeGoKeyDescription:
+      'Uses this key to read OpenCode Go remaining quota and its 5-hour / weekly / monthly usage',
+    commandCodeKeyDescription:
+      'Uses this key to read Command Code remaining quota and metering periods',
     newApiKey: 'New API key quota',
     enabledLabel: 'Enable quota query',
     schemePlaceholder: 'Choose a query scheme',

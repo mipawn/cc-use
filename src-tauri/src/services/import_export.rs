@@ -79,6 +79,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                     None
                 },
                 preset_id: Some(provider.preset_id),
+                query_scope: Some(provider.query_scope),
                 default_key_config: provider.default_key_config,
                 request_adapter: Some(provider.request_adapter),
                 query_config: provider.query_config,
@@ -156,12 +157,25 @@ pub fn import_all(
                 .default_key_config
                 .as_ref()
                 .and_then(crate::shared_runtime::serialize_default_key_config);
+            // An export from this build carries the scope; an older one does
+            // not, in which case the preset origin decides it (the same rule
+            // `provider_create` applies).
+            let query_scope = ep
+                .query_scope
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    crate::shared_runtime::query_scope_for_preset(Some(preset_id)).to_string()
+                });
             if let Err(e) = db.conn.execute(
                 "INSERT OR REPLACE INTO providers (id, name, base_url, http_proxy, website, remark, token, icon,
                     wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                     wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
-                    preset_id, default_key_config, request_adapter, wallet_balance_script, request_headers)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20)",
+                    preset_id, default_key_config, request_adapter, wallet_balance_script, request_headers,
+                    query_scope)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20, ?21)",
                 rusqlite::params![
                     ep.id,
                     ep.name,
@@ -187,6 +201,7 @@ pub fn import_all(
                     ),
                     ep.wallet_balance_script,
                     ep.request_headers,
+                    query_scope,
                 ],
             ) {
                 errors.push(format!("Failed to import {}: {}", ep.name, e));
@@ -250,6 +265,25 @@ pub fn import_all(
                 query_config: ep.query_config.clone(),
             }) {
                 Ok(provider) => {
+                    // `provider_create` derives the scope from the preset; an
+                    // export that names one explicitly keeps it, even when the
+                    // preset is unknown or absent.
+                    if let Some(scope) = ep
+                        .query_scope
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        if let Err(e) = db.conn.execute(
+                            "UPDATE providers SET query_scope = ?1 WHERE id = ?2",
+                            rusqlite::params![scope, provider.id],
+                        ) {
+                            errors.push(format!(
+                                "Failed to restore the query scope for {}: {}",
+                                ep.name, e
+                            ));
+                        }
+                    }
                     for ek in &ep.api_keys {
                         if ek.value.is_empty() {
                             continue;

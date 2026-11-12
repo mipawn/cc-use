@@ -160,6 +160,7 @@ const provider = (overrides: Partial<Provider> = {}): Provider =>
     requestAdapter: 'none',
     walletBalanceScript: null,
     requestHeaders: null,
+    queryScope: 'account',
     ...overrides,
   }) as Provider
 

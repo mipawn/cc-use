@@ -484,3 +484,143 @@ fn provider_reorder_sequence() {
     assert_eq!(all[1].id, p3.id);
     assert_eq!(all[2].id, p2.id);
 }
+
+/// The quota scope is derived from the preset on create and preserved on
+/// update: it is an origin property, not an edit the form exposes.
+#[test]
+fn provider_query_scope_is_derived_from_the_preset_at_creation() {
+    let fixture = TempDb::new();
+
+    let create = |name: &str, preset: Option<&str>| {
+        fixture
+            .db
+            .provider_create(&CreateProviderInput {
+                query_config: None,
+                request_headers: None,
+                wallet_balance_script: None,
+                name: name.to_string(),
+                base_url: "https://example.com".to_string(),
+                http_proxy: None,
+                website: None,
+                remark: None,
+                token: None,
+                icon: None,
+                wallet_balance_type: None,
+                wallet_balance_url: None,
+                wallet_balance_path: None,
+                wallet_balance_headers: None,
+                wallet_balance_user_id: None,
+                usage_type: None,
+                usage_url: None,
+                usage_path: None,
+                usage_headers: None,
+                preset_id: preset.map(str::to_string),
+                default_key_config: None,
+                request_adapter: None,
+            })
+            .expect("create provider")
+    };
+
+    assert_eq!(create("go", Some("opencode-go")).query_scope, "key");
+    assert_eq!(create("cc", Some("command-code")).query_scope, "key");
+    assert_eq!(create("deepseek", Some("deepseek")).query_scope, "account");
+    assert_eq!(create("newapi", Some("newapi")).query_scope, "account");
+    assert_eq!(create("custom", Some("custom")).query_scope, "account");
+    assert_eq!(create("hand-made", None).query_scope, "account");
+    assert_eq!(
+        create("future", Some("from-a-newer-build")).query_scope,
+        "account"
+    );
+
+    // Editing the origin label never changes the scope: the stored value is
+    // kept, exactly like it is not a form field.
+    let provider = create("relabelled", None);
+    assert_eq!(provider.query_scope, "account");
+    let updated = fixture
+        .db
+        .provider_update(&UpdateProviderInput {
+            id: provider.id.clone(),
+            name: None,
+            base_url: None,
+            http_proxy: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            wallet_balance_script: None,
+            request_headers: None,
+            query_config: None,
+            is_active: None,
+            cached_wallet_balance: None,
+            cached_wallet_balance_currency: None,
+            last_balance_checked_at: None,
+            cached_usage: None,
+            last_usage_checked_at: None,
+            preset_id: Some("opencode-go".to_string()),
+            default_key_config: None,
+            request_adapter: None,
+        })
+        .unwrap();
+    assert_eq!(updated.preset_id, "opencode-go");
+    assert_eq!(
+        updated.query_scope, "account",
+        "update keeps the stored scope"
+    );
+}
+
+/// A database that predates the column reads the SQL default, and the ALTER
+/// path is what gives it to existing installs.
+#[test]
+fn an_upgraded_database_defaults_the_scope_to_account() {
+    let fixture = TempDb::new();
+    let provider = create_plain_provider(&fixture, "plain");
+    let scope: String = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT query_scope FROM providers WHERE id = ?1",
+            [&provider.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(scope, "account");
+}
+
+fn create_plain_provider(fixture: &TempDb, name: &str) -> cc_use_lib::models::Provider {
+    fixture
+        .db
+        .provider_create(&CreateProviderInput {
+            query_config: None,
+            request_headers: None,
+            wallet_balance_script: None,
+            name: name.to_string(),
+            base_url: "https://example.com".to_string(),
+            http_proxy: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            preset_id: None,
+            default_key_config: None,
+            request_adapter: None,
+        })
+        .expect("create provider")
+}

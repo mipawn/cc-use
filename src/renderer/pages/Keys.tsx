@@ -2,6 +2,7 @@ import {
   hasKeyQuery,
   hasProviderQuery,
   formatAccountAmount,
+  providerQuotaIsPerKey,
   providerQueryMissingCredential,
 } from '../utils/accountQuery'
 import ProviderUsageWindows from '../components/providers/ProviderUsageWindows'
@@ -167,6 +168,7 @@ export default function Keys() {
 
   // Refreshing states
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
+  const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
 
   // Token stats per key (today and total)
   const [keyTokenStats, setKeyTokenStats] = useState<
@@ -325,6 +327,7 @@ export default function Keys() {
 
   // Handle key usage refresh
   const handleRefreshKeyUsage = async (keyId: string) => {
+    setRefreshingKeyUsageIds((prev) => new Set(prev).add(keyId))
     try {
       const result = await getApi().keyUsage.refresh(keyId)
       if (result.error) {
@@ -338,6 +341,12 @@ export default function Keys() {
       await fetchAllApiKeys(providers.map((p) => p.id))
     } catch (error) {
       message.error(`${t('keys.refreshQuotaFailed')}: ${String(error)}`)
+    } finally {
+      setRefreshingKeyUsageIds((prev) => {
+        const next = new Set(prev)
+        next.delete(keyId)
+        return next
+      })
     }
   }
 
@@ -601,12 +610,14 @@ export default function Keys() {
                             {provider.name}
                           </Text>
                         </div>
-                        {hasProviderQuery(provider) && balance !== undefined && (
-                          <span className={styles.accountAmount}>
-                            <WalletOutlined />
-                            {formatAccountAmount(balance, provider.cachedWalletBalanceCurrency)}
-                          </span>
-                        )}
+                        {!providerQuotaIsPerKey(provider) &&
+                          hasProviderQuery(provider) &&
+                          balance !== undefined && (
+                            <span className={styles.accountAmount}>
+                              <WalletOutlined />
+                              {formatAccountAmount(balance, provider.cachedWalletBalanceCurrency)}
+                            </span>
+                          )}
                         {!provider.isActive && <Tag>{t('common.inactive')}</Tag>}
                         {isOfficialDeepSeekProvider(provider) && <Tag variant='filled'>官方</Tag>}
                         {providerMetrics[provider.name] ? (
@@ -628,7 +639,7 @@ export default function Keys() {
                         ) : null}
                       </div>
                       <Space size={8} wrap>
-                        {!hasProviderQuery(provider) && (
+                        {!providerQuotaIsPerKey(provider) && !hasProviderQuery(provider) && (
                           <Button
                             type='text'
                             size='small'
@@ -637,7 +648,7 @@ export default function Keys() {
                             {t('providers.configureQuery')}
                           </Button>
                         )}
-                        {hasProviderQuery(provider) && (
+                        {!providerQuotaIsPerKey(provider) && hasProviderQuery(provider) && (
                           <Tooltip
                             title={
                               providerQueryMissingCredential(provider, keys)
@@ -722,7 +733,7 @@ export default function Keys() {
                       </Space>
                     </div>
 
-                    {hasProviderQuery(provider) && (
+                    {!providerQuotaIsPerKey(provider) && hasProviderQuery(provider) && (
                       <>
                         {provider.cachedUsage?.windows?.length ||
                         provider.cachedUsage?.groups?.length ? (
@@ -738,20 +749,6 @@ export default function Keys() {
                             <Text type='secondary'>
                               {t(providerQueryMissingCredential(provider, keys)!)}
                             </Text>
-                          </div>
-                        ) : balance === undefined &&
-                          !provider.cachedUsage?.windows?.length &&
-                          !provider.cachedUsage?.groups?.length ? (
-                          <div className={`${styles.providerQuota} ${styles.providerQuotaAction}`}>
-                            <Button
-                              type='link'
-                              size='small'
-                              icon={<ReloadOutlined />}
-                              loading={refreshingIds.has(provider.id)}
-                              onClick={() => handleRefreshBalance(provider.id)}
-                            >
-                              {t('providers.queryNow')}
-                            </Button>
                           </div>
                         ) : null}
                       </>
@@ -800,24 +797,56 @@ export default function Keys() {
 
                         {/* Stats Row */}
                         <div className={styles.statsRow}>
-                          {/* Key Quota - 额度。A passive stat: the value
-                              refreshes when the query config changes on save,
-                              not on click — the account refresh icon stays
-                              the only manual trigger on the cards. */}
+                          {/* Key Quota - 额度. The reload icon is always visible
+                              so the manual refresh is discoverable after the
+                              first answer; clicking the stat (or the icon inside
+                              it) asks the service for this key's own remaining
+                              amount and metering periods again. */}
                           {hasKeyQuery(key) && (
-                            <div className={styles.statItem}>
-                              <DollarOutlined style={{ color: token.colorSuccess }} />
-                              <span className={styles.statValue}>
-                                {key.cachedUsage?.isUnlimited
-                                  ? '∞'
-                                  : key.cachedUsage?.remaining != null
-                                    ? formatAccountAmount(
-                                        key.cachedUsage.remaining,
-                                        key.cachedUsage.unit,
-                                      )
-                                    : t('providers.queryNow')}
-                              </span>
-                            </div>
+                            <Tooltip
+                              title={
+                                <span>
+                                  {t('keys.refreshQuota')}
+                                  <br />
+                                  {t('providers.lastChecked')}:{' '}
+                                  {key.lastUsageCheckedAt
+                                    ? new Date(key.lastUsageCheckedAt).toLocaleString()
+                                    : t('common.never')}
+                                </span>
+                              }
+                            >
+                              <button
+                                type='button'
+                                aria-label={t('keys.refreshQuota')}
+                                disabled={refreshingKeyUsageIds.has(key.id)}
+                                className={`${styles.statItem} ${styles.statItemClickable}`}
+                                onClick={() => handleRefreshKeyUsage(key.id)}
+                              >
+                                <DollarOutlined style={{ color: token.colorSuccess }} />
+                                <span className={styles.statValue}>
+                                  {key.cachedUsage?.isUnlimited
+                                    ? '∞'
+                                    : key.cachedUsage?.remaining != null
+                                      ? formatAccountAmount(
+                                          key.cachedUsage.remaining,
+                                          key.cachedUsage.unit,
+                                        )
+                                      : key.cachedUsage?.windows?.length ||
+                                          key.cachedUsage?.groups?.length
+                                        ? t('querySchemes.capabilityWindows')
+                                        : t('providers.queryNow')}
+                                </span>
+                                <ReloadOutlined
+                                  spin={refreshingKeyUsageIds.has(key.id)}
+                                  aria-hidden='true'
+                                  style={{
+                                    fontSize: 12,
+                                    marginLeft: 4,
+                                    color: token.colorTextTertiary,
+                                  }}
+                                />
+                              </button>
+                            </Tooltip>
                           )}
                           {/* Today's tokens */}
                           <div className={styles.statItem}>
@@ -857,10 +886,18 @@ export default function Keys() {
                           </div>
                         </div>
 
-                        {/* Key scope shows only this key's own quota: metering
-                            periods belong to the account question, and a key
-                            result never contains them (the backend strips
-                            them, so nothing arrives to render). */}
+                        {/* This key's own metering periods: a key-scope answer
+                            may report 5h / weekly / monthly instead of (or in
+                            addition to) an amount. */}
+                        {((key.cachedUsage?.windows?.length ?? 0) > 0 ||
+                          (key.cachedUsage?.groups?.length ?? 0) > 0) && (
+                          <div className={styles.keyQuotaWindows}>
+                            <ProviderUsageWindows
+                              windows={key.cachedUsage?.windows ?? []}
+                              groups={key.cachedUsage?.groups ?? []}
+                            />
+                          </div>
+                        )}
 
                         {/* Actions */}
                         <div className={styles.keyCardActions}>

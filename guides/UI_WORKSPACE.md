@@ -45,6 +45,8 @@
 
 ![供应商分组](../screenshots/workspace-providers.png)
 
+![密钥额度查询](../screenshots/workspace-key-quota.png)
+
 ## 验证范围
 
 发布说明与版本验证见 [v3.12.0](https://github.com/mipawn/cc-use-docs/blob/main/v3.12.0/README.md)。

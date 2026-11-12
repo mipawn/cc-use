@@ -391,10 +391,6 @@
 .providerQuota {
   padding: 14px 16px;
 }
-.providerQuotaAction {
-  display: flex;
-  justify-content: flex-end;
-}
 .providerQuota :global(.ant-progress) {
   margin-bottom: 0;
 }
@@ -441,6 +437,15 @@
 }
 .keyQuota {
   margin-bottom: 16px;
+}
+/* This key's metering periods, under its stats row. The two-per-row card grid
+   leaves roughly half a page per card, so the shared auto-fit grid may drop to
+   one period per row on narrow windows; the spacing stays the same either way. */
+.keyQuotaWindows {
+  margin-bottom: 16px;
+}
+.keyQuotaWindows :global(.ant-progress) {
+  margin-bottom: 0;
 }
 .statItemClickable {
   border: 0;

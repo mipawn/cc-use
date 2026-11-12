@@ -104,6 +104,7 @@ beforeEach(() => {
       baseUrl: 'https://example.com',
       isActive: true,
       walletBalanceScript: null,
+      queryScope: 'account',
     },
   ] as Provider[]
   mocks.keys = [
@@ -226,14 +227,93 @@ it('saves a new provider without querying and explains the missing key', async (
   })
 })
 
-it('renders the empty quota query as a link action with a refresh icon', async () => {
+it('keeps the refresh icon as the only provider-level query trigger', async () => {
   mocks.providers[0].walletBalanceScript = 'enabled'
   await withPage(async (container) => {
-    const action = [...container.querySelectorAll('button')].find(
+    // The duplicated "Check quota" link action is gone; the icon above the
+    // key grid is the single provider-level manual trigger.
+    const queryNowAction = [...container.querySelectorAll('button')].find(
       (button) => button.textContent === 'providers.queryNow',
     )
-    expect(action).toBeTruthy()
-    expect(action!.className).toContain('ant-btn-link')
-    expect(action!.querySelector('.anticon-reload')).not.toBeNull()
+    expect(queryNowAction).toBeUndefined()
+    expect(container.querySelector('[aria-label="providers.refreshBalance"]')).not.toBeNull()
+  })
+})
+
+it('refreshes this key from its clickable quota stat', async () => {
+  mocks.keys[0].usageScript = 'enabled'
+  mocks.keyRefresh.mockImplementation(async () => {
+    mocks.keys[0] = {
+      ...mocks.keys[0],
+      cachedUsage: { remaining: 2, unit: 'USD' } as ApiKey['cachedUsage'],
+    }
+    return { error: null, isValid: true, invalidMessage: null }
+  })
+  await withPage(async (container) => {
+    const stat = container.querySelector<HTMLButtonElement>('[aria-label="keys.refreshQuota"]')
+    expect(stat).not.toBeNull()
+    expect(stat!.tagName).toBe('BUTTON')
+    // The reload icon is visible even before the first answer, so the manual
+    // refresh stays discoverable after a query has rendered a value.
+    expect(stat!.querySelector('.anticon-reload')).not.toBeNull()
+    // The card had no cached answer yet: the stat invites the manual query.
+    expect(stat!.textContent).toContain('providers.queryNow')
+
+    await act(async () => stat!.click())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(mocks.keyRefresh).toHaveBeenCalledWith('key')
+    expect(container.textContent).toContain('$2.00')
+    // The answered card keeps the reload icon: refreshing a rendered value is
+    // still one click away.
+    expect(stat!.querySelector('.anticon-reload')).not.toBeNull()
+  })
+})
+
+it('hides every provider-level account query entry of a per-key provider', async () => {
+  mocks.providers[0] = {
+    ...mocks.providers[0],
+    queryScope: 'key',
+    walletBalanceScript: 'enabled',
+    cachedUsage: {
+      remaining: 9,
+      unit: 'USD',
+      windows: [{ id: 'rolling', label: 'rolling', usedPercent: 10, resetsAt: null, status: 'ok' }],
+    } as Provider['cachedUsage'],
+  }
+  await withPage(async (container) => {
+    // The quota is asked per key, so the provider level offers no configure
+    // entry, no refresh icon and no account balance/window block.
+    expect(container.textContent).not.toContain('providers.configureQuery')
+    expect(container.querySelector('[aria-label="providers.refreshBalance"]')).toBeNull()
+    expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(0)
+    expect(container.textContent).not.toContain('$9.00')
+  })
+})
+
+it('renders all of the key card metering periods from its cached usage', async () => {
+  mocks.keys[0] = {
+    ...mocks.keys[0],
+    usageScript: 'enabled',
+    cachedUsage: {
+      windows: ['rolling', 'weekly', 'monthly'].map((id) => ({
+        id,
+        label: id,
+        usedPercent: 42,
+        resetsAt: null,
+        status: 'ok',
+      })),
+    } as ApiKey['cachedUsage'],
+  }
+  await withPage(async (container) => {
+    for (const period of ['Rolling', 'Weekly', 'Monthly'])
+      expect(container.textContent).toContain(`providers.period${period}`)
+    expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(3)
+    // A window-only key has no amount, so the stat names what it does have
+    // instead of inventing a zero.
+    const stat = container.querySelector('[aria-label="keys.refreshQuota"]')
+    expect(stat?.textContent).toContain('querySchemes.capabilityWindows')
   })
 })

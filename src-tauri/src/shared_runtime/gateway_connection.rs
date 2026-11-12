@@ -445,6 +445,7 @@ mod tests {
             is_active: true,
             sort_order: 0,
             preset_id: "custom".to_string(),
+            query_scope: "account".to_string(),
             default_key_config: None,
             request_adapter: "none".to_string(),
         }

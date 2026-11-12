@@ -10,7 +10,6 @@
 
 /** Substrings that make a script read as an account-level query. */
 const ACCOUNT_SCRIPT_MARKERS = [
-  'commandcode.ai/alpha/billing',
   '/api/user/self',
   '/api/user/balance',
   'api.deepseek.com/user/balance',
