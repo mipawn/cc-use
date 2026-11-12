@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
-- **Last Active**: 2026-11-10
+- **Total Sessions**: 9
+- **Last Active**: 2026-11-12
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~252 | Active |
+| `journal-1.md` | ~289 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-11-12 | OpenCode Go / Command Code 额度改为密钥级并发布 v3.19.0 | `27dee82`, `f8d0477`, `7f77fca` | `main` |
 | 8 | 2026-11-10 | 统一供应商与密钥额度查询交互（实施完成） | `c835263`, `b9938d7` | `main` |
 | 6 | 2026-10-31 | 发布 v3.16.0：R10 收敛、模型清单与终端控制台 | `42b779a`, `a92f4da`, `52ad1ac`, `8950e02` | `main` |
 | 5 | 2026-10-31 | R10 二轮独立复核与收尾修复 | - | `main` |

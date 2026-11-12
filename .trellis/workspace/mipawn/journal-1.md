@@ -250,3 +250,40 @@ Rust teammates 之外 Lead 独立完成后端（query_schemes 方案目录/Query
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: OpenCode Go / Command Code 额度改为密钥级并发布 v3.19.0
+<!-- trellis-session: v=2 fp=d17d50b770199c7c -->
+
+**Date**: 2026-11-12
+**Task**: OpenCode Go / Command Code 额度改为密钥级并发布 v3.19.0
+**Package**: cc-use
+**Branch**: `main`
+
+### Summary
+
+删除供应商列表重复的「查询额度」链接；OpenCode Go / Command Code 内置查询方案从供应商账户级迁到密钥级（剩余 + 5h/周/月窗口按密钥展示），供应商级新增 queryScope（account/key）并按预设落库、导出导入保留；升级一次性迁移清空出厂账户查询脚本的供应商配置与缓存（不复制到密钥、不删密钥、保留手写脚本），供应商编辑/列表隐藏账户查询入口；密钥卡额度条目恢复可点击查询并常驻刷新图标与上次检查时间。后端由 subagent 完成 catalogue/runtime/持久化/迁移，前端由 subagent 完成 Keys/ProviderModal/QuerySettingsSection/locales；Lead 复核 diff、把迁移限定为仅出厂脚本（手写脚本保留）、补常驻刷新图标、跑全量门禁、用 dev DB 副本实跑迁移、合成数据视觉验证 26 项、更新 README/指南截图（虚构密钥名）并发布。
+
+### Main Changes
+
+- src-tauri/src/shared_runtime/query_schemes.rs,provider_presets.rs;services/usage_service.rs,query_test.rs;db/quota_scope_upgrade.rs,db/mod.rs,db/providers.rs;models/mod.rs;services/import_export.rs;src/renderer/pages/Keys.tsx,components/providers/ProviderModal.tsx,components/query/QuerySettingsSection.tsx,locales,shared/types;CHANGELOG/README/spec/screenshots
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `27dee82` | feat(query): ✨ 额度归属改为密钥级并移除重复查询入口 |
+| `f8d0477` | chore(task): archive 11-12 quota-key-scope |
+| `7f77fca` | release(app): v3.19.0 |
+
+### Testing
+
+- [OK] cargo fmt --check；cargo test --workspace 全通过；cargo clippy 无新增；pnpm typecheck/lint 0；pnpm test 43 files/385；dev DB 副本迁移实跑；视觉验证 26 项全过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- v3.19.0 tag 已推送触发 CI 构建；用户升级后需在每个 OpenCode Go / Command Code 密钥的「密钥额度」中选择方案并启用
