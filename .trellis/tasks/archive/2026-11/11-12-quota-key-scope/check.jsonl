@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/cc-use/backend/index.md", "reason": "Quality gates and review rules for the Rust side of the change."}
+{"file": ".trellis/spec/cc-use/backend/query-script.md", "reason": "Scope boundary and query semantics to verify against, including no fabricated zeros and cache validity."}
+{"file": ".trellis/spec/cc-use/frontend/index.md", "reason": "Frontend definition of done, pre-development checklist and quality gates."}
+{"file": ".trellis/spec/cc-use/frontend/testing-and-quality.md", "reason": "vitest layout and mocking conventions for the renderer tests that change."}
+{"file": ".trellis/spec/cc-use/frontend/i18n.md", "reason": "zh/en pairing and key naming rules for the new scheme labels and the key-scope hint."}
+{"file": ".trellis/spec/cc-use/frontend/api-bridge.md", "reason": "IPC/type pairing rules for the ProviderPreset/Provider queryScope contract."}
+{"file": ".trellis/tasks/11-12-quota-key-scope/design.md", "reason": "The exact UI behaviour, locale keys and scheme ids to verify."}
+{"file": ".trellis/tasks/11-12-quota-key-scope/prd.md", "reason": "Acceptance criteria for the end-to-end check."}

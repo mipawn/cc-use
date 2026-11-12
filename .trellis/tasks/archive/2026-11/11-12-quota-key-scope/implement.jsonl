@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/cc-use/backend/index.md", "reason": "Backend pre-development checklist, quality gates and layer routing for the Rust changes."}
+{"file": ".trellis/spec/cc-use/backend/query-script.md", "reason": "Authoritative contract for account/key scopes, scheme catalogue, query config and cache invalidation that this change extends."}
+{"file": ".trellis/spec/cc-use/backend/database.md", "reason": "ALTER-only migration rules, marker-guarded transactions and column conventions for the new query_scope column and upgrade module."}
+{"file": ".trellis/spec/cc-use/backend/data-model-contract.md", "reason": "Rust<->TS camelCase contract and null-vs-absent rules for the new Provider.queryScope field and export DTO."}
+{"file": ".trellis/spec/cc-use/backend/tauri-commands.md", "reason": "IPC command conventions; no new commands are expected but the query_schemes/query_test surfaces change behaviour."}
+{"file": ".trellis/spec/cc-use/backend/quality-and-testing.md", "reason": "Test layout (inline module tests vs src-tauri/tests with TempDb) used for the migration and runtime changes."}
+{"file": ".trellis/tasks/11-12-quota-key-scope/design.md", "reason": "The exact contract for scheme ids, scope semantics, migration columns and preset changes."}
+{"file": ".trellis/tasks/11-12-quota-key-scope/prd.md", "reason": "Requirements and acceptance criteria this backend work must satisfy."}
