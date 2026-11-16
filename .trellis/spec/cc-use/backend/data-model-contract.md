@@ -1,9 +1,9 @@
 # Data Model Contract (Rust ↔ TypeScript)
 
-> `src-tauri/src/models/mod.rs` and `src/shared/types/index.ts` are two hand-written copies
-> of the same IPC contract. Nothing generates one from the other, and nothing checks them
-> at build time. This file states the rules that keep them aligned and what breaks when
-> they drift.
+> Rust IPC structs (usually in the [general model module](../../../../src-tauri/src/models/mod.rs),
+> sometimes domain-owned) and the [shared TypeScript types](../../../../src/shared/types/index.ts)
+> are hand-written mirrors. Nothing generates one from the other or proves cross-language
+> compatibility at build time. Serialization tests must assert concrete wire shapes.
 
 ---
 
@@ -12,6 +12,7 @@
 | Side | File | Notes |
 |------|------|-------|
 | Rust | `src-tauri/src/models/mod.rs` | IPC-facing structs derive `Serialize`/`Deserialize` and are annotated `#[serde(rename_all = "camelCase")]`; `GatewayRequestEvent` is internal (no serde) and never crosses IPC |
+| Rust Desktop domain | [Desktop command module](../../../../src-tauri/src/commands/desktop_connection.rs) | Owns `DesktopConnectionState`, `DesktopOperationResult`, nested change/failure records and enums; mirrored in shared TypeScript types |
 | TypeScript | `src/shared/types/index.ts` | Interfaces consumed by `src/renderer/`; camelCase field names |
 | TypeScript API surface | `src/renderer/api/types.ts` | `Api` interface: command argument and return types |
 | TypeScript wiring | `src/renderer/api/index.ts` | `buildApi()` — `invoke()` command names and argument keys |
@@ -110,18 +111,32 @@ Several “enums” are stored/transmitted as strings; treat the literals as a c
   (`RequestOutcome` in `proxy/handler.rs`, documented on `RequestLog.outcome`).
 - Instance status: `launching` | `running` | `stale` (+ stopped reasons) in
   `db/managed_instances.rs`.
-- `settings` table keys are strings; the frontend uses camelCase keys (`proxyPort`,
-  `closeToTray`, `daemonEnabled`, `launchAtLogin`, `showWindowShortcut`) while internal
-  keys are dotted (`lastDaemonVersion`, `codex_last_api_key_id`,
-  `migration.go-model-defaults-removed`, `model-catalog-cache.*`). New typed settings also
-  need a field in `GlobalSettings` + an arm in `db/settings.rs::settings_get`; arbitrary keys
-  still round-trip through `get_setting`/`set_setting`.
+- `settings` table keys are strings; frontend-facing settings use camelCase keys
+  (`proxyPort`, `closeToTray`, `daemonEnabled`, `launchAtLogin`, `showWindowShortcut`).
+  Internal keys use existing camelCase, snake_case, or dotted namespaces, including
+  `lastDaemonVersion`, `codex_session_token`, `migration.go-model-defaults-removed`,
+  `model-catalog-cache.*`, and `desktop.connection.{clientKind}.v1`. New settings exposed
+  through `GlobalSettings` need its field + a matching database reader arm; domain-internal
+  history uses the existing string get/set APIs without adding a `GlobalSettings` field.
+  Historical `*_last_api_key_id` is not authoritative for Desktop's current route; use the
+  actual installed-token state from [the Desktop contract](./desktop-connection.md).
 
-`ConsoleEvent` is the one payload defined in Rust with its own TypeScript union mirror:
+`ConsoleEvent` is an example of a Rust payload with a TypeScript tagged-union mirror:
 `#[serde(tag = "category", rename_all = "snake_case")]` in `proxy/console.rs` and
 `ConsoleRequestEvent | ConsoleLogEvent` in `src/shared/types/index.ts`. When adding a field
 to a variant, update both, and use `#[serde(default)]` so replayed on-disk records written
 by older builds still parse (`ConsoleEvent::Log.id` does exactly this).
+
+## Desktop Fact DTOs
+
+[The Desktop executable contract](./desktop-connection.md) defines all command arguments,
+DTO fields/literals, persistence/version rules, partial failures, and test assertions.
+`DesktopClientKind` only accepts `codex | claude_desktop`; the session spelling `codex-app`
+is an internal `cli_type`, not a third Desktop IPC client kind. All optional Desktop state
+fields serialize as explicit nulls. `lastConfigChange.version` advances only when owned
+config bytes change, while route-only writes preserve the prior notice. `syncFailure`
+records a separate failed synchronization, not a failed key save or a successful config
+change. Neither `complete` nor `reopen_client` asserts external-client reload.
 
 ## Strictness: Where Unknown Fields Are Rejected
 

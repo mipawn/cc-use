@@ -30,7 +30,7 @@ The read pattern in `providerStore.ts:34-46` and `projectStore.ts:31-43`:
 
 `apiKeyStore.ts` deliberately diverges: it keeps per-provider loading flags and **rethrows** instead of storing an error (`fetchApiKeys` / `fetchAllApiKeys`), because keys are fetched in bulk by several pages that each report failures themselves.
 
-Important: the `error` fields are written but **no page currently destructures them** (search `useProviderStore()` / `useProjectStore()` call sites). Only `loading` is consumed (`pages/Keys.tsx` destructures `providersLoading` and shows a spinner). Surface failures where the call happens with `message.error(...)` plus `console.error(...)`; do not assume a store error renders itself.
+Store errors do not render themselves: callers must explicitly consume them and provide safe UI feedback/diagnostics using [Data and UX Patterns](./data-and-ux.md#error-handling). In particular, observation reads categorize errors rather than displaying or persisting raw backend rejection strings; those can contain paths or credentials.
 
 ---
 
@@ -47,12 +47,13 @@ Important: the `error` fields are written but **no page currently destructures t
 
 Keep in component state (or `useMemo`):
 
-- filters, search text, selected tab/view — `Statistics.tsx` (`timeRange`, `recentPage`, `recentPageSize`), `Console.tsx` (`view`, `query`, `selectedKey`), `Keys.tsx` (`activeFilter`);
+- local search text, selected tab/view and selection — [Console](../../../../src/renderer/pages/Console.tsx) keeps `view`, `query`, and `selectedKey` locally; do not put query drafts into a URL;
+- ledger scope is the exception: [Statistics](../../../../src/renderer/pages/Statistics.tsx) derives `timeRange`, resource/outcome/population filters, `recentPage`, and `recentPageSize` from the validated URL, not independent component setters; use the [Observation Contract](./observation-contract.md);
 - dialog/drawer visibility and the entity being edited — `Keys.tsx` (`providerModalOpen`, `editingProvider`, `keyEditOpen`, `editingKey`, `keyEditMode`), `Projects.tsx` (`modalOpen`, `editingProject`, `routePickerProject`);
 - drafts and transient per-row busy sets — `Keys.tsx` (`refreshingIds`, `refreshingKeyUsageIds`, `modelList*`);
 - derived views — group/filter with `useMemo` (`Keys.tsx` `groupedKeys`) or expose a getter on the store (`useApiKeyStore.getAllApiKeys()`), instead of storing a second copy.
 
-Note the exceptions: `Instances.tsx` keeps polled instance/key/provider data in local state because the page owns the 5 s heartbeat; `Statistics.tsx` keeps fetched statistics locally because they are scoped to the current time range. Rule of thumb: **shared across pages → store; owned by one page's lifecycle → local state.**
+Note the exceptions: `Instances.tsx` keeps polled instance/key/provider data in local state because the page owns the 5 s heartbeat; [Statistics](../../../../src/renderer/pages/Statistics.tsx) keeps fetched results locally, keyed by the full validated URL scope rather than just its time range. Rule of thumb: **shared across pages → store; owned by one page's lifecycle → local state; observation scope that must roundtrip → validated URL.**
 
 ---
 
@@ -77,7 +78,8 @@ Never mutate store objects in place (`providers.push(...)`); always produce new 
 - Read path: `useSyncExternalStore(subscribeConsoleStore, getConsoleEvents)` in `pages/Console.tsx`; every commit creates a new array so the snapshot comparison triggers a render.
 - Retention meta: the hydrated page's `generation` / `truncated` / `retention` (`retentionStartDate`, `capacityEvicted`, `trimmed`, `corrupted`, `limited`) is exposed through `getConsoleHistoryMeta()`; `retentionStartDate`/`consoleEventLocalDay` convert the UTC record timestamps to *local* days using the same rule as the Rust store.
 - TTL prune: `pruneExpiredConsoleEvents()` drops rows outside the current local day + previous two, and the page re-checks it on mount, every 25 s, and on visibility/focus. A long-open page therefore never claims to show a complete three-day archive.
-- Clear path: `clearConsoleHistory()` first pauses the persistence bridge (bump generation, drop unsent batches, wait for the in-flight one), then calls the backend and returns the per-owner `{ ok, app, daemon }` result; partial failure is shown, not swallowed. Navigating away does not clear anything.
+- Precise request lookup is a separate read-only projection in [useConsoleRequestProjection](../../../../src/renderer/hooks/useConsoleRequestProjection.ts): call `console.readRequest(requestId, 500)` and keep the result local. Never hydrate it into the global buffer; a retained request may exist outside its 500 rows. Runtime-log view stays global.
+- Clear path: [clearConsoleHistory](../../../../src/renderer/api/consoleStore.ts) bumps both history and clear revisions and notifies at clear start **and** finish. The projection does not read/display while clearing and validates request identity/revision, `clearRevision`, and current persisted generation before accepting a response. The bridge pauses, drops unsent batches, and settles the in-flight write before backend clear; `{ ok, app, daemon }` reports partial failure. Navigating away does not clear anything. See the [Observation Contract](./observation-contract.md).
 - `src/renderer/api/consoleBus.ts` patches global `console.*` into the same stream (`installRendererConsoleTap`, installed first in `main.tsx`) with a re-entry guard so a subscriber calling `console.log` cannot recurse. It stamps ids as `renderer-<startup epoch>-<seq>` so a replayed row and a new live row can never collide.
 - `src/renderer/api/consoleLogBridge.ts` (`installRendererLogBridge`, installed after the tap) is the only writer of renderer lines to disk: batching/flush/buffer limits live there, and it subscribes to the raw renderer bus only so replayed app/daemon events never loop back. `getRendererLogBridgeStatus()` exposes local queue/ipc failure counters for the Console page.
 
@@ -101,10 +103,7 @@ read/save preserves the last saved snapshot and exposes a per-provider error. A 
 save publishes to Key mapping and gateway consumers immediately, while their drafts remain
 local. Catalog revision conflicts require reload instead of silent overwrite.
 
-`pages/observationState.tsx` uses a React context owned by ActivityPage, with separate
-request and log filters. It survives transitions between `/console`, `/logs`, `/stats`,
-and ends when the observation shell unmounts. Only the visible page registers refresh.
-Do not duplicate console collection or persist filters in localStorage.
+[ActivityPage](../../../../src/renderer/pages/ActivityPage.tsx) now only renders the observation header/outlet; it no longer owns a shared request/log-filter context. [Statistics](../../../../src/renderer/pages/Statistics.tsx) reads its ledger context from the URL, while [Console](../../../../src/renderer/pages/Console.tsx) keeps view/search/pause/selection locally and consumes the URL request locator/return context. Do not reintroduce a duplicate shell filter store or localStorage persistence. See the [Observation Contract](./observation-contract.md) for safe roundtrips and independent precise projections.
 
 Console replay must preserve log-envelope identity: missing request/log IDs receive a
 source/epoch/sequence fallback before merging. Live anonymous objects have stable keys

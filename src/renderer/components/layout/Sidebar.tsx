@@ -8,8 +8,9 @@ import {
   KeyOutlined,
   ApiOutlined,
   ConsoleSqlOutlined,
+  CodeOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons'
-import { clientWorkspaces } from './workspaceNavigation'
 import styles from './WorkspaceLayout.module.css'
 import appLogo from '../../assets/icon.svg'
 
@@ -40,8 +41,9 @@ export default function Sidebar() {
       <nav className={styles.navigation}>
         {link('/', t('workspace.home'), <HomeOutlined />)}
         <div className={styles.group}>
-          <span className={styles.groupLabel}>{t('workspace.clients')}</span>
-          {clientWorkspaces.map((client) => link(client.path, client.name, client.icon))}
+          <span className={styles.groupLabel}>{t('workspace.use')}</span>
+          {link('/instances', t('workspace.instances'), <CodeOutlined />)}
+          {link('/desktop', t('workspace.desktopAccess'), <DesktopOutlined />)}
         </div>
         <div className={styles.group}>
           <span className={styles.groupLabel}>{t('workspace.manage')}</span>

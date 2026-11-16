@@ -26,11 +26,9 @@ import {
   Popconfirm,
   Badge,
   Modal,
-  Divider,
   Dropdown,
 } from 'antd'
 import { useAppMessage } from '../hooks/useAppMessage'
-import { useServiceStatus } from '../hooks/useServiceStatus'
 import {
   PlusOutlined,
   KeyOutlined,
@@ -61,14 +59,8 @@ import ProviderModal from '../components/providers/ProviderModal'
 import KeyEditModal from '../components/keys/KeyEditModal'
 import ProviderModelModal from '../components/providers/ProviderModelModal'
 import ResourceUsageModal, { type ResourceScope } from '../components/usage/ResourceUsageModal'
-import type { Provider, ApiKey, ClientKind, ProviderGatewayMetrics } from '@shared/types'
-import {
-  formatEnvCommand,
-  getClientKindLabel,
-  isCliClientKind,
-  TERMINAL_TYPE_LABELS,
-} from '@shared/types'
-import { useSettingsStore } from '../stores/settingsStore'
+import type { Provider, ApiKey, ProviderGatewayMetrics } from '@shared/types'
+import { getClientKindLabel } from '@shared/types'
 import { getEffectiveKeyClients } from '../utils/clientSupport'
 import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
 import { usePageRefresh } from '../hooks/usePageRefresh'
@@ -79,6 +71,8 @@ import {
   type ApiKeyEditorInput,
   type KeyEditMode,
 } from '../utils/apiKeyEditor'
+import PageHeader from '../components/common/PageHeader'
+import { buildStatisticsUrl } from '../utils/observationContext'
 import styles from './Keys.module.css'
 
 // dnd-kit sortable wrapper — defined at module level to avoid hook issues
@@ -150,8 +144,6 @@ export default function Keys() {
   } = useProviderStore()
   const { apiKeys, fetchAllApiKeys, getAllApiKeys, createApiKey, updateApiKey, deleteApiKey } =
     useApiKeyStore()
-  const { globalSettings } = useSettingsStore()
-  const terminalType = globalSettings.defaultTerminalType
 
   // Filter state: 'all' or providerId
   const [activeFilter, setActiveFilter] = useState<string>('all')
@@ -378,83 +370,6 @@ export default function Keys() {
     setKeyEditOpen(true)
   }
 
-  // State for copy command modal
-  const [copyCommandModalOpen, setCopyCommandModalOpen] = useState(false)
-  const [copyCommandKey, setCopyCommandKey] = useState<{
-    provider: Provider
-    key: ApiKey
-  } | null>(null)
-  const { status: proxyStatus } = useServiceStatus()
-  const [proxySessionTokens, setProxySessionTokens] = useState<Partial<Record<ClientKind, string>>>(
-    {},
-  )
-
-  const handleCopyCommand = async (provider: Provider, key: ApiKey) => {
-    try {
-      // If daemon is running, create a session for this key
-      if (proxyStatus.isRunning) {
-        const cliClients = getEffectiveKeyClients(provider, key).filter(isCliClientKind)
-        const sessions = await Promise.all(
-          cliClients.map(async (clientKind) => {
-            const session = await getApi().session.create(provider.id, key.id, clientKind)
-            if (clientKind === 'grok') {
-              await getApi().terminal.prepareGrokConfig(key.id)
-            }
-            return [clientKind, session.sessionToken] as const
-          }),
-        )
-        setProxySessionTokens(Object.fromEntries(sessions))
-      } else {
-        setProxySessionTokens({})
-      }
-    } catch (error) {
-      console.error('Failed to prepare copy command:', error)
-      setProxySessionTokens({})
-    }
-
-    setCopyCommandKey({ provider, key })
-    setCopyCommandModalOpen(true)
-  }
-
-  // Generate command based on proxy status and terminal type
-  const generateCommand = (
-    type: string, // v3.2.0: 改为 string 以支持 ClientKind
-    provider: Provider,
-    key: ApiKey,
-    useProxy: boolean,
-    sessionToken?: string,
-  ): string => {
-    const isGrok = type === 'grok'
-    const envVars: Record<string, string> = {}
-
-    if (useProxy && proxyStatus.isRunning && sessionToken) {
-      if (isGrok) {
-        envVars.CC_USE_GROK_TOKEN = sessionToken
-      } else {
-        const baseUrl = `http://localhost:${proxyStatus.port}`
-        envVars['ANTHROPIC_BASE_URL'] = baseUrl
-        envVars['API_TIMEOUT_MS'] = '3000000'
-        envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
-        envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
-        envVars['ANTHROPIC_AUTH_TOKEN'] = sessionToken
-      }
-    } else {
-      if (isGrok) {
-        envVars.XAI_API_KEY = key.value
-      } else {
-        const clientKind = type === 'claude' ? 'claude_code' : (type as ClientKind)
-        envVars['ANTHROPIC_BASE_URL'] = key.clientConfigs?.[clientKind]?.baseUrl || provider.baseUrl
-        envVars['API_TIMEOUT_MS'] = '3000000'
-        envVars['CLAUDE_CODE_ATTRIBUTION_HEADER'] = '0'
-        envVars['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1'
-        envVars['ANTHROPIC_AUTH_TOKEN'] = key.value
-      }
-    }
-
-    const cliCommand = isGrok && useProxy ? 'grok -m cc-use' : isGrok ? 'grok' : 'claude'
-    return formatEnvCommand(envVars, cliCommand)
-  }
-
   // dnd-kit sensors — require 8px drag threshold so clicks pass through
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -484,6 +399,7 @@ export default function Keys() {
   // Handle key save. Create and duplicate both insert a new record; only edit
   // writes back to an existing one.
   const handleSaveKey = async (input: ApiKeyEditorInput) => {
+    const startedAt = Math.floor(Date.now() / 1000) * 1000
     const previous =
       input.mode === 'edit' ? allApiKeys.find((key) => key.id === input.id) : undefined
     const saved =
@@ -500,38 +416,49 @@ export default function Keys() {
       hasKeyQuery(saved) &&
       (!previous?.cachedUsage || configChanged || previous.value !== saved.value)
     ) {
-      await handleRefreshKeyUsage(saved.id)
+      void handleRefreshKeyUsage(saved.id)
+    }
+    if (input.mode === 'edit') {
+      // Configuration persistence, quota refresh and desktop sync are independent outcomes.
+      void Promise.all(
+        (['codex', 'claude_desktop'] as const).map(async (client) =>
+          getApi().desktopConnection.state(client),
+        ),
+      )
+        .then((states) => {
+          if (
+            states.some(
+              (state) =>
+                state.syncFailure?.source === 'key_edit' &&
+                Date.parse(state.syncFailure.occurredAt) >= startedAt,
+            )
+          ) {
+            message.warning(t('resources.savedSyncFailed'))
+          }
+        })
+        .catch(() => message.warning(t('resources.saveSyncUnknown')))
     }
   }
 
   return (
     <div className={styles.container}>
       {confirmContextHolder}
-      {/* Header - Fixed */}
-      <div className={styles.header}>
-        <div>
-          <Title level={3} className='m-0! mb-1!'>
-            {t('keys.title') || 'API 密钥'}
-          </Title>
-          <Text type='secondary'>{t('keys.subtitle') || '管理您的 API 密钥和供应商'}</Text>
-        </div>
-        <Space>
-          <Button
-            type='primary'
-            icon={<CloudServerOutlined />}
-            onClick={handleAddProvider}
-            size='middle'
-          >
+      <PageHeader
+        title={t('resources.title')}
+        description={t('resources.subtitle')}
+        actions={
+          <Button type='primary' icon={<CloudServerOutlined />} onClick={handleAddProvider}>
             {t('providers.addProvider')}
           </Button>
-        </Space>
-      </div>
+        }
+      />
 
       {/* Filter Tabs - Fixed */}
       <div className={styles.filterSection}>
         <div className={styles.filterBar}>
           {/* "All Keys" tab — not sortable */}
-          <div
+          <button
+            type='button'
             className={`${styles.filterTab} ${activeFilter === 'all' ? styles.filterTabActive : ''}`}
             onClick={() => setActiveFilter('all')}
           >
@@ -539,7 +466,7 @@ export default function Keys() {
               <span>{t('keys.allKeys') || '全部密钥'}</span>
               <Badge count={allApiKeys.length} showZero className={styles.filterBadge} />
             </Space>
-          </div>
+          </button>
 
           {/* Provider tabs — @dnd-kit sortable */}
           <DndContext sensors={sensors} onDragEnd={handleDragEnd} autoScroll={false}>
@@ -627,18 +554,34 @@ export default function Keys() {
                                 {providerMetrics[provider.name].totalRequests > 0
                                   ? `${((providerMetrics[provider.name].successfulRequests / providerMetrics[provider.name].totalRequests) * 100).toFixed(1)}%`
                                   : '—'}{' '}
-                                <span className={styles.healthLabel}>近 24 小时成功率</span>
+                                <span className={styles.healthLabel}>{t('resources.health')}</span>
                               </Text>
                               <Text type='secondary' className={styles.providerHealthMeta}>
-                                {providerMetrics[provider.name].successfulRequests}/
-                                {providerMetrics[provider.name].totalRequests} 次 · 上游错误{' '}
-                                {providerMetrics[provider.name].upstreamErrors}
+                                {t('resources.healthDetail', {
+                                  successful: providerMetrics[provider.name].successfulRequests,
+                                  total: providerMetrics[provider.name].totalRequests,
+                                  errors: providerMetrics[provider.name].upstreamErrors,
+                                })}
                               </Text>
                             </div>
                           </div>
                         ) : null}
                       </div>
                       <Space size={8} wrap>
+                        <Button
+                          size='small'
+                          href={
+                            '#' +
+                            buildStatisticsUrl({
+                              timeRange: 'all',
+                              filter: { providerId: provider.id },
+                              page: 1,
+                              pageSize: 10,
+                            })
+                          }
+                        >
+                          {t('resources.requests')}
+                        </Button>
                         {!providerQuotaIsPerKey(provider) && !hasProviderQuery(provider) && (
                           <Button
                             type='text'
@@ -901,23 +844,21 @@ export default function Keys() {
 
                         {/* Actions */}
                         <div className={styles.keyCardActions}>
-                          {getEffectiveKeyClients(provider, key).includes('claude_code') ? (
-                            <Tooltip title={t('keys.copyCommand')}>
-                              <Button
-                                type='primary'
-                                size='small'
-                                icon={<PlayCircleOutlined />}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleCopyCommand(provider, key)
-                                }}
-                              >
-                                {t('keys.copyCommand')}
-                              </Button>
-                            </Tooltip>
-                          ) : (
-                            <Tag>配置接管</Tag>
-                          )}
+                          <Button
+                            size='small'
+                            href={
+                              '#' +
+                              buildStatisticsUrl({
+                                timeRange: 'all',
+                                filter: { providerId: provider.id, apiKeyId: key.id },
+                                page: 1,
+                                pageSize: 10,
+                              })
+                            }
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {t('resources.requests')}
+                          </Button>
                           <Space size={4}>
                             <Tooltip title={t('usageDetail.openKey')}>
                               <Button
@@ -995,7 +936,7 @@ export default function Keys() {
                     ))}
                     <button
                       type='button'
-                      className={`${styles.addKeyCard} ${keys.length % 2 === 0 ? styles.addKeyCardWide : ''}`}
+                      className={styles.addKeyCard}
                       onClick={() => handleAddKey(provider.id)}
                     >
                       <PlusOutlined className={styles.addIcon} />
@@ -1026,12 +967,12 @@ export default function Keys() {
           setEditingProvider(null)
         }}
         onSave={async (input) => {
-          if (input.id) {
-            await getApi().provider.update({ ...input, id: input.id })
-          } else {
-            await getApi().provider.create(input)
-          }
-          await fetchProviders()
+          const saved = input.id
+            ? await getApi().provider.update({ ...input, id: input.id })
+            : await getApi().provider.create(input)
+          useProviderStore.getState().upsertProvider(saved)
+          if (!input.id) setActiveFilter(saved.id)
+          void fetchProviders()
         }}
       />
 
@@ -1055,157 +996,6 @@ export default function Keys() {
         scope={usageScope}
         onClose={() => setUsageScope(null)}
       />
-
-      {/* Copy Command List Modal */}
-      <Modal
-        title={
-          <Space>
-            {t('keys.commandList') || '终端命令'}
-            <Tag>{TERMINAL_TYPE_LABELS[terminalType]}</Tag>
-          </Space>
-        }
-        open={copyCommandModalOpen}
-        onCancel={() => {
-          setCopyCommandModalOpen(false)
-          setCopyCommandKey(null)
-          setProxySessionTokens({})
-        }}
-        footer={null}
-        width={700}
-        style={{ top: 24 }}
-        styles={{
-          body: {
-            overflow: 'hidden',
-          },
-        }}
-      >
-        {copyCommandKey && (
-          <SimpleBar style={{ maxHeight: '75vh' }} autoHide={false}>
-            <div className={styles.commandList}>
-              <Text type='secondary' className={styles.commandListHint}>
-                {t('keys.commandListHint') || '点击复制按钮复制对应命令'}
-              </Text>
-
-              {/* Proxy Mode Commands - only show if proxy is running */}
-              {proxyStatus.isRunning && Object.keys(proxySessionTokens).length > 0 && (
-                <>
-                  <Text strong className={styles.commandSectionTitle}>
-                    {t('keys.proxyMode') || '代理模式'}
-                    <Tag color='success' style={{ marginLeft: 8 }}>
-                      {t('keys.recommended') || '推荐'}
-                    </Tag>
-                  </Text>
-                  <Text type='secondary' className={styles.commandSectionHint}>
-                    {t('keys.proxyModeHint') || '通过代理服务，可记录使用量'}
-                  </Text>
-                  {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key)
-                    .filter(isCliClientKind)
-                    .filter((clientKind) => !!proxySessionTokens[clientKind])
-                    .map((clientKind) => {
-                      const command = generateCommand(
-                        clientKind,
-                        copyCommandKey.provider,
-                        copyCommandKey.key,
-                        true,
-                        proxySessionTokens[clientKind],
-                      )
-                      return (
-                        <div key={`proxy-${clientKind}`} className={styles.commandItem}>
-                          <div className={styles.commandHeader}>
-                            <Space>
-                              <ClientIcon kind={clientKind} size={20} />
-                              <Text strong>{getClientKindLabel(clientKind)}</Text>
-                            </Space>
-                            <Button
-                              type='primary'
-                              size='small'
-                              icon={<CopyOutlined />}
-                              onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(command)
-                                  message.success(
-                                    `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
-                                  )
-                                } catch {
-                                  message.error(t('providers.copyFailed'))
-                                }
-                              }}
-                            >
-                              {t('common.copy') || '复制'}
-                            </Button>
-                          </div>
-                          <div className={styles.commandCode}>
-                            <code>{command}</code>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  <Divider style={{ margin: '16px 0' }} />
-                </>
-              )}
-
-              {/* Direct Mode Commands */}
-              <Text strong className={styles.commandSectionTitle}>
-                {proxyStatus.isRunning
-                  ? t('keys.directMode') || '直连模式'
-                  : t('keys.commandList') || '终端命令'}
-              </Text>
-              {proxyStatus.isRunning && (
-                <Text type='secondary' className={styles.commandSectionHint}>
-                  {t('keys.directModeHint') || '直接连接供应商，不经过代理'}
-                </Text>
-              )}
-              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key)
-                .filter(isCliClientKind)
-                .map((clientKind) => {
-                  const command = generateCommand(
-                    clientKind,
-                    copyCommandKey.provider,
-                    copyCommandKey.key,
-                    false,
-                  )
-                  return (
-                    <div key={`direct-${clientKind}`} className={styles.commandItem}>
-                      <div className={styles.commandHeader}>
-                        <Space>
-                          <ClientIcon kind={clientKind} size={20} />
-                          <Text strong>{getClientKindLabel(clientKind)}</Text>
-                        </Space>
-                        <Button
-                          type={proxyStatus.isRunning ? 'default' : 'primary'}
-                          size='small'
-                          icon={<CopyOutlined />}
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(command)
-                              message.success(
-                                `${t('providers.commandCopied')} (${TERMINAL_TYPE_LABELS[terminalType]})`,
-                              )
-                            } catch {
-                              message.error(t('providers.copyFailed'))
-                            }
-                          }}
-                        >
-                          {t('common.copy') || '复制'}
-                        </Button>
-                      </div>
-                      <div className={styles.commandCode}>
-                        <code>{command}</code>
-                      </div>
-                    </div>
-                  )
-                })}
-              {getEffectiveKeyClients(copyCommandKey.provider, copyCommandKey.key).some(
-                (clientKind) => !isCliClientKind(clientKind),
-              ) && (
-                <Text type='secondary' style={{ display: 'block', marginTop: 8 }}>
-                  Codex Desktop 和 Claude Desktop 请在对应页面选择此密钥并执行配置接管。
-                </Text>
-              )}
-            </div>
-          </SimpleBar>
-        )}
-      </Modal>
     </div>
   )
 }

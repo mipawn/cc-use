@@ -47,6 +47,8 @@ import { useApiKeyStore } from '../stores/apiKeyStore'
 import { useProviderStore } from '../stores/providerStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useProviderModelCatalogStore } from '../stores/providerModelCatalogStore'
+import RoutePickerModal from '../components/common/RoutePickerModal'
+import PageHeader from '../components/common/PageHeader'
 import UserAgentField from '../components/UserAgentField'
 import styles from './GatewayPage.module.css'
 
@@ -102,6 +104,7 @@ export default function GatewayPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [routePickerOpen, setRoutePickerOpen] = useState(false)
   const [editing, setEditing] = useState<Gateway | null>(null)
   const [name, setName] = useState('')
   const [providerId, setProviderId] = useState<string>()
@@ -139,15 +142,6 @@ export default function GatewayPage() {
   const providersById = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider])),
     [providers],
-  )
-  const keyOptions = useMemo(
-    () =>
-      (providerId ? (apiKeys[providerId] ?? []) : []).map((key) => ({
-        value: key.id,
-        // Never echo the secret value here; the key id is enough to disambiguate.
-        label: key.alias?.trim() || key.id.slice(0, 8),
-      })),
-    [apiKeys, providerId],
   )
   const selectedProvider = providerId ? providersById.get(providerId) : undefined
   const providerBaseUrl = selectedProvider?.baseUrl?.trim() || undefined
@@ -257,16 +251,6 @@ export default function GatewayPage() {
   const closeModal = () => {
     setModalOpen(false)
     setFormError(null)
-  }
-
-  const handleProviderChange = (value: string) => {
-    setProviderId(value)
-    setFormError(null)
-    const keys = apiKeys[value] ?? []
-    if (!keys.some((key) => key.id === apiKeyId)) setApiKeyId(undefined)
-    void fetchApiKeys(value).catch((error) => {
-      console.error('Failed to load API keys for gateway:', error)
-    })
   }
 
   const save = async () => {
@@ -394,22 +378,20 @@ export default function GatewayPage() {
 
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
-        <div>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            {t('gateway.title')}
-          </Typography.Title>
-          <Typography.Text type='secondary'>{t('gateway.subtitle')}</Typography.Text>
-        </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
-            {t('common.refresh')}
-          </Button>
-          <Button type='primary' icon={<PlusOutlined />} onClick={openCreate}>
-            {t('gateway.create')}
-          </Button>
-        </Space>
-      </div>
+      <PageHeader
+        title={t('gateway.title')}
+        description={t('gateway.subtitle')}
+        actions={
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
+              {t('common.refresh')}
+            </Button>
+            <Button type='primary' icon={<PlusOutlined />} onClick={openCreate}>
+              {t('gateway.create')}
+            </Button>
+          </Space>
+        }
+      />
 
       {/* Loopback stays the default; point at settings instead of adding a
           per-gateway LAN switch. */}
@@ -678,8 +660,24 @@ export default function GatewayPage() {
         )}
       </div>
 
+      <RoutePickerModal
+        open={modalOpen && routePickerOpen}
+        context='gateway'
+        providers={providers}
+        apiKeys={Object.values(apiKeys).flat()}
+        currentKeyId={apiKeyId}
+        actionText={t('resources.gatewaySelect')}
+        onCancel={() => setRoutePickerOpen(false)}
+        onSelect={({ provider, apiKey }) => {
+          // Binding changes never inherit a key's mapping or reset a gateway policy.
+          setProviderId(provider.id)
+          setApiKeyId(apiKey.id)
+          setFormError(null)
+        }}
+      />
+
       <Modal
-        open={modalOpen}
+        open={modalOpen && !routePickerOpen}
         title={editing ? t('gateway.edit') : t('gateway.create')}
         okText={t('common.save')}
         cancelText={t('common.cancel')}
@@ -720,45 +718,19 @@ export default function GatewayPage() {
               <h3 id='gateway-connection-heading' className={styles.sectionLabel}>
                 {t('gateway.connection')}
               </h3>
-              <div className={styles.bindingGrid}>
-                <div className={styles.formField}>
-                  <label htmlFor='gateway-provider' className={styles.fieldLabel}>
-                    {t('gateway.provider')}
-                  </label>
-                  <Select
-                    id='gateway-provider'
-                    disabled={saving}
-                    aria-label={t('gateway.provider')}
-                    className={styles.fullWidth}
-                    value={providerId}
-                    placeholder={t('gateway.providerPlaceholder')}
-                    options={providers.map((provider) => ({
-                      value: provider.id,
-                      label: provider.name,
-                    }))}
-                    onChange={handleProviderChange}
-                  />
-                </div>
-                <div className={styles.formField}>
-                  <label htmlFor='gateway-api-key' className={styles.fieldLabel}>
-                    {t('gateway.key')}
-                  </label>
-                  <Select
-                    id='gateway-api-key'
-                    aria-label={t('gateway.key')}
-                    className={styles.fullWidth}
-                    value={apiKeyId}
-                    placeholder={
-                      providerId ? t('gateway.keyPlaceholder') : t('gateway.selectProviderFirst')
-                    }
-                    disabled={!providerId || saving}
-                    options={keyOptions}
-                    onChange={(value) => {
-                      setFormError(null)
-                      setApiKeyId(value)
-                    }}
-                  />
-                </div>
+              <div className={styles.formField}>
+                <Typography.Text strong>{t('resources.binding')}</Typography.Text>
+                <Space wrap>
+                  <Typography.Text>
+                    {selectedProvider?.name ?? t('gateway.providerPlaceholder')} /{' '}
+                    {apiKeys[providerId ?? '']?.find((key) => key.id === apiKeyId)?.alias ??
+                      apiKeyId?.slice(0, 8) ??
+                      t('gateway.keyPlaceholder')}
+                  </Typography.Text>
+                  <Button disabled={saving} onClick={() => setRoutePickerOpen(true)}>
+                    {t('resources.choose')}
+                  </Button>
+                </Space>
               </div>
               <div className={styles.formField}>
                 <div className={styles.fieldHeader}>

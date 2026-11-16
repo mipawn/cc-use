@@ -12,7 +12,7 @@
 One file per domain under `src-tauri/src/commands/`; the module is declared in
 `commands/mod.rs` and the function is registered in `lib.rs`. Current domains:
 `api_keys`, `balance`, `claude_desktop_config`, `cli_tool`, `codex_config`, `console`,
-`gateways`, `import_export`, `managed_instances`, `projects`, `providers`, `proxy`,
+`desktop_connection`, `gateways`, `import_export`, `managed_instances`, `projects`, `providers`, `proxy`,
 `sessions`, `settings`, `statistics`, `system`, `system_ext`, `terminal`, `user_agent`.
 
 Keep `#[tauri::command]` functions thin: lock state, validate, call a
@@ -58,7 +58,11 @@ The app manages three state values in `lib.rs::run()`/`setup()`:
 | `ConsoleBridgeHandle` | `bridge: State<'_, ConsoleBridgeHandle>` | Force SSE reconnect |
 
 `AppHandle` is injected as a normal parameter when a command emits events or touches the
-window; it is not a managed `State`.
+window/tray; it is not a managed `State` and the renderer does not send it. The typed
+Desktop apply/restore commands use it to rebuild the tray after their DB guards have been
+released, including error/partial outcomes. Their IPC arguments, structured results,
+shared-state reader, and isolated tests are specified in
+[desktop-connection.md](./desktop-connection.md).
 
 ```rust
 #[tauri::command]
@@ -82,7 +86,8 @@ if new_settings.proxy_port != old_port { crate::commands::proxy::proxy_restart_i
 
 Logic that commands share with startup code or tests lives in a plain function that takes
 `&Database` (or `&Arc<Mutex<Database>>` for async) and returns `Result<T, String>`. The
-`#[tauri::command]` wrapper only unwraps managed state.
+`#[tauri::command]` wrapper unwraps managed state and performs any required app-handle
+notification/menu refresh after the inner operation releases its guards.
 
 - `commands/managed_instances.rs` — `managed_instance_update_assignment_inner` is tested by
   `src-tauri/tests/managed_instances_commands.rs` with a `TempDb`; the command wrapper
@@ -100,9 +105,12 @@ function so integration tests can call it without a Tauri runtime.
 ## Input Types
 
 Prefer a typed `#[derive(Deserialize)]` struct over `serde_json::Value`. Structs that are
-part of the IPC surface live in `models/mod.rs` (`CreateProviderInput`,
-`UpdateApiKeyInput`, `UpdateManagedInstanceAssignmentInput`, …). Command-local inputs are
-also acceptable when they are not persisted — e.g. `ModelCatalogPreviewInput` in
+part of the IPC surface usually live in `models/mod.rs` (`CreateProviderInput`,
+`UpdateApiKeyInput`, `UpdateManagedInstanceAssignmentInput`, …). Domain-owned IPC types
+may live beside their command: Desktop enums/state/results are defined in the
+[Desktop module](../../../../src-tauri/src/commands/desktop_connection.rs), including the
+config-change record persisted as settings JSON. They still require a TypeScript mirror
+and serialization tests. Command-local inputs also include `ModelCatalogPreviewInput` in
 `commands/providers.rs`.
 
 When raw JSON is unavoidable, validate before converting:
@@ -148,9 +156,14 @@ enum:
 
 - Lock failures → `map_err(|e| e.to_string())`.
 - Database errors → `map_err(|e| e.to_string())` at the command boundary.
-- Typed internal errors (`CodexConfigError`, `ClaudeDesktopConfigError`,
-  `TerminalLauncherError`, `QueryScriptError`) are converted with `.to_string()` in the
-  command; the renderer only ever sees the message.
+- Some legacy command paths convert typed internal errors (`CodexConfigError`,
+  `ClaudeDesktopConfigError`, `TerminalLauncherError`, `QueryScriptError`) with
+  `.to_string()`. This is not permission to expose raw parser/SQL/file-content errors:
+  the typed Desktop coordinator maps them to sanitized stage/recovery messages.
+- Desktop partial completion is `Ok(DesktopOperationResult { completion: Partial, .. })`
+  with current read-back state, not a complete success or a discarded result. Complete
+  rollback returns `Err`; compatibility string wrappers convert partial to `Err`. See
+  [the Desktop validation matrix](./desktop-connection.md#4-validation--error-matrix).
 
 The `String` is displayed to the user (usually raw), so it must be human-readable and must
 never contain a key, token, or `Authorization` value. See

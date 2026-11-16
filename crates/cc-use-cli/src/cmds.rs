@@ -319,7 +319,7 @@ fn draw_key_picker(
             ));
         }
         if index == default_index {
-            output.push_str(&picker_color(PICKER_DEFAULT_GREEN, "  GUI 默认"));
+            output.push_str(&picker_color(PICKER_DEFAULT_GREEN, "  已保存默认"));
         }
         output.push_str("\r\n");
     }
@@ -357,7 +357,7 @@ fn pick_key(
         let mut msg = String::from("cc-use 需要在交互终端中选择线路：\n");
         for (index, (provider, key)) in keys.iter().enumerate() {
             let marker = if index == default_index {
-                "  （GUI 默认）"
+                "  （已保存默认）"
             } else {
                 ""
             };

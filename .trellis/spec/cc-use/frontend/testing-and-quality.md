@@ -16,7 +16,7 @@
 | TypeScript `^5.7` | `tsconfig.json` | `tsc --noEmit` |
 | Prettier `^3.4` | `.prettierrc.json` | formatting is not CI-gated (see below) |
 
-There is **no E2E/Playwright harness**. `.playwright-mcp/` is a git-ignored local directory of manual MCP browser-session artifacts (screenshots, console logs, page snapshots), and `screenshots/` holds committed product images; neither is a test suite. `package.json` has no Playwright dependency or config.
+There is no automated browser E2E suite or Playwright dependency. The strict DEV-only [fixture renderer](../../../../src/renderer/dev/README.md) supports isolated ego-browser journeys. Screenshots are manual evidence, not a test suite or proof of real Desktop configuration/reload.
 
 `pnpm test` = `vitest run` **plus** `node --test` suites for build/release scripts (`scripts/extract-release-notes.test.mjs`, `scripts/cargo-build.test.mjs`). `pnpm test:web` is an alias for `pnpm test`.
 
@@ -31,7 +31,7 @@ There is **no E2E/Playwright harness**. `.playwright-mcp/` is a git-ignored loca
 | `X.query.test.tsx` | page-level interaction/query behavior | `pages/Keys.query.test.tsx` |
 | `__tests__/` | module with several test files | `api/__tests__/index.contract.test.ts`, `shared/types/__tests__/` |
 
-Current inventory: **38 test files, ~270 `it` cases**.
+Read the current Vitest summary for file/case counts; do not use a static inventory count as a quality gate.
 
 Covered:
 
@@ -41,10 +41,10 @@ Covered:
 - component/logic tests: `ProviderModal`, `KeyEditModal`, `UserAgentField`, `ProviderIcon`, `ProviderUsageWindows`, `AppErrorBoundary`, `DailyModelUsageChart`, `MultiMetricLineChart`, `ResourceUsageModal`, `ModelCatalogManager`, `GatewayPage`, `Console`, `RoutePickerModal` (model-label logic), `TakeoverConfigTab` reorder helpers, `usageChartColors`;
 - hooks: `useModelCatalogQuery` (identity/revision/cache/stale-response rules);
 - locale spot-check (`locales/usageChartLocales.test.ts`);
-- pages: `Instances`, `Projects`, `Statistics`, `Keys` (query + unified model flow), `Keys.models` (provider/key model-entry parity), `consoleFilters` (helpers exported from `pages/Console.tsx`);
+- pages and routing: `Dashboard`, `DesktopPage`, `Instances`, scoped `Statistics`, `Console`, `Keys` query/model flows, and legacy URL sanitization in `workspaceNavigation`;
 - stores: `providerStore` (`refreshBalance` behavior), `consoleStore` (hydration meta, TTL prune, clear generations).
 
-Not covered: `Dashboard`, `Settings`, `Sessions`, `ActivityPage`, `ClaudeCodePage`, `CodexPage`, `ClaudeDesktopPage`, layout components (`Sidebar`, `TitleBar`), `apiKeyStore` / `projectStore` / `settingsStore`, most hooks, `claudeConfig` / `formatPerformance` / `modelQueryUserAgent` / `officialProviders` / `userAgentOptions` utils, and full zh/en key parity. Treat typecheck + code review as the safety net there; add tests when changing behavior in those files.
+Not exhaustively covered: `Settings`, `Sessions`, `ActivityPage`, full layout rendering (`Sidebar`, `TitleBar`), `apiKeyStore` / `projectStore` / `settingsStore`, some hooks/utilities, and full zh/en key parity. Deleted project/per-client page tests are not coverage gaps to reintroduce. Use typecheck, source review and scoped browser journeys; add regressions when changing behavior in live files.
 
 Coverage config includes only `src/renderer/api/**/*.ts`, `src/renderer/pages/**/*.ts`, `src/shared/types/**/*.ts` — the `pages` glob does **not** match `.tsx`, so page components are not instrumented. Widen `coverage.include` if you need measured component coverage.
 
@@ -122,8 +122,24 @@ CI (`.github/workflows/ci.yml`, job `frontend`) runs exactly `pnpm typecheck`, `
 
 ## Manual Verification
 
-For runtime behavior the unit tests cannot cover (Tauri IPC, daemon, native dialogs):
+Use the [isolated fixture instructions](../../../../src/renderer/dev/README.md) for renderer journeys. Fixture activation requires both DEV and the explicit environment flag; unknown APIs and native access fail closed. Do not use real providers, Keychain, Desktop files or daemon restarts to make a mock preview work.
 
-1. `pnpm tauri dev` from the repo root (compiles the daemon sidecar, runs Vite, starts the app) — see `CONTRIBUTING.md`.
-2. Open the Console page: renderer `console.*` calls are captured through `api/consoleBus.ts`, so `console.error` from a failed flow is visible in-app without devtools.
-3. Re-run `⌘R` on the page to confirm the `usePageRefresh` loader re-reads data without losing filters or drafts.
+1. Exercise the visible form through create/edit/save, not only an API call with hand-written ideal input. Confirm the original operation still requires explicit apply.
+2. Re-run `⌘R` or the page refresh action to confirm its loader re-reads without losing filters/drafts; distinguish that from a full document reload.
+3. Validate rendered language and `html[data-theme]` after a full reload. Changing localStorage followed by same-document navigation is not proof of a changed UI.
+4. Inspect screenshots at 1440×1000 and 900×700. Check both horizontal overflow and the action footer's bounding rectangle. The route picker keeps header/footer visible and dense lists scroll locally; an off-screen confirmation button is a failure even if `scrollWidth` is correct.
+5. During modal transitions, wait for the incoming editor to be visible. Hidden/outgoing dialog nodes can remain mounted; an attached field or the first `[role=dialog]` is not necessarily the active form.
+
+Native Tauri/daemon/dialog verification is separate and must be explicitly authorized for its target environment. Temporary-directory Rust tests and fixture browser tests do not prove a real client reloaded its configuration.
+
+### Fixture fidelity regression rules
+
+Root cause class: **cross-layer contract + coverage gap**, not a reason to weaken production validation or the isolation boundary.
+
+- **Creation identity:** real Provider/Key forms may carry `id: undefined` or a stale ID beyond the declared input type. Generate identity at the fixture create boundary, apply it last, and assert subsequent list/get/apply use the same nonempty ID.
+- **Mount-time readers:** rendering a saved Key mounts a read-only launch preview. Implement only the real preview DTO with fixed synthetic placeholders and a comment-only command; test that it does not echo key/global config or mutate state. Keep terminal launch/file/process methods rejected.
+- **Editable query records:** `queryConfig.enabled` plus cached quota is insufficient. Key/account seeds need the corresponding persisted script and declared credential placeholders; scheme text must use the production `{ request, extractor }` contract. Run production effective-query helpers and test an alias-only save. Error scenarios retain valid saved input while failing the *subsequent query*, so save-vs-query separation is actually exercised.
+- **Operation time:** Desktop facts use RFC3339, matching the native command DTO, and the actual operation clock by default. A fixed injected clock is for deterministic tests only. Do not reuse a frozen, timezone-less SQL ledger timestamp: the UI correctly rejects sync failures older than the current save. Assert live/pinned clocks and run timestamp regressions under Shanghai and Los Angeles.
+- **Expansion:** check the same boundary for Provider, Key and Gateway creation, key/account quota ownership, default/partial/quota-error scenarios, and disabled/exhausted but editable resources. Avoid a global permissive stub.
+
+Executable coverage: [fixture API regression](../../../../src/renderer/dev/fixtureApi.test.ts), [isolation regression](../../../../src/renderer/dev/isolation.test.ts), [Key form regression](../../../../src/renderer/components/keys/KeyEditModal.component.test.tsx), [picker interaction regression](../../../../src/renderer/components/common/RoutePickerModal.interaction.test.tsx). Fixture full journeys and visual geometry remain explicit browser checks.

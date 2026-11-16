@@ -2,7 +2,44 @@ import type { ReactNode } from 'react'
 import type { ClientKind } from '@shared/types'
 import ClientIcon from '../common/ClientIcon'
 
-// Shared by the sidebar and home page: each entry opens its own workspace.
+// Kept as client metadata for secondary identities, not as top-level navigation.
+export function legacyWorkspaceTarget(pathname: string, search = ''): string {
+  const target: Record<string, [string, ClientKind]> = {
+    '/claude-code': ['/instances', 'claude_code'],
+    '/grok-build': ['/instances', 'grok'],
+    '/codex': ['/desktop', 'codex'],
+    '/claude-desktop': ['/desktop', 'claude_desktop'],
+  }
+  const entry = target[pathname]
+  if (!entry) return '/'
+  const source = new URLSearchParams(search)
+  const params = new URLSearchParams()
+  // Only public observation context survives. Never forward credentials or
+  // obsolete project-launch parameters from a legacy URL.
+  for (const key of [
+    'providerId',
+    'apiKeyId',
+    'instanceId',
+    'startDate',
+    'endDate',
+    'outcome',
+    'population',
+    'requestId',
+    'requestDate',
+    'timeRange',
+    'page',
+    'pageSize',
+  ]) {
+    const value = source.get(key)
+    if (value) params.set(key, value)
+  }
+  if (entry[1] === 'claude_code' && source.get('view') === 'sessions')
+    params.set('view', 'sessions')
+  if (entry[0] === '/instances' && source.get('view') === 'history') params.set('view', 'history')
+  params.set('client', entry[1])
+  return `${entry[0]}?${params}`
+}
+
 export const clientWorkspaces = [
   {
     path: '/claude-code',

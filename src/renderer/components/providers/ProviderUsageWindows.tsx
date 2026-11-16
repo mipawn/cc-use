@@ -46,6 +46,7 @@ export default function ProviderUsageWindows({
   if (groups.length > 0) {
     return (
       <div className={styles.groups}>
+        {windows.length > 0 && <WindowList windows={windows} />}
         {groups.map((group) => (
           <div key={group.id}>
             <Text type='secondary' style={{ fontSize: 12 }}>

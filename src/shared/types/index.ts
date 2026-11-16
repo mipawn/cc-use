@@ -5,6 +5,46 @@ export type ProviderType = string
 // ProviderType 混淆了供应商、客户端、协议格式,逐步迁移到 ClientKind
 export type ClientKind = 'claude_code' | 'grok' | 'codex' | 'claude_desktop'
 
+export type DesktopClientKind = Extract<ClientKind, 'codex' | 'claude_desktop'>
+export type DesktopChangeSource = 'user' | 'key_edit' | 'startup'
+
+/** Configuration facts, never a claim that a desktop client has reloaded them. */
+export interface DesktopConnectionState {
+  clientKind: DesktopClientKind
+  status: 'official' | 'taken_over' | 'not_found' | 'error' | 'unknown'
+  route: { providerId: string; apiKeyId: string } | null
+  lastConfigChange: {
+    action: 'takeover' | 'restore' | 'sync'
+    source: DesktopChangeSource
+    changedAt: string
+    version: number
+  } | null
+  syncFailure: { source: DesktopChangeSource; occurredAt: string; message: string } | null
+  warning: string | null
+}
+
+export interface DesktopOperationResult {
+  clientKind: DesktopClientKind
+  action: 'takeover' | 'switch_route' | 'restore'
+  completion: 'complete' | 'partial'
+  routeChanged: boolean
+  configChanged: boolean
+  modelCount: number | null
+  nextAction: 'reopen_client' | 'none'
+  updatedAt: string
+  warning: string | null
+  state: DesktopConnectionState
+}
+
+/** Ledger scope is applied by SQL before aggregation, count and pagination. */
+export interface RequestLogFilter {
+  providerId?: string
+  apiKeyId?: string
+  instanceId?: string
+  outcome?: 'success' | 'failed' | 'client_error' | 'upstream_error' | 'transport_error'
+  population?: 'all' | 'with_usage'
+}
+
 // 接入形态: cc-use 能不能亲自启动这个客户端
 export type IntegrationForm =
   | 'process_injection' // 进程级: wrapper 注入 env (Claude Code)

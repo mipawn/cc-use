@@ -1,14 +1,62 @@
+.modal {
+  padding-bottom: 0;
+}
+
+.modalContainer {
+  display: flex;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modalHeader,
+.modalFooter {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.modalHeader {
+  padding-inline-end: 24px;
+}
+
+.modalTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.modalBody {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.modalBody > * {
+  flex-shrink: 0;
+}
+
 .toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
-  padding-bottom: 16px;
 }
 
 .picker {
   display: grid;
-  height: clamp(360px, 58vh, 540px);
+  height: min(58vh, 540px);
+  height: min(58dvh, 540px);
+  min-height: 160px;
+  flex: 1 1 auto;
   grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--border-default);
   border-radius: 12px;
@@ -19,6 +67,7 @@
 .keyColumn {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
 }
@@ -42,6 +91,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px 8px 10px;
 }
 
@@ -173,6 +223,7 @@
 }
 
 .footer > :first-child {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -185,7 +236,35 @@
 }
 
 .empty {
-  padding: 80px 0;
+  margin: 0;
+  padding: clamp(24px, 6vh, 64px) 0;
+}
+
+.creationBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.accountQuota {
+  padding: 8px 10px 12px;
+}
+.cacheHint {
+  display: block;
+  font-size: 12px;
+}
+.providerItem:focus-visible,
+.keyItem:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keyItem {
+    transition: none;
+  }
 }
 
 @media (max-width: 720px) {

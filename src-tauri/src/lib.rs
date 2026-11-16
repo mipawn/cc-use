@@ -121,6 +121,7 @@ pub fn run() {
             commands::proxy::proxy_lan_addresses,
             // Console history (v3.10.0)
             commands::console::console_log_read_recent,
+            commands::console::console_log_read_request,
             commands::console::console_log_status,
             commands::console::console_log_clear,
             // Renderer console persistence (v3.16.0)
@@ -157,6 +158,10 @@ pub fn run() {
             commands::system::icon_list,
             commands::system::icon_delete,
             commands::system::icon_read,
+            // Typed desktop configuration facts and operation outcomes.
+            commands::desktop_connection::desktop_connection_state,
+            commands::desktop_connection::desktop_connection_apply,
+            commands::desktop_connection::desktop_connection_restore,
             // Codex config commands
             commands::codex_config::codex_config_read,
             commands::codex_config::codex_config_is_taken_over,

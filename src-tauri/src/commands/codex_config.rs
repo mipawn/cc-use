@@ -365,6 +365,17 @@ pub struct CodexConfigManager {
 }
 
 impl CodexConfigManager {
+    #[cfg(test)]
+    pub(crate) fn for_test(root: &Path) -> Self {
+        Self {
+            config_path: root.join("codex/config.toml"),
+            auth_path: root.join("codex/auth.json"),
+            backup_dir: root.join("backups"),
+            model_catalog_path: root.join("runtime/catalog.json"),
+            model_catalog_state_path: root.join("runtime/catalog-state.json"),
+        }
+    }
+
     /// 创建新的配置管理器
     pub fn new() -> Result<Self, CodexConfigError> {
         let home = dirs::home_dir().ok_or_else(|| {
@@ -819,6 +830,16 @@ impl CodexConfigManager {
         let requires_openai_auth = provider_table
             .and_then(|table| table.get("requires_openai_auth"))
             .and_then(|item| item.as_bool());
+        let configured_provider = doc.get("model_provider").and_then(|item| item.as_str());
+        let wire_api = provider_table
+            .and_then(|table| table.get("wire_api"))
+            .and_then(|item| item.as_str());
+        let provider_name = provider_table
+            .and_then(|table| table.get("name"))
+            .and_then(|item| item.as_str());
+        let disable_response_storage = doc
+            .get("disable_response_storage")
+            .and_then(|item| item.as_bool());
         let configured_model = doc.get("model").and_then(|item| item.as_str());
         let configured_reasoning_effort = doc
             .get("model_reasoning_effort")
@@ -836,13 +857,66 @@ impl CodexConfigManager {
         };
         let expected_base_url = format!("http://127.0.0.1:{}/v1", proxy_port);
 
-        Ok(bearer == Some(token)
+        // A leftover cc-use table is not an active takeover. Every field owned
+        // by takeover must match before reporting a route-only/no-config change.
+        Ok(configured_provider == Some(CC_USE_PROVIDER_KEY)
+            && wire_api == Some("responses")
+            && provider_name == Some("CC Use")
+            && disable_response_storage == Some(true)
+            && bearer == Some(token)
             && base_url == Some(expected_base_url.as_str())
             && requires_openai_auth == Some(true)
             && configured_model == Some(model)
             && configured_reasoning_effort == expected_reasoning_effort.as_deref()
             && catalog_matches
             && catalog_file_ready)
+    }
+}
+
+impl DesktopConfigFiles for CodexConfigManager {
+    fn files(&self) -> Vec<PathBuf> {
+        vec![
+            self.config_path.clone(),
+            self.model_catalog_path.clone(),
+            self.model_catalog_state_path.clone(),
+        ]
+    }
+    fn inspect(&self) -> Result<ConfigFacts, String> {
+        if !self
+            .config_path
+            .try_exists()
+            .map_err(|_| "Cannot inspect Codex configuration file.".to_string())?
+        {
+            return Ok(ConfigFacts {
+                status: DesktopConnectionStatus::NotFound,
+                token: None,
+            });
+        }
+        let text = fs::read_to_string(&self.config_path).map_err(|_| {
+            "Cannot read Codex configuration. Check file access and retry.".to_string()
+        })?;
+        let doc = text.parse::<DocumentMut>().map_err(|_| {
+            "Codex configuration contains invalid TOML. Repair it and retry.".to_string()
+        })?;
+        let ours =
+            doc.get("model_provider").and_then(|item| item.as_str()) == Some(CC_USE_PROVIDER_KEY);
+        let token = if ours {
+            doc.get("model_providers")
+                .and_then(|item| item.get(CC_USE_PROVIDER_KEY))
+                .and_then(|item| item.get("experimental_bearer_token"))
+                .and_then(|item| item.as_str())
+                .map(str::to_owned)
+        } else {
+            None
+        };
+        Ok(ConfigFacts {
+            status: if ours {
+                DesktopConnectionStatus::TakenOver
+            } else {
+                DesktopConnectionStatus::Official
+            },
+            token,
+        })
     }
 }
 
@@ -867,19 +941,13 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), CodexConfigError> {
 
 // ── Tauri commands ──
 
+use super::desktop_connection::{
+    self, ConfigFacts, DesktopChangeSource, DesktopClientKind, DesktopConfigFiles,
+    DesktopConnectionStatus, DesktopOperationResult,
+};
 use crate::db::Database;
-use crate::models::ProxySession;
 use std::sync::{Arc, Mutex};
 use tauri::State;
-
-fn get_proxy_port(db: &Database) -> i32 {
-    db.settings_get()
-        .ok()
-        .and_then(|s| s.proxy_port.to_string().parse().ok())
-        .unwrap_or(12345)
-}
-
-use crate::shared_runtime::session_token::{new_session_token, CODEX_SESSION_TOKEN_SETTING_KEY};
 
 #[tauri::command]
 pub fn codex_config_read() -> Result<String, String> {
@@ -908,35 +976,52 @@ pub async fn codex_config_takeover_inner(
     provider_id: String,
     api_key_id: String,
 ) -> Result<String, String> {
-    let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
+    codex_config_apply_inner(db, provider_id, api_key_id)
+        .await?
+        .legacy_message()
+}
+
+pub fn codex_config_restore_typed(
+    db: &Arc<Mutex<Database>>,
+) -> Result<DesktopOperationResult, String> {
+    let mgr =
+        CodexConfigManager::new().map_err(|_| "Cannot locate Codex configuration.".to_string())?;
+    let db = db
+        .lock()
+        .map_err(|_| "Desktop database is unavailable.".to_string())?;
+    desktop_connection::restore_with_config(&db, DesktopClientKind::Codex, &mgr, || {
+        mgr.restore(None)
+            .map_err(|_| "Cannot restore Codex configuration files. Check file access.".to_string())
+    })
+}
+
+pub async fn codex_config_apply_inner(
+    db: &Arc<Mutex<Database>>,
+    provider_id: String,
+    api_key_id: String,
+) -> Result<DesktopOperationResult, String> {
+    let mgr =
+        CodexConfigManager::new().map_err(|_| "Cannot locate Codex configuration.".to_string())?;
     let (provider, api_key) = {
-        let db = db.lock().map_err(|e| e.to_string())?;
-        let provider = db
-            .provider_get(&provider_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "供应商不存在".to_string())?;
-        let api_key = db
-            .api_key_get(&api_key_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "API 密钥不存在".to_string())?;
-        if api_key.provider_id != provider_id {
-            return Err("API 密钥不属于所选供应商".to_string());
-        }
-        if !api_key.types.iter().any(|kind| kind == "codex") {
-            return Err("所选 API 密钥未启用 Codex Desktop".to_string());
-        }
-        (provider, api_key)
+        let db = db
+            .lock()
+            .map_err(|_| "Desktop database is unavailable.".to_string())?;
+        desktop_connection::validate_route(
+            &db,
+            DesktopClientKind::Codex,
+            &provider_id,
+            &api_key_id,
+        )?
     };
 
-    let snapshot =
-        crate::services::model_catalog::effective_catalog(db, &provider, &api_key, "codex", None)
-            .await
-            .map_err(|error| format!("无法生成所选 Codex 线路的模型目录: {error}"))?;
-    let source_hint = if snapshot.from_cache {
-        format!("（使用 {} 的同线路目录缓存）", snapshot.fetched_at)
-    } else {
-        String::new()
-    };
+    let snapshot = crate::services::model_catalog::effective_catalog(
+        db, &provider, &api_key, "codex", None,
+    )
+    .await
+    .map_err(|_| {
+        "Cannot obtain the Codex model catalog. Check the route or its cached catalog and retry."
+            .to_string()
+    })?;
     let effective = snapshot.catalog;
     let configured_models = effective["data"]
         .as_array()
@@ -975,74 +1060,73 @@ pub async fn codex_config_takeover_inner(
     let catalog = build_configured_codex_catalog(&provider.name, &configured_models)?;
     let catalog = preserve_provider_catalog_capabilities(&catalog, &effective)?;
 
-    let (port, session_token) = {
-        let db = db.lock().map_err(|e| e.to_string())?;
-        let port = get_proxy_port(&db);
-        let session_token = match db.settings_get_value(CODEX_SESSION_TOKEN_SETTING_KEY) {
-            Ok(Some(token)) if !token.trim().is_empty() => token,
-            _ => {
-                let token = new_session_token();
-                db.settings_set_value(CODEX_SESSION_TOKEN_SETTING_KEY, &token)
-                    .map_err(|e| format!("保存 session token 失败: {}", e))?;
-                token
-            }
-        };
-
-        if db
-            .proxy_session_get(&session_token)
-            .ok()
-            .flatten()
-            .is_some()
-        {
-            db.proxy_session_update_provider_key_cli_type(
-                &session_token,
-                &provider_id,
-                &api_key_id,
-                "codex-app",
-            )
-            .map_err(|e| format!("更新 session 失败: {}", e))?;
-        } else {
-            let now = chrono::Utc::now().to_rfc3339();
-            db.proxy_session_create(&ProxySession {
-                session_token: session_token.clone(),
-                provider_id: provider_id.clone(),
-                api_key_id: api_key_id.clone(),
-                project_id: None,
-                created_at: now.clone(),
-                session_kind: "desktop".to_string(),
-                last_seen_at: now,
-                expires_at: None,
-                revoked_at: None,
-                revoked_reason: None,
-                cli_type: Some("codex-app".to_string()),
-                display_name: None,
-                is_active: true,
-                connection_config: None,
-                model_policy: None,
-            })
-            .map_err(|e| format!("创建 session 失败: {}", e))?;
-        }
-        (port, session_token)
-    };
-
-    let already_current = mgr
-        .matches_takeover_catalog(&session_token, port as u16, &codex_model, Some(&catalog))
-        .map_err(|e| e.to_string())?;
-    if already_current {
-        return Ok(format!(
-            "已切换密钥，Codex 保持 {} 个模型{}",
-            model_ids.len(),
-            source_hint
-        ));
+    let db = db
+        .lock()
+        .map_err(|_| "Desktop database is unavailable.".to_string())?;
+    // Catalog retrieval awaits without a DB lock; reject a concurrent key/provider
+    // edit instead of applying a catalog prepared for a different configuration.
+    let (current_provider, current_key) = desktop_connection::validate_route(
+        &db,
+        DesktopClientKind::Codex,
+        &provider_id,
+        &api_key_id,
+    )?;
+    if current_provider.name != provider.name
+        || current_provider.base_url != provider.base_url
+        || current_provider.http_proxy != provider.http_proxy
+        || current_provider.request_headers != provider.request_headers
+        || current_provider.request_adapter != provider.request_adapter
+        || current_key.model_mapping != api_key.model_mapping
+        || current_key.client_configs != api_key.client_configs
+        || current_key.value != api_key.value
+    {
+        return Err(
+            "The selected route changed while loading its catalog. Select it again and retry."
+                .into(),
+        );
     }
-
-    mgr.takeover_with_catalog(&session_token, port as u16, &codex_model, &catalog)
-        .map_err(|e| e.to_string())?;
-    Ok(format!(
-        "接管完成，已加载 {} 个模型{}；请完全退出并重新打开 Codex Desktop",
+    codex_apply_with_catalog(
+        &db,
+        &mgr,
+        &provider_id,
+        &api_key_id,
+        &codex_model,
+        &catalog,
         model_ids.len(),
-        source_hint
-    ))
+    )
+}
+
+pub(crate) fn codex_apply_with_catalog(
+    db: &Database,
+    mgr: &CodexConfigManager,
+    provider_id: &str,
+    api_key_id: &str,
+    model: &str,
+    catalog: &str,
+    model_count: usize,
+) -> Result<DesktopOperationResult, String> {
+    desktop_connection::apply_with_config(
+        db,
+        DesktopClientKind::Codex,
+        provider_id,
+        api_key_id,
+        DesktopChangeSource::User,
+        mgr,
+        Some(model_count),
+        |token, port| {
+            if !mgr
+                .matches_takeover_catalog(token, port, model, Some(catalog))
+                .map_err(|_| {
+                    "Cannot compare Codex configuration. Check the config file and retry."
+                        .to_string()
+                })?
+            {
+                mgr.takeover_with_catalog(token, port, model, catalog)
+                    .map_err(|_| "Cannot write Codex configuration or model catalog. Check file access and retry.".to_string())?;
+            }
+            Ok(())
+        },
+    )
 }
 
 #[tauri::command]
@@ -1051,19 +1135,7 @@ pub fn codex_config_restore(db: State<'_, Arc<Mutex<Database>>>) -> Result<Strin
 }
 
 pub fn codex_config_restore_inner(db: &Arc<Mutex<Database>>) -> Result<String, String> {
-    let mgr = CodexConfigManager::new().map_err(|e| e.to_string())?;
-    mgr.restore(None).map_err(|e| e.to_string())?;
-    let db = db.lock().map_err(|e| e.to_string())?;
-    if let Some(token) = db
-        .settings_get_value(CODEX_SESSION_TOKEN_SETTING_KEY)
-        .map_err(|e| e.to_string())?
-    {
-        db.proxy_session_revoke(&token, "desktop_restore", &chrono::Utc::now().to_rfc3339())
-            .map_err(|e| e.to_string())?;
-    }
-    db.settings_delete_value(CODEX_SESSION_TOKEN_SETTING_KEY)
-        .map_err(|e| e.to_string())?;
-    Ok("已恢复官方配置,请重启 Codex Desktop 生效".to_string())
+    codex_config_restore_typed(db)?.legacy_message()
 }
 
 #[tauri::command]

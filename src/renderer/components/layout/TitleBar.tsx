@@ -17,6 +17,8 @@ export default function TitleBar({
   const client = clientWorkspaces.find((item) => item.path === pathname)
   const pages: Record<string, string> = {
     '/': 'workspace.home',
+    '/instances': 'workspace.instances',
+    '/desktop': 'workspace.desktopAccess',
     '/keys': 'keys.title',
     '/gateway': 'gateway.title',
     '/stats': 'statistics.title',

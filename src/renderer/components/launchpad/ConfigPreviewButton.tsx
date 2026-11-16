@@ -1,84 +1,93 @@
-import { useState } from 'react'
-import { Button, Modal, Tooltip } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { Alert, Button, Modal } from 'antd'
 import { EyeOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { getApi } from '../../api'
-import { useAppMessage } from '../../hooks/useAppMessage'
-import type { ClientKind } from '@shared/types'
+import { getClientKindLabel, type DesktopClientKind } from '@shared/types'
+import { redactConfigPreview } from '../../utils/configPreview'
 
-interface ConfigPreviewButtonProps {
-  clientKind: Extract<ClientKind, 'codex' | 'claude_desktop'>
-}
-
-export default function ConfigPreviewButton({ clientKind }: ConfigPreviewButtonProps) {
+export default function ConfigPreviewButton({ clientKind }: { clientKind: DesktopClientKind }) {
   const { t } = useTranslation()
-  const message = useAppMessage()
   const [preview, setPreview] = useState({
     open: false,
     content: '',
     loading: false,
+    failed: false,
   })
-
-  const title = clientKind === 'codex' ? 'Codex Desktop 配置' : 'Claude Desktop 配置'
-
+  const revision = useRef(0)
+  useEffect(
+    () => () => {
+      ++revision.current
+    },
+    [clientKind],
+  )
   const handleOpen = async () => {
-    setPreview({ open: true, content: '', loading: true })
-
+    const request = ++revision.current
+    setPreview({ open: true, content: '', loading: true, failed: false })
     try {
-      const content = clientKind === 'codex'
-        ? await getApi().configTakeover.readCodex()
-        : await getApi().configTakeover.readClaudeDesktop()
-      setPreview({ open: true, content: content || '(空配置)', loading: false })
-    } catch (error) {
-      const messageText = error instanceof Error ? error.message : String(error)
-      setPreview({ open: true, content: messageText, loading: false })
-      message.error(messageText)
+      const content =
+        clientKind === 'codex'
+          ? await getApi().configTakeover.readCodex()
+          : await getApi().configTakeover.readClaudeDesktop()
+      if (request !== revision.current) return
+      setPreview({
+        open: true,
+        content: redactConfigPreview(content || ''),
+        loading: false,
+        failed: false,
+      })
+    } catch {
+      if (request === revision.current)
+        setPreview({ open: true, content: '', loading: false, failed: true })
     }
   }
-
   const handleClose = () => {
+    ++revision.current
     setPreview((prev) => ({ ...prev, open: false }))
   }
-
   return (
     <>
-      <Tooltip title='查看配置'>
-        <Button type='default' size='small' icon={<EyeOutlined />} onClick={handleOpen}>
-          查看配置
-        </Button>
-      </Tooltip>
+      <Button icon={<EyeOutlined />} onClick={() => void handleOpen()}>
+        {t('desktopAccess.preview')}
+      </Button>
       <Modal
-        title={title}
+        title={`${getClientKindLabel(clientKind)} · ${t('desktopAccess.preview')}`}
         open={preview.open}
         onCancel={handleClose}
-        footer={[
-          <Button key='close' onClick={handleClose}>
-            {t('common.close') || '关闭'}
-          </Button>,
-        ]}
+        footer={<Button onClick={handleClose}>{t('common.close')}</Button>}
         width={720}
         loading={preview.loading}
         destroyOnHidden
       >
-        <pre
-          style={{
-            maxHeight: '56vh',
-            margin: 0,
-            padding: 12,
-            overflow: 'auto',
-            border: '1px solid var(--border-subtle, rgba(0, 0, 0, 0.06))',
-            borderRadius: 8,
-            background: 'var(--surface-sunken, #f8fafc)',
-            color: 'var(--ant-color-text)',
-            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-            fontSize: 12,
-            lineHeight: 1.6,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}
-        >
-          {preview.content}
-        </pre>
+        <p>{t('desktopAccess.previewHint')}</p>
+        {preview.failed ? (
+          <Alert
+            type='error'
+            showIcon
+            title={t('desktopAccess.previewFailed')}
+            action={<Button onClick={() => void handleOpen()}>{t('common.retry')}</Button>}
+          />
+        ) : (
+          <pre
+            style={{
+              maxHeight: '56vh',
+              margin: 0,
+              padding: 12,
+              overflow: 'auto',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 8,
+              background: 'var(--surface-sunken)',
+              color: 'var(--ant-color-text)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              lineHeight: 1.6,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {preview.content || t('desktopAccess.emptyConfig')}
+          </pre>
+        )}
       </Modal>
     </>
   )

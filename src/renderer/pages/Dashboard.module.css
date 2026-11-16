@@ -254,3 +254,19 @@
     font-size: 17px;
   }
 }
+
+.statLink {
+  color: inherit;
+  min-width: 0;
+  border-right: 1px solid var(--border-subtle);
+}
+.statLink:last-child {
+  border-right: 0;
+}
+.statLink:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+.statLink:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: -2px;
+}

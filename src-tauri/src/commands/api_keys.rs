@@ -27,11 +27,21 @@ pub fn api_key_update(
     input: UpdateApiKeyInput,
 ) -> Result<ApiKey, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    let key = db.api_key_update(&input).map_err(|e| e.to_string())?;
-    // The taken-over Desktop profile embeds the catalog's role slots, so a
-    // saved key has to keep it in step. Other keys leave the profile alone.
-    if let Err(error) = crate::commands::claude_desktop_config::refresh_taken_over_profile(&db) {
-        log::warn!("failed to refresh Claude Desktop profile after key save: {error}");
+    update_key_with_desktop_sync(&db, &input, || {
+        crate::commands::claude_desktop_config::refresh_taken_over_profile_after_key_edit(&db)
+    })
+}
+
+pub(crate) fn update_key_with_desktop_sync(
+    db: &Database,
+    input: &UpdateApiKeyInput,
+    sync: impl FnOnce() -> Result<bool, String>,
+) -> Result<ApiKey, String> {
+    let key = db.api_key_update(input).map_err(|e| e.to_string())?;
+    // Saving the key and refreshing external configuration have separate outcomes.
+    // The sync owner persists its failure for desktop_connection_state to expose.
+    if let Err(error) = sync() {
+        log::warn!("Saved key; Claude Desktop configuration sync failed: {error}");
     }
     Ok(key)
 }

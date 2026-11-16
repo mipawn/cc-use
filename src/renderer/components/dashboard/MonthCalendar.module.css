@@ -315,3 +315,17 @@
     font-size: 10px;
   }
 }
+
+.heatmapCell {
+  padding: 0;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.heatmapCell:disabled {
+  cursor: default;
+}
+.heatmapCell:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 2px;
+}

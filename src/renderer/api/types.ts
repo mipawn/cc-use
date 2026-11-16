@@ -60,6 +60,10 @@ import type {
   MigrationResult,
   TerminalLaunchPreview,
   ClientKind,
+  DesktopClientKind,
+  DesktopConnectionState,
+  DesktopOperationResult,
+  RequestLogFilter,
 } from '../../shared/types'
 
 export interface Api {
@@ -186,6 +190,8 @@ export interface Api {
     /// the store keeps the current local day plus the two before it, and the
     /// size budget may evict older records earlier.
     readRecent: (sources: string[], limit?: number) => Promise<ConsoleLogPage>
+    /// Request-specific projection; never truncate it through the global UI buffer.
+    readRequest: (requestId: string, limit?: number) => Promise<ConsoleLogPage>
     /// Per-owner writer state: enqueue drops, write failures, trims and the
     /// size-budget eviction flag. The daemon entry reports `available: false`
     /// when it is offline instead of pretending zero.
@@ -293,6 +299,15 @@ export interface Api {
     get: () => Promise<GlobalSettings>
     update: (updates: Partial<GlobalSettings>) => Promise<GlobalSettings>
   }
+  desktopConnection: {
+    state: (clientKind: DesktopClientKind) => Promise<DesktopConnectionState>
+    apply: (
+      clientKind: DesktopClientKind,
+      providerId: string,
+      apiKeyId: string,
+    ) => Promise<DesktopOperationResult>
+    restore: (clientKind: DesktopClientKind) => Promise<DesktopOperationResult>
+  }
   configTakeover: {
     readCodex: () => Promise<string>
     readClaudeDesktop: () => Promise<string>
@@ -314,7 +329,10 @@ export interface Api {
   }
   requestLog: {
     getDailyTrend: (days?: number) => Promise<DailyTrendItem[]>
-    getStatistics: (timeRange: StatsTimeRange) => Promise<UsageStatistics>
+    getStatistics: (
+      timeRange: StatsTimeRange,
+      filter?: RequestLogFilter,
+    ) => Promise<UsageStatistics>
     getResourceStatistics: (
       timeRange: StatsTimeRange,
       providerId?: string,
@@ -324,6 +342,7 @@ export interface Api {
       timeRange: StatsTimeRange,
       page?: number,
       pageSize?: number,
+      filter?: RequestLogFilter,
     ) => Promise<PaginatedRecentRequests>
     getOverview: () => Promise<UsageOverview>
     getKeyTokenStats: () => Promise<{ keyId: string; todayTokens: number; totalTokens: number }[]>

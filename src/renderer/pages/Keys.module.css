@@ -267,35 +267,35 @@
   flex-wrap: wrap;
 }
 
-/* Add Key Card */
+/* A compact creation action, independent of the provider's key count. */
 .addKeyCard {
   cursor: pointer;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 200px;
-  border-style: dashed !important;
-  transition: all 0.2s ease;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-ant);
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font: inherit;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .addKeyCard:hover {
-  border-color: var(--color-accent-primary) !important;
-  background: var(--color-accent-glow) !important;
-}
-
-.addKeyCard :global(.ant-card-body) {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
+  border-color: var(--color-accent-primary);
+  background: var(--color-accent-glow);
+  color: var(--color-accent-primary);
 }
 
 .addIcon {
-  font-size: 24px;
+  font-size: 16px;
   color: var(--color-accent-primary);
 }
 
@@ -399,7 +399,7 @@
 }
 .keysGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 .keyCard {
@@ -409,12 +409,12 @@
 .keyCard :global(.ant-card-body) {
   display: flex;
   flex-direction: column;
-  padding: 20px;
+  padding: 14px 16px;
   height: 100%;
 }
 .keyCardHeader {
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 8px;
 }
 .keyTitleInfo {
   min-width: 0;
@@ -458,16 +458,6 @@
   outline: 2px solid var(--color-accent-primary);
   outline-offset: 3px;
 }
-.addKeyCard {
-  width: 100%;
-  height: 100%;
-  min-height: 206px;
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-ant);
-  background: var(--surface-elevated);
-  color: var(--ant-color-text-secondary);
-  font: inherit;
-}
 @container provider-page (max-width: 740px) {
   .keysGrid {
     grid-template-columns: 1fr;
@@ -484,9 +474,6 @@
   .keyCard :global(.ant-card-body) {
     padding: 16px;
   }
-  .addKeyCard {
-    min-height: 100px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .keyCard,
@@ -495,11 +482,14 @@
   }
 }
 
-.addKeyCardWide {
-  grid-column: 1 / -1;
-  min-height: 48px;
-  flex-direction: row;
+.filterTab {
+  font: inherit;
+  color: inherit;
 }
-.addKeyCardWide .addIcon {
-  font-size: 16px;
+.keyCardActions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.keyQuotaWindows {
+  margin-bottom: 8px;
 }

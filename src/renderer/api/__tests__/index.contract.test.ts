@@ -21,6 +21,49 @@ describe('renderer api contract', () => {
     vi.clearAllMocks()
   })
 
+  it('maps scoped observation and typed desktop commands without leaking routing credentials', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+    const range = 'custom:2026-11-01:2026-11-15' as const
+    const filter = {
+      instanceId: 'instance-public-id',
+      outcome: 'failed' as const,
+      population: 'all' as const,
+    }
+    await api.requestLog.getStatistics(range, filter)
+    await api.requestLog.getRecentPaginated(range, 3, 20, filter)
+    await api.console.readRequest('request-public-id', 5000)
+    await api.desktopConnection.state('codex')
+    await api.desktopConnection.apply('claude_desktop', 'provider-1', 'key-1')
+    await api.desktopConnection.restore('codex')
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'request_log_get_statistics', {
+      timeRange: range,
+      filter,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'request_log_get_recent_paginated', {
+      timeRange: range,
+      page: 3,
+      pageSize: 20,
+      filter,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'console_log_read_request', {
+      requestId: 'request-public-id',
+      limit: 5000,
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'desktop_connection_state', {
+      clientKind: 'codex',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'desktop_connection_apply', {
+      clientKind: 'claude_desktop',
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'desktop_connection_restore', {
+      clientKind: 'codex',
+    })
+  })
+
   it('caches the api instance', async () => {
     const { getApi } = await loadApiModule()
 

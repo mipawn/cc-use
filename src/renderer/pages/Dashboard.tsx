@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Typography, Card, theme, Popover, Tooltip } from 'antd'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   ThunderboltOutlined,
   DatabaseOutlined,
@@ -16,14 +16,31 @@ import UsageHeatmap from '../components/dashboard/UsageHeatmap'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import type { UsageOverview } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
+import PageHeader from '../components/common/PageHeader'
+import { buildStatisticsUrl } from '../utils/observationContext'
 import styles from './Dashboard.module.css'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation()
   const { token } = theme.useToken()
 
+  const navigate = useNavigate()
+  const revision = useRef(0)
+  const today = new Date().toLocaleDateString('sv-SE')
+  const todayUsage = buildStatisticsUrl({
+    timeRange: `custom:${today}:${today}`,
+    filter: { population: 'with_usage' },
+    page: 1,
+    pageSize: 10,
+  })
+  const todayFailures = buildStatisticsUrl({
+    timeRange: `custom:${today}:${today}`,
+    filter: { population: 'all', outcome: 'failed' },
+    page: 1,
+    pageSize: 10,
+  })
   const currentYear = new Date().getFullYear()
   const [overview, setOverview] = useState<UsageOverview | null>(null)
   const [overviewFailed, setOverviewFailed] = useState(false)
@@ -32,14 +49,15 @@ export default function Dashboard() {
   const language = i18n.resolvedLanguage || i18n.language
 
   const fetchOverview = useCallback(async (isCancelled?: () => boolean) => {
+    const request = ++revision.current
     try {
       const data = await getApi().requestLog.getOverview()
-      if (!isCancelled?.()) {
+      if (!isCancelled?.() && request === revision.current) {
         setOverview(data)
         setOverviewFailed(false)
       }
     } catch (error) {
-      if (!isCancelled?.()) {
+      if (!isCancelled?.() && request === revision.current) {
         console.error('Failed to fetch usage overview:', error)
         setOverviewFailed(true)
       }
@@ -66,23 +84,14 @@ export default function Dashboard() {
 
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
-        <div className={styles.headerContent}>
-          <Title level={2} className={styles.title}>
-            {t('workspace.home')}
-          </Title>
-          <Text type='secondary' className={styles.subtitle}>
-            {t('workspace.overviewSubtitle')}
-          </Text>
-        </div>
-      </div>
+      <PageHeader title={t('workspace.home')} description={t('workspace.overviewSubtitle')} />
 
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
           <section aria-labelledby='today-overview-title'>
             <div className={styles.sectionHeading}>
               <h3 id='today-overview-title'>{t('workspace.todayOverview')}</h3>
-              <Link to='/stats'>
+              <Link to={todayUsage}>
                 {t('workspace.viewStatistics')}
                 <ArrowRightOutlined />
               </Link>
@@ -97,61 +106,67 @@ export default function Dashboard() {
             )}
             {/* 今日概况 */}
             <div className={styles.statsRow}>
-              <Card className={styles.statCard} variant='outlined'>
-                <div className={styles.statContent}>
-                  <DatabaseOutlined
-                    className={styles.statIcon}
-                    style={{ color: token.colorPrimary }}
-                  />
-                  <div className={styles.statInfo}>
-                    <Text type='secondary' className={styles.statLabel}>
-                      {t('dashboard.todayTokens')}
-                    </Text>
-                    <Text strong className={styles.statValue}>
-                      {overview ? renderTokenValue(overview.todayTokens) : '—'}
-                    </Text>
+              <Link to={todayUsage} className={styles.statLink}>
+                <Card className={styles.statCard} variant='outlined'>
+                  <div className={styles.statContent}>
+                    <DatabaseOutlined
+                      className={styles.statIcon}
+                      style={{ color: token.colorPrimary }}
+                    />
+                    <div className={styles.statInfo}>
+                      <Text type='secondary' className={styles.statLabel}>
+                        {t('dashboard.todayTokens')}
+                      </Text>
+                      <Text strong className={styles.statValue}>
+                        {overview && !overviewFailed ? renderTokenValue(overview.todayTokens) : '—'}
+                      </Text>
+                    </div>
                   </div>
-                </div>
-              </Card>
+                </Card>
+              </Link>
 
-              <Card className={styles.statCard} variant='outlined'>
-                <div className={styles.statContent}>
-                  <ThunderboltOutlined
-                    className={styles.statIcon}
-                    style={{ color: token.colorPrimary }}
-                  />
-                  <div className={styles.statInfo}>
-                    <Text type='secondary' className={styles.statLabel}>
-                      {t('dashboard.todayRequests')}
-                    </Text>
-                    <Text strong className={styles.statValue}>
-                      {overview?.todayRequests ?? '—'}
-                    </Text>
+              <Link to={todayUsage} className={styles.statLink}>
+                <Card className={styles.statCard} variant='outlined'>
+                  <div className={styles.statContent}>
+                    <ThunderboltOutlined
+                      className={styles.statIcon}
+                      style={{ color: token.colorPrimary }}
+                    />
+                    <div className={styles.statInfo}>
+                      <Text type='secondary' className={styles.statLabel}>
+                        {t('dashboard.todayRequests')}
+                      </Text>
+                      <Text strong className={styles.statValue}>
+                        {overviewFailed ? '—' : (overview?.todayRequests ?? '—')}
+                      </Text>
+                    </div>
                   </div>
-                </div>
-              </Card>
+                </Card>
+              </Link>
 
-              <Card className={styles.statCard} variant='outlined'>
-                <div className={styles.statContent}>
-                  <WarningOutlined
-                    className={styles.statIcon}
-                    style={{
-                      color:
-                        (overview?.todayFailedRequests || 0) > 0
-                          ? token.colorError
-                          : token.colorTextSecondary,
-                    }}
-                  />
-                  <div className={styles.statInfo}>
-                    <Text type='secondary' className={styles.statLabel}>
-                      {t('dashboard.todayFailures')}
-                    </Text>
-                    <Text strong className={styles.statValue}>
-                      {overview?.todayFailedRequests ?? '—'}
-                    </Text>
+              <Link to={todayFailures} className={styles.statLink}>
+                <Card className={styles.statCard} variant='outlined'>
+                  <div className={styles.statContent}>
+                    <WarningOutlined
+                      className={styles.statIcon}
+                      style={{
+                        color:
+                          (overview?.todayFailedRequests || 0) > 0
+                            ? token.colorError
+                            : token.colorTextSecondary,
+                      }}
+                    />
+                    <div className={styles.statInfo}>
+                      <Text type='secondary' className={styles.statLabel}>
+                        {t('dashboard.todayFailures')}
+                      </Text>
+                      <Text strong className={styles.statValue}>
+                        {overviewFailed ? '—' : (overview?.todayFailedRequests ?? '—')}
+                      </Text>
+                    </div>
                   </div>
-                </div>
-              </Card>
+                </Card>
+              </Link>
             </div>
           </section>
 
@@ -214,7 +229,19 @@ export default function Dashboard() {
               </div>
             }
           >
-            <UsageHeatmap year={calYear} />
+            <UsageHeatmap
+              year={calYear}
+              onDateSelect={(date) =>
+                navigate(
+                  buildStatisticsUrl({
+                    timeRange: `custom:${date}:${date}`,
+                    filter: { population: 'with_usage' },
+                    page: 1,
+                    pageSize: 10,
+                  }),
+                )
+              }
+            />
           </Card>
           <div className={styles.workspaceNote}>
             <span>{t('workspace.routingHint')}</span>

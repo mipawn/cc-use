@@ -2,8 +2,17 @@
  * Tauri API layer — wraps Tauri invoke() calls into the Api interface shape.
  */
 import type { Api } from './types'
+import { isFixtureMode } from '../dev/mode'
 
 let _api: Api | null = null
+let _fixtureApi: Api | null = null
+
+/** Dev bootstrap only: never merge fixture namespaces into the real API. */
+export function installDevFixtureApi(api: Api): void {
+  if (!isFixtureMode) throw new Error('Fixture API requires DEV and VITE_CC_USE_FIXTURE=1')
+  if (_api) throw new Error('Fixture API must be installed before the real API is used')
+  _fixtureApi = api
+}
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke: tauriInvoke } = await import('@tauri-apps/api/core')
@@ -110,6 +119,7 @@ function buildApi(): Api {
         }
       },
       readRecent: (sources, limit) => invoke('console_log_read_recent', { sources, limit }),
+      readRequest: (requestId, limit) => invoke('console_log_read_request', { requestId, limit }),
       logStatus: () => invoke('console_log_status'),
       clearHistory: () => invoke('console_log_clear'),
       appendRendererLogs: (records) => invoke('console_log_append_renderer', { records }),
@@ -176,6 +186,12 @@ function buildApi(): Api {
       get: () => invoke('settings_get'),
       update: (updates) => invoke('settings_update', { updates }),
     },
+    desktopConnection: {
+      state: (clientKind) => invoke('desktop_connection_state', { clientKind }),
+      apply: (clientKind, providerId, apiKeyId) =>
+        invoke('desktop_connection_apply', { clientKind, providerId, apiKeyId }),
+      restore: (clientKind) => invoke('desktop_connection_restore', { clientKind }),
+    },
     configTakeover: {
       readCodex: () => invoke('codex_config_read'),
       readClaudeDesktop: () => invoke('claude_desktop_config_read'),
@@ -196,11 +212,17 @@ function buildApi(): Api {
     },
     requestLog: {
       getDailyTrend: (days) => invoke('request_log_get_daily_trend', { days }),
-      getStatistics: (timeRange) => invoke('request_log_get_statistics', { timeRange }),
+      getStatistics: (timeRange, filter) =>
+        invoke('request_log_get_statistics', { timeRange, ...(filter ? { filter } : {}) }),
       getResourceStatistics: (timeRange, providerId, apiKeyId) =>
         invoke('request_log_get_resource_statistics', { timeRange, providerId, apiKeyId }),
-      getRecentPaginated: (timeRange, page, pageSize) =>
-        invoke('request_log_get_recent_paginated', { timeRange, page, pageSize }),
+      getRecentPaginated: (timeRange, page, pageSize, filter) =>
+        invoke('request_log_get_recent_paginated', {
+          timeRange,
+          page,
+          pageSize,
+          ...(filter ? { filter } : {}),
+        }),
       getOverview: () => invoke('request_log_get_overview'),
       getKeyTokenStats: () => invoke('request_log_get_key_token_stats'),
       getGatewayMetrics: () => invoke('gateway_metrics_get_recent'),
@@ -292,6 +314,10 @@ function buildApi(): Api {
  * Get the API object. Cached after first call.
  */
 export function getApi(): Api {
+  if (isFixtureMode) {
+    if (!_fixtureApi) throw new Error('[fixture isolation] API requested before fixture bootstrap')
+    return _fixtureApi
+  }
   if (!_api) {
     _api = buildApi()
   }

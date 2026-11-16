@@ -1,38 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Card, Table, Tag, Button, TreeSelect, Typography, message, Space, Segmented } from 'antd'
-import { ReloadOutlined, ClearOutlined } from '@ant-design/icons'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Alert, Button, Empty, Segmented, Space, Table, Tag, Typography, App } from 'antd'
+import { ReloadOutlined, ClearOutlined, SwapOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { getApi } from '../api'
 import { usePageRefresh } from '../hooks/usePageRefresh'
-import type { ApiKey, ClientKind, ManagedInstance, Provider } from '@shared/types'
+import RoutePickerModal, { type RouteSelection } from '../components/common/RoutePickerModal'
+import ClientIcon from '../components/common/ClientIcon'
+import {
+  getClientKindLabel,
+  type ApiKey,
+  type ClientKind,
+  type ManagedInstance,
+  type Provider,
+} from '@shared/types'
+import styles from './Instances.module.css'
 
 const { Text, Title } = Typography
-
-const HEARTBEAT_INTERVAL_SECS = 5
-
-function formatHeartbeat(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  const seconds = String(date.getSeconds()).padStart(2, '0')
-
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-}
-
-function buildInstanceShortCode(value: string) {
-  return value.slice(-8)
-}
-
-function getProjectName(path: string) {
-  const normalized = path.endsWith('/') ? path.slice(0, -1) : path
-  const parts = normalized.split('/').filter(Boolean)
-  return parts[parts.length - 1] || path
-}
+const HEARTBEAT_INTERVAL_MS = 5000
+export type InstanceClient = Extract<ClientKind, 'claude_code' | 'grok'>
+export type InstanceView = 'active' | 'history'
 
 function normalizeInstanceCliType(cliType: string) {
   return cliType === 'claude' ? 'claude_code' : cliType
@@ -43,165 +29,182 @@ function isActiveInstance(instance: ManagedInstance) {
 }
 
 export function isApiKeyCompatibleWithCliType(key: Pick<ApiKey, 'types'>, cliType: string) {
-  const normalizedCliType = normalizeInstanceCliType(cliType)
-  return key.types.some((type) => normalizeInstanceCliType(type) === normalizedCliType)
+  return key.types.some(
+    (type) => normalizeInstanceCliType(type) === normalizeInstanceCliType(cliType),
+  )
 }
 
 interface InstancesProps {
-  clientKind: Extract<ClientKind, 'claude_code' | 'grok'>
+  clientKind?: InstanceClient
   embedded?: boolean
+  view?: InstanceView
+  onViewChange?: (view: InstanceView) => void
+  onViewRequests?: (id: string) => void
 }
 
-export default function Instances({ clientKind, embedded = false }: InstancesProps) {
-  const { t } = useTranslation()
-  const [loading, setLoading] = useState(false)
+export default function Instances({
+  clientKind,
+  embedded = false,
+  view: controlledView,
+  onViewChange,
+  onViewRequests,
+}: InstancesProps) {
+  const { t, i18n } = useTranslation()
+  const { message } = App.useApp()
+  const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [instances, setInstances] = useState<ManagedInstance[]>([])
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
-  const [view, setView] = useState<'active' | 'history'>('active')
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [localView, setLocalView] = useState<InstanceView>('active')
+  const [assignmentTarget, setAssignmentTarget] = useState<ManagedInstance | null>(null)
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [cleaning, setCleaning] = useState(false)
+  const revision = useRef(0)
+  const submission = useRef(false)
+  const cleanupPending = useRef(false)
+  // A new scope gets a new lifetime, even after switching away and back to the
+  // same client. Old operations must not start new reads or release new locks.
+  const identity = useMemo(() => ({ clientKind, active: false }), [clientKind])
+  const view = controlledView ?? localView
 
-  const load = async (silent = false) => {
-    if (!silent) setLoading(true)
-    try {
-      const [instancesData, providersData] = await Promise.all([
-        getApi().managedInstances.list(clientKind),
-        getApi().provider.list(),
-      ])
-      setInstances(
-        instancesData.filter(
-          (instance) => normalizeInstanceCliType(instance.cliType) === clientKind,
-        ),
-      )
-      setProviders(providersData)
-
-      const keys = await Promise.all(
-        providersData.map((provider) => getApi().apiKey.list(provider.id)),
-      )
-      setApiKeys(keys.flat())
-    } catch (error) {
-      console.error('Failed to load managed instances page:', error)
-      if (!silent) message.error(t('instances.loadFailed'))
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }
+  const load = useCallback(
+    async (silent = false) => {
+      if (!identity.active) return
+      const request = ++revision.current
+      if (!silent) setLoading(true)
+      try {
+        // The per-client endpoint is capped at 100 recent records. Always obtain
+        // the complete active population separately, including old live instances.
+        const clients: InstanceClient[] = clientKind ? [clientKind] : ['claude_code', 'grok']
+        const [active, histories, nextProviders] = await Promise.all([
+          getApi().managedInstances.list(),
+          Promise.all(clients.map((kind) => getApi().managedInstances.list(kind))),
+          getApi().provider.list(),
+        ])
+        if (!identity.active || request !== revision.current) return
+        const keys = (
+          await Promise.all(nextProviders.map((provider) => getApi().apiKey.list(provider.id)))
+        ).flat()
+        if (!identity.active || request !== revision.current) return
+        const byId = new Map<string, ManagedInstance>()
+        for (const instance of [
+          ...histories.flat().filter((item) => !isActiveInstance(item)),
+          ...active,
+        ]) {
+          if (clients.includes(normalizeInstanceCliType(instance.cliType) as InstanceClient))
+            byId.set(instance.id, instance)
+        }
+        setInstances([...byId.values()].sort((a, b) => b.launchedAt.localeCompare(a.launchedAt)))
+        setProviders(nextProviders)
+        setApiKeys(keys)
+        setLoadFailed(false)
+      } catch {
+        if (identity.active && request === revision.current) setLoadFailed(true)
+      } finally {
+        if (identity.active && request === revision.current) setLoading(false)
+      }
+    },
+    [clientKind, identity],
+  )
 
   useEffect(() => {
-    load()
-    timerRef.current = setInterval(() => load(true), HEARTBEAT_INTERVAL_SECS * 1000)
+    identity.active = true
+    submission.current = false
+    cleanupPending.current = false
+    setPendingId(null)
+    setCleaning(false)
+    setInstances([])
+    setAssignmentTarget(null)
+    void load()
+    const timer = setInterval(() => void load(true), HEARTBEAT_INTERVAL_MS)
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
+      identity.active = false
+      revision.current += 1
+      clearInterval(timer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientKind])
-
-  // Refresh shows the progress indicator, unlike the silent heartbeat poll.
+  }, [identity, load])
   usePageRefresh(() => load())
 
   const providerMap = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers])
-
-  const treeData = useMemo(() => {
-    const grouped = new Map<string, ApiKey[]>()
-    for (const key of apiKeys) {
-      const provider = providerMap.get(key.providerId)
-      if (!provider?.isActive || !key.isActive || key.isExhausted) continue
-      const list = grouped.get(key.providerId) || []
-      list.push(key)
-      grouped.set(key.providerId, list)
-    }
-
-    return Array.from(grouped.entries()).map(([providerId, keys]) => {
-      const provider = providerMap.get(providerId)
-      return {
-        title: provider?.name || providerId,
-        value: `provider-${providerId}`,
-        selectable: false,
-        children: keys.map((key) => ({
-          title: key.alias || key.id,
-          label: `${provider?.name || providerId} · ${key.alias || key.id}`,
-          value: key.id,
-        })),
-      }
-    })
-  }, [apiKeys, providerMap])
-
-  const apiKeyMap = useMemo(() => new Map(apiKeys.map((key) => [key.id, key])), [apiKeys])
-  const visibleInstances = useMemo(
-    () =>
-      instances.filter((instance) =>
-        view === 'active' ? isActiveInstance(instance) : !isActiveInstance(instance),
-      ),
-    [instances, view],
+  const keyMap = useMemo(() => new Map(apiKeys.map((key) => [key.id, key])), [apiKeys])
+  const visibleInstances = instances.filter((instance) =>
+    view === 'active' ? isActiveInstance(instance) : !isActiveInstance(instance),
   )
-  const activeCount = useMemo(() => instances.filter(isActiveInstance).length, [instances])
-  const historyCount = instances.length - activeCount
-
-  const statusMeta = useMemo(
-    () => ({
-      launching: { color: 'gold', label: t('instances.statusLaunching') },
-      running: { color: 'green', label: t('instances.statusRunning') },
-      stale: { color: 'orange', label: t('instances.statusStale') },
-      stopped: { color: 'default', label: t('instances.statusStopped') },
-      failed: { color: 'red', label: t('instances.statusFailed') },
-    }),
-    [t],
-  )
-  const stopReasonLabels = useMemo(
-    () => ({
-      launch_failed: t('instances.reasonLaunchFailed'),
-      launch_timeout: t('instances.reasonLaunchTimeout'),
-      prelaunch_failed: t('instances.reasonPrelaunchFailed'),
-      process_exit: t('instances.reasonProcessExit'),
-      shell_exit: t('instances.reasonShellExit'),
-      heartbeat_timeout: t('instances.reasonHeartbeatTimeout'),
-      stale_timeout: t('instances.reasonStaleTimeout'),
-      manual_cleanup: t('instances.reasonManualCleanup'),
-    }),
-    [t],
-  )
+  const activeCount = instances.filter(isActiveInstance).length
+  const statusMeta: Record<string, { color: string; label: string }> = {
+    launching: { color: 'gold', label: t('instances.statusLaunching') },
+    running: { color: 'green', label: t('instances.statusRunning') },
+    stale: { color: 'orange', label: t('instances.statusStale') },
+    stopped: { color: 'default', label: t('instances.statusStopped') },
+    failed: { color: 'red', label: t('instances.statusFailed') },
+  }
+  const reasons: Record<string, string> = {
+    launch_failed: t('instances.reasonLaunchFailed'),
+    launch_timeout: t('instances.reasonLaunchTimeout'),
+    prelaunch_failed: t('instances.reasonPrelaunchFailed'),
+    process_exit: t('instances.reasonProcessExit'),
+    shell_exit: t('instances.reasonShellExit'),
+    heartbeat_timeout: t('instances.reasonHeartbeatTimeout'),
+    stale_timeout: t('instances.reasonStaleTimeout'),
+    manual_cleanup: t('instances.reasonManualCleanup'),
+  }
 
   const handleCleanup = async () => {
+    if (!identity.active || cleanupPending.current) return
+    cleanupPending.current = true
+    setCleaning(true)
     try {
-      const count = await getApi().managedInstances.cleanup(clientKind)
+      const clients: InstanceClient[] = clientKind ? [clientKind] : ['claude_code', 'grok']
+      const results = await Promise.allSettled(
+        clients.map((kind) => getApi().managedInstances.cleanup(kind)),
+      )
+      if (!identity.active) return
+      const count = results.reduce(
+        (sum, result) => sum + (result.status === 'fulfilled' ? result.value : 0),
+        0,
+      )
       await load()
-      message.success(t('instances.cleanupSuccess', { count }))
-    } catch (error) {
-      console.error('Failed to cleanup instances:', error)
-      message.error(t('instances.cleanupFailed'))
+      if (!identity.active) return
+      if (results.some((result) => result.status === 'rejected'))
+        message.warning(t('instances.cleanupPartial', { count }))
+      else message.success(t('instances.cleanupSuccess', { count }))
+    } catch {
+      if (identity.active) message.error(t('instances.cleanupFailed'))
+    } finally {
+      if (identity.active) {
+        cleanupPending.current = false
+        setCleaning(false)
+      }
     }
   }
 
-  const handleAssignmentChange = async (instance: ManagedInstance, nextKeyId: string) => {
+  const handleAssignment = async ({ provider, apiKey }: RouteSelection) => {
+    if (!identity.active || !assignmentTarget || submission.current) return
+    const id = assignmentTarget.id
+    submission.current = true
+    setPendingId(id)
     try {
-      const nextKey = apiKeyMap.get(nextKeyId)
-      if (!nextKey) {
-        throw new Error('API key not found')
-      }
+      // Backend validates state/ownership/compatibility again at submission.
       await getApi().managedInstances.updateAssignment({
-        id: instance.id,
-        providerId: nextKey.providerId,
-        apiKeyId: nextKey.id,
+        id,
+        providerId: provider.id,
+        apiKeyId: apiKey.id,
         assignmentSource: 'manual_ui',
       })
-      await load()
-      message.success(t('instances.assignmentUpdated'))
-    } catch (error) {
-      console.error('Failed to update managed instance assignment:', error)
-      message.error(t('instances.assignmentUpdateFailed'))
+      if (!identity.active) return
+      await load(true)
+      if (identity.active) message.success(t('instances.assignmentUpdated'))
+    } catch {
+      if (!identity.active) return
+      await load(true)
+      if (identity.active) throw new Error(t('instances.assignmentUpdateFailed'))
+    } finally {
+      if (identity.active) {
+        submission.current = false
+        setPendingId(null)
+      }
     }
-  }
-
-  const filteredTreeData = (cliType: string) => {
-    const compatibleKeyIds = new Set(
-      apiKeys.filter((key) => isApiKeyCompatibleWithCliType(key, cliType)).map((key) => key.id),
-    )
-    return treeData
-      .map((group) => ({
-        ...group,
-        children: group.children.filter((key) => compatibleKeyIds.has(key.value)),
-      }))
-      .filter((group) => group.children.length > 0)
   }
 
   const columns = [
@@ -210,21 +213,29 @@ export default function Instances({ clientKind, embedded = false }: InstancesPro
       dataIndex: 'projectPath',
       key: 'projectPath',
       width: 200,
-      render: (path: string, record: ManagedInstance) => {
-        const instanceLabel = buildInstanceShortCode(record.sessionToken || record.id)
+      render: (path: string, record: ManagedInstance) => (
+        <div>
+          <Text strong ellipsis={{ tooltip: path }} className={styles.directory}>
+            {path.split('/').filter(Boolean).at(-1) || path}
+          </Text>
+          {/* sessionToken is a credential, including its suffix. Only show instance ID. */}
+          <Text type='secondary' className={styles.secondary}>
+            {record.id.slice(-8)}
+          </Text>
+        </div>
+      ),
+    },
+    {
+      title: t('instances.columnCli'),
+      key: 'client',
+      width: 140,
+      render: (_: unknown, record: ManagedInstance) => {
+        const kind = normalizeInstanceCliType(record.cliType) as InstanceClient
         return (
-          <div>
-            <Text
-              strong
-              ellipsis={{ tooltip: path }}
-              style={{ display: 'block', maxWidth: '100%' }}
-            >
-              {getProjectName(path)}
-            </Text>
-            <Text type='secondary' style={{ fontSize: 11 }}>
-              {instanceLabel}
-            </Text>
-          </div>
+          <Space size={6}>
+            <ClientIcon kind={kind} size={16} />
+            {getClientKindLabel(kind)}
+          </Space>
         )
       },
     },
@@ -232,68 +243,47 @@ export default function Instances({ clientKind, embedded = false }: InstancesPro
       title: t('instances.columnStatus'),
       dataIndex: 'status',
       key: 'status',
-      width: 120,
-      render: (value: string) => {
-        const meta = statusMeta[value as keyof typeof statusMeta] || {
-          color: 'default',
-          label: value,
-        }
-        return <Tag color={meta.color}>{meta.label}</Tag>
-      },
+      width: 100,
+      render: (value: string) => (
+        <Tag color={statusMeta[value]?.color}>{statusMeta[value]?.label || value}</Tag>
+      ),
     },
     {
       title: t('instances.columnCurrentRoute'),
-      key: 'assignKey',
-      width: 280,
+      key: 'route',
+      width: 230,
       render: (_: unknown, record: ManagedInstance) => {
-        if (!isActiveInstance(record)) {
-          const provider = record.providerId ? providerMap.get(record.providerId) : null
-          const key = record.apiKeyId ? apiKeyMap.get(record.apiKeyId) : null
-          return (
-            <Text type='secondary'>
-              {provider?.name || record.providerId || t('common.unknown')} ·{' '}
-              {key?.alias || record.apiKeyId || t('common.unknown')}
-            </Text>
-          )
-        }
+        const provider = record.providerId ? providerMap.get(record.providerId) : null
+        const key = record.apiKeyId ? keyMap.get(record.apiKeyId) : null
         return (
-          <TreeSelect
-            showSearch={{
-              filterTreeNode: (input, node) =>
-                String(node.title || '')
-                  .toLowerCase()
-                  .includes(input.toLowerCase()),
-            }}
-            treeDefaultExpandAll
-            placeholder={t('instances.selectKey')}
-            value={record.apiKeyId || undefined}
-            treeData={filteredTreeData(record.cliType)}
-            style={{ width: '100%' }}
-            onChange={(value: string) => handleAssignmentChange(record, value)}
-            treeNodeLabelProp='label'
-          />
+          <div>
+            <Text className={styles.directory} ellipsis={{ tooltip: provider?.name }}>
+              {provider?.name || t('common.unknown')}
+            </Text>
+            <Text type='secondary' className={styles.secondary}>
+              {key?.alias || (key ? t('instances.unnamedKey') : t('common.unknown'))}
+            </Text>
+          </div>
         )
       },
     },
     {
       title: t('instances.columnUpdatedAt'),
       key: 'updatedAt',
-      width: 180,
+      width: 170,
       render: (_: unknown, record: ManagedInstance) => {
         const value = record.stoppedAt || record.lastSeenAt
-        const formattedValue = formatHeartbeat(value)
+        const date = new Date(value)
         return (
           <div>
-            <Text
-              ellipsis={{ tooltip: formattedValue }}
-              style={{ display: 'block', maxWidth: '100%' }}
-            >
-              {formattedValue}
+            <Text>
+              {Number.isNaN(date.getTime())
+                ? value
+                : date.toLocaleString(i18n?.language || 'zh-CN')}
             </Text>
             {record.stopReason && (
-              <Text type='secondary' style={{ display: 'block', fontSize: 11 }}>
-                {stopReasonLabels[record.stopReason as keyof typeof stopReasonLabels] ||
-                  record.stopReason}
+              <Text type='secondary' className={styles.secondary}>
+                {reasons[record.stopReason] || record.stopReason}
                 {record.exitCode !== null
                   ? ` · ${t('instances.exitCode', { code: record.exitCode })}`
                   : ''}
@@ -303,73 +293,134 @@ export default function Instances({ clientKind, embedded = false }: InstancesPro
         )
       },
     },
+    {
+      title: t('common.more'),
+      key: 'actions',
+      width: 150,
+      render: (_: unknown, record: ManagedInstance) => (
+        <Space size={0}>
+          {isActiveInstance(record) && (
+            <Button
+              type='text'
+              size='small'
+              icon={<SwapOutlined />}
+              loading={pendingId === record.id}
+              onClick={() => setAssignmentTarget(record)}
+            >
+              {t('instances.switchRoute')}
+            </Button>
+          )}
+          {onViewRequests && (
+            <Button type='link' size='small' onClick={() => onViewRequests(record.id)}>
+              {t('instances.requests')}
+            </Button>
+          )}
+        </Space>
+      ),
+    },
   ]
 
   return (
-    <div
-      style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}
-    >
-      <div>
-        {!embedded && (
-          <Title level={3} className='m-0! mb-1!'>
-            {t('instances.title')}
-          </Title>
-        )}
-        <Text type='secondary'>
-          {t('instances.subtitle')}
-          {' · '}
-          {t('instances.heartbeatInterval', { seconds: HEARTBEAT_INTERVAL_SECS })}
-        </Text>
-      </div>
-
-      <Card
-        title={t('instances.tableTitle')}
-        extra={
-          <Space wrap>
-            <Segmented<'active' | 'history'>
-              value={view}
-              onChange={setView}
-              options={[
-                { value: 'active', label: t('instances.activeView', { count: activeCount }) },
-                { value: 'history', label: t('instances.historyView', { count: historyCount }) },
-              ]}
-            />
-            <Button icon={<ClearOutlined />} onClick={handleCleanup}>
-              {t('instances.cleanup')}
-            </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => load()} loading={loading}>
-              {t('common.refresh')}
-            </Button>
-          </Space>
-        }
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-        styles={{
-          body: {
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          },
-        }}
-      >
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          <Table
-            rowKey='id'
-            loading={loading}
-            columns={columns}
-            dataSource={visibleInstances}
-            scroll={{ x: 900 }}
-            pagination={{ pageSize: 10 }}
-          />
+    <div className={styles.container}>
+      {!embedded && (
+        <div>
+          <Title level={3}>{t('instances.title')}</Title>
+          <Text type='secondary'>{t('instances.subtitle')}</Text>
         </div>
-      </Card>
+      )}
+      <div className={styles.toolbar}>
+        <Segmented
+          value={view}
+          onChange={(next) => {
+            setLocalView(next as InstanceView)
+            onViewChange?.(next as InstanceView)
+          }}
+          options={[
+            { value: 'active', label: t('instances.activeView', { count: activeCount }) },
+            {
+              value: 'history',
+              label: t('instances.historyView', { count: instances.length - activeCount }),
+            },
+          ]}
+        />
+        <Space>
+          <Button icon={<ClearOutlined />} loading={cleaning} onClick={() => void handleCleanup()}>
+            {t('instances.cleanup')}
+          </Button>
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading}
+            onClick={() => void load()}
+            aria-label={t('common.refresh')}
+          />
+        </Space>
+      </div>
+      {loadFailed && (
+        <Alert
+          type='error'
+          showIcon
+          title={t('instances.loadFailed')}
+          action={
+            <Button size='small' onClick={() => void load()}>
+              {t('common.retry')}
+            </Button>
+          }
+        />
+      )}
+      {view === 'history' && <Text type='secondary'>{t('instances.historyLimit')}</Text>}
+      <div className={styles.table}>
+        <Table
+          rowKey='id'
+          loading={loading}
+          columns={columns}
+          dataSource={visibleInstances}
+          scroll={{ x: 990 }}
+          pagination={{ pageSize: 10, hideOnSinglePage: true }}
+          locale={{
+            emptyText: loadFailed ? (
+              t('instances.loadFailed')
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={t(
+                  view === 'active' ? 'instances.emptyActive' : 'instances.emptyHistory',
+                )}
+              >
+                {view === 'active' && (
+                  <Space wrap>
+                    {(!clientKind || clientKind === 'claude_code') && (
+                      <Text code copyable>
+                        cc-use claude
+                      </Text>
+                    )}
+                    {(!clientKind || clientKind === 'grok') && (
+                      <Text code copyable>
+                        cc-use grok
+                      </Text>
+                    )}
+                  </Space>
+                )}
+              </Empty>
+            ),
+          }}
+        />
+      </div>
+      {assignmentTarget && (
+        <RoutePickerModal
+          key={assignmentTarget.id}
+          open
+          clientKind={normalizeInstanceCliType(assignmentTarget.cliType) as InstanceClient}
+          providers={providers}
+          apiKeys={apiKeys}
+          currentKeyId={assignmentTarget.apiKeyId || undefined}
+          title={t('instances.switchRoute')}
+          actionText={t('instances.applyRoute')}
+          onCancel={() => {
+            if (!submission.current) setAssignmentTarget(null)
+          }}
+          onSelect={handleAssignment}
+        />
+      )}
     </div>
   )
 }

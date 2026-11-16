@@ -1,4 +1,9 @@
+import { resourcesEn } from './resources'
+import { observationEn } from './observation'
+
 export default {
+  resources: resourcesEn,
+  observation: observationEn,
   workspace: {
     overviewSubtitle: 'Today’s usage and yearly activity across your clients.',
     sessionCleanup: 'Clean up sessions',
@@ -7,14 +12,18 @@ export default {
     clientSettings: 'Client settings',
     launchDefaults: 'Launch defaults',
     gateway: 'Gateway',
-    home: 'Workspace',
+    home: 'Overview',
+    use: 'Use',
+    instances: 'Running instances',
+    desktopAccess: 'Desktop access',
     navigation: 'Main navigation',
     clients: 'Clients',
     manage: 'Manage',
     observation: 'Observation',
     collapseSidebar: 'Collapse sidebar',
     expandSidebar: 'Expand sidebar',
-    subtitle: 'Launch projects, configure your clients, and follow gateway usage.',
+    subtitle:
+      'Launch with cc-use CLI. Configure resources, control instances, and observe requests here.',
     manageKeys: 'Manage provider keys',
     startWorking: 'Start working',
     clientHint: 'Project launch & desktop access',
@@ -33,6 +42,63 @@ export default {
     overviewUnavailable: 'Today’s usage could not be loaded',
     previousYear: 'Previous year',
     nextYear: 'Next year',
+  },
+  desktopAccess: {
+    preview: 'View configuration',
+    previewHint:
+      'Read-only preview with credentials hidden. No configuration changes or reconnection.',
+    previewFailed: 'Could not read configuration',
+    emptyConfig: 'Empty configuration',
+    subtitle:
+      'Choose a route and configure your desktop client. A saved file does not prove the client has reloaded it.',
+    status: {
+      official: 'Official configuration',
+      taken_over: 'Connected to cc-use',
+      not_found: 'No client configuration',
+      error: 'Configuration error',
+      unknown: 'Unknown state',
+    },
+    currentRoute: 'Current route',
+    resourceUnavailable: 'Resource unavailable',
+    officialRoute: 'Using the official client connection',
+    noRoute: 'No route assigned',
+    models: 'Models',
+    connect: 'Connect client',
+    switch: 'Switch route',
+    restore: 'Restore official',
+    restoreTitle: 'Restore official configuration for {{client}}?',
+    restoreHint:
+      'This removes the cc-use connection configuration. Reopen the client afterward. Providers, keys and usage records are retained.',
+    boundaryTitle: 'What this changes',
+    boundaryHint:
+      'Desktop access changes the selected client’s configuration. Terminal instances and other desktop clients are unaffected.',
+    routeHint:
+      'A route-only change affects subsequent requests, never terminal launch defaults. Changes to the model catalogue or client configuration require reopening the client.',
+    noDetection:
+      'cc-use cannot reliably confirm a reload. Requests, running processes and dismissed notices do not prove that a model catalogue is loaded.',
+    loadFailed: 'Could not read connection state',
+    unknownHint:
+      'The current configuration is unknown. Retry; a read failure is not treated as official mode.',
+    partial: 'Operation only partially completed',
+    partialHint:
+      'The readable actual state is shown. Check the configuration before retrying; this was not a complete success.',
+    operationFailed: 'Operation incomplete. Check the current state before retrying.',
+    configSaved: 'Configuration saved. Reopen the client.',
+    routeApplied: 'Route switched for subsequent requests only',
+    unchanged: 'No configuration or route changes needed',
+    configSyncFailed: 'Configuration sync failed',
+    syncFailed: 'Key saved, but desktop configuration sync failed',
+    syncFailedHint:
+      'Saving the key and updating the desktop files are separate outcomes. Check the route and apply it again to retry sync.',
+    lastConfigChange: 'Latest configuration write',
+    reopenHint:
+      'If you have not reopened {{client}} since this write, reopen it to load the configuration. This record confirms the file update, not a client reload.',
+    change: {
+      takeover: 'Connection configured',
+      restore: 'Official configuration restored',
+      sync: 'Model configuration synced',
+    },
+    source: { user: 'Manual operation', key_edit: 'Key edit', startup: 'Startup sync' },
   },
   gateway: {
     basics: 'Basics',
@@ -248,7 +314,7 @@ export default {
     cliToolUninstallConfirm:
       'This only removes /usr/local/bin/cc-use. The app, settings, and usage data are kept.',
     cliToolUninstallSuccess: 'Command line tool uninstalled',
-    cliToolHint: 'Every launch shows available routes with the GUI project default preselected.',
+    cliToolHint: 'Every launch shows available routes with the saved default preselected.',
     language: 'Language',
     languageDesc: 'Select display language',
     theme: 'Theme',
@@ -438,9 +504,22 @@ export default {
     respHeaders: 'Response body',
   },
   instances: {
-    title: 'Instances',
+    title: 'Running instances',
     subtitle:
-      "Routes here affect only the current running instance and don't change the project's next-launch default",
+      'Launch with cc-use in your terminal. Route changes affect only this instance’s next requests, never launch defaults.',
+    allClients: 'All clients',
+    claudeSessions: 'Claude sessions',
+    sessionsHint:
+      'View and resume Claude Code sessions. Session history is separate from running instances.',
+    backToInstances: 'Back to instances',
+    switchRoute: 'Switch',
+    applyRoute: 'Apply to this instance',
+    requests: 'Requests',
+    unnamedKey: 'Unnamed key',
+    historyLimit:
+      'Ended records from each client’s latest 100 instances. Older requests remain in usage statistics.',
+    emptyActive: 'No running instances. Start one from your terminal:',
+    emptyHistory: 'No recently ended instances',
     heartbeatInterval: 'Heartbeat interval {{seconds}}s',
     tableTitle: 'Managed instances',
     activeView: 'Current {{count}}',
@@ -450,6 +529,7 @@ export default {
     assignmentUpdateFailed: 'Failed to update instance assignment',
     cleanup: 'Cleanup',
     cleanupSuccess: 'Cleaned up {{count}} inactive instances',
+    cleanupPartial: 'Removed {{count}} records, but cleanup failed for some clients. Retry.',
     cleanupFailed: 'Failed to cleanup instances',
     columnId: 'Unique ID',
     columnProject: 'Project',

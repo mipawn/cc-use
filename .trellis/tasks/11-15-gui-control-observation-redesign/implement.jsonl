@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/11-15-gui-control-observation-redesign/design.md","reason":"完整信息架构、跨层契约与已收敛兼容决定"}
+{"file":".trellis/spec/cc-use/frontend/data-and-ux.md","reason":"页面刷新、异步身份、错误恢复与草稿保留"}
+{"file":".trellis/spec/cc-use/frontend/ui-and-styling.md","reason":"AntD token、双语、主题、可访问性与布局规则"}
+{"file":".trellis/spec/cc-use/frontend/api-bridge.md","reason":"Api/buildApi/command/DTO原子变更与共享事件规则"}
+{"file":".trellis/spec/cc-use/backend/database.md","reason":"参数化SQL、历史数据与迁移约束"}
+{"file":".trellis/spec/cc-use/backend/tauri-commands.md","reason":"共享后端入口、IPC与进程职责"}
+{"file":".trellis/spec/cc-use-cli/backend/launch-flow.md","reason":"项目退出GUI后仍必须保持的CLI启动语义"}

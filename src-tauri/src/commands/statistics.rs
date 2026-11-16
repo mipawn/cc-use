@@ -1,7 +1,7 @@
 use crate::db::Database;
 use crate::models::{
-    PaginatedRecentRequests, ProviderGatewayMetrics, RecentGatewayMetrics, ResourceUsageStatistics,
-    UsageOverview, UsageStatistics, UsageStats,
+    PaginatedRecentRequests, ProviderGatewayMetrics, RecentGatewayMetrics, RequestLogFilter,
+    ResourceUsageStatistics, UsageOverview, UsageStatistics, UsageStats,
 };
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -48,9 +48,10 @@ pub fn request_log_get_daily_trend(
 pub fn request_log_get_statistics(
     db: State<'_, Arc<Mutex<Database>>>,
     time_range: String,
+    filter: Option<RequestLogFilter>,
 ) -> Result<UsageStatistics, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_statistics(&time_range)
+    db.request_log_get_statistics_filtered(&time_range, &filter.unwrap_or_default())
         .map_err(|e| e.to_string())
 }
 
@@ -79,10 +80,16 @@ pub fn request_log_get_recent_paginated(
     time_range: String,
     page: Option<i64>,
     page_size: Option<i64>,
+    filter: Option<RequestLogFilter>,
 ) -> Result<PaginatedRecentRequests, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    db.request_log_get_recent_paginated(&time_range, page.unwrap_or(1), page_size.unwrap_or(10))
-        .map_err(|e| e.to_string())
+    db.request_log_get_recent_paginated_filtered(
+        &time_range,
+        page.unwrap_or(1),
+        page_size.unwrap_or(10),
+        &filter.unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

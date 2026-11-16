@@ -29,6 +29,11 @@ const TTL_RECHECK_INTERVAL_MS = 30_000
 let events: ConsoleEvent[] = []
 let generation: string | null = null
 let historyRevision = 0
+// Independent request projections invalidate on clear, not on unrelated hydration.
+let clearRevision = 0
+let clearingHistory = false
+export const getConsoleClearRevision = () => clearRevision
+export const isConsoleHistoryClearing = () => clearingHistory
 const bus = new EventTarget()
 const CHANGE = 'change'
 
@@ -306,6 +311,9 @@ export async function clearConsoleHistory(): Promise<ConsoleLogClearResult> {
   // Invalidate old reads at both ends, including reads begun while the backend
   // clear was still in flight. They must not repopulate the cleared window.
   historyRevision += 1
+  clearRevision += 1
+  clearingHistory = true
+  notify()
   await beginRendererLogClear()
   let result: ConsoleLogClearResult
   try {
@@ -321,6 +329,8 @@ export async function clearConsoleHistory(): Promise<ConsoleLogClearResult> {
   }
 
   historyRevision += 1
+  clearRevision += 1
+  clearingHistory = false
   generation = null
   commit([])
   commitMeta({

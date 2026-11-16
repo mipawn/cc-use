@@ -1,0 +1,81 @@
+export const observationZh = {
+  outcome: '请求结果',
+  allOutcomes: '全部结果',
+  outcomes: {
+    success: '成功',
+    failed: '所有失败',
+    client_error: '客户端错误',
+    upstream_error: '上游错误',
+    transport_error: '传输错误',
+  },
+  population: '请求口径',
+  populations: { all: '所有请求', with_usage: '有 Token 用量的请求' },
+  providerId: '供应商',
+  apiKeyId: '密钥',
+  instanceId: '实例',
+  denominatorHint:
+    '账本包含无 Token 请求；概览请求数仅计有用量请求。切换到失败时自动包含所有请求。',
+  clearScope: '清除范围',
+  invalidQuery: '观察范围无效，请清除范围后重新选择。',
+  scopeUnavailable: '来源范围已失效或历史关联不可用。',
+  readFailed: '无法读取此范围的统计，请重试。',
+  noScopeFallback: '未改查全量数据，也不会按同名资源猜测历史归属。',
+  ledgerCount: '{{count}} 条账本记录',
+  openConsole: '在控制台定位',
+  noRequestId: '此历史记录没有可定位的请求 ID。',
+  requestLocator: '定位请求',
+  backToStatistics: '返回原范围账本',
+  logsAreGlobal: '运行日志为全局日志，不代表此请求或实例的日志。',
+  persistedProjection: '在日志留存内精确定位，独立于全局 500 条缓冲。',
+  requestLoading: '正在读取此请求的留存日志…',
+  requestReadFailed: '请求日志读取失败，请重试；这不代表没有日志。',
+  requestExpired: '此请求日期已超出当前日志保留窗口；统计账本不受影响。',
+  requestMissing: '未找到此请求的留存日志：可能未收录、已清除或不在保留范围。',
+  locatedCount: '{{count}} 条定位请求',
+  retentionWindow: '保留窗口起始日：{{date}}',
+  projectionTruncated: '留存日志曾裁剪或本次结果已截断，可能不含完整事件。',
+}
+
+type Translated<T> = { [K in keyof T]: T[K] extends string ? string : Translated<T[K]> }
+
+export const observationEn: Translated<typeof observationZh> = {
+  outcome: 'Request outcome',
+  allOutcomes: 'All outcomes',
+  outcomes: {
+    success: 'Success',
+    failed: 'All failures',
+    client_error: 'Client error',
+    upstream_error: 'Upstream error',
+    transport_error: 'Transport error',
+  },
+  population: 'Request population',
+  populations: { all: 'All requests', with_usage: 'Requests with token usage' },
+  providerId: 'Provider',
+  apiKeyId: 'Key',
+  instanceId: 'Instance',
+  denominatorHint:
+    'The ledger includes requests without tokens; overview counts include only requests with usage. Choosing failures includes all requests.',
+  clearScope: 'Clear scope',
+  invalidQuery: 'Invalid observation scope. Clear it and select a new scope.',
+  scopeUnavailable: 'This source scope or its historical association is no longer available.',
+  readFailed: 'Could not read statistics for this scope. Please retry.',
+  noScopeFallback: 'No fallback to all records or guessing historical ownership by name.',
+  ledgerCount: '{{count}} ledger records',
+  openConsole: 'Locate in console',
+  noRequestId: 'This historical record has no usable request ID.',
+  requestLocator: 'Located request',
+  backToStatistics: 'Return to scoped ledger',
+  logsAreGlobal: 'Runtime logs are global, not logs scoped to this request or instance.',
+  persistedProjection:
+    'Exact lookup within retained logs, independent of the global 500-event buffer.',
+  requestLoading: 'Reading retained logs for this request…',
+  requestReadFailed: 'Could not read request logs. Retry; this does not mean no logs exist.',
+  requestExpired:
+    'This request date is outside the current log retention window. The statistics ledger is unaffected.',
+  requestMissing:
+    'No retained logs found: the request may not have been captured, may have been cleared, or may be outside retention.',
+  locatedCount: '{{count}} located requests',
+  retentionWindow: 'Retention starts: {{date}}',
+  projectionTruncated:
+    'Retained logs or this result have been trimmed; some events may be missing.',
+}

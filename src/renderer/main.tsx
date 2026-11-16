@@ -1,66 +1,93 @@
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
-import { ConfigProvider, App as AntdApp } from 'antd'
-import { StyleProvider } from '@ant-design/cssinjs'
-import zhCN from 'antd/locale/zh_CN'
-import enUS from 'antd/locale/en_US'
-import dayjs from 'dayjs'
-import 'dayjs/locale/zh-cn'
-import App from './App'
-import { useSettingsStore } from './stores/settingsStore'
-import { installRendererConsoleTap } from './api/consoleBus'
-import { installRendererLogBridge } from './api/consoleLogBridge'
-import { installConsoleStore } from './api/consoleStore'
-import './locales'
-import './styles/global.css'
-import { createWorkspaceTheme } from './styles/workspaceTheme'
-import { useReducedMotion } from './hooks/useReducedMotion'
+import { isFixtureMode } from './dev/mode'
 
-// Install the console tap as early as possible so every `console.*` call
-// from React / stores / app bootstrap is already funneled into the Console
-// page's event stream by the time the user opens it.
-installRendererConsoleTap()
-// Persist renderer `console.*` lines through the app writer as well, at app
-// startup and independently of the Console page ever being mounted, so they
-// survive a reload of the webview.
-installRendererLogBridge()
-// Process-long buffer: events start accumulating immediately, survive
-// navigation away from the Console page, and only reset on full app reload.
-installConsoleStore()
+async function bootstrap() {
+  // Dynamic boundary is intentional: not even store/module evaluation may call
+  // the real API before fixture injection. Production never imports fixture data.
+  if (isFixtureMode) {
+    const { installFixturePreview } = await import('./dev/bootstrap')
+    installFixturePreview()
+  }
 
-function Root() {
-  const reducedMotion = useReducedMotion()
-  const { language, resolvedTheme, initSettings } = useSettingsStore()
-  const isChinese = language.toLowerCase().startsWith('zh')
+  const { installRendererConsoleTap } = await import('./api/consoleBus')
+  installRendererConsoleTap()
+  // Renderer persistence is a native integration, not part of browser fixtures.
+  // Keep the normal console store and its getApi()-backed event/history paths.
+  if (!isFixtureMode) {
+    const { installRendererLogBridge } = await import('./api/consoleLogBridge')
+    installRendererLogBridge()
+  }
+  const { installConsoleStore } = await import('./api/consoleStore')
+  installConsoleStore()
 
-  useEffect(() => {
-    initSettings()
-  }, [initSettings])
+  const [
+    { ConfigProvider, App: AntdApp },
+    { StyleProvider },
+    { default: zhCN },
+    { default: enUS },
+    { default: dayjs },
+    { default: App },
+    { useSettingsStore },
+    { createWorkspaceTheme },
+    { useReducedMotion },
+  ] = await Promise.all([
+    import('antd'),
+    import('@ant-design/cssinjs'),
+    import('antd/locale/zh_CN'),
+    import('antd/locale/en_US'),
+    import('dayjs'),
+    import('./App'),
+    import('./stores/settingsStore'),
+    import('./styles/workspaceTheme'),
+    import('./hooks/useReducedMotion'),
+    import('dayjs/locale/zh-cn'),
+    import('./locales'),
+    import('./styles/global.css'),
+  ])
 
-  useEffect(() => {
-    dayjs.locale(isChinese ? 'zh-cn' : 'en')
-  }, [isChinese])
+  function Root() {
+    const reducedMotion = useReducedMotion()
+    const { language, resolvedTheme, initSettings } = useSettingsStore()
+    const isChinese = language.toLowerCase().startsWith('zh')
 
-  return (
-    <StyleProvider layer>
-      <ConfigProvider
-        locale={isChinese ? zhCN : enUS}
-        theme={createWorkspaceTheme(resolvedTheme === 'dark', reducedMotion)}
-      >
-        <AntdApp message={{ maxCount: 3, top: 60 }}>
-          <App />
-        </AntdApp>
-      </ConfigProvider>
-    </StyleProvider>
+    useEffect(() => {
+      initSettings()
+    }, [initSettings])
+    useEffect(() => {
+      dayjs.locale(isChinese ? 'zh-cn' : 'en')
+    }, [isChinese])
+
+    return (
+      <StyleProvider layer>
+        <ConfigProvider
+          locale={isChinese ? zhCN : enUS}
+          theme={createWorkspaceTheme(resolvedTheme === 'dark', reducedMotion)}
+        >
+          <AntdApp message={{ maxCount: 3, top: 60 }}>
+            <App />
+          </AntdApp>
+        </ConfigProvider>
+      </StyleProvider>
+    )
+  }
+
+  const container = document.getElementById('root')! as HTMLElement & {
+    __root?: ReturnType<typeof ReactDOM.createRoot>
+  }
+  const root = container.__root ?? (container.__root = ReactDOM.createRoot(container))
+  root.render(
+    <React.StrictMode>
+      <Root />
+    </React.StrictMode>,
   )
 }
 
-const container = document.getElementById('root')!
-const root =
-  (container as any).__root ?? ((container as any).__root = ReactDOM.createRoot(container))
-
-root.render(
-  <React.StrictMode>
-    <Root />
-  </React.StrictMode>,
-)
+void bootstrap().catch((error: unknown) => {
+  console.error('Renderer bootstrap failed:', error)
+  const container = document.getElementById('root')
+  if (container) {
+    container.setAttribute('role', 'alert')
+    container.textContent = `Bootstrap failed: ${String(error)}`
+  }
+})

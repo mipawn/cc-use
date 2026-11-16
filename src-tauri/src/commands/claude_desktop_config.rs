@@ -28,6 +28,10 @@
 //!    ```
 //! 3. 更新 _meta.json,添加 profile entry 并设置 appliedId
 
+use super::desktop_connection::{
+    self, ConfigFacts, DesktopChangeSource, DesktopClientKind, DesktopConfigFiles,
+    DesktopConnectionStatus, DesktopOperationResult,
+};
 use crate::models::ApiKey;
 use crate::shared_runtime::model_mapping;
 use serde::Serialize;
@@ -39,7 +43,7 @@ use thiserror::Error;
 const PROFILE_ID: &str = "00000000-0000-4000-8000-000000157210";
 const PROFILE_NAME: &str = "CC Use";
 const CLAUDE_DESKTOP_PROXY_PREFIX: &str = "/claude-desktop";
-const GATEWAY_TOKEN_SETTING_KEY: &str = "claudeDesktopGatewayToken";
+pub(crate) const GATEWAY_TOKEN_SETTING_KEY: &str = "claudeDesktopGatewayToken";
 
 /// One entry of the profile's `inferenceModels`. The name is a canonical
 /// Claude route id — Claude Desktop only grants effort control and tier
@@ -147,6 +151,13 @@ pub struct ClaudeDesktopConfigManager {
 }
 
 impl ClaudeDesktopConfigManager {
+    #[cfg(test)]
+    pub(crate) fn for_test(root: &Path) -> Self {
+        Self {
+            paths: paths_from_dirs(root.join("Claude"), root.join("Claude-3p")),
+        }
+    }
+
     /// 创建新的配置管理器
     pub fn new() -> Result<Self, ClaudeDesktopConfigError> {
         let paths = current_platform_paths()?;
@@ -279,30 +290,33 @@ impl ClaudeDesktopConfigManager {
         let Ok(profile) = serde_json::from_str::<Value>(&content) else {
             return false;
         };
-        let expected_base_url = format!(
-            "http://127.0.0.1:{}{}",
-            proxy_port, CLAUDE_DESKTOP_PROXY_PREFIX
-        );
-        let expected_models = Value::Array(models.iter().map(inference_model_json).collect());
-
-        profile.get("inferenceProvider").and_then(Value::as_str) == Some("gateway")
-            && profile
-                .get("inferenceGatewayBaseUrl")
-                .and_then(Value::as_str)
-                == Some(expected_base_url.as_str())
-            && profile
-                .get("inferenceGatewayApiKey")
-                .and_then(Value::as_str)
-                == Some(route_token)
-            && profile
-                .get("inferenceGatewayAuthScheme")
-                .and_then(Value::as_str)
-                == Some("bearer")
-            && match (profile.get("inferenceModels"), models.is_empty()) {
-                (None, true) => true,
-                (Some(current), false) => current == &expected_models,
-                _ => false,
-            }
+        if profile != self.build_gateway_profile(route_token, proxy_port, models) {
+            return false;
+        }
+        let Ok(normal) = self.read_json_or_empty(&self.paths.normal_config_path) else {
+            return false;
+        };
+        let Ok(threep) = self.read_json_or_empty(&self.paths.threep_config_path) else {
+            return false;
+        };
+        let Ok(meta) = self.read_json_or_empty(&self.paths.meta_path) else {
+            return false;
+        };
+        normal.get("deploymentMode").and_then(Value::as_str) == Some("3p")
+            && threep.get("deploymentMode").and_then(Value::as_str) == Some("3p")
+            && threep.get("isHardwareAccelerationDisabled").is_none()
+            && meta.get("appliedId").and_then(Value::as_str) == Some(PROFILE_ID)
+            && meta
+                .get("entries")
+                .and_then(Value::as_array)
+                .is_some_and(|entries| {
+                    let ours: Vec<_> = entries
+                        .iter()
+                        .filter(|entry| entry.get("id").and_then(Value::as_str) == Some(PROFILE_ID))
+                        .collect();
+                    ours.len() == 1
+                        && ours[0].get("name").and_then(Value::as_str) == Some(PROFILE_NAME)
+                })
     }
 
     fn snapshot_files(&self) -> Result<Vec<FileSnapshot>, ClaudeDesktopConfigError> {
@@ -544,6 +558,90 @@ impl ClaudeDesktopConfigManager {
     }
 }
 
+impl DesktopConfigFiles for ClaudeDesktopConfigManager {
+    fn files(&self) -> Vec<PathBuf> {
+        vec![
+            self.paths.normal_config_path.clone(),
+            self.paths.threep_config_path.clone(),
+            self.paths.profile_path.clone(),
+            self.paths.meta_path.clone(),
+        ]
+    }
+    fn inspect(&self) -> Result<ConfigFacts, String> {
+        let mut values = Vec::new();
+        for path in self.files() {
+            let value = match fs::read_to_string(&path) {
+                Ok(text) => {
+                    let value: Value = serde_json::from_str(&text).map_err(|_| "Claude Desktop configuration contains invalid JSON. Repair it and retry.".to_string())?;
+                    if !value.is_object() {
+                        return Err("Claude Desktop configuration must contain JSON objects. Repair it and retry.".into());
+                    }
+                    Some(value)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(_) => {
+                    return Err(
+                        "Cannot read Claude Desktop configuration. Check file access and retry."
+                            .into(),
+                    )
+                }
+            };
+            values.push(value);
+        }
+        if values.iter().all(Option::is_none) {
+            return Ok(ConfigFacts {
+                status: DesktopConnectionStatus::NotFound,
+                token: None,
+            });
+        }
+        let applied = values[3]
+            .as_ref()
+            .and_then(|meta| meta.get("appliedId"))
+            .and_then(Value::as_str);
+        if applied == Some(PROFILE_ID) {
+            let token = values[2]
+                .as_ref()
+                .and_then(|profile| profile.get("inferenceGatewayApiKey"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let modes_match = values[..2].iter().all(|value| {
+                value
+                    .as_ref()
+                    .and_then(|config| config.get("deploymentMode"))
+                    .and_then(Value::as_str)
+                    == Some("3p")
+            });
+            return Ok(ConfigFacts {
+                status: if modes_match && values[2].is_some() {
+                    DesktopConnectionStatus::TakenOver
+                } else {
+                    DesktopConnectionStatus::Unknown
+                },
+                token,
+            });
+        }
+        // A leftover owned profile is not proof that Desktop uses it.
+        let has_ours = values[2].is_some()
+            || values[3]
+                .as_ref()
+                .and_then(|meta| meta.get("entries"))
+                .and_then(Value::as_array)
+                .is_some_and(|entries| {
+                    entries
+                        .iter()
+                        .any(|entry| entry.get("id").and_then(Value::as_str) == Some(PROFILE_ID))
+                });
+        Ok(ConfigFacts {
+            status: if has_ours {
+                DesktopConnectionStatus::Unknown
+            } else {
+                DesktopConnectionStatus::Official
+            },
+            token: None,
+        })
+    }
+}
+
 impl Default for ClaudeDesktopConfigManager {
     fn default() -> Self {
         Self::new().expect("Failed to create ClaudeDesktopConfigManager")
@@ -586,57 +684,62 @@ fn paths_from_dirs(normal_dir: PathBuf, threep_dir: PathBuf) -> ClaudeDesktopPat
 // ── Tauri commands ──
 
 use crate::db::Database;
-use crate::models::ProxySession;
-use crate::shared_runtime::session_token::{new_session_token, SESSION_TOKEN_PREFIX};
 use std::sync::{Arc, Mutex};
 use tauri::State;
 
-fn get_desktop_proxy_port(db: &Database) -> i32 {
-    db.settings_get()
-        .ok()
-        .and_then(|s| s.proxy_port.to_string().parse().ok())
-        .unwrap_or(12345)
-}
-
+/// Startup compatibility entry point. Idempotent sync does not advance notice versions.
 pub fn refresh_taken_over_profile(db: &Database) -> Result<bool, String> {
-    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
-    if mgr.read_applied_id().as_deref() != Some(PROFILE_ID) {
+    refresh_taken_over_profile_from(db, DesktopChangeSource::Startup)
+}
+pub fn refresh_taken_over_profile_after_key_edit(db: &Database) -> Result<bool, String> {
+    refresh_taken_over_profile_from(db, DesktopChangeSource::KeyEdit)
+}
+fn refresh_taken_over_profile_from(
+    db: &Database,
+    source: DesktopChangeSource,
+) -> Result<bool, String> {
+    let mgr = ClaudeDesktopConfigManager::new().map_err(|_| {
+        let _ =
+            desktop_connection::record_sync_failure(db, DesktopClientKind::ClaudeDesktop, source);
+        "Cannot locate Claude Desktop configuration.".to_string()
+    })?;
+    refresh_profile_with_manager(db, &mgr, source)
+}
+pub(crate) fn refresh_profile_with_manager(
+    db: &Database,
+    mgr: &ClaudeDesktopConfigManager,
+    source: DesktopChangeSource,
+) -> Result<bool, String> {
+    let result = refresh_profile_inner(db, mgr, source);
+    if result.is_err() {
+        desktop_connection::record_sync_failure(db, DesktopClientKind::ClaudeDesktop, source)?;
+    }
+    result
+}
+fn refresh_profile_inner(
+    db: &Database,
+    mgr: &ClaudeDesktopConfigManager,
+    source: DesktopChangeSource,
+) -> Result<bool, String> {
+    let facts = mgr.inspect()?;
+    if matches!(
+        facts.status,
+        DesktopConnectionStatus::Official | DesktopConnectionStatus::NotFound
+    ) {
         return Ok(false);
     }
-
-    let Some(session_token) = db
-        .settings_get_value(GATEWAY_TOKEN_SETTING_KEY)
-        .map_err(|e| format!("读取 Claude Desktop 网关 token 失败: {}", e))?
-    else {
-        return Ok(false);
-    };
-    let session_token = session_token.trim();
-    if !session_token.starts_with(SESSION_TOKEN_PREFIX) {
-        return Ok(false);
+    let session = facts.token.as_deref().map(|token| db.proxy_session_get(token)).transpose()
+        .map_err(|_| "Cannot read Claude Desktop session.".to_string())?.flatten()
+        .filter(|session| session.session_kind == "desktop" && session.cli_type.as_deref() == Some("claude_desktop") && session.is_active && session.revoked_at.is_none())
+        .ok_or("Claude Desktop route cannot be verified. Reapply its route or restore official configuration.")?;
+    let result =
+        claude_apply_with_manager(db, &session.provider_id, &session.api_key_id, mgr, source)?;
+    if result.completion == desktop_connection::DesktopCompletion::Partial {
+        return Err(result.warning.unwrap_or_else(|| {
+            "Desktop synchronization is incomplete. Refresh and retry.".into()
+        }));
     }
-
-    let proxy_port = get_desktop_proxy_port(db) as u16;
-    let key = db
-        .proxy_session_get(session_token)
-        .ok()
-        .flatten()
-        .and_then(|session| db.api_key_get(&session.api_key_id).ok().flatten());
-    let (models, aliases) = match key.as_ref() {
-        Some(key) => desktop_menu_for_key(key),
-        None => (Vec::new(), std::collections::BTreeMap::new()),
-    };
-    if let Some(key) = key.as_ref() {
-        // Desktop skips the discovery request once the profile carries a model
-        // list, so this is the only chance to record how its ids decode.
-        write_desktop_alias_table(db, &key.id, &aliases)?;
-    }
-    if mgr.gateway_profile_is_current(session_token, proxy_port, &models) {
-        return Ok(false);
-    }
-
-    mgr.takeover(session_token, proxy_port, &models)
-        .map_err(|e| e.to_string())?;
-    Ok(true)
+    Ok(result.config_changed)
 }
 
 /// The daemon decodes a Desktop request by reading this table, and Desktop
@@ -655,23 +758,6 @@ fn write_desktop_alias_table(
     let value = serde_json::to_string(aliases).map_err(|e| e.to_string())?;
     db.settings_set_value(&key, &value)
         .map_err(|e| e.to_string())
-}
-
-fn get_or_create_gateway_session_token(db: &Database) -> Result<String, String> {
-    if let Some(token) = db
-        .settings_get_value(GATEWAY_TOKEN_SETTING_KEY)
-        .map_err(|e| format!("读取 Claude Desktop 网关 token 失败: {}", e))?
-    {
-        let token = token.trim();
-        if token.starts_with(SESSION_TOKEN_PREFIX) {
-            return Ok(token.to_string());
-        }
-    }
-
-    let token = new_session_token();
-    db.settings_set_value(GATEWAY_TOKEN_SETTING_KEY, &token)
-        .map_err(|e| format!("保存 Claude Desktop 网关 token 失败: {}", e))?;
-    Ok(token)
 }
 
 #[tauri::command]
@@ -715,43 +801,87 @@ fn claude_desktop_config_takeover_with_manager(
     api_key_id: String,
     mgr: &ClaudeDesktopConfigManager,
 ) -> Result<String, String> {
-    let (port, session_token, models) = {
-        let db = db.lock().map_err(|e| e.to_string())?;
-        let port = get_desktop_proxy_port(&db);
-        let api_key = db
-            .api_key_get(&api_key_id)
-            .map_err(|e| format!("读取密钥失败: {}", e))?
-            .ok_or_else(|| "密钥不存在".to_string())?;
-        let (models, aliases) = desktop_menu_for_key(&api_key);
-        write_desktop_alias_table(&db, &api_key_id, &aliases)?;
-        let session_token = get_or_create_gateway_session_token(&db)?;
-        let now = chrono::Utc::now().to_rfc3339();
-        let session = ProxySession {
-            session_token: session_token.clone(),
-            provider_id: provider_id.clone(),
-            api_key_id: api_key_id.clone(),
-            project_id: None,
-            created_at: now.clone(),
-            session_kind: "desktop".to_string(),
-            last_seen_at: now,
-            expires_at: None,
-            revoked_at: None,
-            revoked_reason: None,
-            cli_type: Some("claude_desktop".to_string()),
-            display_name: None,
-            is_active: true,
-            connection_config: None,
-            model_policy: None,
-        };
-        db.proxy_session_create(&session)
-            .map_err(|e| format!("创建 session 失败: {}", e))?;
-        (port, session_token, models)
-    };
+    let db = db
+        .lock()
+        .map_err(|_| "Desktop database is unavailable.".to_string())?;
+    claude_apply_with_manager(
+        &db,
+        &provider_id,
+        &api_key_id,
+        mgr,
+        DesktopChangeSource::User,
+    )?
+    .legacy_message()
+}
 
-    mgr.takeover(&session_token, port as u16, &models)
-        .map_err(|e| e.to_string())?;
+pub fn claude_desktop_config_apply_inner(
+    db: &Arc<Mutex<Database>>,
+    provider_id: String,
+    api_key_id: String,
+) -> Result<DesktopOperationResult, String> {
+    let mgr = ClaudeDesktopConfigManager::new()
+        .map_err(|_| "Cannot locate Claude Desktop configuration.".to_string())?;
+    let db = db
+        .lock()
+        .map_err(|_| "Desktop database is unavailable.".to_string())?;
+    claude_apply_with_manager(
+        &db,
+        &provider_id,
+        &api_key_id,
+        &mgr,
+        DesktopChangeSource::User,
+    )
+}
+pub(crate) fn claude_apply_with_manager(
+    db: &Database,
+    provider_id: &str,
+    api_key_id: &str,
+    mgr: &ClaudeDesktopConfigManager,
+    source: DesktopChangeSource,
+) -> Result<DesktopOperationResult, String> {
+    let (_, key) = desktop_connection::validate_route(
+        db,
+        DesktopClientKind::ClaudeDesktop,
+        provider_id,
+        api_key_id,
+    )?;
+    let (models, aliases) = desktop_menu_for_key(&key);
+    desktop_connection::apply_with_config(
+        db,
+        DesktopClientKind::ClaudeDesktop,
+        provider_id,
+        api_key_id,
+        source,
+        mgr,
+        Some(models.len()),
+        |token, port| {
+            write_desktop_alias_table(db, api_key_id, &aliases)
+                .map_err(|_| "Cannot save Desktop model aliases.".to_string())?;
+            if !mgr.gateway_profile_is_current(token, port, &models) {
+                // The shared coordinator owns rollback, including the session and aliases.
+                mgr.takeover_inner(token, port, &models).map_err(|_| {
+                    "Cannot write Claude Desktop configuration. Check file access and retry."
+                        .to_string()
+                })?;
+            }
+            Ok(())
+        },
+    )
+}
 
-    Ok("接管成功".to_string())
+pub fn claude_desktop_config_restore_typed(
+    db: &Arc<Mutex<Database>>,
+) -> Result<DesktopOperationResult, String> {
+    let mgr = ClaudeDesktopConfigManager::new()
+        .map_err(|_| "Cannot locate Claude Desktop configuration.".to_string())?;
+    let db = db
+        .lock()
+        .map_err(|_| "Desktop database is unavailable.".to_string())?;
+    desktop_connection::restore_with_config(&db, DesktopClientKind::ClaudeDesktop, &mgr, || {
+        mgr.restore_inner().map_err(|_| {
+            "Cannot restore Claude Desktop configuration. Check file access and retry.".to_string()
+        })
+    })
 }
 
 #[tauri::command]
@@ -762,19 +892,7 @@ pub fn claude_desktop_config_restore(
 }
 
 pub fn claude_desktop_config_restore_inner(db: &Arc<Mutex<Database>>) -> Result<String, String> {
-    let mgr = ClaudeDesktopConfigManager::new().map_err(|e| e.to_string())?;
-    mgr.restore().map_err(|e| e.to_string())?;
-    let db = db.lock().map_err(|e| e.to_string())?;
-    if let Some(token) = db
-        .settings_get_value(GATEWAY_TOKEN_SETTING_KEY)
-        .map_err(|e| e.to_string())?
-    {
-        db.proxy_session_revoke(&token, "desktop_restore", &chrono::Utc::now().to_rfc3339())
-            .map_err(|e| e.to_string())?;
-    }
-    db.settings_delete_value(GATEWAY_TOKEN_SETTING_KEY)
-        .map_err(|e| e.to_string())?;
-    Ok("已恢复官方配置".to_string())
+    claude_desktop_config_restore_typed(db)?.legacy_message()
 }
 
 #[tauri::command]
@@ -1029,7 +1147,10 @@ mod tests {
             &mgr,
         );
 
-        assert_eq!(result.as_deref(), Ok("接管成功"));
+        assert_eq!(
+            result.as_deref(),
+            Ok("配置已更新；请完全退出并重新打开客户端以加载配置")
+        );
         assert_eq!(mgr.detect_status(), DesktopConfigStatus::TakenOver);
         let db = db.lock().unwrap();
         let session_token = db

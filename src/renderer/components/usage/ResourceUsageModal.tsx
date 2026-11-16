@@ -17,6 +17,7 @@ import type { ResourceUsageStatistics, ResourceUsageTrendItem, StatsTimeRange } 
 import { getApi } from '../../api'
 import { usePageRefresh } from '../../hooks/usePageRefresh'
 import { formatExactTokenCount, formatTokenCount } from '../../utils/formatTokens'
+import { buildStatisticsUrl } from '../../utils/observationContext'
 import MultiMetricLineChart, {
   type LineAxisDefinition,
   type LineSeries,
@@ -428,6 +429,21 @@ export default function ResourceUsageModal({ open, scope, onClose }: ResourceUsa
       >
         <div className={styles.toolbar}>
           <UsageTimeRangePicker value={timeRange} onChange={setTimeRange} />
+          {scope && (
+            <Button
+              href={`#${buildStatisticsUrl({
+                timeRange,
+                filter: {
+                  providerId: scope.providerId,
+                  ...(scope.type === 'key' ? { apiKeyId: scope.apiKeyId } : {}),
+                  population: 'all',
+                },
+              })}`}
+              onClick={onClose}
+            >
+              {t('resources.requests')}
+            </Button>
+          )}
           <Text type='secondary' className={styles.refreshHint}>
             {t('usageDetail.refreshHint')}
           </Text>

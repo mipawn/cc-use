@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
 import Statistics from './Statistics'
+import { MemoryRouter } from 'react-router-dom'
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
@@ -84,7 +85,9 @@ it('marks successful and failed classifiers, leaving normal and historical reque
       root.render(
         <StyleProvider layer>
           <ConfigProvider>
-            <Statistics />
+            <MemoryRouter>
+              <Statistics />
+            </MemoryRouter>
           </ConfigProvider>
         </StyleProvider>,
       )
@@ -117,7 +120,9 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
       root.render(
         <StyleProvider layer>
           <ConfigProvider>
-            <Statistics />
+            <MemoryRouter>
+              <Statistics />
+            </MemoryRouter>
           </ConfigProvider>
         </StyleProvider>,
       )

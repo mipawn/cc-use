@@ -27,6 +27,21 @@
   flex-wrap: wrap;
 }
 
+.scopeBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.scopeBar :global(.ant-tag) {
+  max-width: 100%;
+  white-space: normal;
+}
+
 /* Content - Scrollable */
 .content {
   flex: 1;

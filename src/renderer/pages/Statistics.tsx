@@ -3,18 +3,39 @@ import { getApi } from '../api'
  * Statistics - 用量统计页面
  * v3.8.0: 聚焦 Token 构成和可追溯的请求记录。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TablePaginationConfig } from 'antd'
-import { Typography, Button, Card, Table, Tag, Spin, theme, Space, Statistic, Tooltip } from 'antd'
+import {
+  Typography,
+  Button,
+  Card,
+  Table,
+  Tag,
+  Spin,
+  theme,
+  Space,
+  Statistic,
+  Tooltip,
+  Alert,
+  Select,
+} from 'antd'
 import { BarChartOutlined, RobotOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  buildConsoleUrl,
+  buildStatisticsUrl,
+  observationOutcomes,
+  parseObservationContext,
+  requestLocalDate,
+  withObservationOutcome,
+} from '../utils/observationContext'
 import SimpleBar from 'simplebar-react'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import RecentRequestDetailDrawer from '../components/usage/RecentRequestDetailDrawer'
 import type {
   UsageStatistics,
   PaginatedRecentRequests,
-  StatsTimeRange,
   RecentRequestLogDisplay,
 } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
@@ -55,110 +76,70 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
     </Tooltip>
   )
 
-  const [timeRange, setTimeRange] = useState<StatsTimeRange>('week')
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const queryKey = searchParams.toString()
+  const parsed = useMemo(() => parseObservationContext(queryKey), [queryKey])
+  const { context, invalid } = parsed
+  const { timeRange, filter, page: recentPage, pageSize: recentPageSize } = context
   const [stats, setStats] = useState<UsageStatistics | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentRequests, setRecentRequests] = useState<PaginatedRecentRequests | null>(null)
-  const [recentLoading, setRecentLoading] = useState(true)
-  const [recentPage, setRecentPage] = useState(1)
-  const [recentPageSize, setRecentPageSize] = useState(10)
+  const [readError, setReadError] = useState<'scopeUnavailable' | 'readFailed' | null>(null)
   const refreshToken = useRef(0)
+  const identity = useRef(queryKey)
+  identity.current = queryKey
   const [detailRecord, setDetailRecord] = useState<RecentRequestLogDisplay | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-
-    const fetchStats = async () => {
-      setLoading(true)
-      setStats(null)
-      try {
-        const data = await getApi().requestLog.getStatistics(timeRange)
-        if (!cancelled) {
-          setStats(data)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch usage statistics:', error)
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
+  // One query identity governs both aggregates and pages. Neither path may fall
+  // back to the global ledger when a scope is invalid, deleted or unreadable.
+  const load = useCallback(
+    async (keepData = true) => {
+      const revision = ++refreshToken.current
+      if (!keepData || invalid) {
+        setStats(null)
+        setRecentRequests(null)
+        setDetailRecord(null)
       }
-    }
-
-    void fetchStats()
-    return () => {
-      cancelled = true
-    }
-  }, [timeRange])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const fetchRecentRequests = async () => {
-      setRecentLoading(true)
-      setRecentRequests(null)
-      try {
-        const data = await getApi().requestLog.getRecentPaginated(
-          timeRange,
-          recentPage,
-          recentPageSize,
-        )
-        if (!cancelled) {
-          setRecentRequests(data)
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch recent requests:', error)
-        }
-      } finally {
-        if (!cancelled) {
-          setRecentLoading(false)
-        }
-      }
-    }
-
-    void fetchRecentRequests()
-    return () => {
-      cancelled = true
-    }
-  }, [timeRange, recentPage, recentPageSize])
-
-  useEffect(() => {
-    setRecentPage(1)
-  }, [timeRange])
-
-  // A filter change makes any in-flight manual refresh outdated; drop it rather
-  // than let its response overwrite the new filter's data.
-  useEffect(() => {
-    refreshToken.current += 1
-  }, [timeRange, recentPage, recentPageSize])
-
-  // Manual refresh keeps the rows and filters that are on screen. Only a filter
-  // change clears the table, because then the old data no longer matches.
-  const refresh = useCallback(async () => {
-    const token = ++refreshToken.current
-    setLoading(true)
-    setRecentLoading(true)
-    try {
-      const [nextStats, nextRecent] = await Promise.all([
-        getApi().requestLog.getStatistics(timeRange),
-        getApi().requestLog.getRecentPaginated(timeRange, recentPage, recentPageSize),
-      ])
-      if (refreshToken.current !== token) return
-      setStats(nextStats)
-      setRecentRequests(nextRecent)
-    } catch (error) {
-      console.error('Failed to refresh usage statistics:', error)
-    } finally {
-      if (refreshToken.current === token) {
+      setReadError(null)
+      if (invalid) {
         setLoading(false)
-        setRecentLoading(false)
+        return
       }
-    }
-  }, [timeRange, recentPage, recentPageSize])
+      setLoading(true)
+      const [nextStats, nextRecent] = await Promise.allSettled([
+        getApi().requestLog.getStatistics(timeRange, filter),
+        getApi().requestLog.getRecentPaginated(timeRange, recentPage, recentPageSize, filter),
+      ])
+      if (revision !== refreshToken.current || identity.current !== queryKey) return
+      if (nextStats.status === 'fulfilled' && nextRecent.status === 'fulfilled') {
+        setStats(nextStats.value)
+        setRecentRequests(nextRecent.value)
+      } else {
+        const reason =
+          nextStats.status === 'rejected'
+            ? nextStats.reason
+            : nextRecent.status === 'rejected'
+              ? nextRecent.reason
+              : ''
+        setReadError(
+          /scope|association|provider/i.test(String(reason)) ? 'scopeUnavailable' : 'readFailed',
+        )
+        setStats(null)
+        setRecentRequests(null)
+      }
+      setLoading(false)
+    },
+    [timeRange, filter, recentPage, recentPageSize, invalid, queryKey],
+  )
 
+  useEffect(() => {
+    void load(false)
+    return () => {
+      refreshToken.current += 1
+    }
+  }, [load])
+  const refresh = useCallback(() => load(), [load])
   usePageRefresh(refresh)
 
   /**
@@ -282,14 +263,16 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
     },
   ]
 
-  const hasData = stats
-    ? stats.summary.totalRequests > 0 || stats.summary.failedRequests > 0
-    : false
   const summary = stats?.summary
 
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
-    setRecentPage(pagination.current || 1)
-    setRecentPageSize(pagination.pageSize || 10)
+    void navigate(
+      buildStatisticsUrl({
+        ...context,
+        page: pagination.pageSize !== recentPageSize ? 1 : pagination.current || 1,
+        pageSize: pagination.pageSize || 10,
+      }),
+    )
   }
 
   return (
@@ -308,17 +291,95 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
 
       {/* Time Range Filter */}
       <div className={styles.filterSection}>
-        <UsageTimeRangePicker value={timeRange} onChange={setTimeRange} />
+        <UsageTimeRangePicker
+          value={timeRange}
+          onChange={(value) =>
+            void navigate(buildStatisticsUrl({ ...context, timeRange: value, page: 1 }))
+          }
+        />
+        <Space wrap>
+          <Select
+            aria-label={t('observation.outcome')}
+            placeholder={t('observation.allOutcomes')}
+            allowClear
+            value={filter.outcome}
+            style={{ minWidth: 145 }}
+            options={observationOutcomes.map((value) => ({
+              value,
+              label: t(`observation.outcomes.${value}`),
+            }))}
+            onChange={(value) =>
+              void navigate(buildStatisticsUrl(withObservationOutcome(context, value)))
+            }
+          />
+          <Select
+            aria-label={t('observation.population')}
+            value={filter.population ?? 'all'}
+            style={{ minWidth: 170 }}
+            options={['all', 'with_usage'].map((value) => ({
+              value,
+              label: t(`observation.populations.${value}`),
+            }))}
+            onChange={(population) =>
+              void navigate(
+                buildStatisticsUrl({ ...context, page: 1, filter: { ...filter, population } }),
+              )
+            }
+          />
+        </Space>
+        <div className={styles.scopeBar}>
+          {(['providerId', 'apiKeyId', 'instanceId'] as const).map(
+            (key) =>
+              filter[key] && (
+                <Tag
+                  key={key}
+                  closable
+                  onClose={() =>
+                    void navigate(
+                      buildStatisticsUrl({
+                        ...context,
+                        page: 1,
+                        filter: { ...filter, [key]: undefined },
+                      }),
+                    )
+                  }
+                >
+                  {t(`observation.${key}`)}: {filter[key]}
+                </Tag>
+              ),
+          )}
+          <Text type='secondary'>{t('observation.denominatorHint')}</Text>
+          <Button type='link' size='small' onClick={() => void navigate(buildStatisticsUrl())}>
+            {t('observation.clearScope')}
+          </Button>
+        </div>
       </div>
 
       {/* Content */}
       <div className={styles.content}>
         <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-          {loading ? (
+          {invalid || readError ? (
+            <Alert
+              type='error'
+              showIcon
+              title={t(`observation.${invalid ? 'invalidQuery' : readError}`)}
+              description={t('observation.noScopeFallback')}
+              action={
+                <Space>
+                  <Button onClick={() => void refresh()} disabled={invalid}>
+                    {t('common.retry')}
+                  </Button>
+                  <Button onClick={() => void navigate(buildStatisticsUrl())}>
+                    {t('observation.clearScope')}
+                  </Button>
+                </Space>
+              }
+            />
+          ) : loading ? (
             <div className={styles.loadingState}>
               <Spin size='large' />
             </div>
-          ) : hasData && summary ? (
+          ) : stats && summary ? (
             <div className={styles.statsContent}>
               {/* Usage and observed request performance in the selected range. */}
               <div className={styles.summaryBar}>
@@ -332,7 +393,17 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                   value={summary.totalRequests}
                 />
                 <Statistic
-                  title={t('statistics.failedRequests')}
+                  title={
+                    <Button
+                      type='link'
+                      size='small'
+                      onClick={() =>
+                        void navigate(buildStatisticsUrl(withObservationOutcome(context, 'failed')))
+                      }
+                    >
+                      {t('statistics.failedRequests')}
+                    </Button>
+                  }
                   value={summary.failedRequests}
                   styles={{
                     content: summary.failedRequests > 0 ? { color: token.colorError } : undefined,
@@ -408,6 +479,7 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                   <Space>
                     <BarChartOutlined style={{ color: token.colorPrimary }} />
                     <span>{t('statistics.recentRequests')}</span>
+                    <Tag>{t('observation.ledgerCount', { count: recentRequests?.total ?? 0 })}</Tag>
                   </Space>
                 }
               >
@@ -416,7 +488,7 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                   columns={recentColumns}
                   rowKey='id'
                   size='small'
-                  loading={recentLoading}
+                  loading={loading}
                   scroll={{ x: 1120 }}
                   onChange={handleRecentTableChange}
                   pagination={{
@@ -447,7 +519,16 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
         </SimpleBar>
       </div>
 
-      <RecentRequestDetailDrawer record={detailRecord} onClose={() => setDetailRecord(null)} />
+      <RecentRequestDetailDrawer
+        record={detailRecord}
+        onClose={() => setDetailRecord(null)}
+        onOpenConsole={(record) => {
+          if (record.requestId)
+            void navigate(
+              buildConsoleUrl(context, record.requestId, requestLocalDate(record.createdAt)),
+            )
+        }}
+      />
     </div>
   )
 }

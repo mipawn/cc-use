@@ -58,6 +58,7 @@ interface KeyEditModalProps {
   apiKey: ApiKey | null
   providers: Provider[]
   defaultProviderId?: string
+  defaultClientKind?: ClientKind
   /** Tab to show when the modal opens. */
   defaultTab?: 'usage' | 'modelMapping'
   onClose: () => void
@@ -70,6 +71,7 @@ export default function KeyEditModal({
   apiKey,
   providers,
   defaultProviderId,
+  defaultClientKind,
   defaultTab,
   onClose,
   onSave,
@@ -145,8 +147,15 @@ export default function KeyEditModal({
     [currentProvider?.baseUrl, draftKeyValue],
   )
 
+  const initializedDraft = useRef('')
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      initializedDraft.current = ''
+      return
+    }
+    const identity = `${mode}:${apiKey?.id ?? ''}:${currentProvider?.id ?? ''}`
+    if (initializedDraft.current === identity) return
+    initializedDraft.current = identity
 
     // A copy starts from the source key's full configuration so the credential,
     // client overrides, model mapping and quota settings all carry over. Only a
@@ -184,9 +193,11 @@ export default function KeyEditModal({
       const defaults = newKeyDefaults(currentProvider?.defaultKeyConfig, isOfficialDeepSeek)
       form.resetFields()
       form.setFieldsValue({ alias: '', value: '' })
-      setSelectedTypes(
-        isOfficialDeepSeek ? defaults.types.filter((type) => type !== 'grok') : defaults.types,
-      )
+      const types =
+        defaultClientKind && !(isOfficialDeepSeek && defaultClientKind === 'grok')
+          ? Array.from(new Set([...defaults.types, defaultClientKind]))
+          : defaults.types
+      setSelectedTypes(isOfficialDeepSeek ? types.filter((type) => type !== 'grok') : types)
       setClaudeConfigJson(defaults.claudeConfigJson)
       // The inherited seed is display only: the query stays off and nothing is
       // stored unless the user turns it on or writes their own text (D3).
@@ -206,9 +217,9 @@ export default function KeyEditModal({
     setErrorClientKind(undefined)
     setEditorActions(null)
     setHasPendingModelDraft(false)
-    // `currentProvider` carries the saved key defaults a create inherits, so a
-    // provider swap has to re-seed the draft.
-  }, [open, mode, apiKey, form, isOfficialDeepSeek, currentProvider, defaultTab])
+    // Only changing the edited identity seeds a draft; cache refreshes must not
+    // replace unsaved fields, mapping or query text.
+  }, [open, mode, apiKey, form, isOfficialDeepSeek, currentProvider, defaultTab, defaultClientKind])
 
   useEffect(() => {
     if (!open || !apiKey?.id || !selectedTypes.includes('claude_code')) {

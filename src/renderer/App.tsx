@@ -1,5 +1,5 @@
 import { getApi } from './api'
-import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { theme, App as AntdApp, Alert, Button, Modal } from 'antd'
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar from './components/layout/Sidebar'
@@ -11,15 +11,16 @@ import Settings from './pages/Settings'
 import Console from './pages/Console'
 import GatewayPage from './pages/GatewayPage'
 import Keys from './pages/Keys'
-import ClaudeCodePage from './pages/ClaudeCodePage'
-import CodexPage from './pages/CodexPage'
-import ClaudeDesktopPage from './pages/ClaudeDesktopPage'
+import InstancesPage from './pages/InstancesPage'
+import DesktopPage from './pages/DesktopPage'
+import { legacyWorkspaceTarget } from './components/layout/workspaceNavigation'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
 import { useTranslation } from 'react-i18next'
 import AppErrorBoundary from './components/common/AppErrorBoundary'
 import { refreshCurrentPage } from './api/pageRefresh'
 import { reloadMigratedStores } from './stores/reloadStores'
+import { isFixtureMode } from './dev/mode'
 
 import layoutStyles from './components/layout/WorkspaceLayout.module.css'
 
@@ -106,13 +107,17 @@ function MigrationModal() {
   const [migrating, setMigrating] = useState(false)
 
   useEffect(() => {
+    if (isFixtureMode) return
+    let cancelled = false
     let unlisten: (() => void) | null = null
     import('@tauri-apps/api/event').then(({ listen }) => {
       listen<boolean>('app:migrationAvailable', () => setVisible(true)).then((fn) => {
-        unlisten = fn
+        if (cancelled) fn()
+        else unlisten = fn
       })
     })
     return () => {
+      cancelled = true
       unlisten?.()
     }
   }, [])
@@ -155,6 +160,11 @@ function MigrationModal() {
       <p>{t('migration.description')}</p>
     </Modal>
   )
+}
+
+function LegacyClientRedirect() {
+  const { pathname, search } = useLocation()
+  return <Navigate to={legacyWorkspaceTarget(pathname, search)} replace />
 }
 
 function AppContent() {
@@ -202,16 +212,11 @@ function AppContent() {
           <MigrationModal />
           <Routes>
             <Route path='/' element={<Dashboard />} />
-            <Route
-              path='/claude-code'
-              element={<ClaudeCodePage key='claude-code' clientKind='claude_code' />}
-            />
-            <Route
-              path='/grok-build'
-              element={<ClaudeCodePage key='grok-build' clientKind='grok' />}
-            />
-            <Route path='/codex' element={<CodexPage />} />
-            <Route path='/claude-desktop' element={<ClaudeDesktopPage />} />
+            <Route path='/instances' element={<InstancesPage />} />
+            <Route path='/desktop' element={<DesktopPage />} />
+            {['/claude-code', '/grok-build', '/codex', '/claude-desktop'].map((path) => (
+              <Route key={path} path={path} element={<LegacyClientRedirect />} />
+            ))}
             <Route path='/keys' element={<Keys />} />
             <Route path='/gateway' element={<GatewayPage />} />
             <Route element={<ActivityPage />}>

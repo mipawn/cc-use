@@ -111,6 +111,17 @@ pub fn console_log_read_recent(
     ))
 }
 
+/// Read only events belonging to one exact request, including records outside the live buffer.
+#[tauri::command]
+pub fn console_log_read_request(
+    request_id: String,
+    limit: Option<usize>,
+) -> Result<ConsoleLogPage, String> {
+    let dir = crate::services::console_log_store::console_log_dir()
+        .ok_or_else(|| "Cannot locate the console log directory".to_string())?;
+    crate::services::console_log_store::read_request(&dir, &request_id, limit.unwrap_or(500))
+}
+
 /// Per-owner writer state: enqueue drops, write failures, trims, size-budget
 /// eviction and the daemon's availability. The daemon is queried over its
 /// management API so an offline daemon is reported as unavailable rather than

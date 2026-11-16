@@ -1,6 +1,9 @@
+use crate::commands::desktop_connection::{
+    desktop_connection_state_inner, DesktopClientKind, DesktopConnectionState,
+    DesktopConnectionStatus,
+};
 use crate::db::Database;
 use crate::models::ApiKey;
-use crate::shared_runtime::session_token::CODEX_SESSION_TOKEN_SETTING_KEY;
 use crate::usage_stats::UsageAggregator;
 use std::sync::{Arc, Mutex};
 use tauri::{
@@ -8,10 +11,6 @@ use tauri::{
     tray::{MouseButtonState, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
-
-const CODEX_LAST_API_KEY_SETTING_KEY: &str = "codex_last_api_key_id";
-const CLAUDE_DESKTOP_LAST_API_KEY_SETTING_KEY: &str = "claude_desktop_last_api_key_id";
-const CLAUDE_DESKTOP_GATEWAY_TOKEN_SETTING_KEY: &str = "claudeDesktopGatewayToken";
 
 /// Tray menu labels for i18n
 struct TrayLabels {
@@ -24,9 +23,8 @@ struct TrayLabels {
     claude_desktop: &'static str,
     no_desktop_keys: &'static str,
     restore_official: &'static str,
-    recent_projects: &'static str,
+    claude_code: &'static str,
     grok_build: &'static str,
-    no_recent_projects: &'static str,
     instance_running: &'static str,
     instance_launching: &'static str,
     instance_stale: &'static str,
@@ -42,9 +40,8 @@ const ZH_LABELS: TrayLabels = TrayLabels {
     claude_desktop: "Claude Desktop",
     no_desktop_keys: "暂无可用密钥",
     restore_official: "恢复官方配置",
-    recent_projects: "Claude Code",
+    claude_code: "Claude Code",
     grok_build: "Grok Build",
-    no_recent_projects: "暂无最近项目",
     instance_running: "运行",
     instance_launching: "启动中",
     instance_stale: "失联",
@@ -60,9 +57,8 @@ const EN_LABELS: TrayLabels = TrayLabels {
     claude_desktop: "Claude Desktop",
     no_desktop_keys: "No Available Keys",
     restore_official: "Restore Official Config",
-    recent_projects: "Claude Code",
+    claude_code: "Claude Code",
     grok_build: "Grok Build",
-    no_recent_projects: "No Recent Projects",
     instance_running: "running",
     instance_launching: "launching",
     instance_stale: "stale",
@@ -164,11 +160,6 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
 
     let sep3 = PredefinedMenuItem::separator(app)?;
 
-    // Recent projects
-    let projects_submenu = build_projects_submenu(app, labels)?;
-
-    let sep4 = PredefinedMenuItem::separator(app)?;
-
     // Quit
     let quit_item = MenuItem::with_id(app, "quit", labels.quit, true, None::<&str>)?;
 
@@ -185,8 +176,6 @@ pub fn build_tray_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, tauri::Error
             &codex_submenu,
             &claude_desktop_submenu,
             &sep3,
-            &projects_submenu,
-            &sep4,
             &quit_item,
         ],
     )?;
@@ -232,7 +221,7 @@ fn collect_instance_status_labels(app: &AppHandle, labels: &TrayLabels) -> (Stri
     };
 
     (
-        format_status("claude_code", labels.recent_projects),
+        format_status("claude_code", labels.claude_code),
         format_status("grok", labels.grok_build),
     )
 }
@@ -301,8 +290,22 @@ fn collect_desktop_key_menu_items(app: &AppHandle, client_kind: &str) -> Vec<Des
         return Vec::new();
     };
 
+    let kind = match client_kind {
+        "codex" => DesktopClientKind::Codex,
+        "claude_desktop" => DesktopClientKind::ClaudeDesktop,
+        _ => return Vec::new(),
+    };
+    let state = desktop_connection_state_inner(&db, kind).ok();
+    desktop_key_menu_items_from_state(&db, client_kind, state.as_ref())
+}
+
+fn desktop_key_menu_items_from_state(
+    db: &Database,
+    client_kind: &str,
+    state: Option<&DesktopConnectionState>,
+) -> Vec<DesktopKeyMenuItem> {
     let providers = db.provider_list().unwrap_or_default();
-    let current_key_id = current_desktop_key_id(&db, client_kind);
+    let current_key_id = state.and_then(current_desktop_key_id);
     let mut items = Vec::new();
 
     for provider in providers.into_iter().filter(|p| p.is_active) {
@@ -319,7 +322,7 @@ fn collect_desktop_key_menu_items(app: &AppHandle, client_kind: &str) -> Vec<Des
                     .alias
                     .clone()
                     .unwrap_or_else(|| mask_key_value(&key.value)),
-                is_current: current_key_id.as_deref() == Some(key.id.as_str()),
+                is_current: current_key_id == Some(key.id.as_str()),
             });
         }
     }
@@ -327,36 +330,11 @@ fn collect_desktop_key_menu_items(app: &AppHandle, client_kind: &str) -> Vec<Des
     items
 }
 
-fn current_desktop_key_id(db: &Database, client_kind: &str) -> Option<String> {
-    let setting_key = match client_kind {
-        "codex" => CODEX_LAST_API_KEY_SETTING_KEY,
-        "claude_desktop" => CLAUDE_DESKTOP_LAST_API_KEY_SETTING_KEY,
-        _ => return None,
-    };
-    if let Ok(Some(key_id)) = db.settings_get_value(setting_key) {
-        if !key_id.trim().is_empty() {
-            return Some(key_id);
-        }
+fn current_desktop_key_id(state: &DesktopConnectionState) -> Option<&str> {
+    if state.status != DesktopConnectionStatus::TakenOver {
+        return None;
     }
-
-    let token_key = match client_kind {
-        "codex" => CODEX_SESSION_TOKEN_SETTING_KEY,
-        "claude_desktop" => CLAUDE_DESKTOP_GATEWAY_TOKEN_SETTING_KEY,
-        _ => return None,
-    };
-    let expected_cli_type = match client_kind {
-        "codex" => "codex-app",
-        "claude_desktop" => "claude_desktop",
-        _ => return None,
-    };
-
-    let token = db.settings_get_value(token_key).ok().flatten()?;
-    let session = db.proxy_session_get(&token).ok().flatten()?;
-    if session.cli_type.as_deref() == Some(expected_cli_type) {
-        Some(session.api_key_id)
-    } else {
-        None
-    }
+    state.route.as_ref().map(|route| route.api_key_id.as_str())
 }
 
 fn key_available_for_client(key: &ApiKey, client_kind: &str) -> bool {
@@ -393,53 +371,6 @@ fn mask_key_value(value: &str) -> String {
     } else {
         format!("...{}", tail)
     }
-}
-
-fn build_projects_submenu(
-    app: &AppHandle,
-    labels: &TrayLabels,
-) -> Result<Submenu<tauri::Wry>, tauri::Error> {
-    let db_state = app.state::<Arc<Mutex<Database>>>();
-    let db_arc = db_state.inner().clone();
-    let projects = {
-        if let Ok(db) = db_arc.lock() {
-            db.project_list().unwrap_or_default()
-        } else {
-            Vec::new()
-        }
-    };
-
-    let recent: Vec<_> = projects
-        .into_iter()
-        .filter(|p| p.last_opened_at.is_some())
-        .take(10)
-        .collect();
-
-    let submenu = Submenu::with_id(app, "recent_projects", labels.recent_projects, true)?;
-
-    if recent.is_empty() {
-        let empty_item = MenuItem::with_id(
-            app,
-            "no_recent",
-            labels.no_recent_projects,
-            false,
-            None::<&str>,
-        )?;
-        submenu.append(&empty_item)?;
-    } else {
-        for project in &recent {
-            let item = MenuItem::with_id(
-                app,
-                format!("project:{}", project.id),
-                &project.name,
-                true,
-                None::<&str>,
-            )?;
-            submenu.append(&item)?;
-        }
-    }
-
-    Ok(submenu)
 }
 
 pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -590,19 +521,6 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             });
             std::process::exit(0);
         }
-        id if id.starts_with("project:") => {
-            let project_id = id.strip_prefix("project:").unwrap().to_string();
-            let app_handle = app.clone();
-            std::thread::spawn(move || {
-                let db_state = app_handle.state::<Arc<Mutex<Database>>>();
-                let db_arc = db_state.inner().clone();
-                drop(db_state);
-                let lock_result = db_arc.lock();
-                if let Ok(db) = lock_result {
-                    let _ = crate::terminal::launch_terminal(&db, &project_id, None, None, None);
-                }
-            });
-        }
         _ => {}
     }
 }
@@ -621,7 +539,7 @@ fn switch_desktop_key(app: &AppHandle, client_kind: &str, provider_id: String, a
                     api_key_id.clone(),
                 )
                 .await
-                .map(|_| CODEX_LAST_API_KEY_SETTING_KEY)
+                .map(|_| ())
             }
             "claude_desktop" => {
                 let db_state = app_handle.state::<Arc<Mutex<Database>>>();
@@ -631,21 +549,13 @@ fn switch_desktop_key(app: &AppHandle, client_kind: &str, provider_id: String, a
                     provider_id,
                     api_key_id.clone(),
                 )
-                .map(|_| CLAUDE_DESKTOP_LAST_API_KEY_SETTING_KEY)
+                .map(|_| ())
             }
             _ => Err("Unsupported desktop client".to_string()),
         };
 
-        match result {
-            Ok(setting_key) => {
-                let db_state = app_handle.state::<Arc<Mutex<Database>>>();
-                if let Ok(db) = db_state.inner().lock() {
-                    let _ = db.settings_set_value(setting_key, &api_key_id);
-                }
-            }
-            Err(error) => {
-                log::error!("Desktop client switch failed: {}", error);
-            }
+        if let Err(error) = result {
+            log::error!("Desktop client switch failed: {}", error);
         }
         refresh_tray(&app_handle);
     });
@@ -659,25 +569,18 @@ fn restore_desktop_config(app: &AppHandle, client_kind: &str) {
         let db_arc = db_state.inner().clone();
         drop(db_state);
         let result = match client_kind.as_str() {
-            "codex" => crate::commands::codex_config::codex_config_restore_inner(&db_arc)
-                .map(|_| CODEX_LAST_API_KEY_SETTING_KEY),
+            "codex" => {
+                crate::commands::codex_config::codex_config_restore_inner(&db_arc).map(|_| ())
+            }
             "claude_desktop" => {
                 crate::commands::claude_desktop_config::claude_desktop_config_restore_inner(&db_arc)
-                    .map(|_| CLAUDE_DESKTOP_LAST_API_KEY_SETTING_KEY)
+                    .map(|_| ())
             }
             _ => Err("Unsupported desktop client".to_string()),
         };
 
-        match result {
-            Ok(setting_key) => {
-                let db_state = app_handle.state::<Arc<Mutex<Database>>>();
-                if let Ok(db) = db_state.inner().lock() {
-                    let _ = db.settings_delete_value(setting_key);
-                }
-            }
-            Err(error) => {
-                log::error!("Desktop client restore failed: {}", error);
-            }
+        if let Err(error) = result {
+            log::error!("Desktop client restore failed: {}", error);
         }
         refresh_tray(&app_handle);
     });
@@ -877,5 +780,139 @@ mod tests {
     fn key_value_mask_uses_tail_without_leaking_secret() {
         assert_eq!(mask_key_value("sk-test-123456"), "...123456");
         assert_eq!(mask_key_value("short"), "Untitled Key");
+    }
+
+    #[test]
+    fn desktop_menu_uses_actual_route_after_ui_switch_restore_and_restart() {
+        use crate::commands::{claude_desktop_config, codex_config, desktop_connection};
+        use desktop_connection::{
+            DesktopChangeSource, DesktopClientKind, DesktopConfigFiles, DesktopConnectionStatus,
+        };
+        use serde_json::json;
+
+        for kind in [DesktopClientKind::Codex, DesktopClientKind::ClaudeDesktop] {
+            let temp = tempfile::TempDir::new().unwrap();
+            let db = crate::db::Database::new_in_memory().unwrap();
+            let provider = db
+                .provider_create(
+                    &serde_json::from_value(json!({
+                        "name": "Tray fixture", "baseUrl": "http://127.0.0.1:1"
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+            let make_key =
+                |alias| {
+                    db.api_key_create(&serde_json::from_value(json!({
+                "providerId": provider.id, "value": "synthetic-key-value", "alias": alias,
+                "types": [kind.as_str()], "isActive": true
+            })).unwrap()).unwrap()
+                };
+            let first = make_key("historical choice");
+            let second = make_key("actual choice");
+            let legacy_setting = format!("{}_last_api_key_id", kind.as_str());
+            db.settings_set_value(&legacy_setting, &first.id).unwrap();
+            let codex = codex_config::CodexConfigManager::for_test(temp.path());
+            let claude = claude_desktop_config::ClaudeDesktopConfigManager::for_test(temp.path());
+            let catalog = r#"{"models":[{"slug":"fixture-model","display_name":"Fixture"}]}"#;
+            let apply = |key: &str| {
+                match kind {
+                    DesktopClientKind::Codex => codex_config::codex_apply_with_catalog(
+                        &db,
+                        &codex,
+                        &provider.id,
+                        key,
+                        "fixture-model",
+                        catalog,
+                        1,
+                    ),
+                    DesktopClientKind::ClaudeDesktop => {
+                        claude_desktop_config::claude_apply_with_manager(
+                            &db,
+                            &provider.id,
+                            key,
+                            &claude,
+                            DesktopChangeSource::User,
+                        )
+                    }
+                }
+                .unwrap()
+            };
+            let read = || match kind {
+                DesktopClientKind::Codex => desktop_connection::read_state(
+                    &db,
+                    kind,
+                    &codex,
+                    DesktopConnectionStatus::Error,
+                ),
+                DesktopClientKind::ClaudeDesktop => desktop_connection::read_state(
+                    &db,
+                    kind,
+                    &claude,
+                    DesktopConnectionStatus::Error,
+                ),
+            };
+            let checked = |state: &desktop_connection::DesktopConnectionState| {
+                super::desktop_key_menu_items_from_state(&db, kind.as_str(), Some(state))
+                    .into_iter()
+                    .filter(|item| item.is_current)
+                    .map(|item| item.key_id)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(read().status, DesktopConnectionStatus::NotFound);
+            assert!(checked(&read()).is_empty());
+            apply(&first.id);
+            assert_eq!(checked(&read()), vec![first.id.clone()]);
+            apply(&second.id);
+            // Independent state read + menu reconstruction models tray reopening.
+            assert_eq!(checked(&read()), vec![second.id.clone()]);
+            assert_eq!(
+                db.settings_get_value(&legacy_setting).unwrap(),
+                Some(first.id.clone())
+            );
+
+            let token = match kind {
+                DesktopClientKind::Codex => codex.inspect().unwrap().token,
+                DesktopClientKind::ClaudeDesktop => claude.inspect().unwrap().token,
+            }
+            .unwrap();
+            db.proxy_session_revoke(&token, "fixture", &chrono::Utc::now().to_rfc3339())
+                .unwrap();
+            assert_eq!(read().status, DesktopConnectionStatus::Unknown);
+            assert!(checked(&read()).is_empty());
+            apply(&second.id);
+            match kind {
+                DesktopClientKind::Codex => {
+                    desktop_connection::restore_with_config(&db, kind, &codex, || {
+                        codex
+                            .restore(None)
+                            .map_err(|_| "fixture restore failed".into())
+                    })
+                }
+                DesktopClientKind::ClaudeDesktop => {
+                    desktop_connection::restore_with_config(&db, kind, &claude, || {
+                        claude
+                            .restore()
+                            .map_err(|_| "fixture restore failed".into())
+                    })
+                }
+            }
+            .unwrap();
+            assert_eq!(read().status, DesktopConnectionStatus::Official);
+            assert!(checked(&read()).is_empty());
+
+            let path = match kind {
+                DesktopClientKind::Codex => codex.files()[0].clone(),
+                DesktopClientKind::ClaudeDesktop => claude.files()[0].clone(),
+            };
+            std::fs::write(path, "invalid-fixture-configuration").unwrap();
+            assert_eq!(read().status, DesktopConnectionStatus::Error);
+            assert!(checked(&read()).is_empty());
+            assert!(
+                super::desktop_key_menu_items_from_state(&db, kind.as_str(), None)
+                    .iter()
+                    .all(|item| !item.is_current)
+            );
+        }
     }
 }

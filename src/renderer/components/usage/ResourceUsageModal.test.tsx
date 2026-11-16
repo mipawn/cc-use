@@ -176,6 +176,26 @@ async function refreshPage(): Promise<boolean> {
   return refreshed
 }
 
+it('links the current resource and selected range to the full request ledger', async () => {
+  await renderModal({ scope: keyScope })
+  await act(async () => segmentedItem('statistics.last30Days').click())
+  const link = () => document.querySelector<HTMLAnchorElement>('a[href^="#/stats?"]')
+  let query = new URLSearchParams(link()!.getAttribute('href')!.split('?')[1])
+  expect(Object.fromEntries(query)).toEqual({
+    timeRange: 'last30Days',
+    providerId: 'provider-1',
+    apiKeyId: 'key-1',
+    population: 'all',
+    page: '1',
+    pageSize: '10',
+  })
+  await renderInto({ scope: otherProviderScope })
+  query = new URLSearchParams(link()!.getAttribute('href')!.split('?')[1])
+  expect(query.get('providerId')).toBe('provider-2')
+  expect(query.has('apiKeyId')).toBe(false)
+  expect(query.get('timeRange')).toBe('last30Days')
+})
+
 it('keeps provider usage focused on usage and quality after moving speed to statistics', async () => {
   await renderModal()
   expect(document.body.textContent).not.toContain('statistics.avgOutputSpeed')

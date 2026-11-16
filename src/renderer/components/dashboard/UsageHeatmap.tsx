@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Tooltip, theme } from 'antd'
+import { Alert, Button, Tooltip, theme } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { getApi } from '../../api'
 import type { DailyTrendItem } from '@shared/types'
@@ -35,6 +35,7 @@ function normalizeTrendData(data: unknown): DailyTrendItem[] {
 
 interface Props {
   year: number
+  onDateSelect?: (date: string) => void
 }
 
 interface HeatmapDay {
@@ -55,17 +56,24 @@ interface HeatmapWeek {
   firstMonthKey: string | null
 }
 
-export default function UsageHeatmap({ year }: Props) {
+export default function UsageHeatmap({ year, onDateSelect }: Props) {
   const { token } = theme.useToken()
   const { t, i18n } = useTranslation()
   const language = i18n.resolvedLanguage || i18n.language
   const today = toLocalDateKey(new Date())
   const [trendData, setTrendData] = useState<DailyTrendItem[]>([])
 
+  const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+  const [reload, setReload] = useState(0)
+
   const weekdayLabels = i18n.language.startsWith('zh') ? WEEKDAY_LABELS.zh : WEEKDAY_LABELS.en
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setFailed(false)
+    setTrendData([])
 
     const fetchTrendData = async () => {
       try {
@@ -80,7 +88,10 @@ export default function UsageHeatmap({ year }: Props) {
         console.error('Failed to fetch heatmap data:', err)
         if (!cancelled) {
           setTrendData([])
+          setFailed(true)
         }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
 
@@ -88,7 +99,7 @@ export default function UsageHeatmap({ year }: Props) {
     return () => {
       cancelled = true
     }
-  }, [year])
+  }, [year, reload])
 
   const dataMap = useMemo(() => {
     const map = new Map<string, DailyTrendItem>()
@@ -238,14 +249,28 @@ export default function UsageHeatmap({ year }: Props) {
   } as React.CSSProperties
 
   return (
-    <div style={heatmapStyle} className={styles.heatmapSection}>
+    <div style={heatmapStyle} className={styles.heatmapSection} aria-busy={loading}>
+      {failed && (
+        <Alert
+          type='error'
+          showIcon
+          title={t('workspace.overviewUnavailable')}
+          action={
+            <Button onClick={() => setReload((value) => value + 1)}>{t('common.retry')}</Button>
+          }
+        />
+      )}
       <div className={styles.heatmapSummary}>
-        {yearSummary.totalRequests > 0
-          ? t('dashboard.heatmapYearTokenSummary', {
-              requests: yearSummary.totalRequests.toLocaleString(),
-              tokens: formatTokenCount(yearSummary.totalTokens, language),
-            })
-          : t('dashboard.heatmapNoData')}
+        {loading
+          ? t('common.loading')
+          : failed
+            ? '—'
+            : yearSummary.totalRequests > 0
+              ? t('dashboard.heatmapYearTokenSummary', {
+                  requests: yearSummary.totalRequests.toLocaleString(),
+                  tokens: formatTokenCount(yearSummary.totalTokens, language),
+                })
+              : t('dashboard.heatmapNoData')}
       </div>
 
       <div className={styles.heatmapScroll}>
@@ -307,7 +332,12 @@ export default function UsageHeatmap({ year }: Props) {
                       mouseEnterDelay={0.05}
                       placement='top'
                     >
-                      <div
+                      <button
+                        type='button'
+                        disabled={
+                          !onDateSelect || !day.inRange || day.isFuture || loading || failed
+                        }
+                        onClick={() => onDateSelect?.(day.dateStr)}
                         className={styles.heatmapCell}
                         data-empty={day.inRange && !day.isFuture && day.heatValue === 0}
                         style={getHeatmapCellStyle(level, day.isToday, day.isFuture, day.inRange)}

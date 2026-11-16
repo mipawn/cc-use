@@ -1,0 +1,7 @@
+{"file":".trellis/tasks/11-15-gui-control-observation-redesign/prd.md","reason":"最终验收A1–A20、非目标、授权与安全边界"}
+{"file":".trellis/tasks/11-15-gui-control-observation-redesign/research/compatibility.md","reason":"CLI历史数据、托盘、Desktop自动同步与partial证据"}
+{"file":".trellis/tasks/11-15-gui-control-observation-redesign/research/observation-routing.md","reason":"统计分母/关联ID、Console留存、选线/模型兼容证据"}
+{"file":".trellis/spec/cc-use/frontend/testing-and-quality.md","reason":"现有Vitest/jsdom测试方式与前端质量门"}
+{"file":".trellis/spec/cc-use/backend/quality-and-testing.md","reason":"Rust测试、临时目录和后端质量门"}
+{"file":".trellis/spec/cc-use/backend/errors-and-logging.md","reason":"错误、部分失败、凭据脱敏与日志边界"}
+{"file":".trellis/spec/cc-use-cli/backend/testing.md","reason":"CLI非交互、默认继承、共享运行时回归"}

@@ -1,0 +1,28 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.table {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.directory {
+  display: block;
+  max-width: 100%;
+}
+.secondary {
+  display: block;
+  font-size: 12px;
+}

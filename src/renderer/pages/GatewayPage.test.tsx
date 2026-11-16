@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react'
+import { ConfigProvider } from 'antd'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -158,7 +159,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
   useApiKeyStore.setState({ apiKeys: {}, loading: {} })
   useProviderStore.setState({ providers: [], loading: false, error: null })
   mocks.list.mockResolvedValue([gateway])
@@ -206,16 +207,16 @@ async function flush() {
 async function renderPage() {
   await act(async () =>
     root.render(
-      <MemoryRouter>
+      <ConfigProvider theme={{ token: { motion: false } }}><MemoryRouter>
         <GatewayPage />
-      </MemoryRouter>,
+      </MemoryRouter></ConfigProvider>,
     ),
   )
   await flush()
 }
 
 function modal(): HTMLElement {
-  const element = document.body.querySelector<HTMLElement>('.ant-modal')
+  const element = Array.from(document.body.querySelectorAll<HTMLElement>('.ant-modal')).find(node => node.closest<HTMLElement>('.ant-modal-wrap')?.style.display !== 'none')
   expect(element).not.toBeNull()
   return element!
 }
@@ -265,6 +266,19 @@ async function openEdit() {
 }
 
 async function chooseSelect(index: number, optionText: string) {
+  if (index === 0) {
+    await click(buttonByText('resources.choose', modal()))
+    const provider = Array.from(modalBody().querySelectorAll<HTMLButtonElement>('button[aria-pressed]')).find(node => node.textContent?.includes(optionText))
+    await click(provider ?? null)
+    return
+  }
+  if (index === 1) {
+    const key = Array.from(modalBody().querySelectorAll<HTMLElement>('[role="button"][aria-pressed]')).find(node => node.textContent?.includes(optionText))
+    await click(key ?? null)
+    await click(buttonByText('resources.gatewaySelect', modal()))
+    return
+  }
+  index -= 2
   const selects = Array.from(modalBody().querySelectorAll<HTMLElement>('.ant-select'))
   expect(selects[index]).toBeDefined()
   const combobox = selects[index].querySelector<HTMLElement>('[role="combobox"]')

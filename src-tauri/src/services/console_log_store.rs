@@ -1644,14 +1644,20 @@ fn read_file_for_window(
     path: &Path,
     window: RetentionWindow,
     now: ClockSnapshot,
-) -> (Vec<ConsoleLogRecord>, usize) {
-    let Ok(file) = File::open(path) else {
-        return (Vec::new(), 0);
+    strict: bool,
+) -> Result<(Vec<ConsoleLogRecord>, usize), String> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) if !strict => return Ok((Vec::new(), 0)),
+        Err(_) => return Err("Cannot read console history file".to_string()),
     };
     let mut records = Vec::new();
     let mut corrupt = 0usize;
     for line in BufReader::new(file).lines() {
         let Ok(line) = line else {
+            if strict {
+                return Err("Cannot read console history file".to_string());
+            }
             corrupt += 1;
             break;
         };
@@ -1672,7 +1678,7 @@ fn read_file_for_window(
             _ => corrupt += 1,
         }
     }
-    (records, corrupt)
+    Ok((records, corrupt))
 }
 
 /// Read a page of history, oldest record first.
@@ -1710,63 +1716,16 @@ pub fn read_recent_with_clock(
     clock: &dyn Clock,
 ) -> ConsoleLogPage {
     let now = clock.now();
-    let window = RetentionWindow::from_snapshot(now);
     let limit = limit.max(1);
 
     let read = |dir: &Path| -> ConsoleLogPage {
-        let meta = read_meta_unlocked(dir);
-        let generation = meta.composed_generation();
-
-        let mut records: Vec<ConsoleLogRecord> = Vec::new();
-        let mut corrupt = 0usize;
-        let mut capacity_evicted = false;
-        let mut trimmed = false;
-        for source in sources {
-            let source_meta = meta.source(*source);
-            capacity_evicted |= source_meta.capacity_evicted;
-            trimmed |= source_meta.trimmed > 0;
-            for path in &source_files(dir, *source) {
-                let (mut page, skipped) = read_file_for_window(path, window, now);
-                records.append(&mut page);
-                corrupt += skipped;
-            }
-        }
-
-        // Interleave by writer position: timestamps are second-resolution and
-        // two processes can stamp the same second.
-        records.sort_by(|a, b| {
-            (a.at.as_str(), a.source.as_str(), a.seq).cmp(&(
-                b.at.as_str(),
-                b.source.as_str(),
-                b.seq,
-            ))
-        });
-
-        let limited = records.len() > limit;
-        if limited {
-            records.drain(..records.len() - limit);
-        }
-        // Reaching the file cap is not evidence by itself that data was
-        // evicted: the persisted flag says whether pruning actually happened.
-        let truncated = limited || capacity_evicted || corrupt > 0;
-        let retention = Some(ConsoleLogRetention {
-            retention_start_date: if records.is_empty() {
-                None
-            } else {
-                Some(window.start_date_string())
-            },
-            capacity_evicted,
-            trimmed,
-            corrupted: corrupt as u64,
-            limited,
-        });
-
-        ConsoleLogPage {
-            generation,
-            records,
-            truncated,
-            retention,
-        }
+        // Only strict request lookup can return an error; recent history keeps its legacy fallback.
+        read_page_unlocked(dir, sources, limit, now, None).unwrap_or_else(|_| ConsoleLogPage {
+            generation: current_generation(dir),
+            records: Vec::new(),
+            truncated: true,
+            retention: None,
+        })
     };
 
     // A shared lock keeps a consistent snapshot against a concurrent compaction
@@ -1776,6 +1735,134 @@ pub fn read_recent_with_clock(
         Ok(page) => page,
         Err(_) => read(dir),
     }
+}
+
+/// Exact request lookup across the retained store, before limiting the projection.
+/// A miss is not an expiry claim: the request may never have been recorded or was cleared.
+pub fn read_request(dir: &Path, request_id: &str, limit: usize) -> Result<ConsoleLogPage, String> {
+    read_request_with_clock(dir, request_id, limit, &SystemClock)
+}
+
+fn read_request_with_clock(
+    dir: &Path,
+    request_id: &str,
+    limit: usize,
+    clock: &dyn Clock,
+) -> Result<ConsoleLogPage, String> {
+    if request_id.is_empty()
+        || request_id.len() > 128
+        || !request_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err("Invalid request ID".to_string());
+    }
+    // Unlike the global recovery stream, a precision lookup must not silently turn I/O
+    // or lock failures into no-match, nor scan across a concurrent clear without a lock.
+    with_dir_operation(dir, DirLockMode::Shared, READ_LOCK_TIMEOUT, || {
+        read_page_unlocked(
+            dir,
+            &SOURCES,
+            limit.clamp(1, 5_000),
+            clock.now(),
+            Some(request_id),
+        )
+    })
+    .map_err(|_| "Cannot read console history; retry the request lookup".to_string())?
+}
+
+fn source_files_checked(dir: &Path, source: ConsoleLogSource) -> Result<Vec<PathBuf>, String> {
+    let entries =
+        fs::read_dir(dir).map_err(|_| "Cannot read console history directory".to_string())?;
+    let mut paths = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|_| "Cannot read console history directory".to_string())?;
+        if let Some(index) = parse_index(&entry.file_name().to_string_lossy(), source) {
+            paths.push((index, entry.path()));
+        }
+    }
+    paths.sort_by_key(|(index, _)| *index);
+    Ok(paths.into_iter().map(|(_, path)| path).collect())
+}
+
+fn read_page_unlocked(
+    dir: &Path,
+    sources: &[ConsoleLogSource],
+    limit: usize,
+    now: ClockSnapshot,
+    request_id: Option<&str>,
+) -> Result<ConsoleLogPage, String> {
+    let window = RetentionWindow::from_snapshot(now);
+    let strict = request_id.is_some();
+    let meta = if strict {
+        match fs::read_to_string(dir.join(META_FILE)) {
+            Ok(raw) => serde_json::from_str(&raw)
+                .map_err(|_| "Cannot read console history metadata".to_string())?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => ConsoleLogMeta::default(),
+            Err(_) => return Err("Cannot read console history metadata".to_string()),
+        }
+    } else {
+        read_meta_unlocked(dir)
+    };
+    let generation = meta.composed_generation();
+
+    let mut records: Vec<ConsoleLogRecord> = Vec::new();
+    let mut corrupt = 0usize;
+    let mut capacity_evicted = false;
+    let mut trimmed = false;
+    for source in sources {
+        let source_meta = meta.source(*source);
+        capacity_evicted |= source_meta.capacity_evicted;
+        trimmed |= source_meta.trimmed > 0;
+        let paths = if strict {
+            source_files_checked(dir, *source)?
+        } else {
+            source_files(dir, *source)
+        };
+        for path in &paths {
+            let (mut page, skipped) = read_file_for_window(path, window, now, strict)?;
+            if let Some(request_id) = request_id {
+                page.retain(|record| {
+                    matches!(&record.event,
+                        ConsoleEvent::Request { request_id: Some(id), .. } if id == request_id)
+                });
+            }
+            records.append(&mut page);
+            corrupt += skipped;
+        }
+    }
+
+    // Interleave by writer position: timestamps are second-resolution and
+    // two processes can stamp the same second.
+    records.sort_by(|a, b| {
+        (a.at.as_str(), a.source.as_str(), a.seq).cmp(&(b.at.as_str(), b.source.as_str(), b.seq))
+    });
+
+    let limited = records.len() > limit;
+    if limited {
+        records.drain(..records.len() - limit);
+    }
+    // Reaching the file cap is not evidence by itself that data was
+    // evicted: the persisted flag says whether pruning actually happened.
+    let truncated = limited || capacity_evicted || corrupt > 0;
+    let retention = Some(ConsoleLogRetention {
+        retention_start_date: if records.is_empty() && !strict {
+            None
+        } else {
+            Some(window.start_date_string())
+        },
+        capacity_evicted,
+        trimmed,
+        corrupted: corrupt as u64,
+        limited,
+    });
+
+    Ok(ConsoleLogPage {
+        generation,
+        records,
+        truncated,
+        retention,
+    })
 }
 
 #[cfg(test)]
@@ -1936,6 +2023,165 @@ mod tests {
             self.clock = clock;
             self
         }
+    }
+
+    fn raw_request_record(request_id: &str, seq: u64, at: &str) -> String {
+        let mut event = ConsoleEvent::pending(
+            request_id,
+            "POST",
+            "/v1/messages",
+            "https://fixture.invalid",
+            None,
+            None,
+            false,
+        );
+        if let ConsoleEvent::Request { timestamp, .. } = &mut event {
+            *timestamp = at.to_string();
+        }
+        serde_json::to_string(&ConsoleLogRecord {
+            v: RECORD_VERSION,
+            source: "daemon".to_string(),
+            epoch: "fixture-epoch".to_string(),
+            seq,
+            at: at.to_string(),
+            id: format!("fixture-record-{seq}"),
+            event,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn observation_request_lookup_matches_before_limit_outside_live_buffer() {
+        let temp = TempDir::new();
+        let at = "2026-11-14 12:00:00";
+        let clock = FakeClock::new(utc(at), 0);
+        let mut lines = vec![
+            raw_request_record("target", 1, at),
+            raw_request_record("target", 2, at),
+        ];
+        for seq in 3..=604 {
+            lines.push(raw_request_record("target-prefix", seq, at));
+        }
+        // A runtime log that merely mentions the ID is not request-scoped.
+        lines.push(raw_log_record(
+            ConsoleLogSource::Daemon,
+            "fixture-epoch",
+            605,
+            at,
+            "target",
+            "target",
+        ));
+        write_raw_file(temp.path(), "daemon-fixture-00001.jsonl", &lines);
+        let recent = read_recent_with_clock(
+            temp.path(),
+            &SOURCES,
+            500,
+            ConsoleLogLimits::default(),
+            clock.as_ref(),
+        );
+        assert_eq!(recent.records.len(), 500);
+        assert!(recent.records.iter().all(|record| record.seq > 2));
+        let page = read_request_with_clock(temp.path(), "target", 500, clock.as_ref()).unwrap();
+        assert_eq!(
+            page.records
+                .iter()
+                .map(|record| record.seq)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(page.records[0].id, "fixture-record-1");
+        assert_eq!(page.records[0].epoch, "fixture-epoch");
+        assert!(!page.truncated);
+        assert!(!page.retention.unwrap().limited);
+        let limited = read_request_with_clock(temp.path(), "target", 1, clock.as_ref()).unwrap();
+        assert_eq!(limited.records[0].seq, 2);
+        assert!(limited.truncated);
+        assert!(limited.retention.unwrap().limited);
+    }
+
+    #[test]
+    fn observation_request_lookup_preserves_retention_and_corruption_metadata() {
+        let temp = TempDir::new();
+        let clock = FakeClock::new(utc("2026-11-14 12:00:00"), 0);
+        write_raw_file(
+            temp.path(),
+            "daemon-fixture-00001.jsonl",
+            &[
+                raw_request_record("target", 1, "2026-11-11 12:00:00"),
+                raw_request_record("target", 2, "2026-11-12 00:00:00"),
+                "not-json".to_string(),
+            ],
+        );
+        let mut meta = ConsoleLogMeta::default();
+        meta.source_mut(ConsoleLogSource::Daemon).capacity_evicted = true;
+        meta.source_mut(ConsoleLogSource::Daemon).trimmed = 1;
+        write_meta_unlocked(temp.path(), &meta).unwrap();
+        let page = read_request_with_clock(temp.path(), "target", 10, clock.as_ref()).unwrap();
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records[0].seq, 2);
+        assert!(page.truncated);
+        let retention = page.retention.unwrap();
+        assert_eq!(
+            retention.retention_start_date.as_deref(),
+            Some("2026-11-12")
+        );
+        assert!(retention.capacity_evicted);
+        assert!(retention.trimmed);
+        assert_eq!(retention.corrupted, 1);
+        assert!(!retention.limited);
+        let miss =
+            read_request_with_clock(temp.path(), "not-recorded", 10, clock.as_ref()).unwrap();
+        assert!(miss.records.is_empty());
+        assert_eq!(
+            miss.retention.unwrap().retention_start_date.as_deref(),
+            Some("2026-11-12")
+        );
+    }
+
+    #[test]
+    fn observation_request_lookup_distinguishes_io_failure_and_rejects_invalid_ids() {
+        let temp = TempDir::new();
+        let missing = read_request(&temp.path().join("new-store"), "valid-id", 10).unwrap();
+        assert!(missing.records.is_empty());
+        let invalid_path = temp.path().join("not-directory");
+        fs::write(&invalid_path, "fixture").unwrap();
+        assert!(read_request(&invalid_path, "valid-id", 10).is_err());
+        for id in ["", "../../private", "bad id", "session-do-not-echo\n"] {
+            let error = read_request(temp.path(), id, 10).unwrap_err();
+            assert_eq!(error, "Invalid request ID");
+        }
+        // Metadata failure cannot be replaced by a fabricated empty generation.
+        fs::write(temp.path().join(META_FILE), "broken").unwrap();
+        assert!(read_request(temp.path(), "valid-id", 10).is_err());
+        let other = TempDir::new();
+        fs::create_dir(other.path().join("daemon-fixture-00001.jsonl")).unwrap();
+        assert!(read_request(other.path(), "valid-id", 10).is_err());
+    }
+
+    #[test]
+    fn observation_request_lookup_after_clear_has_new_generation_and_no_records() {
+        let temp = TempDir::new();
+        let mut log = writer(
+            temp.path(),
+            ConsoleLogSource::Daemon,
+            ConsoleLogLimits::default(),
+        );
+        log.append(&ConsoleEvent::pending(
+            "target",
+            "POST",
+            "/v1/messages",
+            "https://fixture.invalid",
+            None,
+            None,
+            false,
+        ))
+        .unwrap();
+        let before = read_request(temp.path(), "target", 10).unwrap();
+        assert_eq!(before.records.len(), 1);
+        log.clear().unwrap();
+        let after = read_request(temp.path(), "target", 10).unwrap();
+        assert!(after.records.is_empty());
+        assert_ne!(after.generation, before.generation);
     }
 
     // ── T11: retention / clock / maintenance ──

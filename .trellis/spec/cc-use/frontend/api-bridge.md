@@ -6,7 +6,7 @@
 
 ## The Contract
 
-All frontend→backend traffic goes through one object. Direct `@tauri-apps/*` imports are limited to the bridge itself plus the exceptions documented under [Known Drift](#known-drift-verify-before-trusting): native file dialogs in `pages/Settings.tsx`, the migration event listener in `App.tsx`, and the config-takeover pages that call `invoke()` by hand.
+All frontend→backend application calls go through `getApi()`. Direct native imports in current production renderer code are limited to the bridge, native file dialogs in [Settings](../../../../src/renderer/pages/Settings.tsx), and the migration event listener in [App](../../../../src/renderer/App.tsx). The deleted Codex/Claude Desktop takeover pages are **not** active exceptions: [DesktopPage](../../../../src/renderer/pages/DesktopPage.tsx) uses the typed `desktopConnection` namespace, never hand-written `invoke()` or settings-key choreography.
 
 | Piece | File | Symbol |
 |---|---|---|
@@ -27,7 +27,7 @@ provider: {
 },
 ```
 
-`Api` namespaces currently cover: `provider`, `userAgent`, `apiKey`, `project`, `terminal`, `proxy`, `console`, `balance`, `keyUsage`, `importExport`, `session`, `settings`, `configTakeover`, `icon`, `usageLog`, `requestLog`, `cliTool`, `app`, `system`, `systemExt`, `sessions`, `managedInstances`, `codexApp`.
+`Api` namespaces currently cover: `provider`, `userAgent`, `apiKey`, `project`, `terminal`, `proxy`, `console`, `balance`, `keyUsage`, `importExport`, `session`, `gateway`, `settings`, `desktopConnection`, `configTakeover`, `icon`, `usageLog`, `requestLog`, `cliTool`, `app`, `system`, `systemExt`, `sessions`, `managedInstances`, `codexApp`. Retained project/terminal/session compatibility APIs do not authorize adding GUI project launching; the live route owners are listed in [Directory Structure](./directory-structure.md).
 
 ---
 
@@ -38,7 +38,7 @@ provider: {
    - `provider_model_catalog` (`src-tauri/src/commands/providers.rs:118`) takes `provider_id, api_key_id, client_kind`; the frontend sends `{ providerId, apiKeyId, clientKind }` (`api/index.ts:38`).
    - `terminal_get_launch_preview` takes `project_id, provider_id, api_key_id, cli_type`; the frontend forwards its camelCase `params` object unchanged (`api/index.ts:70`).
    - `provider_reorder` takes `provider_ids`; frontend sends `{ providerIds }` (`api/index.ts:29`).
-3. **Omit absent optionals rather than sending `undefined` or fake values.** `provider.modelList` only adds `clientKind` when it exists (`...(clientKind ? { clientKind } : {})`, `api/index.ts:30-36`). No-argument commands pass `undefined` explicitly and the contract test asserts it (`proxy_restart`).
+3. **Preserve the adapter's omission contract; do not invent empty values or globally normalize legacy payloads.** `provider.modelList` includes `clientKind` only when present; scoped statistics include `filter` only when supplied. `gateway.update` omits absent `modelPolicy`/`connectionConfig` to retain stored values. Other existing keys, such as optional pagination fields, are forwarded as written. No-argument `proxy_restart` passes no argument object, which the contract test observes as `undefined`.
 4. **Only JSON-serializable data crosses the boundary.** `icon.upload` converts an `ArrayBuffer` to a plain number array before invoking because the Rust side takes `Vec<u8>` (`api/index.ts:147-150`; contract test `converts ArrayBuffer payloads for icon upload`).
 5. **Errors are strings.** Rust returns `Result<T, String>`; a rejected Tauri promise carries that string. UI code either shows `result.error` / `result.invalidMessage` from a domain result (e.g. `pages/Keys.tsx` balance refresh) or wraps the thrown value (`message.error(String(error))`).
 6. **Event names are a second contract.** The bridge subscribes to:
@@ -61,7 +61,7 @@ provider: {
 
 Backend half (for pairing, owned by [Backend Guidelines](../backend/index.md)): declare `#[tauri::command]` in `src-tauri/src/commands/<domain>.rs`, register it in the `tauri::generate_handler![...]` list in `src-tauri/src/lib.rs`, and add a capability permission only when it needs a plugin/system permission (`src-tauri/capabilities/default.json`).
 
-Command registration is mandatory: an invoke of an unregistered command fails at runtime. Registration does not prove the renderer uses it through `Api`: `system_open_external` is registered but the renderer calls the opener plugin instead, and `get_setting` / `set_setting` / `delete_setting` are registered but called directly from the config-takeover pages.
+Command registration is mandatory: an invoke of an unregistered command fails at runtime. Registration does not prove a renderer call exists: `system_open_external` remains registered while the renderer uses the opener plugin. Older settings/config commands are not a license to bypass the typed Desktop operations; no live Desktop page composes takeover by manually writing `get_setting` / `set_setting` / `delete_setting`.
 
 ---
 
@@ -86,8 +86,8 @@ These are current facts in the tree, not endorsements. Fix them when touching th
 
 | Drift | Evidence |
 |---|---|
-| `Api.codexApp` maps to `codex_app_launch`, `codex_app_stop`, `codex_app_get_active_project`, but no `codex_app_*` command exists in `src-tauri/src` (only unrelated proxy tests mention Codex app sessions) | `api/types.ts:305-309`, `api/index.ts:244-248`; `grep -rn "codex_app" src-tauri` |
-| Config-takeover pages call `invoke()` directly for registered commands that are missing from `Api`: `codex_config_is_taken_over`, `codex_config_takeover`, `codex_config_restore`, `claude_desktop_schema_detect`, `claude_desktop_config_takeover`, `claude_desktop_config_restore`, `get_setting`, `set_setting`, `delete_setting` | `pages/CodexPage.tsx:31-87`, `pages/ClaudeDesktopPage.tsx:31-100` |
+| `Api.codexApp` still maps to unregistered `codex_app_launch`, `codex_app_stop`, `codex_app_get_active_project`; these are not working GUI launch APIs | [API types](../../../../src/renderer/api/types.ts), [adapter](../../../../src/renderer/api/index.ts), [registered commands](../../../../src-tauri/src/lib.rs); do not copy them into new screens |
+| Settings native save/open dialogs remain a plugin exception; App's migration event import is skipped in fixture mode | [Settings](../../../../src/renderer/pages/Settings.tsx), [App](../../../../src/renderer/App.tsx); deleted config-takeover pages contribute no current exception |
 | `system.openExternal` uses `@tauri-apps/plugin-opener`, while the registered `system_open_external` command is unused by the renderer | `api/index.ts:221-224`; `src-tauri/src/lib.rs` registration list |
 | `app.checkUpdate` / `downloadAndInstall` / `relaunch` use `plugin-updater` and `plugin-process`, not invoke; `system.selectFolder` uses `plugin-dialog` | `api/index.ts:182-224` |
 | `Api.provider.modelCatalog` returns `ClientCatalog` from `src/renderer/utils/modelMapping.ts` (renderer-owned type for a backend payload) | `api/types.ts`; `src-tauri/src/services/model_catalog.rs` (`ModelCatalogResult`) |
@@ -108,6 +108,92 @@ normal `settings.update({ proxyListenScope })` path; the backend restarts the da
 changes, so the UI keeps the stored value and lets status polling reflect the restart.
 
 When a backend command changes shape, update `src/renderer/api/types.ts`, `buildApi`, the shared types in `src/shared/types/index.ts`, the Rust model/serializer, and the contract test in the same change. That is the cross-layer contract the backend spec must mirror.
+
+## Scenario: Ordered bootstrap, typed Desktop and scoped observation
+
+### 1. Scope / Trigger
+
+Use this contract for renderer startup/import changes, Desktop connection controls, scoped ledger reads, or precise request Console lookup. [Directory Structure](./directory-structure.md) owns navigation placement; [Resource Routing](./resource-routing.md) owns selection/create/apply continuity; [Observation Contract](./observation-contract.md) owns URL validation, population semantics and retained-log projection.
+
+### 2. Signatures (API / Commands)
+
+```ts
+declare function installDevFixtureApi(api: Api): void
+declare function getApi(): Api
+
+// Relevant subset of Api; payload types come from @shared/types.
+interface DesktopAndObservationApi {
+  desktopConnection: {
+    state(clientKind: DesktopClientKind): Promise<DesktopConnectionState>
+    apply(clientKind: DesktopClientKind, providerId: string,
+      apiKeyId: string): Promise<DesktopOperationResult>
+    restore(clientKind: DesktopClientKind): Promise<DesktopOperationResult>
+  }
+  requestLog: {
+    getStatistics(timeRange: StatsTimeRange, filter?: RequestLogFilter): Promise<UsageStatistics>
+    getRecentPaginated(timeRange: StatsTimeRange, page?: number,
+      pageSize?: number, filter?: RequestLogFilter): Promise<PaginatedRecentRequests>
+  }
+  console: { readRequest(requestId: string, limit?: number): Promise<ConsoleLogPage> }
+}
+```
+
+| Namespace method | Exact command / arguments |
+| --- | --- |
+| `desktopConnection.state` | `desktop_connection_state({ clientKind })` |
+| `desktopConnection.apply` | `desktop_connection_apply({ clientKind, providerId, apiKeyId })` |
+| `desktopConnection.restore` | `desktop_connection_restore({ clientKind })` |
+| `requestLog.getStatistics` | `request_log_get_statistics({ timeRange, ...(filter ? { filter } : {}) })` |
+| `requestLog.getRecentPaginated` | `request_log_get_recent_paginated({ timeRange, page, pageSize, ...(filter ? { filter } : {}) })` |
+| `console.readRequest` | `console_log_read_request({ requestId, limit })` |
+
+Use [shared payloads](../../../../src/shared/types/index.ts) and the owning [Desktop Rust serializers](../../../../src-tauri/src/commands/desktop_connection.rs), not page-local guessed result shapes. The remaining `configTakeover.readCodex/readClaudeDesktop` methods are config-preview reads, not mutation entrypoints.
+
+### 3. Contracts (Environment / State / Response)
+
+- Fixture mode requires **both** `DEV` and `VITE_CC_USE_FIXTURE === '1'`. [main](../../../../src/renderer/main.tsx) injects the fixture before dynamically importing Console, stores and App. Ordinary mode skips injection and lazily builds the native API; neither mode depends on a runtime `window.api` assignment.
+- Fixture installation rejects after native API use and rejects outside fixture mode. `getApi()` before fixture injection throws. The [strict fixture namespaces](../../../../src/renderer/dev/fixtureSupport.ts) reject unknown methods; no namespace merge, real-API fallback, renderer persistence or native migration listener is allowed in fixture mode.
+- The dedicated fixture config is serve-only with the explicit environment flag. Isolation permits only preview static assets and the dedicated same-origin HMR endpoint: `vite-hmr`, or empty-query `vite-ping` for Vite restart probes. Native/daemon/provider application calls remain blocked. See [fixture README](../../../../src/renderer/dev/README.md) for the exact command and limitations.
+- `DesktopClientKind` is `'codex' | 'claude_desktop'`. State contains typed `status`, public resource-ID `route`, `lastConfigChange`, `syncFailure` and `warning`; it does not expose session credentials. Status is `'official' | 'taken_over' | 'not_found' | 'error' | 'unknown'`.
+- `lastConfigChange` is `{ action: 'takeover' | 'restore' | 'sync', source: 'user' | 'key_edit' | 'startup', changedAt, version } | null`. Successful route-only changes must not erase the previous configuration-change fact. `syncFailure` is a distinct persisted failure fact with source/time/message.
+- Operation results contain `action: 'takeover' | 'switch_route' | 'restore'`, `completion: 'complete' | 'partial'`, independent `routeChanged`/`configChanged`, nullable `modelCount`, `nextAction: 'reopen_client' | 'none'`, timestamp, warning and authoritative `state`. Report saved configuration versus changed route separately. No field proves the external client has restarted or reloaded.
+- `RequestLogFilter` carries optional provider/key/instance IDs, outcome and population. SQL applies the same validated scope before aggregation, count and pagination. Do not catch a scope failure and retry without it. Exact Console lookup reads retained logs by `requestId`; a bounded global buffer is not evidence of absence/expiry. Keep request projection local and respect clear revision/generation metadata.
+
+### 4. Validation & Error Matrix
+
+| Input / result | Required behavior |
+| --- | --- |
+| Production build with fixture flag, or a URL-only scenario switch | Must not activate fixture mode |
+| Fixture API requested before injection / unknown method / native transport attempt | Fail closed and visibly; never invoke real services |
+| Route-only complete Desktop result | Show route result; retain known configuration-change/reopen guidance |
+| `configChanged=true`, `nextAction='reopen_client'` | Say configuration saved and client must be reopened; never claim restart detection |
+| `completion='partial'` or persistent `syncFailure` | Preserve returned state and warning; do not display blanket success or silently dismiss the picker |
+| Rejected Desktop mutation or stale prior-client response | Keep the current client's authoritative state; preserve retry context, invalidate stale responses |
+| Invalid/mismatched/deleted observation scope | Scope unavailable/error, not empty global statistics or an unscoped retry |
+| Exact Console miss, expired known request, read error | Distinct truthful states; only known retention/date evidence supports “expired” |
+
+### 5. Good / Base / Bad Cases
+
+- **Good:** apply a Codex route, render returned state, refresh it, and keep prior config-change guidance. A later key synchronization failure remains separately visible.
+- **Base:** unfiltered statistics omit `filter`; ordinary native startup installs Console tap, persistence and store before React. Existing API argument shapes remain unchanged.
+- **Bad:** hand-write Desktop settings/session calls in the page; treat route mutation as proof of client reload; obtain a precise request by filtering only the newest 500 global events; fall back to native APIs because a fixture method is missing.
+
+### 6. Tests Required (Assertion Points)
+
+- [API contract tests](../../../../src/renderer/api/__tests__/index.contract.test.ts): exact Desktop/scoped-statistics/readRequest command names, camelCase fields and absent-filter omission; existing mappings remain intact.
+- [Fixture API tests](../../../../src/renderer/dev/fixtureApi.test.ts), [isolation tests](../../../../src/renderer/dev/isolation.test.ts), [Vite-config tests](../../../../src/renderer/dev/vite.config.test.ts): dual gate, pre-injection failure, no real fallback, actual Tauri invoke rejection, dedicated HMR/ping boundary, in-memory independence and partial/route-only outcomes.
+- [DesktopPage tests](../../../../src/renderer/pages/DesktopPage.test.tsx): typed partial failure keeps the picker, state refresh retains guidance, stale-client responses/confirmations cannot change the current client.
+- Scope/count/pagination, precise history and clear-generation assertions are specified in [Observation Contract](./observation-contract.md). Native temporary-file tests, not browser fixtures, prove durable Desktop file/state behavior.
+
+### 7. Wrong vs Correct
+
+| Wrong | Correct |
+| --- | --- |
+| Static App/store imports run before fixture installation | Keep the entrypoint's dynamic boundary and inject first |
+| `return fixture.method ?? real.method` | Reject every unimplemented fixture method |
+| Rebuild takeover from direct `invoke('set_setting', ...)` calls | One typed `desktopConnection.apply/restore` operation owned by Rust |
+| Toast “client restarted” after saving config | Report `configChanged` and `nextAction`; show persistent config facts only |
+| Filter an unscoped page / search the live Console ring for an old request | Server-scoped pagination plus exact retained `console.readRequest` projection |
 
 ## Scenario: Query scheme catalogue, the draft test and the persisted switch (v3.18)
 

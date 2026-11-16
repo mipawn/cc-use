@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod request_log_filter;
+pub use request_log_filter::{RequestLogFilter, RequestLogOutcome, RequestLogPopulation};
+
 // ── Provider ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -16,6 +16,13 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  buildStatisticsUrl,
+  observationSearch,
+  parseObservationContext,
+} from '../utils/observationContext'
+import { useConsoleRequestProjection } from '../hooks/useConsoleRequestProjection'
 import type { ConsoleEvent, ConsoleLogEvent, ConsoleRequestEvent } from '@shared/types'
 import {
   CONSOLE_BUFFER_LIMIT,
@@ -643,6 +650,13 @@ export default function Console() {
   const { t } = useTranslation()
   const tr = t as unknown as Translate
   const palette = useTerminalPalette()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const search = searchParams.toString()
+  const observation = useMemo(() => parseObservationContext(search), [search])
+  const requestId = observation.requestId
+  const requestProjection = useConsoleRequestProjection(requestId)
+  const refreshRequest = requestProjection.refresh
   const events = useSyncExternalStore(subscribeConsoleStore, getConsoleEvents)
   const [view, setView] = useState<ConsoleView>('requests')
   const [query, setQuery] = useState('')
@@ -679,19 +693,21 @@ export default function Console() {
 
   const requestRows = useMemo(() => {
     const rows: RequestProjection[] = []
-    events.forEach((event) => {
+    const source = observation.invalid ? [] : requestId ? requestProjection.events : events
+    source.forEach((event) => {
       if (event.category === 'request') rows.push(projectRequestEvent(event))
     })
     return rows
-  }, [events])
+  }, [events, requestId, requestProjection.events, observation.invalid])
 
   const logRows = useMemo(() => {
     const rows: LogProjection[] = []
+    if (observation.invalid) return rows
     events.forEach((event) => {
       if (event.category === 'log') rows.push(projectLogEvent(event))
     })
     return rows
-  }, [events])
+  }, [events, observation.invalid])
 
   const visibleRequests = useMemo(
     () => requestRows.filter((row) => matchesQuery(row.event, query)),
@@ -724,7 +740,7 @@ export default function Console() {
     setFollowing(true)
     stickBottomRef.current = true
     manuallyPausedRef.current = false
-  }, [view, query])
+  }, [view, query, requestId])
 
   const syncDetailMode = useCallback(async () => {
     try {
@@ -766,10 +782,11 @@ export default function Console() {
     setRefreshing(true)
     try {
       await Promise.all([refreshHistory(), syncDetailMode()])
+      await refreshRequest()
     } finally {
       setRefreshing(false)
     }
-  }, [refreshHistory, syncDetailMode])
+  }, [refreshHistory, syncDetailMode, refreshRequest])
 
   useEffect(() => {
     void refreshHistory()
@@ -810,7 +827,7 @@ export default function Console() {
   const stickBottomRef = useRef(true)
   const manuallyPausedRef = useRef(false)
   const knownKeysRef = useRef<Set<string>>(new Set())
-  const filterIdentity = JSON.stringify([view, query])
+  const filterIdentity = JSON.stringify([view, query, requestId])
   const knownFilterRef = useRef(filterIdentity)
 
   useLayoutEffect(() => {
@@ -865,7 +882,19 @@ export default function Console() {
   const emptyState = (
     <div className={styles.empty} style={{ color: palette.dim }}>
       <span style={{ color: palette.accent }}>▸</span>{' '}
-      {query ? (
+      {observation.invalid ? (
+        t('observation.invalidQuery')
+      ) : requestId && view !== 'logs' && requestProjection.loading ? (
+        t('observation.requestLoading')
+      ) : requestId && view !== 'logs' && requestProjection.failed ? (
+        t('observation.requestReadFailed')
+      ) : requestId && view !== 'logs' && requestProjection.events.length === 0 ? (
+        observation.requestDate && observation.requestDate < requestProjection.cutoff ? (
+          t('observation.requestExpired')
+        ) : (
+          t('observation.requestMissing')
+        )
+      ) : query ? (
         <Space size={8}>
           <span>{t('console.emptyFiltered')}</span>
           <Button size='small' type='link' onClick={() => setQuery('')}>
@@ -884,6 +913,43 @@ export default function Console() {
 
   return (
     <div className={styles.container}>
+      {observation.invalid ? (
+        <Alert
+          type='error'
+          title={t('observation.invalidQuery')}
+          description={t('observation.noScopeFallback')}
+          action={
+            <Button onClick={() => void navigate('/console')}>{t('observation.clearScope')}</Button>
+          }
+        />
+      ) : (
+        (requestId || search) && (
+          <div className={styles.locator}>
+            {requestId && (
+              <Tag
+                closable
+                onClose={() => void navigate(`/console?${observationSearch(observation.context)}`)}
+              >
+                {t('observation.requestLocator')}: {requestId}
+              </Tag>
+            )}
+            <Button
+              type='link'
+              size='small'
+              onClick={() => void navigate(buildStatisticsUrl(observation.context))}
+            >
+              {t('observation.backToStatistics')}
+            </Button>
+            {requestId && (
+              <span>
+                {t(
+                  view === 'logs' ? 'observation.logsAreGlobal' : 'observation.persistedProjection',
+                )}
+              </span>
+            )}
+          </div>
+        )
+      )}
       <div className={styles.toolbar}>
         <Tabs
           className={styles.tabs}
@@ -969,12 +1035,35 @@ export default function Console() {
 
       <div className={styles.streamHeader}>
         <span className={styles.bufferInfo}>
-          {t('console.bufferInfo', { count: events.length, max: CONSOLE_BUFFER_LIMIT })}
+          {requestId && view !== 'logs'
+            ? t('observation.locatedCount', { count: requestRows.length })
+            : t('console.bufferInfo', { count: events.length, max: CONSOLE_BUFFER_LIMIT })}
         </span>
         <span className={styles.bufferHint}>{t('console.boundedWindowShort')}</span>
       </div>
 
-      {historyMeta?.error && (
+      {requestId && view !== 'logs' && requestProjection.failed && (
+        <Alert
+          type='error'
+          showIcon
+          title={t('observation.requestReadFailed')}
+          action={<Button onClick={() => void refreshAll()}>{t('common.retry')}</Button>}
+        />
+      )}
+      {requestId && view !== 'logs' && requestProjection.page && (
+        <div className={styles.locator}>
+          <span>
+            {t('observation.retentionWindow', {
+              date:
+                requestProjection.page.retention?.retentionStartDate ?? requestProjection.cutoff,
+            })}
+          </span>
+          {(requestProjection.page.truncated || requestProjection.page.retention?.trimmed) && (
+            <span>{t('observation.projectionTruncated')}</span>
+          )}
+        </div>
+      )}
+      {(!requestId || view === 'logs') && historyMeta?.error && (
         <Alert
           type='warning'
           showIcon

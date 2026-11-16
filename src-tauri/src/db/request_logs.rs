@@ -1,14 +1,37 @@
 use crate::db::Database;
 use crate::models::{
     DailyModelUsageItem, DailyTrendItem, PaginatedRecentRequests, RecentRequestLogDisplay,
-    RequestLog, ResourceUsageStatistics, ResourceUsageSummary, ResourceUsageTrendItem,
-    UsageDimensionItem, UsageOverview, UsageStatistics, UsageStatsSummary,
+    RequestLog, RequestLogFilter, RequestLogOutcome, RequestLogPopulation, ResourceUsageStatistics,
+    ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem, UsageOverview,
+    UsageStatistics, UsageStatsSummary,
 };
 
 /// input + output + cache_read + cache_creation — the v3.7.0 token definition.
 /// Cache tokens are real traffic the user pays for and are often the dominant
 /// share under Claude Code; hiding them made totals unexplainable.
 const TOKEN_SUM: &str = "input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens";
+
+struct RequestLogWhere {
+    clause: String,
+    values: Vec<rusqlite::types::Value>,
+}
+
+impl RequestLogWhere {
+    fn with_condition(&self, condition: &str) -> String {
+        format!("{} AND ({})", self.clause, condition)
+    }
+}
+
+fn invalid_filter(message: &'static str) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        message,
+    )))
+}
+
+fn usage_condition(prefix: &str) -> String {
+    format!("{prefix}input_tokens > 0 OR {prefix}output_tokens > 0 OR {prefix}cache_read_tokens > 0 OR {prefix}cache_creation_tokens > 0")
+}
 
 /// Output rate (tok/s) and first-output latency (ms) for one settled request.
 pub type RequestPerformanceReading = (Option<f64>, Option<i64>);
@@ -102,30 +125,108 @@ impl Database {
         }
     }
 
-    /// Billable scope: rows that carried usage. Failure rows (tokens all zero)
-    /// are excluded here and surfaced through the failure queries instead.
-    fn billable_request_logs_where(&self, col: &str, time_range: &str) -> String {
-        let usage_clause = "input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0";
-        match self.time_range_where(col, time_range) {
-            where_clause if where_clause.is_empty() => format!("WHERE {}", usage_clause),
-            where_clause => format!("{} AND ({})", where_clause, usage_clause),
-        }
-    }
-
-    fn billable_request_logs_where_with_alias(
+    /// All observation SQL shares this parameterized scope before aggregation or pagination.
+    /// Only internal column prefixes are accepted; no identifier comes from IPC.
+    fn request_log_where(
         &self,
-        col: &str,
-        alias: &str,
         time_range: &str,
-    ) -> String {
-        let usage_clause = format!(
-            "{0}.input_tokens > 0 OR {0}.output_tokens > 0 OR {0}.cache_read_tokens > 0 OR {0}.cache_creation_tokens > 0",
-            alias
-        );
-        match self.time_range_where(col, time_range) {
-            where_clause if where_clause.is_empty() => format!("WHERE ({})", usage_clause),
-            where_clause => format!("{} AND ({})", where_clause, usage_clause),
+        filter: &RequestLogFilter,
+        prefix: &str,
+    ) -> Result<RequestLogWhere, rusqlite::Error> {
+        let date = Self::local_date_expr(&format!("{prefix}created_at"));
+        let mut values = Vec::new();
+        let mut conditions = vec!["1 = 1".to_string()];
+        match time_range {
+            "today" | "yesterday" | "week" | "last30Days" | "lastYear" | "month" | "lastMonth"
+            | "year" | "all" => {
+                let range = self.time_range_where(&format!("{prefix}created_at"), time_range);
+                if let Some(condition) = range.strip_prefix("WHERE ") {
+                    conditions.push(condition.to_string());
+                }
+            }
+            custom if custom.starts_with("custom:") => {
+                let parts: Vec<_> = custom.split(':').collect();
+                let valid_date = |value: &str| {
+                    value.len() == 10
+                        && chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                            .is_ok_and(|date| date.format("%Y-%m-%d").to_string() == value)
+                };
+                match parts.as_slice() {
+                    ["custom", start, end]
+                        if valid_date(start) && valid_date(end) && start <= end =>
+                    {
+                        values.push((*start).to_string().into());
+                        values.push((*end).to_string().into());
+                        conditions.push(format!("{date} >= ?1 AND {date} <= ?2"));
+                    }
+                    _ => {
+                        return Err(invalid_filter(
+                            "Invalid custom date range; use ordered YYYY-MM-DD dates",
+                        ))
+                    }
+                }
+            }
+            _ => return Err(invalid_filter("Unknown statistics time range")),
         }
+
+        for (id, table, column, message) in [
+            (filter.provider_id.as_deref(), "providers", "provider_id", "Provider scope is unavailable; it may have been deleted"),
+            (filter.api_key_id.as_deref(), "api_keys", "api_key_id", "API key scope is unavailable; it may have been deleted"),
+            (filter.instance_id.as_deref(), "managed_instances", "session_id", "Instance scope is unavailable; its historical association may have been cleaned up"),
+        ] {
+            let Some(id) = id else { continue };
+            let exists: bool = self.conn.query_row(
+                &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id = ?1)"),
+                [id], |row| row.get(0),
+            )?;
+            if id.trim().is_empty() || !exists {
+                return Err(invalid_filter(message));
+            }
+            values.push(id.to_string().into());
+            let parameter = values.len();
+            conditions.push(if table == "managed_instances" {
+                // Resolve the credential internally; it never leaves SQLite or becomes a DTO field.
+                format!("{prefix}{column} IN (SELECT session_token FROM managed_instances WHERE id = ?{parameter})")
+            } else {
+                format!("{prefix}{column} = ?{parameter}")
+            });
+        }
+        if let (Some(provider), Some(key)) = (&filter.provider_id, &filter.api_key_id) {
+            let belongs: bool = self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM api_keys WHERE id = ?1 AND provider_id = ?2)",
+                rusqlite::params![key, provider],
+                |row| row.get(0),
+            )?;
+            if !belongs {
+                return Err(invalid_filter(
+                    "API key scope does not belong to this provider",
+                ));
+            }
+        }
+        if let Some(outcome) = filter.outcome {
+            let value = match outcome {
+                RequestLogOutcome::Success => Some("success"),
+                RequestLogOutcome::ClientError => Some("client_error"),
+                RequestLogOutcome::UpstreamError => Some("upstream_error"),
+                RequestLogOutcome::TransportError => Some("transport_error"),
+                RequestLogOutcome::Failed => None,
+            };
+            if let Some(value) = value {
+                values.push(value.to_string().into());
+                conditions.push(format!("{prefix}outcome = ?{}", values.len()));
+            } else {
+                conditions.push(format!(
+                    "{prefix}outcome IS NOT NULL AND {prefix}outcome != 'success'"
+                ));
+            }
+        }
+        if filter.population == Some(RequestLogPopulation::WithUsage) {
+            conditions.push(format!("({})", usage_condition(prefix)));
+        }
+        Ok(RequestLogWhere {
+            clause: format!("WHERE {}", conditions.join(" AND ")),
+            values,
+        })
     }
 
     pub fn request_log_list_all(&self) -> Result<Vec<RequestLog>, rusqlite::Error> {
@@ -293,7 +394,17 @@ impl Database {
         &self,
         time_range: &str,
     ) -> Result<UsageStatistics, rusqlite::Error> {
-        let where_clause = self.billable_request_logs_where("created_at", time_range);
+        self.request_log_get_statistics_filtered(time_range, &RequestLogFilter::default())
+    }
+
+    pub fn request_log_get_statistics_filtered(
+        &self,
+        time_range: &str,
+        filter: &RequestLogFilter,
+    ) -> Result<UsageStatistics, rusqlite::Error> {
+        let scope = self.request_log_where(time_range, filter, "")?;
+        // Keep the historical billable denominator, even when the ledger population is all.
+        let where_clause = scope.with_condition(&usage_condition(""));
 
         let (
             total_requests,
@@ -313,7 +424,7 @@ impl Database {
                 aggregate_output_speed_sql(""),
                 where_clause
             ),
-            [],
+            rusqlite::params_from_iter(scope.values.iter()),
             |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -328,21 +439,12 @@ impl Database {
             },
         )?;
 
-        // Failures are counted over the full log for the same range, not the
-        // billable subset — a failed request never carries tokens.
-        let failure_where = match self.time_range_where("created_at", time_range) {
-            clause if clause.is_empty() => {
-                "WHERE outcome IS NOT NULL AND outcome != 'success'".to_string()
-            }
-            clause => format!(
-                "{} AND outcome IS NOT NULL AND outcome != 'success'",
-                clause
-            ),
-        };
+        // Failure count uses the same selected population, without adding the billable predicate.
+        let failure_where = scope.with_condition("outcome IS NOT NULL AND outcome != 'success'");
 
         let failed_requests: i64 = self.conn.query_row(
             &format!("SELECT COUNT(*) FROM request_logs {}", failure_where),
-            [],
+            rusqlite::params_from_iter(scope.values.iter()),
             |row| row.get(0),
         )?;
 
@@ -370,8 +472,8 @@ impl Database {
             avg_output_tokens_per_second,
         };
 
-        let dimension_where =
-            self.billable_request_logs_where_with_alias("r.created_at", "r", time_range);
+        let dimension_scope = self.request_log_where(time_range, filter, "r.")?;
+        let dimension_where = dimension_scope.with_condition(&usage_condition("r."));
 
         let mut key_stmt = self.conn.prepare(&format!(
             "SELECT COALESCE(r.api_key_id, 'unassigned'),
@@ -388,7 +490,7 @@ impl Database {
             dimension_where
         ))?;
         let key_usage = key_stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
                 Ok(UsageDimensionItem {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -422,7 +524,7 @@ impl Database {
             dimension_where
         ))?;
         let project_usage = project_stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
                 Ok(UsageDimensionItem {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -446,7 +548,7 @@ impl Database {
             trend_bucket, TOKEN_SUM, where_clause
         ))?;
         let daily_model_usage = model_stmt
-            .query_map([], |row| {
+            .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
                 Ok(DailyModelUsageItem {
                     date: row.get(0)?,
                     model: row.get(1)?,
@@ -473,15 +575,13 @@ impl Database {
         provider_id: Option<&str>,
         api_key_id: Option<&str>,
     ) -> Result<ResourceUsageStatistics, rusqlite::Error> {
-        let range_clause = self.time_range_where("created_at", time_range);
-        let scoped_where = if range_clause.is_empty() {
-            "WHERE (?1 IS NULL OR provider_id = ?1) AND (?2 IS NULL OR api_key_id = ?2)".to_string()
-        } else {
-            format!(
-                "{} AND (?1 IS NULL OR provider_id = ?1) AND (?2 IS NULL OR api_key_id = ?2)",
-                range_clause
-            )
+        let filter = RequestLogFilter {
+            provider_id: provider_id.map(str::to_string),
+            api_key_id: api_key_id.map(str::to_string),
+            ..RequestLogFilter::default()
         };
+        let scope = self.request_log_where(time_range, &filter, "")?;
+        let scoped_where = &scope.clause;
 
         let (
             total_tokens,
@@ -504,7 +604,7 @@ impl Database {
                  FROM request_logs {}",
                 TOKEN_SUM, aggregate_output_speed_sql(""), scoped_where
             ),
-            rusqlite::params![provider_id, api_key_id],
+            rusqlite::params_from_iter(scope.values.iter()),
             |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -558,7 +658,7 @@ impl Database {
             trend_bucket, TOKEN_SUM, aggregate_output_speed_sql(""), scoped_where
         ))?;
         let daily_trend = stmt
-            .query_map(rusqlite::params![provider_id, api_key_id], |row| {
+            .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
                 let requests = row.get::<_, i64>(2)?;
                 let failed_requests = row.get::<_, i64>(3)?;
                 let input_tokens = row.get::<_, i64>(4)?;
@@ -607,17 +707,39 @@ impl Database {
         page: i64,
         page_size: i64,
     ) -> Result<PaginatedRecentRequests, rusqlite::Error> {
+        self.request_log_get_recent_paginated_filtered(
+            time_range,
+            page,
+            page_size,
+            &RequestLogFilter::default(),
+        )
+    }
+
+    pub fn request_log_get_recent_paginated_filtered(
+        &self,
+        time_range: &str,
+        page: i64,
+        page_size: i64,
+        filter: &RequestLogFilter,
+    ) -> Result<PaginatedRecentRequests, rusqlite::Error> {
         let page = page.max(1);
-        let page_size = page_size.max(1).min(100);
-        let offset = (page - 1) * page_size;
-        let where_clause = self.time_range_where("r.created_at", time_range);
+        let page_size = page_size.clamp(1, 100);
+        let offset = (page - 1)
+            .checked_mul(page_size)
+            .ok_or_else(|| invalid_filter("Request page is out of range"))?;
+        let mut scope = self.request_log_where(time_range, filter, "r.")?;
+        let where_clause = &scope.clause;
 
         let total: i64 = self.conn.query_row(
             &format!("SELECT COUNT(*) FROM request_logs r {}", where_clause),
-            [],
+            rusqlite::params_from_iter(scope.values.iter()),
             |row| row.get(0),
         )?;
 
+        let limit_parameter = scope.values.len() + 1;
+        let offset_parameter = limit_parameter + 1;
+        scope.values.push(page_size.into());
+        scope.values.push(offset.into());
         let mut stmt = self.conn.prepare(&format!(
             "SELECT r.id, r.model, COALESCE(r.key_alias, k.alias), COALESCE(r.provider_name, p.name),
                         COALESCE(
@@ -638,11 +760,11 @@ impl Database {
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
-                 {} ORDER BY r.created_at DESC LIMIT ?1 OFFSET ?2",
+                 {} ORDER BY r.created_at DESC, r.rowid DESC LIMIT ?{limit_parameter} OFFSET ?{offset_parameter}",
             output_speed_sql("r."), where_clause
         ))?;
         let items: Vec<RecentRequestLogDisplay> = stmt
-            .query_map([page_size, offset], |row| {
+            .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
                 Ok(RecentRequestLogDisplay {
                     id: row.get(0)?,
                     model: row.get(1)?,
@@ -664,8 +786,7 @@ impl Database {
                     output_tokens_per_second: row.get(17)?,
                 })
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(PaginatedRecentRequests {
             items,
@@ -791,6 +912,391 @@ mod tests {
         log.outcome = Some(outcome.into());
         log.error_message = Some("Rate limit exceeded".into());
         log
+    }
+
+    fn observation_fixture() -> Database {
+        let db = Database::new_in_memory().unwrap();
+        db.conn.execute_batch(
+            "INSERT INTO providers (id, name, base_url) VALUES ('p1', 'Same name', 'https://fixture.invalid'), ('p2', 'Same name', 'https://fixture.invalid');
+             INSERT INTO api_keys (id, provider_id, alias, value) VALUES ('k1', 'p1', 'Same alias', 'fixture'), ('k2', 'p1', 'Same alias', 'fixture'), ('k3', 'p2', 'Same alias', 'fixture');
+             INSERT INTO proxy_sessions (session_token, provider_id, api_key_id, created_at, last_seen_at) VALUES ('fixture-secret-1', 'p1', 'k1', '2026-01-01', '2026-01-01'), ('fixture-secret-2', 'p1', 'k2', '2026-01-01', '2026-01-01');
+             INSERT INTO managed_instances (id, session_token, cli_type, terminal_type, project_path, last_seen_at, launched_at) VALUES ('i1', 'fixture-secret-1', 'claude_code', 'terminal', '/fixture/same', '2026-01-01', '2026-01-01'), ('i2', 'fixture-secret-2', 'grok', 'terminal', '/fixture/same', '2026-01-01', '2026-01-01');"
+        ).unwrap();
+        for index in 0..90 {
+            let mut log =
+                mk_billable_log(&format!("mixed-{index}"), chrono::Utc::now().to_rfc3339());
+            let (provider, key, token) = match index % 3 {
+                0 => ("p1", "k1", "fixture-secret-1"),
+                1 => ("p1", "k2", "fixture-secret-2"),
+                _ => ("p2", "k3", "fixture-secret-2"),
+            };
+            log.provider_id = Some(provider.into());
+            log.api_key_id = Some(key.into());
+            log.session_id = Some(token.into());
+            log.model = Some(key.into());
+            if index % 6 == 0 {
+                log.input_tokens = 0;
+                log.output_tokens = 0;
+                log.outcome = Some(
+                    if index % 12 == 0 {
+                        "legacy_failure"
+                    } else {
+                        "upstream_error"
+                    }
+                    .into(),
+                );
+            }
+            db.request_log_create(&log).unwrap();
+        }
+        db
+    }
+
+    #[test]
+    fn observation_scopes_match_summary_trends_and_every_page_before_limit() {
+        let db = observation_fixture();
+        for (filter, expected_total, expected_billable, expected_failures) in [
+            (
+                RequestLogFilter {
+                    provider_id: Some("p1".into()),
+                    ..Default::default()
+                },
+                60,
+                45,
+                15,
+            ),
+            (
+                RequestLogFilter {
+                    api_key_id: Some("k1".into()),
+                    ..Default::default()
+                },
+                30,
+                15,
+                15,
+            ),
+            (
+                RequestLogFilter {
+                    instance_id: Some("i1".into()),
+                    ..Default::default()
+                },
+                30,
+                15,
+                15,
+            ),
+            (
+                RequestLogFilter {
+                    provider_id: Some("p1".into()),
+                    api_key_id: Some("k1".into()),
+                    instance_id: Some("i1".into()),
+                    ..Default::default()
+                },
+                30,
+                15,
+                15,
+            ),
+        ] {
+            let stats = db
+                .request_log_get_statistics_filtered("all", &filter)
+                .unwrap();
+            assert_eq!(stats.summary.total_requests, expected_billable);
+            assert_eq!(stats.summary.failed_requests, expected_failures);
+            assert_eq!(stats.summary.total_tokens, expected_billable * 30);
+            assert_eq!(
+                stats
+                    .daily_model_usage
+                    .iter()
+                    .map(|item| item.tokens)
+                    .sum::<i64>(),
+                expected_billable * 30
+            );
+            assert_eq!(
+                stats
+                    .key_usage
+                    .iter()
+                    .map(|item| item.requests)
+                    .sum::<i64>(),
+                expected_billable
+            );
+            assert_eq!(
+                stats
+                    .project_usage
+                    .iter()
+                    .map(|item| item.tokens)
+                    .sum::<i64>(),
+                expected_billable * 30
+            );
+            let mut ids = std::collections::HashSet::new();
+            let mut total_tokens = 0;
+            for page in 1..=(expected_total + 6) / 7 {
+                let result = db
+                    .request_log_get_recent_paginated_filtered("all", page, 7, &filter)
+                    .unwrap();
+                assert_eq!(result.total, expected_total);
+                assert!(!serde_json::to_string(&result)
+                    .unwrap()
+                    .contains("fixture-secret"));
+                for item in result.items {
+                    assert!(ids.insert(item.id));
+                    total_tokens += item.input_tokens + item.output_tokens;
+                    assert!(matches!(item.model.as_deref(), Some("k1") | Some("k2")));
+                }
+            }
+            assert_eq!(ids.len() as i64, expected_total);
+            assert_eq!(total_tokens, stats.summary.total_tokens);
+        }
+        let resource = db
+            .request_log_get_resource_statistics("all", Some("p1"), Some("k1"))
+            .unwrap();
+        assert_eq!(resource.summary.total_requests, 30);
+        assert_eq!(resource.summary.failed_requests, 15);
+        assert_eq!(
+            resource
+                .daily_trend
+                .iter()
+                .map(|item| item.requests)
+                .sum::<i64>(),
+            30
+        );
+        assert_eq!(
+            resource
+                .daily_trend
+                .iter()
+                .map(|item| item.tokens)
+                .sum::<i64>(),
+            450
+        );
+    }
+
+    #[test]
+    fn observation_population_and_failure_filters_preserve_denominators() {
+        let db = observation_fixture();
+        let mut filter = RequestLogFilter {
+            instance_id: Some("i1".into()),
+            population: Some(RequestLogPopulation::WithUsage),
+            ..Default::default()
+        };
+        let page = db
+            .request_log_get_recent_paginated_filtered("all", 1, 100, &filter)
+            .unwrap();
+        assert_eq!(page.total, 15);
+        assert!(page
+            .items
+            .iter()
+            .all(|item| item.input_tokens > 0 || item.output_tokens > 0));
+        filter.outcome = Some(RequestLogOutcome::Failed);
+        assert_eq!(
+            db.request_log_get_recent_paginated_filtered("all", 1, 100, &filter)
+                .unwrap()
+                .total,
+            0
+        );
+        // The UI explicitly switches population when entering the failure drilldown.
+        filter.population = Some(RequestLogPopulation::All);
+        let failures = db
+            .request_log_get_recent_paginated_filtered("all", 1, 100, &filter)
+            .unwrap();
+        assert_eq!(failures.total, 15);
+        assert!(failures.items.iter().all(|item| item
+            .outcome
+            .as_deref()
+            .is_some_and(|outcome| outcome != "success")));
+        let stats = db
+            .request_log_get_statistics_filtered("all", &filter)
+            .unwrap();
+        assert_eq!(stats.summary.total_requests, 0);
+        assert_eq!(stats.summary.failed_requests, 15);
+        filter.outcome = Some(RequestLogOutcome::UpstreamError);
+        assert_eq!(
+            db.request_log_get_recent_paginated_filtered("all", 1, 100, &filter)
+                .unwrap()
+                .total,
+            7
+        );
+        assert_eq!(
+            db.request_log_get_statistics("all")
+                .unwrap()
+                .summary
+                .total_requests,
+            75
+        );
+        assert_eq!(
+            db.request_log_get_recent_paginated("all", 1, 100)
+                .unwrap()
+                .total,
+            90
+        );
+    }
+
+    #[test]
+    fn observation_population_includes_cache_only_but_failed_excludes_null_outcome() {
+        let db = Database::new_in_memory().unwrap();
+        for (id, cache, outcome) in [
+            ("cache", 5, None),
+            ("legacy", 0, None),
+            ("failed", 0, Some("future_failure")),
+        ] {
+            let mut log = mk_billable_log(id, chrono::Utc::now().to_rfc3339());
+            log.input_tokens = 0;
+            log.output_tokens = 0;
+            log.cache_read_tokens = cache;
+            log.outcome = outcome.map(str::to_string);
+            db.request_log_create(&log).unwrap();
+        }
+        let usage = RequestLogFilter {
+            population: Some(RequestLogPopulation::WithUsage),
+            ..Default::default()
+        };
+        let page = db
+            .request_log_get_recent_paginated_filtered("today", 1, 10, &usage)
+            .unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "cache");
+        let failed = RequestLogFilter {
+            outcome: Some(RequestLogOutcome::Failed),
+            ..Default::default()
+        };
+        let page = db
+            .request_log_get_recent_paginated_filtered("today", 1, 10, &failed)
+            .unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "failed");
+        let overview = db.request_log_get_overview().unwrap();
+        assert_eq!(overview.today_requests, 1);
+        assert_eq!(overview.today_failed_requests, 1);
+        assert_eq!(overview.today_tokens, 5);
+    }
+
+    #[test]
+    fn observation_deleted_scopes_error_without_losing_history_or_exposing_input() {
+        for (delete, filter) in [
+            (
+                "DELETE FROM providers WHERE id = 'p1'",
+                RequestLogFilter {
+                    provider_id: Some("p1".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "DELETE FROM api_keys WHERE id = 'k1'",
+                RequestLogFilter {
+                    api_key_id: Some("k1".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "DELETE FROM managed_instances WHERE id = 'i1'",
+                RequestLogFilter {
+                    instance_id: Some("i1".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "DELETE FROM proxy_sessions WHERE session_token = 'fixture-secret-1'",
+                RequestLogFilter {
+                    instance_id: Some("i1".into()),
+                    ..Default::default()
+                },
+            ),
+        ] {
+            let db = observation_fixture();
+            db.conn.execute(delete, []).unwrap();
+            assert!(db
+                .request_log_get_statistics_filtered("all", &filter)
+                .is_err());
+            assert!(db
+                .request_log_get_recent_paginated_filtered("all", 1, 10, &filter)
+                .is_err());
+            assert_eq!(
+                db.request_log_get_recent_paginated("all", 1, 10)
+                    .unwrap()
+                    .total,
+                90
+            );
+        }
+        let db = observation_fixture();
+        let sensitive = "session-do-not-echo' OR 1=1 --";
+        let filter = RequestLogFilter {
+            instance_id: Some(sensitive.into()),
+            ..Default::default()
+        };
+        let error = db
+            .request_log_get_statistics_filtered("all", &filter)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Instance scope"));
+        assert!(!error.contains(sensitive));
+        let filter = RequestLogFilter {
+            provider_id: Some("p2".into()),
+            api_key_id: Some("k1".into()),
+            ..Default::default()
+        };
+        assert!(db
+            .request_log_get_statistics_filtered("all", &filter)
+            .is_err());
+        // A valid saved ID containing SQL metacharacters is still an equality value, not SQL.
+        db.conn.execute("INSERT INTO providers (id, name, base_url) VALUES (?1, 'Same name', 'https://fixture.invalid')", [sensitive]).unwrap();
+        let filter = RequestLogFilter {
+            provider_id: Some(sensitive.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            db.request_log_get_recent_paginated_filtered("all", 1, 10, &filter)
+                .unwrap()
+                .total,
+            0
+        );
+    }
+
+    #[test]
+    fn observation_dates_are_strict_and_local_day_drilldown_matches_overview() {
+        use chrono::TimeZone;
+        let db = Database::new_in_memory().unwrap();
+        let today = chrono::Local::now().date_naive();
+        let start = chrono::Local
+            .from_local_datetime(&today.and_hms_opt(0, 0, 0).unwrap())
+            .earliest()
+            .unwrap();
+        for (id, at) in [
+            ("before", start - chrono::Duration::seconds(1)),
+            ("start", start),
+            ("after", start + chrono::Duration::days(1)),
+        ] {
+            db.request_log_create(&mk_billable_log(
+                id,
+                at.with_timezone(&chrono::Utc).to_rfc3339(),
+            ))
+            .unwrap();
+        }
+        let range = format!("custom:{today}:{today}");
+        let filter = RequestLogFilter {
+            population: Some(RequestLogPopulation::WithUsage),
+            ..Default::default()
+        };
+        let result = db
+            .request_log_get_recent_paginated_filtered(&range, 1, 10, &filter)
+            .unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.items[0].id, "start");
+        assert_eq!(
+            db.request_log_get_overview().unwrap().today_requests,
+            result.total
+        );
+        for range in [
+            "typo",
+            "custom:2026-02-30:2026-03-01",
+            "custom:2026-11-15:2026-11-14",
+            "custom:2026-1-01:2026-01-01",
+            "custom:2026-01-01:2026-01-01:extra",
+        ] {
+            assert!(db
+                .request_log_get_statistics_filtered(range, &filter)
+                .is_err());
+            assert!(db
+                .request_log_get_recent_paginated_filtered(range, 1, 10, &filter)
+                .is_err());
+        }
+        assert!(db
+            .request_log_get_recent_paginated_filtered("all", i64::MAX, 100, &filter)
+            .is_err());
     }
 
     #[test]
@@ -952,10 +1458,10 @@ mod tests {
             .request_log_get_statistics("custom:2026-07-01:2026-07-31")
             .unwrap();
         assert_eq!(july.summary.total_requests, 1);
-        let invalid = db
+        // Invalid URL dates are a visible validation error, not an apparently empty ledger.
+        assert!(db
             .request_log_get_statistics("custom:not-a-date:2026-07-31")
-            .unwrap();
-        assert_eq!(invalid.summary.total_requests, 0);
+            .is_err());
     }
 
     #[test]

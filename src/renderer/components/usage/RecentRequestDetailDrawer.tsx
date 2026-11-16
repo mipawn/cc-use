@@ -1,4 +1,5 @@
-import { Descriptions, Drawer, Space, Tag, Tooltip, Typography } from 'antd'
+import { Button, Descriptions, Drawer, Space, Tag, Tooltip, Typography } from 'antd'
+import { isObservationId } from '../../utils/observationContext'
 import { useTranslation } from 'react-i18next'
 import type { RecentRequestLogDisplay } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../../utils/formatTokens'
@@ -17,9 +18,11 @@ const { Text } = Typography
 export default function RecentRequestDetailDrawer({
   record,
   onClose,
+  onOpenConsole,
 }: {
   record: RecentRequestLogDisplay | null
   onClose: () => void
+  onOpenConsole?: (record: RecentRequestLogDisplay) => void
 }) {
   const { t, i18n } = useTranslation()
   const language = i18n.resolvedLanguage || i18n.language
@@ -35,9 +38,28 @@ export default function RecentRequestDetailDrawer({
       onClose={onClose}
       size='large'
       destroyOnHidden
+      extra={
+        onOpenConsole &&
+        record && (
+          <Tooltip
+            title={
+              !record.requestId || !isObservationId(record.requestId)
+                ? t('observation.noRequestId')
+                : undefined
+            }
+          >
+            <Button
+              disabled={!record.requestId || !isObservationId(record.requestId)}
+              onClick={() => onOpenConsole(record)}
+            >
+              {t('observation.openConsole')}
+            </Button>
+          </Tooltip>
+        )
+      }
     >
       {record && (
-        <Space direction='vertical' size={12} style={{ width: '100%' }}>
+        <Space orientation='vertical' size={12} style={{ width: '100%' }}>
           {/* What happened, first. */}
           <Space wrap>
             <Tag color={record.outcome === 'success' ? 'green' : 'red'}>
@@ -72,7 +94,7 @@ export default function RecentRequestDetailDrawer({
               {record.projectName || t('statistics.other')}
             </Descriptions.Item>
             <Descriptions.Item label={t('statistics.tokens')}>
-              <Space direction='vertical' size={0}>
+              <Space orientation='vertical' size={0}>
                 <Text>
                   {formatTokenCount(tokens, language)}
                   <Text type='secondary' style={{ marginLeft: 8, fontSize: 12 }}>

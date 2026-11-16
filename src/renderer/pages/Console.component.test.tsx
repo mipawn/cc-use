@@ -4,9 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
 import { createRoot } from 'react-dom/client'
-import type { ConsoleEvent, ConsoleLogEvent, ConsoleRequestEvent } from '@shared/types'
+import type {
+  ConsoleEvent,
+  ConsoleLogEvent,
+  ConsoleLogPage,
+  ConsoleRequestEvent,
+} from '@shared/types'
 import Console from './Console'
-import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { buildConsoleUrl, parseObservationContext } from '../utils/observationContext'
 import ActivityPage from './ActivityPage'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
@@ -53,6 +59,7 @@ const storeState = vi.hoisted(() => {
 })
 
 const apiMock = vi.hoisted(() => ({
+  console: { readRequest: vi.fn<(...args: unknown[]) => Promise<ConsoleLogPage>>() },
   proxy: {
     getDetailMode: vi.fn(async () => false),
     setDetailMode: vi.fn(async () => {}),
@@ -60,7 +67,8 @@ const apiMock = vi.hoisted(() => ({
 }))
 
 vi.mock('../api', () => ({ getApi: () => apiMock }))
-vi.mock('../api/consoleStore', () => ({
+vi.mock('../api/consoleStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/consoleStore')>()),
   CONSOLE_BUFFER_LIMIT: storeState.CONSOLE_BUFFER_LIMIT,
   getConsoleEvents: storeState.getEvents,
   subscribeConsoleStore: storeState.subscribe,
@@ -109,6 +117,9 @@ beforeEach(() => {
   storeState.meta.error = null
   storeState.meta.generation = null
   apiMock.proxy.getDetailMode.mockResolvedValue(false)
+  apiMock.console.readRequest
+    .mockReset()
+    .mockResolvedValue({ generation: 'g1', records: [], truncated: false })
   apiMock.proxy.setDetailMode.mockResolvedValue(undefined)
   storeState.clearConsoleHistory.mockResolvedValue({ ok: true, app: true, daemon: true })
   storeState.pruneExpiredConsoleEvents.mockClear()
@@ -170,7 +181,13 @@ async function flush(): Promise<void> {
   }
 }
 
-async function renderConsole(routed = false) {
+let currentLocation: ReturnType<typeof useLocation>
+function LocationProbe() {
+  currentLocation = useLocation()
+  return null
+}
+
+async function renderConsole(routed = false, initialEntry = '/console') {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -180,7 +197,8 @@ async function renderConsole(routed = false) {
         <ConfigProvider>
           <AntdApp>
             {routed ? (
-              <MemoryRouter initialEntries={['/console']}>
+              <MemoryRouter initialEntries={[initialEntry]}>
+                <LocationProbe />
                 <Routes>
                   <Route element={<ActivityPage />}>
                     <Route path='/console' element={<Console />} />
@@ -197,7 +215,9 @@ async function renderConsole(routed = false) {
                 </Routes>
               </MemoryRouter>
             ) : (
-              <Console />
+              <MemoryRouter initialEntries={[initialEntry]}>
+                <Console />
+              </MemoryRouter>
             )}
           </AntdApp>
         </ConfigProvider>
@@ -442,6 +462,85 @@ describe('Console clear result', () => {
 
     const result = document.querySelector<HTMLElement>('[data-testid="console-clear-result"]')
     expect(result?.textContent).toContain('console.clearFailed')
+  })
+})
+
+describe('Precise observation lookup', () => {
+  const context = {
+    timeRange: 'all' as const,
+    filter: { instanceId: 'instance-1', population: 'all' as const, outcome: 'failed' as const },
+    page: 4,
+    pageSize: 20,
+  }
+  const timestamp = () => new Date().toISOString().slice(0, 19).replace('T', ' ')
+
+  it('shows exact retained events instead of the global buffer and returns the original context', async () => {
+    storeState.setEvents([request({ requestId: 'other', model: 'global-model' }), log()])
+    apiMock.console.readRequest.mockResolvedValue({
+      generation: 'g1',
+      truncated: false,
+      records: [
+        {
+          source: 'daemon',
+          epoch: 'e',
+          seq: 1,
+          at: '',
+          id: 'exact',
+          event: request({ requestId: 'target', model: 'exact-model', timestamp: timestamp() }),
+        },
+      ],
+    })
+    const view = await renderConsole(true, buildConsoleUrl(context, 'target'))
+    expect(apiMock.console.readRequest).toHaveBeenCalledWith('target', 500)
+    expect(view.container.textContent).toContain('exact-model')
+    expect(view.container.textContent).not.toContain('global-model')
+    await clickTab(view.container, 'console.viewLogs')
+    expect(view.container.textContent).toContain('observation.logsAreGlobal')
+    expect(logRows(view.container)).toHaveLength(1)
+    await clickElement(buttonWithText(view.container, 'observation.backToStatistics'))
+    expect(currentLocation.pathname).toBe('/stats')
+    expect(parseObservationContext(currentLocation.search).context).toEqual(context)
+  })
+
+  it('retains the return path after clearing the request locator', async () => {
+    const view = await renderConsole(true, buildConsoleUrl(context, 'target'))
+    await clickElement(view.container.querySelector<HTMLElement>('.ant-tag-close-icon'))
+    expect(parseObservationContext(currentLocation.search).requestId).toBeUndefined()
+    await clickElement(buttonWithText(view.container, 'observation.backToStatistics'))
+    expect(parseObservationContext(currentLocation.search).context).toEqual(context)
+  })
+
+  it.each([
+    [undefined, 'observation.requestMissing'],
+    ['2000-01-01', 'observation.requestExpired'],
+  ])('distinguishes missing records from a known expired date %s', async (date, message) => {
+    const view = await renderConsole(false, buildConsoleUrl(context, 'target', date))
+    expect(view.container.textContent).toContain(message)
+    expect(view.container.textContent).not.toContain('observation.requestReadFailed')
+  })
+
+  it('shows a sanitized read error and keeps manual pause when retrying', async () => {
+    apiMock.console.readRequest.mockRejectedValueOnce(new Error('private-route-token'))
+    const view = await renderConsole(false, buildConsoleUrl(context, 'target'))
+    expect(view.container.textContent).toContain('observation.requestReadFailed')
+    expect(view.container.textContent).not.toContain('private-route-token')
+    expect(view.container.textContent).not.toContain('observation.requestMissing')
+    await clickElement(buttonWithText(view.container, 'console.pause'))
+    await clickElement(buttonWithText(view.container, 'common.retry'))
+    expect(view.container.textContent).toContain('observation.requestMissing')
+    expect(buttonWithText(view.container, 'console.resume')).toBeDefined()
+  })
+
+  it('does not silently display the global stream for an invalid locator', async () => {
+    storeState.setEvents([request({ model: 'private-global-result' })])
+    const view = await renderConsole(
+      false,
+      '/console?requestId=target&sessionToken=private-route-token',
+    )
+    expect(apiMock.console.readRequest).not.toHaveBeenCalled()
+    expect(view.container.textContent).toContain('observation.invalidQuery')
+    expect(view.container.textContent).not.toContain('private-route-token')
+    expect(view.container.textContent).not.toContain('private-global-result')
   })
 })
 
