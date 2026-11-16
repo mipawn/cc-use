@@ -287,3 +287,26 @@ Rust teammates 之外 Lead 独立完成后端（query_schemes 方案目录/Query
 ### Next Steps
 
 - v3.19.0 tag 已推送触发 CI 构建；用户升级后需在每个 OpenCode Go / Command Code 密钥的「密钥额度」中选择方案并启用
+
+
+## Session 10: GUI 改版提交与归档
+<!-- trellis-session: v=2 fp=bc7c26fbcbdb63d6 -->
+
+**Date**: 2026-11-16
+**Task**: GUI 改版提交与归档
+**Package**: cc-use
+**Branch**: `gui-control-observation-redesign`
+
+### Summary
+
+用户批准完整改版提交。统一添加密钥按钮为横向紧凑虚线样式，移除奇偶布局分支。完整类型/lint、543项Vitest、12项脚本测试、前端构建、Rust workspace、cargo fmt和diff检查通过；验收记录补充本轮证据与浏览器未重测边界。已提交完整改版并归档，不push、不打tag、不发布。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a85b283` | feat(gui): ✨ 重构配置运行与观测主链路 |
+
+### Status
+
+[OK] **Completed**
