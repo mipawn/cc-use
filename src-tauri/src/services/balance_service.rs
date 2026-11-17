@@ -410,6 +410,7 @@ mod tests {
             query_scope: "account".to_string(),
             default_key_config: None,
             request_adapter: "none".to_string(),
+            responses_rectifier: true,
             wallet_balance_script: None,
             request_headers: None,
             query_config: None,

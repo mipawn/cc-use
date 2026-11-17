@@ -92,6 +92,7 @@ fn setup(upstream_port: u16, cli_type: Option<&str>, proxy_user_agent: Option<&s
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .expect("create provider");
 

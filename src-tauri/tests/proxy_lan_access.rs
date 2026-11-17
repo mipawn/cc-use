@@ -130,6 +130,7 @@ fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Prov
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
     })
     .expect("create provider")
 }

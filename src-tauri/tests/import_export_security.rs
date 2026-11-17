@@ -32,6 +32,7 @@ fn export_excludes_api_key_secrets_by_default() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
     create_api_key(&fixture.db, &provider.id, "claude_code");

@@ -4,6 +4,11 @@ use std::collections::HashMap;
 pub mod request_log_filter;
 pub use request_log_filter::{RequestLogFilter, RequestLogOutcome, RequestLogPopulation};
 
+/// Serde default for provider flags that predate the column.
+fn default_true() -> bool {
+    true
+}
+
 // ── Provider ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +61,11 @@ pub struct Provider {
     /// unsupported rather than silently ignored.
     #[serde(default = "crate::shared_runtime::default_request_adapter_string")]
     pub request_adapter: String,
+    /// v3.21.0: whether the gateway rectifies resource-bound `/responses`
+    /// state (reasoning items, item ids, encrypted content) after the upstream
+    /// rejects it. Rows saved before this flag exist default to on.
+    #[serde(default = "crate::models::default_true")]
+    pub responses_rectifier: bool,
     /// v3.11.0: the account query — request and reader in one editable script.
     /// Empty means the provider has no account query configured.
     #[serde(default)]
@@ -105,6 +115,9 @@ pub struct CreateProviderInput {
     /// Request-shaping adapter for this provider's traffic.
     #[serde(default)]
     pub request_adapter: Option<String>,
+    /// `Some` toggles `/responses` rectification; absent leaves the default.
+    #[serde(default)]
+    pub responses_rectifier: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,6 +161,8 @@ pub struct UpdateProviderInput {
     pub default_key_config: Option<crate::shared_runtime::DefaultKeyConfig>,
     #[serde(default)]
     pub request_adapter: Option<String>,
+    #[serde(default)]
+    pub responses_rectifier: Option<bool>,
 }
 
 // ── API Key ──
@@ -938,6 +953,10 @@ pub struct ExportProvider {
     /// v3.10.0: request-shaping adapter for this provider.
     #[serde(default)]
     pub request_adapter: Option<String>,
+    /// v3.21.0: gateway `/responses` rectification switch, carried so a
+    /// restore keeps a provider that had it turned off.
+    #[serde(default = "crate::models::default_true")]
+    pub responses_rectifier: bool,
     /// v3.18.0: the account query switch + scheme, so a round-trip reopens
     /// with the same state (including disabled-but-remembered).
     #[serde(default)]

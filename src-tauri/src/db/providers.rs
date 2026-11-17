@@ -66,6 +66,7 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(crate::shared_runtime::default_query_scope_string),
+        responses_rectifier: row.get::<_, Option<i64>>(31)?.unwrap_or(1) != 0,
     })
 }
 
@@ -77,7 +78,8 @@ const PROVIDER_COLUMNS: &str = "id, name, base_url, http_proxy, website, remark,
         usage_type, usage_url, usage_path, usage_headers,
         cached_usage, last_usage_checked_at,
         is_active, sort_order, preset_id, default_key_config, cached_wallet_balance_currency,
-        request_adapter, wallet_balance_script, request_headers, query_config, query_scope";
+        request_adapter, wallet_balance_script, request_headers, query_config, query_scope,
+        responses_rectifier";
 
 fn normalize_optional_string(value: Option<&str>) -> Option<String> {
     value
@@ -148,8 +150,8 @@ impl Database {
                 wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                 wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
                 sort_order, preset_id, default_key_config, request_adapter, wallet_balance_script,
-                request_headers, query_config, query_scope)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+                request_headers, query_config, query_scope, responses_rectifier)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             rusqlite::params![
                 id,
                 input.name,
@@ -198,6 +200,7 @@ impl Database {
                 .as_ref()
                 .and_then(crate::shared_runtime::query_schemes::serialize_query_config),
                 query_scope,
+                if input.responses_rectifier.unwrap_or(true) { 1i32 } else { 0i32 },
             ],
         )?;
 
@@ -296,6 +299,11 @@ impl Database {
         if let Some(ref val) = input.cached_usage {
             sets.push("cached_usage = ?".to_string());
             params.push(Box::new(serde_json::to_string(val).unwrap_or_default()));
+        }
+
+        if let Some(enabled) = input.responses_rectifier {
+            sets.push("responses_rectifier = ?".to_string());
+            params.push(Box::new(if enabled { 1i32 } else { 0i32 }));
         }
 
         if input.request_adapter.is_some() {

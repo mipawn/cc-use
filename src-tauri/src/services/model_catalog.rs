@@ -579,6 +579,7 @@ mod tests {
             query_scope: "account".to_string(),
             default_key_config: None,
             request_adapter: "none".to_string(),
+            responses_rectifier: true,
         }
     }
 

@@ -469,6 +469,7 @@ mod tests {
             preset_id: preset_id.map(str::to_string),
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         }
     }
 
@@ -949,6 +950,7 @@ pub fn apply_preset_defaults(
         request_adapter: input
             .request_adapter
             .or_else(|| Some(preset.request_adapter.clone())),
+        responses_rectifier: None,
         default_key_config: input.default_key_config.or(Some(preset.default_key_config)),
         preset_id: Some(preset_id),
         ..input

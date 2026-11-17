@@ -315,6 +315,8 @@ export interface Provider {
    * preset label; an id this build does not implement is reported.
    */
   requestAdapter: string
+  /** Gateway `/responses` rectification; on unless the user turns it off. */
+  responsesRectifier: boolean
   /**
    * The account query — request and reader in one editable script. Empty or
    * null means this provider has no account query configured.
@@ -470,6 +472,8 @@ export interface CreateProviderInput {
   /** Defaults a new key for this provider inherits. */
   defaultKeyConfig?: ProviderDefaultKeyConfig
   requestAdapter?: string
+  /** `undefined` leaves the stored switch alone. */
+  responsesRectifier?: boolean
 }
 
 export interface UpdateProviderInput extends Partial<CreateProviderInput> {

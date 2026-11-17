@@ -32,6 +32,7 @@ fn provider_crud() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
 
@@ -91,6 +92,7 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
 
@@ -101,6 +103,7 @@ fn provider_token_can_be_updated_and_cleared_in_sqlite() {
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
         id: provider.id.clone(),
         name: None,
         base_url: None,
@@ -174,6 +177,7 @@ fn provider_create_returns_proper_result() {
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
     });
     assert!(result.is_ok());
 }
@@ -214,6 +218,7 @@ fn provider_get_direct_query() {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .unwrap();
     }
@@ -255,6 +260,7 @@ fn provider_update_no_changes() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
 
@@ -265,6 +271,7 @@ fn provider_update_no_changes() {
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
         id: provider.id.clone(),
         name: None,
         base_url: None,
@@ -322,6 +329,7 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
 
@@ -339,6 +347,7 @@ fn provider_http_proxy_can_be_created_updated_and_cleared() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
             id: provider.id.clone(),
             name: None,
             base_url: None,
@@ -397,6 +406,7 @@ fn provider_reorder_sequence() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
 
@@ -425,6 +435,7 @@ fn provider_reorder_sequence() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
 
@@ -453,6 +464,7 @@ fn provider_reorder_sequence() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
 
@@ -517,6 +529,7 @@ fn provider_query_scope_is_derived_from_the_preset_at_creation() {
                 preset_id: preset.map(str::to_string),
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .expect("create provider")
     };
@@ -568,6 +581,7 @@ fn provider_query_scope_is_derived_from_the_preset_at_creation() {
             preset_id: Some("opencode-go".to_string()),
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
     assert_eq!(updated.preset_id, "opencode-go");
@@ -621,6 +635,7 @@ fn create_plain_provider(fixture: &TempDb, name: &str) -> cc_use_lib::models::Pr
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .expect("create provider")
 }

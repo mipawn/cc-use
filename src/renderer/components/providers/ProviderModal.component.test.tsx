@@ -370,6 +370,7 @@ function providerFixture(overrides: Partial<Provider> = {}): Provider {
     presetId: 'newapi',
     defaultKeyConfig: { types: ['claude_code'] },
     requestAdapter: 'none',
+    responsesRectifier: true,
     walletBalanceScript: null,
     requestHeaders: null,
     queryConfig: null,

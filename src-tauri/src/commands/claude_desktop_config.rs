@@ -1117,6 +1117,7 @@ mod tests {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .unwrap();
         let api_key = db

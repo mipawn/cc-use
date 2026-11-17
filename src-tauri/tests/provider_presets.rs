@@ -44,6 +44,7 @@ fn provider_patch(id: &str) -> UpdateProviderInput {
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
     }
 }
 
@@ -71,6 +72,7 @@ fn provider_input(name: &str) -> CreateProviderInput {
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
     }
 }
 

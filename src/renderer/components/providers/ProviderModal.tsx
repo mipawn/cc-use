@@ -1,6 +1,6 @@
 import { getApi } from '../../api'
 import { useCallback, useEffect, useState, useRef } from 'react'
-import { Modal, Form, Input, Typography, Tooltip, Space, Collapse, Button } from 'antd'
+import { Modal, Form, Input, Typography, Tooltip, Space, Collapse, Button, Checkbox } from 'antd'
 import { useAppMessage } from '../../hooks/useAppMessage'
 import {
   UploadOutlined,
@@ -347,6 +347,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           : undefined,
         usageType: 'none',
         requestAdapter: provider ? provider.requestAdapter : (preset?.requestAdapter ?? 'none'),
+        responsesRectifier: values.responsesRectifier ?? true,
         // The template's key defaults travel with the provider. Editing the
         // address or the icon never silently drops them.
         presetId: provider ? provider.presetId : (preset?.id ?? 'custom'),
@@ -436,7 +437,11 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
             form={form}
             layout='vertical'
             className={styles.form}
-            initialValues={{ walletBalanceType: 'none', usageType: 'none' }}
+            initialValues={{
+              walletBalanceType: 'none',
+              usageType: 'none',
+              responsesRectifier: provider?.responsesRectifier ?? true,
+            }}
           >
             {/* A template is a starting point, not a lock: picking one fills in
                 the fields below, and each of them stays editable. Presets are
@@ -610,6 +615,15 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                     placeholder={t('providers.remarkPlaceholder')}
                     className={styles.textarea}
                   />
+                </Form.Item>
+
+                <Form.Item
+                  name='responsesRectifier'
+                  label={t('providers.responsesRectifier')}
+                  valuePropName='checked'
+                  tooltip={t('providers.responsesRectifierHint')}
+                >
+                  <Checkbox>{t('providers.responsesRectifier')}</Checkbox>
                 </Form.Item>
               </div>
             </div>

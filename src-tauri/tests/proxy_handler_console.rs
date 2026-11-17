@@ -296,6 +296,7 @@ async fn recorded_request_row_shares_the_console_request_id() {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .expect("create provider");
         let key = support::create_api_key(&db, &provider.id, "claude_code");

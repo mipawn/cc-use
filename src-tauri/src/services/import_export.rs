@@ -82,6 +82,7 @@ pub fn export_selected(db: &Database, options: &ExportOptions) -> Result<ExportD
                 query_scope: Some(provider.query_scope),
                 default_key_config: provider.default_key_config,
                 request_adapter: Some(provider.request_adapter),
+                responses_rectifier: provider.responses_rectifier,
                 query_config: provider.query_config,
                 api_keys: export_keys,
             });
@@ -174,8 +175,8 @@ pub fn import_all(
                     wallet_balance_type, wallet_balance_url, wallet_balance_path, wallet_balance_headers,
                     wallet_balance_user_id, usage_type, usage_url, usage_path, usage_headers, is_active,
                     preset_id, default_key_config, request_adapter, wallet_balance_script, request_headers,
-                    query_scope)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20, ?21)",
+                    query_scope, responses_rectifier)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?14, ?15, 1, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
                 rusqlite::params![
                     ep.id,
                     ep.name,
@@ -202,6 +203,7 @@ pub fn import_all(
                     ep.wallet_balance_script,
                     ep.request_headers,
                     query_scope,
+                    if ep.responses_rectifier { 1i32 } else { 0i32 },
                 ],
             ) {
                 errors.push(format!("Failed to import {}: {}", ep.name, e));
@@ -260,6 +262,7 @@ pub fn import_all(
                 preset_id: ep.preset_id.clone(),
                 default_key_config: ep.default_key_config.clone(),
                 request_adapter: ep.request_adapter.clone(),
+                responses_rectifier: Some(ep.responses_rectifier),
                 wallet_balance_script: ep.wallet_balance_script.clone(),
                 request_headers: ep.request_headers.clone(),
                 query_config: ep.query_config.clone(),

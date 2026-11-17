@@ -130,6 +130,7 @@ fn setup_provider_with_mapping(
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .expect("create provider");
 

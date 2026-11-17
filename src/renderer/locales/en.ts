@@ -628,6 +628,9 @@ export default {
     lastChecked: 'Last checked',
     providerUpdated: 'Provider updated',
     providerCreated: 'Provider created',
+    responsesRectifier: 'Responses rectification',
+    responsesRectifierHint:
+      'When the upstream rejects replayed reasoning state after moving the session to another resource, retry once without it. Off forwards requests unchanged.',
     copyCommand: 'Copy Terminal Command',
     commandCopied: 'Terminal command copied to clipboard',
     copyFailed: 'Copy failed',

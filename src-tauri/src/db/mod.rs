@@ -191,6 +191,9 @@ impl Database {
                 -- v3.10.0: request-shaping adapter. Saved config, not a label
                 -- derived from the preset.
                 request_adapter TEXT NOT NULL DEFAULT 'none',
+                -- v3.21.0: gateway `/responses` rectification for this
+                -- provider; on unless the user turns it off.
+                responses_rectifier INTEGER NOT NULL DEFAULT 1,
                 is_active INTEGER DEFAULT 1,
                 sort_order INTEGER DEFAULT 0
             );
@@ -645,6 +648,7 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN default_key_config TEXT",
             "ALTER TABLE providers ADD COLUMN cached_wallet_balance_currency TEXT",
             "ALTER TABLE providers ADD COLUMN request_adapter TEXT NOT NULL DEFAULT 'none'",
+            "ALTER TABLE providers ADD COLUMN responses_rectifier INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
             "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\\\"claude_code\\\"]'",
@@ -1177,6 +1181,7 @@ mod tests {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
                 query_config: None,
             })
             .unwrap();

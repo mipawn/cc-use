@@ -5,7 +5,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [3.21.0] - 2026-11-17
+
+### Added
+
+- **网关整流 Responses 跨资源历史**：中转把同一 `/responses` 会话分到另一个 OpenAI/Azure 资源后，上游会以「条目/密文不属于我」拒绝，且该会话之后每轮都失败。网关现在识别这类拒绝，去掉推理条目、条目顶层 `id`、`encrypted_content` 和 `reasoning.encrypted_content` 的 `include` 后，对同一上游重试一次；正文、工具调用与 `call_id` 关联保留，正常请求不改写。
+  - 同时覆盖「先回 200 + SSE、在第一个内容事件之前用错误事件拒绝」的形态：只探测到第一段内容为止，已读字节原样接回客户端流，不丢数据、不改顺序。
+  - 供应商编辑弹窗新增「Responses 整流」开关（默认开）；关闭后该供应商的请求原样透传。开关随导出/导入往返。
+  - 命中的请求在响应头带 `x-cc-use-rectified: resource-bound-state`，控制台日志记录去掉的条目计数。
+  - 只在请求真的带着资源绑定状态（推理条目、条目 `id`、`encrypted_content`、对应 `include`）时才介入：首轮、纯工具调用、不带状态的请求完全直通，不缓冲、不探测；流式探测最多等 1.5 秒或 256 KiB，客户端拿到第一个内容事件的时间不受影响。
 
 ## [3.20.0] - 2026-11-16
 

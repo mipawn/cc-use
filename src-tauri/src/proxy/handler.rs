@@ -2,7 +2,7 @@ use crate::db::Database;
 use crate::models::GatewayModelPolicy;
 use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
-use crate::proxy::usage_parser;
+use crate::proxy::{rectifier, usage_parser};
 use crate::proxy::{ProxyState, RequestPermits};
 use crate::shared_runtime::gateway_connection::{self, GatewayConnection, GatewayTraffic};
 use crate::shared_runtime::gateway_model_policy;
@@ -836,18 +836,6 @@ pub async fn proxy_handler(
             return Err(error_response(StatusCode::BAD_GATEWAY, &e));
         }
     };
-    let mut req_builder = client.request(method, &route_execution.upstream_url);
-
-    for (name, value) in &headers {
-        if let Ok(v) = value.to_str() {
-            req_builder = req_builder.header(name.as_str(), v);
-        }
-    }
-
-    if !body_bytes.is_empty() {
-        req_builder = req_builder.body(body_bytes.to_vec());
-    }
-
     let provider_snapshot = route_execution
         .log_ctx
         .as_ref()
@@ -912,11 +900,23 @@ pub async fn proxy_handler(
     });
     cancellation_guard.set_log_ctx(base_log_ctx.clone());
 
-    let upstream_resp = match req_builder.send().await {
-        Ok(r) => r,
-        Err(e) => {
+    let (upstream_resp, rectified) = match send_upstream_request(
+        &client,
+        &method,
+        &route_execution,
+        &headers,
+        &body_bytes,
+        &req_path,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(failure) => {
             cancellation_guard.disarm();
-            let err_text = e.to_string();
+            let err_text = match failure {
+                UpstreamSendFailure::Transport(error) => error.to_string(),
+                UpstreamSendFailure::Rectifier(error) => error,
+            };
             if let Ok(mut last_err) = state.last_error.lock() {
                 *last_err = Some(err_text.clone());
             }
@@ -943,7 +943,7 @@ pub async fn proxy_handler(
         }
     };
 
-    let status = upstream_resp.status();
+    let status = upstream_resp.status;
 
     // Some relays have no count_tokens route at all, and Claude Desktop asks
     // for it on every turn. Answer locally with a labeled estimate instead of
@@ -981,9 +981,16 @@ pub async fn proxy_handler(
     }
 
     cancellation_guard.set_status(status.as_u16());
-    let raw_resp_headers = upstream_resp.headers().clone();
+    let raw_resp_headers = upstream_resp.headers.clone();
     let mut resp_headers = raw_resp_headers.clone();
     strip_hop_by_hop_headers(&mut resp_headers);
+    // 让客户端和本地控制台都能看出这一轮发生过整流重试（响应本身已是重试后的结果）。
+    if rectified.is_some() {
+        resp_headers.insert(
+            "x-cc-use-rectified",
+            HeaderValue::from_static("resource-bound-state"),
+        );
+    }
     let content_type = raw_resp_headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
@@ -1010,7 +1017,7 @@ pub async fn proxy_handler(
                 None
             };
         let tracking_stream = UsageTrackingStream {
-            inner: SseModelNormalizingStream::new(upstream_resp.bytes_stream(), response_model),
+            inner: SseModelNormalizingStream::new(upstream_resp.body, response_model),
             accumulator,
             log_ctx: base_log_ctx.clone().map(|mut ctx| {
                 ctx.status_code = Some(status.as_u16());
@@ -1093,7 +1100,7 @@ pub async fn proxy_handler(
     }
 
     let resp_bytes = match collect_response_body_limited(
-        upstream_resp.bytes_stream(),
+        upstream_resp.body,
         MAX_NON_STREAM_RESPONSE_BYTES,
     )
     .await
@@ -2386,6 +2393,335 @@ where
         body.extend_from_slice(&chunk);
     }
     Ok(body)
+}
+
+/// 整流时读取上游拒绝体的上限：拒绝体只是几行 JSON，读不出来就按普通错误返回。
+const MAX_RECTIFIER_ERROR_BODY_BYTES: usize = 1024 * 1024;
+
+/// 鼓动上游响应体的统一类型：首次响应、整流重试后的响应、以及探测过前缀的流都用它。
+type UpstreamByteStream =
+    Pin<Box<dyn Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Send>>;
+
+/// 上游响应。body 统一成字节流，整流重试后可以直接替换第一次的响应，
+/// 后面的计费、控制台事件和转发逻辑不需要知道这是第几次请求的结果。
+struct UpstreamResponse {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: UpstreamByteStream,
+}
+
+impl UpstreamResponse {
+    fn from_reqwest(response: reqwest::Response) -> Self {
+        let status = response.status();
+        let headers = response.headers().clone();
+        Self {
+            status,
+            headers,
+            body: Box::pin(response.bytes_stream()),
+        }
+    }
+
+    fn buffered(status: StatusCode, headers: HeaderMap, bytes: Vec<u8>) -> Self {
+        let bytes = axum::body::Bytes::from(bytes);
+        Self {
+            status,
+            headers,
+            body: Box::pin(futures::stream::once(async move {
+                Ok::<axum::body::Bytes, reqwest::Error>(bytes)
+            })),
+        }
+    }
+
+    /// 把已经读出来的 SSE 前缀接回上游流：探测不会丢数据，也不会改变客户端看到的顺序。
+    fn prefixed(
+        status: StatusCode,
+        headers: HeaderMap,
+        prefix: Vec<u8>,
+        rest: UpstreamByteStream,
+    ) -> Self {
+        let head = futures::stream::once(async move {
+            Ok::<axum::body::Bytes, reqwest::Error>(axum::body::Bytes::from(prefix))
+        });
+        Self {
+            status,
+            headers,
+            body: Box::pin(head.chain(rest)),
+        }
+    }
+}
+
+/// 探测 SSE 前缀的结论。
+enum SsePrefix {
+    /// 已经开始输出内容（或流结束），交给客户端。
+    Content,
+    /// 上游在流里自证拒绝了请求里的状态。
+    Rejection(String),
+}
+
+/// 探测上限：只为了认出「一个字都还没输出就整轮被拒」，超了就按正常流放行。
+const MAX_SSE_PEEK_BYTES: usize = 256 * 1024;
+
+/// 探测等待上限：上游迟迟不出内容时立刻放行。整流最多让响应头晚这么久，
+/// 客户端拿到第一个内容事件的时间不受影响。
+const MAX_SSE_PEEK_DURATION: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// 读 SSE 前缀，直到出现内容事件或明确的拒绝事件；已读字节原样返回。
+/// 进度类事件（`response.created` / `in_progress`）不算内容，继续等。
+async fn peek_sse_prefix(stream: &mut UpstreamByteStream) -> (Vec<u8>, SsePrefix) {
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut cursor = 0usize;
+    let deadline = tokio::time::Instant::now() + MAX_SSE_PEEK_DURATION;
+    loop {
+        while let Some((next, block)) = take_sse_event(&buffer, cursor) {
+            cursor = next;
+            match classify_sse_event(&block) {
+                Some(SsePrefix::Rejection(message)) => {
+                    return (buffer, SsePrefix::Rejection(message))
+                }
+                Some(SsePrefix::Content) => return (buffer, SsePrefix::Content),
+                None => {}
+            }
+        }
+        if buffer.len() >= MAX_SSE_PEEK_BYTES {
+            return (buffer, SsePrefix::Content);
+        }
+        match tokio::time::timeout_at(deadline, stream.next()).await {
+            Ok(Some(Ok(chunk))) => buffer.extend_from_slice(&chunk),
+            // 流结束、读取失败或等到上限：都没有可整流的前提，原样放行。
+            _ => return (buffer, SsePrefix::Content),
+        }
+    }
+}
+
+/// 从 `from` 开始切出一个完整事件，返回（下一个起点，事件原文）。
+fn take_sse_event(buffer: &[u8], from: usize) -> Option<(usize, String)> {
+    if from >= buffer.len() {
+        return None;
+    }
+    let tail = &buffer[from..];
+    let lf = find_bytes(tail, b"\n\n").map(|index| (index + 2, index));
+    let crlf = find_bytes(tail, b"\r\n\r\n").map(|index| (index + 4, index));
+    let (consumed, end) = match (lf, crlf) {
+        (Some(lf), Some(crlf)) if crlf.1 < lf.1 => crlf,
+        (Some(lf), _) => lf,
+        (None, Some(crlf)) => crlf,
+        (None, None) => return None,
+    };
+    Some((
+        from + consumed,
+        String::from_utf8_lossy(&tail[..end]).into_owned(),
+    ))
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+/// 单个 SSE 事件：有内容的按内容放行，等待类事件继续探测。
+fn classify_sse_event(block: &str) -> Option<SsePrefix> {
+    let mut data = String::new();
+    for line in block.lines() {
+        let line = line.trim_end_matches('\r');
+        if let Some(rest) = line.strip_prefix("data:") {
+            data.push_str(rest.trim_start());
+        }
+    }
+    let data = data.trim();
+    if data.is_empty() {
+        return None;
+    }
+    if data == "[DONE]" {
+        return Some(SsePrefix::Content);
+    }
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    let kind = value
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let message = value
+        .pointer("/error/message")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            value
+                .pointer("/response/error/message")
+                .and_then(serde_json::Value::as_str)
+        });
+    match kind {
+        "error" | "response.failed" => Some(match message {
+            Some(message) if rectifier::is_rectifiable_message(message) => {
+                SsePrefix::Rejection(message.to_string())
+            }
+            _ => SsePrefix::Content,
+        }),
+        "response.created" | "response.queued" | "response.in_progress" => None,
+        _ => Some(SsePrefix::Content),
+    }
+}
+
+/// 构造发往上游的请求；首次发送与整流后的重试共用同一份逻辑，
+/// 保证两次请求只差 body。
+fn build_upstream_request(
+    client: &reqwest::Client,
+    method: &axum::http::Method,
+    upstream_url: &str,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> reqwest::RequestBuilder {
+    let mut builder = client.request(method.clone(), upstream_url);
+    for (name, value) in headers {
+        if let Ok(value) = value.to_str() {
+            builder = builder.header(name.as_str(), value);
+        }
+    }
+    if !body.is_empty() {
+        builder = builder.body(body.to_vec());
+    }
+    builder
+}
+
+/// 发送请求失败的两类原因：连接级错误，以及读取整流所需拒绝体时的错误。
+enum UpstreamSendFailure {
+    Transport(reqwest::Error),
+    Rectifier(String),
+}
+
+/// 该供应商是否启用 `/responses` 整流（未绑定供应商的直通路径默认启用）。
+fn responses_rectifier_enabled(route_execution: &RouteExecution) -> bool {
+    route_execution
+        .provider
+        .as_ref()
+        .is_none_or(|provider| provider.responses_rectifier)
+}
+
+/// 去掉资源绑定状态后对同一上游重试一次；没有可去掉的内容时返回 `None`。
+async fn send_rectified_retry(
+    client: &reqwest::Client,
+    method: &axum::http::Method,
+    route_execution: &RouteExecution,
+    headers: &HeaderMap,
+    body: &[u8],
+    source: &str,
+) -> Result<Option<(UpstreamResponse, rectifier::RectifyReport)>, UpstreamSendFailure> {
+    let Some((sanitized, report)) = rectifier::sanitize_responses_request(body) else {
+        return Ok(None);
+    };
+
+    log::warn!(
+        "rectifier: {source} rejected resource-bound responses state, retrying once: reasoning={} ids={} encrypted={} include={}",
+        report.removed_reasoning,
+        report.removed_ids,
+        report.removed_encrypted,
+        report.removed_include,
+    );
+
+    let retry = build_upstream_request(
+        client,
+        method,
+        &route_execution.upstream_url,
+        headers,
+        &sanitized,
+    )
+    .send()
+    .await
+    .map_err(UpstreamSendFailure::Transport)?;
+
+    Ok(Some((UpstreamResponse::from_reqwest(retry), report)))
+}
+
+/// 发送请求；上游以「请求里的状态不属于我」为由拒绝 `/responses` 时，
+/// 去掉资源绑定状态对同一上游重试一次（见 `proxy::rectifier`）。
+///
+/// 覆盖两种形态：
+/// - HTTP 层拒绝（400/422/502），拒绝体里带原话；
+/// - 先回 200 + SSE，再在第一个内容事件之前用错误事件拒绝。
+///
+/// 只在这一层做：后续的流式/非流式处理拿到的是最终响应，调用方无需感知重试。
+async fn send_upstream_request(
+    client: &reqwest::Client,
+    method: &axum::http::Method,
+    route_execution: &RouteExecution,
+    headers: &HeaderMap,
+    body: &[u8],
+    req_path: &str,
+) -> Result<(UpstreamResponse, Option<rectifier::RectifyReport>), UpstreamSendFailure> {
+    let first =
+        build_upstream_request(client, method, &route_execution.upstream_url, headers, body)
+            .send()
+            .await
+            .map_err(UpstreamSendFailure::Transport)?;
+
+    let status = first.status();
+
+    // 只有 /responses 会携带上游签发的状态；供应商关掉整流时完全不介入。
+    if !is_codex_responses_request_path(req_path) || !responses_rectifier_enabled(route_execution) {
+        return Ok((UpstreamResponse::from_reqwest(first), None));
+    }
+
+    // 请求里没有上游签发的状态时，整流不可能生效：直接透传，不缓冲、不探测、不多等。
+    if !rectifier::carries_resource_bound_state(body) {
+        return Ok((UpstreamResponse::from_reqwest(first), None));
+    }
+
+    // ① HTTP 层拒绝：普通 400（模型名、参数）也落在候选状态里，下面按错误原话再筛一层。
+    if matches!(status.as_u16(), 400 | 422 | 502) {
+        let resp_headers = first.headers().clone();
+        let bytes = match collect_response_body_limited(
+            first.bytes_stream(),
+            MAX_RECTIFIER_ERROR_BODY_BYTES,
+        )
+        .await
+        {
+            Ok(bytes) => bytes,
+            Err(error) => return Err(UpstreamSendFailure::Rectifier(error)),
+        };
+        let text = String::from_utf8_lossy(&bytes);
+
+        if rectifier::is_rectifiable_rejection(status.as_u16(), &text) {
+            if let Some((response, report)) =
+                send_rectified_retry(client, method, route_execution, headers, body, "http").await?
+            {
+                return Ok((response, Some(report)));
+            }
+        }
+
+        // 上游没有自证「状态不属于我」时原样返回；已读进内存的响应体由后面的流程照常处理。
+        return Ok((
+            UpstreamResponse::buffered(status, resp_headers, bytes),
+            None,
+        ));
+    }
+
+    // ② 先 200、再在流里报错：只探测到「还没有任何内容输出」为止。
+    let is_event_stream = first
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("text/event-stream"));
+    if status.is_success() && is_event_stream {
+        let resp_headers = first.headers().clone();
+        let mut stream: UpstreamByteStream = Box::pin(first.bytes_stream());
+        let (prefix, decision) = peek_sse_prefix(&mut stream).await;
+
+        if let SsePrefix::Rejection(message) = decision {
+            if rectifier::is_rectifiable_rejection(400, &message) {
+                if let Some((response, report)) =
+                    send_rectified_retry(client, method, route_execution, headers, body, "stream")
+                        .await?
+                {
+                    return Ok((response, Some(report)));
+                }
+            }
+        }
+
+        return Ok((
+            UpstreamResponse::prefixed(status, resp_headers, prefix, stream),
+            None,
+        ));
+    }
+
+    Ok((UpstreamResponse::from_reqwest(first), None))
 }
 
 fn decompress_limited(data: &[u8], encoding: &str, limit: usize) -> Result<Vec<u8>, String> {
@@ -3803,6 +4139,7 @@ mod tests {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .unwrap();
         let grok_key = db
@@ -4098,6 +4435,7 @@ mod tests {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .unwrap();
         let api_key = raw_db
@@ -4359,6 +4697,7 @@ mod tests {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             })
             .unwrap();
         let api_key = raw_db

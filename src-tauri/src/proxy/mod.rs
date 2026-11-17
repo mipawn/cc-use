@@ -10,6 +10,7 @@ mod auto_mode;
 pub mod console;
 pub mod handler;
 pub mod key_selector;
+pub mod rectifier;
 pub mod usage_parser;
 
 pub use console::{now_timestamp, ConsoleEvent};

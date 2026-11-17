@@ -77,6 +77,7 @@ fn setup_proxy(
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
     let key = db
@@ -335,6 +336,7 @@ fn setup_gateway_proxy(upstream_port: u16) -> (Arc<cc_use_lib::proxy::ProxyState
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .unwrap();
     let key = db

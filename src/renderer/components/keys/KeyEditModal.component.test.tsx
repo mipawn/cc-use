@@ -203,6 +203,7 @@ const deepseekProvider: Provider = {
   presetId: 'deepseek',
   defaultKeyConfig: null,
   requestAdapter: 'none',
+  responsesRectifier: true,
   walletBalanceScript: null,
   requestHeaders: null,
   queryConfig: null,

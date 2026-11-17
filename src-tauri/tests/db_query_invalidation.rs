@@ -47,6 +47,7 @@ fn provider_input(name: &str) -> CreateProviderInput {
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
     }
 }
 
@@ -94,6 +95,7 @@ fn an_unrelated_save_keeps_the_cached_account_answer() {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             }
         })
         .unwrap();
@@ -160,6 +162,7 @@ fn a_query_relevant_change_clears_the_provider_cache() {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             }
         })
         .unwrap();
@@ -270,6 +273,7 @@ fn an_address_change_clears_the_keys_caches_too() {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             }
         })
         .unwrap();
@@ -495,6 +499,7 @@ fn closing_and_reopening_keeps_script_and_config() {
                 preset_id: None,
                 default_key_config: None,
                 request_adapter: None,
+                responses_rectifier: None,
             }
         })
         .unwrap();

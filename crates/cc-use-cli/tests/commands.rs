@@ -260,6 +260,7 @@ fn seed(db: &Database, cli_type: &str) -> Fixture {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .expect("create provider");
 

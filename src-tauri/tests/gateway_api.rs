@@ -57,6 +57,7 @@ fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Prov
         preset_id: None,
         default_key_config: None,
         request_adapter: None,
+        responses_rectifier: None,
     })
     .expect("create provider")
 }
@@ -1548,6 +1549,7 @@ async fn gateway_requests_are_attributed_once_in_request_logs() {
             preset_id: None,
             default_key_config: None,
             request_adapter: None,
+            responses_rectifier: None,
         })
         .expect("create broken provider");
     let broken_key = create_gateway_key(&db, &broken_provider.id, "sk-broken");
