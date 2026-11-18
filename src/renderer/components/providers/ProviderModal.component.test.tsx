@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { ConfigProvider } from 'antd'
 import { StyleProvider } from '@ant-design/cssinjs'
-import type { Provider, ProviderPreset, QuerySchemeInfo } from '@shared/types'
+import type { Provider, ProviderPreset, QuerySchemeInfo, ApiKey, ClientKind } from '@shared/types'
 import ProviderModal from './ProviderModal'
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -214,7 +214,11 @@ function headersEditor(): HTMLTextAreaElement {
   return document.body.querySelectorAll<HTMLTextAreaElement>('textarea[class*="queryEditor"]')[0]!
 }
 
-async function render(provider: Provider | null, onSave = vi.fn()) {
+async function render(
+  provider: Provider | null,
+  onSave = vi.fn(),
+  options: { apiKeys?: ApiKey[]; defaultClientKind?: ClientKind } = {},
+) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -223,7 +227,7 @@ async function render(provider: Provider | null, onSave = vi.fn()) {
     root.render(
       <StyleProvider layer>
         <ConfigProvider>
-          <ProviderModal open provider={provider} onClose={() => {}} onSave={onSave} />
+          <ProviderModal open provider={provider} {...options} onClose={() => {}} onSave={onSave} />
         </ConfigProvider>
       </StyleProvider>,
     )
@@ -861,4 +865,64 @@ it('leaves the hidden account query of an edited per-key provider untouched', as
   expect(saved.queryConfig).toBeUndefined()
   expect(saved.walletBalanceType).toBeUndefined()
   expect(checkScript).not.toHaveBeenCalled()
+})
+
+it('does not offer Responses rectification for a new generic provider and saves it off', async () => {
+  const onSave = await render(null)
+  expect(document.body.querySelector('#responsesRectifier')).toBeNull()
+  await fillRequiredFields()
+  await submit()
+  expect(onSave.mock.calls[0][0].responsesRectifier).toBe(false)
+})
+
+it('only enables a contextual Codex provider after an explicit advanced-setting choice', async () => {
+  const onSave = await render(null, vi.fn(), { defaultClientKind: 'codex' })
+  const checkbox = document.body.querySelector<HTMLInputElement>('#responsesRectifier')!
+  expect(checkbox).not.toBeNull()
+  expect(checkbox.checked).toBe(false)
+  expect(checkbox.closest('.ant-collapse')).not.toBeNull()
+  expect(document.body.querySelector('.ant-collapse-header')?.getAttribute('aria-expanded')).toBe(
+    'false',
+  )
+  await fillRequiredFields()
+  await act(async () => {
+    document.body.querySelector<HTMLElement>('.ant-collapse-header')!.click()
+  })
+  await act(async () => checkbox.click())
+  await submit()
+  expect(onSave.mock.calls[0][0].responsesRectifier).toBe(true)
+})
+
+it('does not auto-enable Responses rectification after choosing a Codex-capable template', async () => {
+  const onSave = await render(null)
+  await clickPreset(1)
+  const checkbox = document.body.querySelector<HTMLInputElement>('#responsesRectifier')!
+  expect(checkbox).not.toBeNull()
+  expect(checkbox.checked).toBe(false)
+  await submit()
+  expect(onSave.mock.calls[0][0].responsesRectifier).toBe(false)
+})
+
+it.each([true, false])(
+  'loads and preserves a saved Codex rectifier choice: %s',
+  async (enabled) => {
+    const provider = providerFixture({ responsesRectifier: enabled })
+    const onSave = await render(provider, vi.fn(), {
+      apiKeys: [{ id: 'codex-key', providerId: provider.id, types: ['codex'] } as ApiKey],
+    })
+    const checkbox = document.body.querySelector<HTMLInputElement>('#responsesRectifier')!
+    expect(checkbox).not.toBeNull()
+    expect(checkbox.checked).toBe(enabled)
+    await submit()
+    expect(onSave.mock.calls[0][0].responsesRectifier).toBe(enabled)
+  },
+)
+
+it("keeps a hidden saved choice untouched and ignores another provider's Codex key", async () => {
+  const onSave = await render(providerFixture({ responsesRectifier: true }), vi.fn(), {
+    apiKeys: [{ id: 'other-key', providerId: 'other-provider', types: ['codex'] } as ApiKey],
+  })
+  expect(document.body.querySelector('#responsesRectifier')).toBeNull()
+  await submit()
+  expect(onSave.mock.calls[0][0].responsesRectifier).toBeUndefined()
 })

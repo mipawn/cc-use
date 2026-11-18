@@ -18,6 +18,8 @@ import type {
   QuerySchemeInfo,
   QueryTestInput,
   QueryTestResult,
+  ApiKey,
+  ClientKind,
 } from '@shared/types'
 import styles from './ProviderModal.module.css'
 
@@ -33,6 +35,7 @@ import {
 import { invalidateUploadedIcon, isUploadedIconDeleted } from '../../utils/providerIconCache'
 import ProviderIcon from './ProviderIcon'
 import { effectiveQuery } from '../../utils/accountQuery'
+import { supportsKeyClient } from '../../utils/clientSupport'
 
 const { Text } = Typography
 const { TextArea } = Input
@@ -42,6 +45,8 @@ const isIconChoice = (key: string) => PROVIDER_ICON_CHOICES.some((choice) => cho
 interface ProviderModalProps {
   open: boolean
   provider: Provider | null
+  apiKeys?: ApiKey[]
+  defaultClientKind?: ClientKind
   onClose: () => void
   onSave: (input: CreateProviderInput & { id?: string; isActive?: boolean }) => Promise<void>
 }
@@ -73,7 +78,14 @@ function providerQueryValue(provider: Provider, schemes: QuerySchemeInfo[]): Acc
   return { enabled: effective?.enabled ?? false, schemeId, script }
 }
 
-export default function ProviderModal({ open, provider, onClose, onSave }: ProviderModalProps) {
+export default function ProviderModal({
+  open,
+  provider,
+  apiKeys = [],
+  defaultClientKind,
+  onClose,
+  onSave,
+}: ProviderModalProps) {
   const { t } = useTranslation()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
@@ -169,6 +181,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           remark: provider.remark,
           token: provider.token,
           walletBalanceUserId: provider.walletBalanceUserId,
+          responsesRectifier: provider.responsesRectifier ?? false,
         })
         setPreset(null)
         setQueryValue(providerQueryValue(provider, querySchemesRef.current))
@@ -190,7 +203,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
         setShowAdvanced(true)
       } else {
         form.resetFields()
-        form.setFieldsValue({ walletBalanceUserId: undefined })
+        form.setFieldsValue({ walletBalanceUserId: undefined, responsesRectifier: false })
         setSelectedIcon('claude')
         setCustomIconPath(null)
         setShowAdvanced(false)
@@ -296,6 +309,14 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
   const accountQueryAvailable =
     (provider?.queryScope ?? preset?.queryScope ?? 'account') === 'account'
 
+  // Client support belongs to keys, not the provider's name, URL or icon.
+  // Templates and contextual creation only describe future keys.
+  const responsesRectifierAvailable = provider
+    ? apiKeys.some(
+        (key) => key.providerId === provider.id && supportsKeyClient(provider, key, 'codex'),
+      ) || Boolean(provider.defaultKeyConfig?.types?.includes('codex'))
+    : defaultClientKind === 'codex' || Boolean(preset?.defaultKeyConfig.types?.includes('codex'))
+
   const handleSubmit = async () => {
     try {
       setLoading(true)
@@ -347,7 +368,12 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
           : undefined,
         usageType: 'none',
         requestAdapter: provider ? provider.requestAdapter : (preset?.requestAdapter ?? 'none'),
-        responsesRectifier: values.responsesRectifier ?? true,
+        // A hidden advanced control must not overwrite an existing choice.
+        responsesRectifier: responsesRectifierAvailable
+          ? (values.responsesRectifier ?? false)
+          : provider
+            ? undefined
+            : false,
         // The template's key defaults travel with the provider. Editing the
         // address or the icon never silently drops them.
         presetId: provider ? provider.presetId : (preset?.id ?? 'custom'),
@@ -440,7 +466,7 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
             initialValues={{
               walletBalanceType: 'none',
               usageType: 'none',
-              responsesRectifier: provider?.responsesRectifier ?? true,
+              responsesRectifier: false,
             }}
           >
             {/* A template is a starting point, not a lock: picking one fills in
@@ -616,15 +642,6 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                     className={styles.textarea}
                   />
                 </Form.Item>
-
-                <Form.Item
-                  name='responsesRectifier'
-                  label={t('providers.responsesRectifier')}
-                  valuePropName='checked'
-                  tooltip={t('providers.responsesRectifierHint')}
-                >
-                  <Checkbox>{t('providers.responsesRectifier')}</Checkbox>
-                </Form.Item>
               </div>
             </div>
 
@@ -707,6 +724,15 @@ export default function ProviderModal({ open, provider, onClose, onSave }: Provi
                   ),
                   children: (
                     <div className={styles.advancedContent}>
+                      {responsesRectifierAvailable && (
+                        <Form.Item
+                          name='responsesRectifier'
+                          valuePropName='checked'
+                          extra={t('providers.responsesRectifierHint')}
+                        >
+                          <Checkbox>{t('providers.responsesRectifier')}</Checkbox>
+                        </Form.Item>
+                      )}
                       <Form.Item
                         name='httpProxy'
                         label={t('providers.httpProxy')}

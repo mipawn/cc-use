@@ -2587,12 +2587,12 @@ enum UpstreamSendFailure {
     Rectifier(String),
 }
 
-/// 该供应商是否启用 `/responses` 整流（未绑定供应商的直通路径默认启用）。
+/// Only a bound provider's saved opt-in enables `/responses` rectification.
 fn responses_rectifier_enabled(route_execution: &RouteExecution) -> bool {
     route_execution
         .provider
         .as_ref()
-        .is_none_or(|provider| provider.responses_rectifier)
+        .is_some_and(|provider| provider.responses_rectifier)
 }
 
 /// 去掉资源绑定状态后对同一上游重试一次；没有可去掉的内容时返回 `None`。
@@ -3760,6 +3760,39 @@ mod tests {
     use crate::proxy::console::ConsoleEvent;
     use crate::proxy::usage_parser;
     use crate::shared_runtime::{RequestAuth, RoutePlan, CODEX_SESSION_TOKEN_SETTING_KEY};
+
+    #[test]
+    fn responses_rectifier_requires_a_bound_provider_opt_in() {
+        let mut route = RouteExecution {
+            upstream_url: "https://example.com/v1/responses".to_string(),
+            real_api_key: None,
+            api_key: None,
+            model_mapping: None,
+            auth_scheme: None,
+            log_ctx: None,
+            provider: None,
+            cli_type: None,
+            user_agent: None,
+            aliases: std::collections::BTreeMap::new(),
+            transparent: false,
+            gateway: None,
+            gateway_policy: None,
+        };
+        assert!(!super::responses_rectifier_enabled(&route));
+
+        let db = Database::new_in_memory().unwrap();
+        let input = serde_json::from_value::<CreateProviderInput>(serde_json::json!({
+            "name": "Provider", "baseUrl": "https://example.com"
+        }))
+        .unwrap();
+        route.provider = Some(db.provider_create(&input).unwrap());
+        assert!(!super::responses_rectifier_enabled(&route));
+        route.provider.as_mut().unwrap().responses_rectifier = true;
+        assert!(super::responses_rectifier_enabled(&route));
+        // The opt-in applies to HTTP Responses independently of CLI/type labels.
+        route.transparent = true;
+        assert!(super::responses_rectifier_enabled(&route));
+    }
 
     #[test]
     fn response_header_filter_drops_hop_by_hop_headers() {

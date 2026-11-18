@@ -315,7 +315,7 @@ export interface Provider {
    * preset label; an id this build does not implement is reported.
    */
   requestAdapter: string
-  /** Gateway `/responses` rectification; on unless the user turns it off. */
+  /** Gateway `/responses` rectification; off until explicitly enabled. */
   responsesRectifier: boolean
   /**
    * The account query — request and reader in one editable script. Empty or

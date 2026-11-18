@@ -313,7 +313,8 @@ mod tests {
             &serde_json::to_vec(&plain).unwrap()
         ));
 
-        let reasoning = json!({"input": [{"type": "reasoning", "id": "rs_1", "encrypted_content": "gAAA"}]});
+        let reasoning =
+            json!({"input": [{"type": "reasoning", "id": "rs_1", "encrypted_content": "gAAA"}]});
         assert!(carries_resource_bound_state(
             &serde_json::to_vec(&reasoning).unwrap()
         ));

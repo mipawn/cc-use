@@ -630,7 +630,7 @@ export default {
     providerCreated: 'Provider created',
     responsesRectifier: 'Responses rectification',
     responsesRectifierHint:
-      'When the upstream rejects replayed reasoning state after moving the session to another resource, retry once without it. Off forwards requests unchanged.',
+      'Off by default; only for Codex / Responses requests. When the upstream rejects cross-resource history state, enabling this retries once without that state. Other protocols are unaffected.',
     copyCommand: 'Copy Terminal Command',
     commandCopied: 'Terminal command copied to clipboard',
     copyFailed: 'Copy failed',

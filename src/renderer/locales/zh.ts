@@ -596,7 +596,7 @@ export default {
     providerCreated: '供应商已创建',
     responsesRectifier: 'Responses 整流',
     responsesRectifierHint:
-      '上游把续聊分到另一个资源、拒绝历史里的推理记录时，去掉这些状态并重试一次；关闭后原样透传',
+      '默认关闭，仅用于 Codex / Responses 请求。上游因跨资源历史状态拒绝续聊时，启用后会去掉相关状态并重试一次；其他协议不受影响',
     copyCommand: '复制终端命令',
     commandCopied: '终端命令已复制到剪贴板',
     copyFailed: '复制失败',

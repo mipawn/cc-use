@@ -29,26 +29,29 @@ async fn start_upstream(rejection: &'static str, reject_status: StatusCode) -> M
     let calls = Arc::new(AtomicUsize::new(0));
     let state = (bodies.clone(), calls.clone());
 
-    let app = Router::new().route(
-        "/v1/responses",
-        post(move |body: String| {
-            let (bodies, calls) = state.clone();
-            async move {
-                bodies.lock().unwrap().push(body);
-                let call = calls.fetch_add(1, Ordering::SeqCst);
-                if call == 0 {
-                    (reject_status, rejection).into_response()
-                } else {
-                    (
-                        StatusCode::OK,
-                        [("content-type", "application/json")],
-                        r#"{"object":"response","output":[]}"#,
-                    )
-                        .into_response()
-                }
+    let endpoint = post(move |body: String| {
+        let (bodies, calls) = state.clone();
+        async move {
+            bodies.lock().unwrap().push(body);
+            let call = calls.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                (reject_status, rejection).into_response()
+            } else {
+                (
+                    StatusCode::OK,
+                    [("content-type", "application/json")],
+                    r#"{"object":"response","output":[]}"#,
+                )
+                    .into_response()
             }
-        }),
-    );
+        }
+    });
+    let app = Router::new()
+        .route("/v1/responses", endpoint.clone())
+        .route("/responses", endpoint.clone())
+        .route("/v1/responses/compact", endpoint.clone())
+        .route("/responses/compact", endpoint.clone())
+        .route("/v1/chat/completions", endpoint);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -66,7 +69,7 @@ async fn start_upstream(rejection: &'static str, reject_status: StatusCode) -> M
 
 /// A Codex session routed to a mock provider, exercising the real handler path.
 fn setup_session(upstream_port: u16) -> (Arc<cc_use_lib::proxy::ProxyState>, String) {
-    setup_session_with_rectifier(upstream_port, None)
+    setup_session_with_rectifier(upstream_port, Some(true))
 }
 
 fn setup_session_with_rectifier(
@@ -220,6 +223,88 @@ const RESOURCE_BOUND_INPUT: &str = r#"{
         {"type": "message", "id": "msg_abc", "role": "assistant", "content": [{"type": "output_text", "text": "ok"}]}
     ]
 }"#;
+
+#[tokio::test]
+async fn omitted_provider_flag_passes_http_rejection_through_unchanged() {
+    let mock = start_upstream(AZURE_REJECTION, StatusCode::BAD_REQUEST).await;
+    let (state, session_token) = setup_session_with_rectifier(mock.port, None);
+    let response = proxy_handler(
+        AxumState(state),
+        responses_request(&session_token, RESOURCE_BOUND_INPUT),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(!response.headers().contains_key("x-cc-use-rectified"));
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(body.as_ref(), AZURE_REJECTION.as_bytes());
+    assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(mock.bodies.lock().unwrap()[0], RESOURCE_BOUND_INPUT);
+}
+
+#[tokio::test]
+async fn omitted_or_disabled_provider_flag_passes_sse_rejection_through() {
+    for enabled in [None, Some(false)] {
+        let mock = start_streaming_upstream().await;
+        let (state, session_token) = setup_session_with_rectifier(mock.port, enabled);
+        let response = proxy_handler(
+            AxumState(state),
+            responses_request(&session_token, RESOURCE_BOUND_INPUT),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(!response.headers().contains_key("x-cc-use-rectified"));
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("different Azure"));
+        assert_eq!(mock.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(mock.bodies.lock().unwrap()[0], RESOURCE_BOUND_INPUT);
+    }
+}
+
+#[tokio::test]
+async fn gateway_opt_in_covers_responses_aliases_but_not_chat_completions() {
+    for (path, should_retry) in [
+        ("/v1/responses", true),
+        ("/responses", true),
+        ("/v1/responses/compact", true),
+        ("/responses/compact", true),
+        ("/v1/chat/completions", false),
+    ] {
+        let mock = start_upstream(AZURE_REJECTION, StatusCode::BAD_REQUEST).await;
+        let (state, session_token) = setup_session(mock.port);
+        state.db.lock().unwrap().conn.execute(
+            "UPDATE proxy_sessions SET session_kind = 'gateway', cli_type = NULL WHERE session_token = ?1",
+            [&session_token],
+        ).unwrap();
+        let mut request = responses_request(&session_token, RESOURCE_BOUND_INPUT);
+        *request.uri_mut() = path.parse().unwrap();
+        let response = proxy_handler(AxumState(state), request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            if should_retry {
+                StatusCode::OK
+            } else {
+                StatusCode::BAD_REQUEST
+            },
+            "{path}"
+        );
+        assert_eq!(
+            mock.calls.load(Ordering::SeqCst),
+            if should_retry { 2 } else { 1 },
+            "{path}"
+        );
+        assert_eq!(
+            response.headers().contains_key("x-cc-use-rectified"),
+            should_retry,
+            "{path}"
+        );
+    }
+}
 
 #[tokio::test]
 async fn retries_stream_that_starts_with_a_rejection() {

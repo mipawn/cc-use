@@ -568,20 +568,6 @@ export default function Keys() {
                         ) : null}
                       </div>
                       <Space size={8} wrap>
-                        <Button
-                          size='small'
-                          href={
-                            '#' +
-                            buildStatisticsUrl({
-                              timeRange: 'all',
-                              filter: { providerId: provider.id },
-                              page: 1,
-                              pageSize: 10,
-                            })
-                          }
-                        >
-                          {t('resources.requests')}
-                        </Button>
                         {!providerQuotaIsPerKey(provider) && !hasProviderQuery(provider) && (
                           <Button
                             type='text'
@@ -623,6 +609,25 @@ export default function Keys() {
                           trigger={['click']}
                           menu={{
                             items: [
+                              {
+                                key: 'requests',
+                                label: (
+                                  <a
+                                    href={
+                                      '#' +
+                                      buildStatisticsUrl({
+                                        timeRange: 'all',
+                                        filter: { providerId: provider.id },
+                                        page: 1,
+                                        pageSize: 10,
+                                      })
+                                    }
+                                  >
+                                    {t('resources.requests')}
+                                  </a>
+                                ),
+                                icon: <EyeOutlined />,
+                              },
                               {
                                 key: 'usage',
                                 label: t('usageDetail.openProvider'),
@@ -844,39 +849,7 @@ export default function Keys() {
 
                         {/* Actions */}
                         <div className={styles.keyCardActions}>
-                          <Button
-                            size='small'
-                            href={
-                              '#' +
-                              buildStatisticsUrl({
-                                timeRange: 'all',
-                                filter: { providerId: provider.id, apiKeyId: key.id },
-                                page: 1,
-                                pageSize: 10,
-                              })
-                            }
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            {t('resources.requests')}
-                          </Button>
                           <Space size={4}>
-                            <Tooltip title={t('usageDetail.openKey')}>
-                              <Button
-                                type='text'
-                                size='small'
-                                icon={<LineChartOutlined />}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setUsageScope({
-                                    type: 'key',
-                                    providerId: provider.id,
-                                    apiKeyId: key.id,
-                                    name: key.alias || t('keys.unnamedKey'),
-                                    providerName: provider.name,
-                                  })
-                                }}
-                              />
-                            </Tooltip>
                             <Tooltip title={t('keys.copyKey')}>
                               <Button
                                 type='text'
@@ -930,6 +903,55 @@ export default function Keys() {
                                 onClick={(e) => e.stopPropagation()}
                               />
                             </Popconfirm>
+                            <Dropdown
+                              trigger={['click']}
+                              menu={{
+                                items: [
+                                  {
+                                    key: 'requests',
+                                    label: (
+                                      <a
+                                        href={
+                                          '#' +
+                                          buildStatisticsUrl({
+                                            timeRange: 'all',
+                                            filter: { providerId: provider.id, apiKeyId: key.id },
+                                            page: 1,
+                                            pageSize: 10,
+                                          })
+                                        }
+                                      >
+                                        {t('resources.requests')}
+                                      </a>
+                                    ),
+                                    icon: <EyeOutlined />,
+                                  },
+                                  {
+                                    key: 'usage',
+                                    label: t('usageDetail.openKey'),
+                                    icon: <LineChartOutlined />,
+                                    onClick: () =>
+                                      setUsageScope({
+                                        type: 'key',
+                                        providerId: provider.id,
+                                        apiKeyId: key.id,
+                                        name: key.alias || t('keys.unnamedKey'),
+                                        providerName: provider.name,
+                                      }),
+                                  },
+                                ],
+                              }}
+                            >
+                              <Tooltip title={t('common.more')}>
+                                <Button
+                                  type='text'
+                                  size='small'
+                                  aria-label={t('common.more')}
+                                  icon={<MoreOutlined />}
+                                  onClick={(event) => event.stopPropagation()}
+                                />
+                              </Tooltip>
+                            </Dropdown>
                           </Space>
                         </div>
                       </Card>
@@ -962,6 +984,7 @@ export default function Keys() {
       <ProviderModal
         open={providerModalOpen}
         provider={editingProvider}
+        apiKeys={editingProvider ? (apiKeys[editingProvider.id] ?? []) : []}
         onClose={() => {
           setProviderModalOpen(false)
           setEditingProvider(null)

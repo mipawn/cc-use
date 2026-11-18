@@ -192,8 +192,8 @@ impl Database {
                 -- derived from the preset.
                 request_adapter TEXT NOT NULL DEFAULT 'none',
                 -- v3.21.0: gateway `/responses` rectification for this
-                -- provider; on unless the user turns it off.
-                responses_rectifier INTEGER NOT NULL DEFAULT 1,
+                -- provider; off unless the user explicitly enables it.
+                responses_rectifier INTEGER NOT NULL DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
                 sort_order INTEGER DEFAULT 0
             );
@@ -648,7 +648,9 @@ impl Database {
             "ALTER TABLE providers ADD COLUMN default_key_config TEXT",
             "ALTER TABLE providers ADD COLUMN cached_wallet_balance_currency TEXT",
             "ALTER TABLE providers ADD COLUMN request_adapter TEXT NOT NULL DEFAULT 'none'",
-            "ALTER TABLE providers ADD COLUMN responses_rectifier INTEGER NOT NULL DEFAULT 1",
+            // Missing columns start off; an existing flag is never rewritten:
+            // historical default-on and explicit opt-in have no provenance.
+            "ALTER TABLE providers ADD COLUMN responses_rectifier INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE api_keys ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE api_keys ADD COLUMN config TEXT",
             "ALTER TABLE api_keys ADD COLUMN types TEXT DEFAULT '[\\\"claude_code\\\"]'",

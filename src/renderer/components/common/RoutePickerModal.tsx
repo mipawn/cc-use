@@ -526,6 +526,7 @@ export default function RoutePickerModal({
           <ProviderModal
             open
             provider={null}
+            defaultClientKind={context === 'client' ? clientKind : undefined}
             onClose={() => setStep((current) => (current === 'provider' ? 'select' : current))}
             onSave={async (input) => {
               const provider = await useProviderStore.getState().createProvider(input)

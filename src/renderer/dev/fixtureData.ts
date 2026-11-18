@@ -67,7 +67,7 @@ export function makeProvider(id: string, name: string, extra: Partial<Provider> 
     presetId: 'custom',
     defaultKeyConfig: null,
     requestAdapter: '',
-    responsesRectifier: true,
+    responsesRectifier: false,
     walletBalanceScript: null,
     requestHeaders: null,
     queryConfig: null,

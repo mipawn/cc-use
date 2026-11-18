@@ -317,3 +317,31 @@ it('renders all of the key card metering periods from its cached usage', async (
     expect(stat?.textContent).toContain('querySchemes.capabilityWindows')
   })
 })
+
+it.each([
+  ['groupHeader', { providerId: 'go' }],
+  ['keyCardActions', { providerId: 'go', apiKeyId: 'key' }],
+])('keeps request drill-down in the %s more menu with its exact scope', async (area, filter) => {
+  await withPage(async (container) => {
+    expect(container.textContent).not.toContain('resources.requests')
+    const trigger = container.querySelector<HTMLButtonElement>(
+      `[class*="${area}"] [aria-label="common.more"]`,
+    )!
+    expect(trigger).not.toBeNull()
+    await act(async () => trigger.click())
+    const menu = [...document.body.querySelectorAll<HTMLElement>('[role="menu"]')].find(
+      (node) => node.closest('.ant-dropdown')?.classList.contains('ant-dropdown-hidden') === false,
+    )!
+    expect(menu).not.toBeNull()
+    const link = [...menu.querySelectorAll<HTMLAnchorElement>('a')].find(
+      (node) => node.textContent === 'resources.requests',
+    )!
+    expect(link).not.toBeNull()
+    const href = link.getAttribute('href')!
+    expect(href.split('?')[0]).toBe('#/stats')
+    const params = new URLSearchParams(href.split('?')[1])
+    expect(Object.fromEntries(params)).toMatchObject({ timeRange: 'all', ...filter })
+    expect(params.has('apiKeyId')).toBe('apiKeyId' in filter)
+    expect(container.textContent).not.toContain('save-query')
+  })
+})

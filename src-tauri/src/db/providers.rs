@@ -66,7 +66,7 @@ fn row_to_provider(row: &rusqlite::Row) -> Result<Provider, rusqlite::Error> {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .unwrap_or_else(crate::shared_runtime::default_query_scope_string),
-        responses_rectifier: row.get::<_, Option<i64>>(31)?.unwrap_or(1) != 0,
+        responses_rectifier: row.get::<_, Option<i64>>(31)?.unwrap_or(0) != 0,
     })
 }
 
@@ -200,7 +200,7 @@ impl Database {
                 .as_ref()
                 .and_then(crate::shared_runtime::query_schemes::serialize_query_config),
                 query_scope,
-                if input.responses_rectifier.unwrap_or(true) { 1i32 } else { 0i32 },
+                if input.responses_rectifier.unwrap_or(false) { 1i32 } else { 0i32 },
             ],
         )?;
 
