@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 10
-- **Last Active**: 2026-11-16
+- **Total Sessions**: 11
+- **Last Active**: 2026-11-18
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~312 | Active |
+| `journal-1.md` | ~348 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 11 | 2026-11-18 | Responses 手动开启与资源入口降噪，发布 v3.21.1 | `805a48b`, `e0be2c5` | `main` |
 | 10 | 2026-11-16 | GUI 改版提交与归档 | `a85b283` | `gui-control-observation-redesign` |
 | 9 | 2026-11-12 | OpenCode Go / Command Code 额度改为密钥级并发布 v3.19.0 | `27dee82`, `f8d0477`, `7f77fca` | `main` |
 | 8 | 2026-11-10 | 统一供应商与密钥额度查询交互（实施完成） | `c835263`, `b9938d7` | `main` |

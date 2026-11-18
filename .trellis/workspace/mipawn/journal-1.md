@@ -310,3 +310,39 @@ Rust teammates 之外 Lead 独立完成后端（query_schemes 方案目录/Query
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: Responses 手动开启与资源入口降噪，发布 v3.21.1
+<!-- trellis-session: v=2 fp=c7b32d7f283d90b6 -->
+
+**Date**: 2026-11-18
+**Task**: Responses 手动开启与资源入口降噪，发布 v3.21.1
+**Package**: cc-use
+**Branch**: `main`
+
+### Summary
+
+按用户批准直接提交并正式发布 v3.21.1：Responses 整流默认关闭、Codex 相关高级设置手动启用，供应商和密钥的查看请求收进更多菜单。保留既有开关值，未操作真实数据库、密钥或客户端。ARM 与 Intel 发布流水线均成功，7 个产物及公共自动更新入口已核验。
+
+### Main Changes
+
+- 应用创建、缺字段导入、补列升级及无供应商直连默认关闭；隐去选项不会覆盖已有偏好。
+- 请求菜单保留供应商/密钥范围和用量详情入口，补充前后端回归测试。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `805a48b` | fix(resources): 🐛 默认关闭 Responses 整流并收敛请求入口 |
+| `e0be2c5` | release(app): v3.21.1 |
+
+### Testing
+
+- [OK] pnpm typecheck、pnpm lint、pnpm test 和修改文件 Prettier 检查通过。
+- [OK] cargo fmt --all -- --check、cargo build --workspace --locked、cargo clippy --workspace --locked、cargo test --workspace --locked 通过；Clippy 仍有现存告警。
+- [OK] 隔离 fixture 浏览器确认默认关闭、手动开关和请求范围跳转，不操作生产配置。
+- [OK] GitHub Actions 44248159240 两架构均成功；检查安装包/更新包/签名齐全、应用 Bundle 版本及主程序、两个 sidecar 的架构正确，更新包签名与 SHA-256 正确，公共 latest 更新清单一致。
+
+### Status
+
+[OK] **Completed**
