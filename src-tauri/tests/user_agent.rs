@@ -130,6 +130,7 @@ fn setup(upstream_port: u16, cli_type: Option<&str>, proxy_user_agent: Option<&s
                 session_token: session_token.clone(),
                 provider_id,
                 api_key_id,
+                client_profile_id: None,
                 project_id: None,
                 created_at: now.clone(),
                 session_kind: "manual".to_string(),

@@ -1,0 +1,84 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  padding-bottom: 24px;
+}
+
+.profilesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+
+.emptyWrap {
+  padding: 48px 24px;
+  border: 1px dashed var(--ant-color-border);
+  border-radius: 12px;
+  text-align: center;
+  background: var(--ant-color-bg-container);
+}
+
+.statusCard {
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 12px;
+  padding: 16px 20px;
+  background: var(--ant-color-bg-container);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.statusHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.statusIdentity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.statusRoute {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+}
+
+.noticeBox {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--ant-color-border-secondary);
+  background: var(--ant-color-fill-quaternary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .profilesGrid {
+    grid-template-columns: 1fr;
+  }
+}

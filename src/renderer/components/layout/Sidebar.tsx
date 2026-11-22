@@ -8,9 +8,8 @@ import {
   KeyOutlined,
   ApiOutlined,
   ConsoleSqlOutlined,
-  CodeOutlined,
-  DesktopOutlined,
 } from '@ant-design/icons'
+import ClientIcon from '../common/ClientIcon'
 import styles from './WorkspaceLayout.module.css'
 import appLogo from '../../assets/icon.svg'
 
@@ -40,21 +39,35 @@ export default function Sidebar() {
       </div>
       <nav className={styles.navigation}>
         {link('/', t('workspace.home'), <HomeOutlined />)}
+
         <div className={styles.group}>
-          <span className={styles.groupLabel}>{t('workspace.use')}</span>
-          {link('/instances', t('workspace.instances'), <CodeOutlined />)}
-          {link('/desktop', t('workspace.desktopAccess'), <DesktopOutlined />)}
+          <span className={styles.groupLabel}>{t('clients.groupAccess')}</span>
+          {link(
+            '/clients/claude-code',
+            t('clients.claudeCode'),
+            <ClientIcon kind='claude_code' size={16} />,
+          )}
+          {link(
+            '/clients/codex',
+            t('clients.codexDesktop'),
+            <ClientIcon kind='codex' size={16} />,
+          )}
+          {link(
+            '/clients/claude-desktop',
+            t('clients.claudeDesktop'),
+            <ClientIcon kind='claude_desktop' size={16} />,
+          )}
+          {link('/clients/grok', t('clients.grokBuild'), <ClientIcon kind='grok' size={16} />)}
+          {link('/gateway', t('clients.apiGateway'), <ApiOutlined />)}
         </div>
+
         <div className={styles.group}>
-          <span className={styles.groupLabel}>{t('workspace.manage')}</span>
-          {link('/keys', t('keys.title'), <KeyOutlined />)}
+          <span className={styles.groupLabel}>{t('clients.groupUpstream')}</span>
+          {link('/keys', t('clients.providersAndKeys'), <KeyOutlined />)}
         </div>
-        {/* Gateway is an access point, not an observation screen. */}
-        <div className={styles.standalone}>
-          {link('/gateway', t('gateway.title'), <ApiOutlined />)}
-        </div>
+
         <div className={`${styles.group} ${styles.observationGroup}`}>
-          <span className={styles.groupLabel}>{t('workspace.observation')}</span>
+          <span className={styles.groupLabel}>{t('clients.groupObserve')}</span>
           {link('/stats', t('statistics.title'), <BarChartOutlined />)}
           {link('/console', t('workspace.liveConsole'), <ConsoleSqlOutlined />)}
         </div>

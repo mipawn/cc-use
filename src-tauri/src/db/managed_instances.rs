@@ -8,6 +8,7 @@ fn row_to_managed_instance(row: &rusqlite::Row) -> Result<ManagedInstance, rusql
         project_id: row.get(2)?,
         provider_id: row.get(3)?,
         api_key_id: row.get(4)?,
+        client_profile_id: row.get(17)?,
         cli_type: row.get(5)?,
         terminal_type: row.get(6)?,
         project_path: row.get(7)?,
@@ -32,8 +33,8 @@ impl Database {
             "INSERT INTO managed_instances (
                 id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,
                 project_path, shell_pid, process_pid, status, assignment_source, last_seen_at,
-                launched_at, stopped_at, stop_reason, exit_code
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                launched_at, stopped_at, stop_reason, exit_code, client_profile_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             rusqlite::params![
                 instance.id,
                 instance.session_token,
@@ -52,6 +53,7 @@ impl Database {
                 instance.stopped_at,
                 instance.stop_reason,
                 instance.exit_code,
+                instance.client_profile_id,
             ],
         )?;
         Ok(())
@@ -64,7 +66,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,
                     project_path, shell_pid, process_pid, status, assignment_source, last_seen_at,
-                    launched_at, stopped_at, stop_reason, exit_code
+                    launched_at, stopped_at, stop_reason, exit_code, client_profile_id
              FROM managed_instances
              WHERE id = ?1",
         )?;
@@ -84,7 +86,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,
                     project_path, shell_pid, process_pid, status, assignment_source, last_seen_at,
-                    launched_at, stopped_at, stop_reason, exit_code
+                    launched_at, stopped_at, stop_reason, exit_code, client_profile_id
              FROM managed_instances
              WHERE session_token = ?1",
         )?;
@@ -101,7 +103,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,
                     project_path, shell_pid, process_pid, status, assignment_source, last_seen_at,
-                    launched_at, stopped_at, stop_reason, exit_code
+                    launched_at, stopped_at, stop_reason, exit_code, client_profile_id
              FROM managed_instances
              WHERE status IN ('launching', 'running', 'stale')
              ORDER BY launched_at DESC",
@@ -120,7 +122,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_token, project_id, provider_id, api_key_id, cli_type, terminal_type,
                     project_path, shell_pid, process_pid, status, assignment_source, last_seen_at,
-                    launched_at, stopped_at, stop_reason, exit_code
+                    launched_at, stopped_at, stop_reason, exit_code, client_profile_id
              FROM managed_instances
              WHERE CASE WHEN cli_type = 'claude' THEN 'claude_code' ELSE cli_type END = ?1
              ORDER BY
@@ -149,13 +151,32 @@ impl Database {
         api_key_id: &str,
         assignment_source: Option<&str>,
     ) -> Result<bool, rusqlite::Error> {
+        self.managed_instance_update_assignment_and_session_with_profile(
+            id,
+            session_token,
+            provider_id,
+            api_key_id,
+            None,
+            assignment_source,
+        )
+    }
+
+    pub fn managed_instance_update_assignment_and_session_with_profile(
+        &self,
+        id: &str,
+        session_token: &str,
+        provider_id: &str,
+        api_key_id: &str,
+        client_profile_id: Option<&str>,
+        assignment_source: Option<&str>,
+    ) -> Result<bool, rusqlite::Error> {
         let tx = self.conn.unchecked_transaction()?;
         let session_changed = tx.execute(
             "UPDATE proxy_sessions
-             SET provider_id = ?1, api_key_id = ?2
-             WHERE session_token = ?3
+             SET provider_id = ?1, api_key_id = ?2, client_profile_id = ?3
+             WHERE session_token = ?4
                AND revoked_at IS NULL",
-            rusqlite::params![provider_id, api_key_id, session_token],
+            rusqlite::params![provider_id, api_key_id, client_profile_id, session_token],
         )?;
         if session_changed == 0 {
             tx.rollback()?;
@@ -166,13 +187,15 @@ impl Database {
             "UPDATE managed_instances
              SET provider_id = ?1,
                  api_key_id = ?2,
-                 assignment_source = ?3
-             WHERE id = ?4
-               AND session_token = ?5
+                 client_profile_id = ?3,
+                 assignment_source = ?4
+             WHERE id = ?5
+               AND session_token = ?6
                AND status IN ('launching', 'running', 'stale')",
             rusqlite::params![
                 provider_id,
                 api_key_id,
+                client_profile_id,
                 assignment_source,
                 id,
                 session_token,

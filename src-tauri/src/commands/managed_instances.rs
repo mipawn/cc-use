@@ -62,7 +62,21 @@ pub fn managed_instance_update_assignment_inner(
         return Err("API key is exhausted".to_string());
     }
     let instance_cli_type = normalize_cli_type(&instance.cli_type);
-    if !api_key
+    if let Some(ref profile_id) = input.client_profile_id {
+        let profile = db
+            .client_profile_get(profile_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Client profile not found".to_string())?;
+        if normalize_cli_type(&profile.client_kind) != instance_cli_type {
+            return Err(format!(
+                "Client profile is not compatible with {} instances",
+                instance_cli_type
+            ));
+        }
+        if profile.provider_id != input.provider_id || profile.api_key_id != input.api_key_id {
+            return Err("Client profile does not match the selected provider or key".to_string());
+        }
+    } else if !api_key
         .types
         .iter()
         .any(|value| normalize_cli_type(value) == instance_cli_type)
@@ -74,11 +88,12 @@ pub fn managed_instance_update_assignment_inner(
     }
 
     let changed = db
-        .managed_instance_update_assignment_and_session(
+        .managed_instance_update_assignment_and_session_with_profile(
             &input.id,
             &instance.session_token,
             &input.provider_id,
             &input.api_key_id,
+            input.client_profile_id.as_deref(),
             input.assignment_source.as_deref(),
         )
         .map_err(|e| e.to_string())?;

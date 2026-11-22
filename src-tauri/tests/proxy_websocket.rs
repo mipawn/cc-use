@@ -105,6 +105,7 @@ fn setup_proxy(
         session_token: session_token.clone(),
         provider_id: provider.id,
         api_key_id: key.id,
+        client_profile_id: None,
         project_id: None,
         created_at: now.clone(),
         session_kind: "manual".to_string(),

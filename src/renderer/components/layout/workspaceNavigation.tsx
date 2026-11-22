@@ -2,72 +2,83 @@ import type { ReactNode } from 'react'
 import type { ClientKind } from '@shared/types'
 import ClientIcon from '../common/ClientIcon'
 
-// Kept as client metadata for secondary identities, not as top-level navigation.
+const SAFE_OBSERVATION_PARAMS = [
+  'providerId',
+  'apiKeyId',
+  'instanceId',
+  'startDate',
+  'endDate',
+  'outcome',
+  'population',
+  'requestId',
+  'requestDate',
+  'timeRange',
+  'page',
+  'pageSize',
+] as const
+
 export function legacyWorkspaceTarget(pathname: string, search = ''): string {
-  const target: Record<string, [string, ClientKind]> = {
-    '/claude-code': ['/instances', 'claude_code'],
-    '/grok-build': ['/instances', 'grok'],
-    '/codex': ['/desktop', 'codex'],
-    '/claude-desktop': ['/desktop', 'claude_desktop'],
-  }
-  const entry = target[pathname]
-  if (!entry) return '/'
   const source = new URLSearchParams(search)
   const params = new URLSearchParams()
-  // Only public observation context survives. Never forward credentials or
-  // obsolete project-launch parameters from a legacy URL.
-  for (const key of [
-    'providerId',
-    'apiKeyId',
-    'instanceId',
-    'startDate',
-    'endDate',
-    'outcome',
-    'population',
-    'requestId',
-    'requestDate',
-    'timeRange',
-    'page',
-    'pageSize',
-  ]) {
+  for (const key of SAFE_OBSERVATION_PARAMS) {
     const value = source.get(key)
     if (value) params.set(key, value)
   }
-  if (entry[1] === 'claude_code' && source.get('view') === 'sessions')
-    params.set('view', 'sessions')
-  if (entry[0] === '/instances' && source.get('view') === 'history') params.set('view', 'history')
-  params.set('client', entry[1])
-  return `${entry[0]}?${params}`
+
+  let destination: string | null = null
+  if (pathname === '/claude-code') {
+    destination = '/clients/claude-code'
+    if (source.get('view') === 'sessions') params.set('tab', 'sessions')
+    else if (source.get('view') === 'history') params.set('tab', 'instances')
+  } else if (pathname === '/grok-build') {
+    destination = '/clients/grok'
+    if (source.get('view') === 'history') params.set('tab', 'instances')
+  } else if (pathname === '/codex') {
+    destination = '/clients/codex'
+  } else if (pathname === '/claude-desktop') {
+    destination = '/clients/claude-desktop'
+  } else if (pathname === '/instances') {
+    const client = source.get('client')
+    destination = client === 'grok' ? '/clients/grok' : '/clients/claude-code'
+    params.set('tab', source.get('view') === 'sessions' && client !== 'grok' ? 'sessions' : 'instances')
+  } else if (pathname === '/desktop') {
+    destination =
+      source.get('client') === 'claude_desktop' ? '/clients/claude-desktop' : '/clients/codex'
+  }
+
+  if (!destination) return '/'
+  const qs = params.toString()
+  return qs ? `${destination}?${qs}` : destination
 }
 
 export const clientWorkspaces = [
   {
-    path: '/claude-code',
+    path: '/clients/claude-code',
     kind: 'claude_code',
     name: 'Claude Code',
     icon: <ClientIcon kind='claude_code' />,
     description: 'workspace.claudeCodeDescription',
   },
   {
-    path: '/grok-build',
-    kind: 'grok',
-    name: 'Grok Build',
-    icon: <ClientIcon kind='grok' />,
-    description: 'workspace.grokDescription',
-  },
-  {
-    path: '/codex',
+    path: '/clients/codex',
     kind: 'codex',
     name: 'Codex Desktop',
     icon: <ClientIcon kind='codex' />,
     description: 'workspace.codexDescription',
   },
   {
-    path: '/claude-desktop',
+    path: '/clients/claude-desktop',
     kind: 'claude_desktop',
     name: 'Claude Desktop',
     icon: <ClientIcon kind='claude_desktop' />,
     description: 'workspace.desktopDescription',
+  },
+  {
+    path: '/clients/grok',
+    kind: 'grok',
+    name: 'Grok Build',
+    icon: <ClientIcon kind='grok' />,
+    description: 'workspace.grokDescription',
   },
 ] satisfies {
   path: string

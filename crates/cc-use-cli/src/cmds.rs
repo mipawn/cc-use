@@ -6,7 +6,7 @@
 
 use crate::format;
 use cc_use_lib::db::Database;
-use cc_use_lib::models::{ApiKey, ManagedInstance, Project, Provider};
+use cc_use_lib::models::{ApiKey, ClientProfile, ManagedInstance, Project, Provider};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -128,6 +128,69 @@ fn ensure_daemon_available(ctx: &Ctx) -> Result<(), CliError> {
 
 fn key_label(key: &ApiKey) -> String {
     key.alias.clone().unwrap_or_else(|| key.id.clone())
+}
+
+struct LaunchRouteOption {
+    profile: Option<ClientProfile>,
+    provider: Provider,
+    key: ApiKey,
+}
+
+impl LaunchRouteOption {
+    fn primary_label(&self) -> String {
+        match &self.profile {
+            Some(profile) => profile.name.clone(),
+            None => self.provider.name.clone(),
+        }
+    }
+
+    fn secondary_label(&self) -> String {
+        match &self.profile {
+            Some(_) => format!("{} / {}", self.provider.name, key_label(&self.key)),
+            None => key_label(&self.key),
+        }
+    }
+}
+
+/// Compatible profiles for `client` (Scheme A), or fallback to legacy compatible keys
+/// when no profiles have been created for this client.
+fn compatible_launch_routes(
+    db: &Database,
+    client: &str,
+) -> Result<Vec<LaunchRouteOption>, CliError> {
+    let profiles = db.client_profile_list(Some(client)).map_err(db_err)?;
+    if !profiles.is_empty() {
+        let mut out = Vec::new();
+        for profile in profiles {
+            let Some(provider) = db.provider_get(&profile.provider_id).map_err(db_err)? else {
+                continue;
+            };
+            if !provider.is_active {
+                continue;
+            }
+            let Some(key) = db.api_key_get(&profile.api_key_id).map_err(db_err)? else {
+                continue;
+            };
+            if !key.is_active || key.is_exhausted || key.provider_id != provider.id {
+                continue;
+            }
+            out.push(LaunchRouteOption {
+                profile: Some(profile),
+                provider,
+                key,
+            });
+        }
+        return Ok(out);
+    }
+    let keys = compatible_keys(db, client)?;
+    Ok(keys
+        .into_iter()
+        .map(|(provider, key)| LaunchRouteOption {
+            profile: None,
+            provider,
+            key,
+        })
+        .collect())
 }
 
 /// Every active, non-exhausted key that enables `client`, with its provider.
@@ -285,7 +348,7 @@ fn picker_color(code: &str, value: &str) -> String {
 const PICKER_DEFAULT_GREEN: &str = "32";
 
 fn draw_key_picker(
-    keys: &[(Provider, ApiKey)],
+    routes: &[LaunchRouteOption],
     default_index: usize,
     selected_index: usize,
     redraw_lines: usize,
@@ -298,7 +361,7 @@ fn draw_key_picker(
     output.push_str(&picker_color("1;36", "选择本次启动线路"));
     output.push_str("\r\n");
 
-    for (index, (provider, key)) in keys.iter().enumerate() {
+    for (index, route) in routes.iter().enumerate() {
         output.push_str("\r\x1b[2K");
         if index == selected_index {
             output.push_str(&picker_color("1;36", "  ❯ "));
@@ -306,16 +369,16 @@ fn draw_key_picker(
                 "1;37",
                 &format!(
                     "{}  {}",
-                    format::ellipsize(&provider.name, 24),
-                    format::ellipsize(&key_label(key), 28)
+                    format::ellipsize(&route.primary_label(), 24),
+                    format::ellipsize(&route.secondary_label(), 28)
                 ),
             ));
         } else {
             output.push_str("    ");
             output.push_str(&format!(
                 "{}  {}",
-                format::ellipsize(&provider.name, 24),
-                format::ellipsize(&key_label(key), 28)
+                format::ellipsize(&route.primary_label(), 24),
+                format::ellipsize(&route.secondary_label(), 28)
             ));
         }
         if index == default_index {
@@ -331,7 +394,7 @@ fn draw_key_picker(
     std::io::stderr()
         .flush()
         .map_err(|e| CliError::Failed(format!("刷新选择列表失败: {}", e)))?;
-    Ok(keys.len() + 2)
+    Ok(routes.len() + 2)
 }
 
 fn clear_key_picker(lines: usize) {
@@ -343,19 +406,30 @@ fn clear_key_picker(lines: usize) {
     eprint!("{}", output);
 }
 
-/// Interactive pick from the compatible key list.
-fn pick_key(
+/// Interactive pick from the compatible route list.
+fn pick_route(
     interactive: bool,
-    keys: &[(Provider, ApiKey)],
+    routes: &[LaunchRouteOption],
+    default_profile_id: Option<&str>,
     default_key_id: Option<&str>,
 ) -> Result<usize, CliError> {
-    let default_index = default_key_id
-        .and_then(|id| keys.iter().position(|(_, key)| key.id == id))
+    let default_index = default_profile_id
+        .and_then(|pid| {
+            routes
+                .iter()
+                .position(|r| r.profile.as_ref().map(|p| p.id.as_str()) == Some(pid))
+        })
+        .or_else(|| default_key_id.and_then(|id| routes.iter().position(|r| r.key.id == id)))
+        .or_else(|| {
+            routes
+                .iter()
+                .position(|r| r.profile.as_ref().is_some_and(|p| p.is_default))
+        })
         .unwrap_or(0);
 
     if !interactive {
         let mut msg = String::from("cc-use 需要在交互终端中选择线路：\n");
-        for (index, (provider, key)) in keys.iter().enumerate() {
+        for (index, route) in routes.iter().enumerate() {
             let marker = if index == default_index {
                 "  （已保存默认）"
             } else {
@@ -364,8 +438,8 @@ fn pick_key(
             msg.push_str(&format!(
                 "  {}. {} · {}{}\n",
                 index + 1,
-                provider.name,
-                key_label(key),
+                route.primary_label(),
+                route.secondary_label(),
                 marker
             ));
         }
@@ -374,7 +448,7 @@ fn pick_key(
 
     let mut terminal = RawTerminal::enter()?;
     let mut selected = default_index;
-    let mut drawn_lines = draw_key_picker(keys, default_index, selected, 0)?;
+    let mut drawn_lines = draw_key_picker(routes, default_index, selected, 0)?;
     loop {
         let mut byte = [0u8; 1];
         terminal
@@ -385,12 +459,12 @@ fn pick_key(
             b'\r' | b'\n' => {
                 clear_key_picker(drawn_lines);
                 drop(terminal);
-                let (provider, key) = &keys[selected];
+                let route = &routes[selected];
                 eprintln!(
                     "{} {}  {}",
                     picker_color("1;32", "✓"),
-                    provider.name,
-                    key_label(key)
+                    route.primary_label(),
+                    route.secondary_label()
                 );
                 return Ok(selected);
             }
@@ -398,11 +472,11 @@ fn pick_key(
                 let mut sequence = [0u8; 2];
                 if terminal.tty.read_exact(&mut sequence).is_ok() && sequence[0] == b'[' {
                     match sequence[1] {
-                        b'A' => selected = selected.checked_sub(1).unwrap_or(keys.len() - 1),
-                        b'B' => selected = (selected + 1) % keys.len(),
+                        b'A' => selected = selected.checked_sub(1).unwrap_or(routes.len() - 1),
+                        b'B' => selected = (selected + 1) % routes.len(),
                         _ => continue,
                     }
-                    drawn_lines = draw_key_picker(keys, default_index, selected, drawn_lines)?;
+                    drawn_lines = draw_key_picker(routes, default_index, selected, drawn_lines)?;
                 }
             }
             3 | b'q' => {
@@ -411,12 +485,12 @@ fn pick_key(
                 return Err(CliError::NeedsChoice("已取消启动。".to_string()));
             }
             b'k' => {
-                selected = selected.checked_sub(1).unwrap_or(keys.len() - 1);
-                drawn_lines = draw_key_picker(keys, default_index, selected, drawn_lines)?;
+                selected = selected.checked_sub(1).unwrap_or(routes.len() - 1);
+                drawn_lines = draw_key_picker(routes, default_index, selected, drawn_lines)?;
             }
             b'j' => {
-                selected = (selected + 1) % keys.len();
-                drawn_lines = draw_key_picker(keys, default_index, selected, drawn_lines)?;
+                selected = (selected + 1) % routes.len();
+                drawn_lines = draw_key_picker(routes, default_index, selected, drawn_lines)?;
             }
             _ => {}
         }
@@ -481,24 +555,29 @@ pub fn launch(ctx: &Ctx, client: &str) -> CmdResult {
         Some(project) => project_default_route(ctx, project, client)?,
         None => None,
     };
-    let keys = compatible_keys(&ctx.db, client)?;
-    if keys.is_empty() {
+    let routes = compatible_launch_routes(&ctx.db, client)?;
+    if routes.is_empty() {
         return Err(CliError::Failed(format!(
-            "没有任何密钥启用了 {}。先在应用内的供应商密钥页配置。",
+            "没有任何可用方案或密钥启用了 {}。先在应用内配置启动方案。",
             client
         )));
     }
+    let default_profile_id = project
+        .as_ref()
+        .and_then(|p| p.bindings.get(client))
+        .and_then(|b| b.client_profile_id.as_deref());
     let default_key_id = default_route.as_ref().map(|(_, key)| key.id.as_str());
-    let index = pick_key(ctx.interactive, &keys, default_key_id)?;
-    let (provider, key) = keys.into_iter().nth(index).expect("index validated");
+    let index = pick_route(ctx.interactive, &routes, default_profile_id, default_key_id)?;
+    let chosen = routes.into_iter().nth(index).expect("index validated");
 
     let launch_context = cli_launch_context(project.as_ref(), &cwd, client);
 
-    let prepared = cc_use_lib::terminal::prepare_cli_terminal_launch(
+    let prepared = cc_use_lib::terminal::prepare_cli_terminal_launch_with_profile(
         &ctx.db,
         client,
-        &provider.id,
-        &key.id,
+        &chosen.provider.id,
+        &chosen.key.id,
+        chosen.profile.as_ref().map(|p| p.id.as_str()),
         launch_context.project_id.as_deref(),
         &launch_context.project_name,
         &launch_context.working_dir,
@@ -509,8 +588,8 @@ pub fn launch(ctx: &Ctx, client: &str) -> CmdResult {
     println!(
         "实例 {}  {} · {}",
         prepared.instance_label,
-        provider.name,
-        key_label(&key)
+        chosen.primary_label(),
+        chosen.secondary_label()
     );
 
     // Hand the terminal to the wrapper. exec replaces this process so the CLI
@@ -943,6 +1022,7 @@ mod tests {
             project_id,
             provider_id: None,
             api_key_id: None,
+            client_profile_id: None,
             cli_type: "claude_code".to_string(),
             terminal_type: "cli".to_string(),
             project_path: project_path.to_string(),
@@ -1216,6 +1296,7 @@ mod tests {
                     cli_type: client.to_string(),
                     provider_id: None,
                     api_key_id: None,
+                    client_profile_id: None,
                     terminal_type: "terminal".to_string(),
                     prelaunch_command: binding_command.map(str::to_string),
                 },
@@ -1411,6 +1492,7 @@ mod tests {
                     cli_type: "claude_code".to_string(),
                     provider_id: Some(provider.id.clone()),
                     api_key_id: Some(key.id.clone()),
+                    client_profile_id: None,
                     terminal_type: None,
                     prelaunch_command: Some("export DEMO_READY=1".to_string()),
                 },

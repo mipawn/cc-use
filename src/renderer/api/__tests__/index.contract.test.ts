@@ -338,6 +338,59 @@ describe('renderer api contract', () => {
     expect(invokeMock).toHaveBeenCalledWith('icon_delete', { filename: 'logo.png' })
   })
 
+  it('maps clientProfile commands and desktopConnection.apply with clientProfileId', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+
+    await api.clientProfile.list()
+    await api.clientProfile.list('claude_code')
+    await api.clientProfile.get('profile-1')
+    await api.clientProfile.create({
+      name: 'Main CC',
+      clientKind: 'claude_code',
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+      launchEnv: { ANTHROPIC_MODEL: 'claude-sonnet-5' },
+    })
+    await api.clientProfile.update({
+      id: 'profile-1',
+      apiKeyId: 'key-2',
+    })
+    await api.clientProfile.delete('profile-1')
+    await api.clientProfile.reorder('claude_code', ['profile-2', 'profile-1'])
+    await api.desktopConnection.apply('codex', 'provider-1', 'key-1', 'profile-codex')
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'client_profile_list', {})
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'client_profile_list', {
+      clientKind: 'claude_code',
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'client_profile_get', { id: 'profile-1' })
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'client_profile_create', {
+      input: {
+        name: 'Main CC',
+        clientKind: 'claude_code',
+        providerId: 'provider-1',
+        apiKeyId: 'key-1',
+        launchEnv: { ANTHROPIC_MODEL: 'claude-sonnet-5' },
+      },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'client_profile_update', {
+      input: { id: 'profile-1', apiKeyId: 'key-2' },
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'client_profile_delete', { id: 'profile-1' })
+    expect(invokeMock).toHaveBeenNthCalledWith(7, 'client_profile_reorder', {
+      clientKind: 'claude_code',
+      profileIds: ['profile-2', 'profile-1'],
+    })
+    expect(invokeMock).toHaveBeenNthCalledWith(8, 'desktop_connection_apply', {
+      clientKind: 'codex',
+      providerId: 'provider-1',
+      apiKeyId: 'key-1',
+      clientProfileId: 'profile-codex',
+    })
+  })
+
   it('subscribes to proxy status events and disposes the listener', async () => {
     const unlistenMock = vi.fn()
     let eventHandler:

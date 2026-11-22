@@ -52,14 +52,16 @@ pub fn terminal_get_launch_preview(
     project_id: Option<String>,
     provider_id: Option<String>,
     api_key_id: Option<String>,
+    client_profile_id: Option<String>,
     cli_type: String,
 ) -> Result<crate::models::TerminalLaunchPreview, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
-    crate::terminal::get_launch_preview(
+    crate::terminal::get_launch_preview_with_profile(
         &db,
         project_id.as_deref(),
         provider_id.as_deref(),
         api_key_id.as_deref(),
+        client_profile_id.as_deref(),
         &cli_type,
     )
 }

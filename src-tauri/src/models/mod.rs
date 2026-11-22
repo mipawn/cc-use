@@ -262,6 +262,8 @@ pub struct ProjectClientBinding {
     pub cli_type: String,
     pub provider_id: Option<String>,
     pub api_key_id: Option<String>,
+    #[serde(default)]
+    pub client_profile_id: Option<String>,
     pub terminal_type: String,
     pub prelaunch_command: Option<String>,
 }
@@ -272,6 +274,8 @@ pub struct UpsertProjectBindingInput {
     pub cli_type: String,
     pub provider_id: Option<String>,
     pub api_key_id: Option<String>,
+    #[serde(default)]
+    pub client_profile_id: Option<String>,
     pub terminal_type: Option<String>,
     pub prelaunch_command: Option<String>,
 }
@@ -448,6 +452,8 @@ pub struct ProxySession {
     pub session_token: String,
     pub provider_id: String,
     pub api_key_id: String,
+    #[serde(default)]
+    pub client_profile_id: Option<String>,
     pub project_id: Option<String>,
     pub created_at: String,
     pub session_kind: String,
@@ -464,6 +470,81 @@ pub struct ProxySession {
     pub connection_config: Option<GatewayConnectionConfig>,
     #[serde(default)]
     pub model_policy: Option<GatewayModelPolicy>,
+}
+
+// ── Client Profile (Scheme A: decoupled client configuration) ──
+
+/// Per-profile upstream connection override. `None` fields inherit from provider / client default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientProfileConnectionConfig {
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub auth_scheme: Option<String>,
+    #[serde(default)]
+    pub user_agent: Option<String>,
+}
+
+/// First-class client configuration profile (Claude Code, Grok Build, Codex Desktop, Claude Desktop).
+/// References a Provider + ApiKey while owning ONLY this client's native settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientProfile {
+    pub id: String,
+    pub name: String,
+    pub client_kind: String,
+    pub provider_id: String,
+    pub api_key_id: String,
+    #[serde(default)]
+    pub model_config: Option<String>,
+    #[serde(default)]
+    pub connection_config: Option<ClientProfileConnectionConfig>,
+    #[serde(default)]
+    pub launch_env: Option<serde_json::Value>,
+    #[serde(default)]
+    pub is_default: bool,
+    #[serde(default)]
+    pub sort_order: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateClientProfileInput {
+    pub name: String,
+    pub client_kind: String,
+    pub provider_id: String,
+    pub api_key_id: String,
+    #[serde(default)]
+    pub model_config: Option<String>,
+    #[serde(default)]
+    pub connection_config: Option<ClientProfileConnectionConfig>,
+    #[serde(default)]
+    pub launch_env: Option<serde_json::Value>,
+    #[serde(default)]
+    pub is_default: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateClientProfileInput {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub api_key_id: Option<String>,
+    #[serde(default)]
+    pub model_config: Option<String>,
+    #[serde(default)]
+    pub connection_config: Option<ClientProfileConnectionConfig>,
+    #[serde(default)]
+    pub launch_env: Option<serde_json::Value>,
+    #[serde(default)]
+    pub is_default: Option<bool>,
 }
 
 /// A persistent local outlet bound to exactly one API key.
@@ -503,6 +584,8 @@ pub struct ManagedInstance {
     pub project_id: Option<String>,
     pub provider_id: Option<String>,
     pub api_key_id: Option<String>,
+    #[serde(default)]
+    pub client_profile_id: Option<String>,
     pub cli_type: String,
     pub terminal_type: String,
     pub project_path: String,
@@ -523,6 +606,8 @@ pub struct UpdateManagedInstanceAssignmentInput {
     pub id: String,
     pub provider_id: String,
     pub api_key_id: String,
+    #[serde(default)]
+    pub client_profile_id: Option<String>,
     pub assignment_source: Option<String>,
 }
 

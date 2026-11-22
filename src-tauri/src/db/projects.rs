@@ -40,7 +40,7 @@ impl Database {
         project_id: &str,
     ) -> Result<HashMap<String, ProjectClientBinding>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT cli_type, provider_id, api_key_id, terminal_type, prelaunch_command
+            "SELECT cli_type, provider_id, api_key_id, terminal_type, prelaunch_command, client_profile_id
              FROM project_client_bindings
              WHERE project_id = ?1",
         )?;
@@ -49,6 +49,7 @@ impl Database {
                 cli_type: row.get(0)?,
                 provider_id: row.get(1)?,
                 api_key_id: row.get(2)?,
+                client_profile_id: row.get(5)?,
                 terminal_type: row
                     .get::<_, Option<String>>(3)?
                     .unwrap_or_else(|| "iterm2".to_string()),
@@ -135,6 +136,7 @@ impl Database {
                 cli_type: cli_type.to_string(),
                 provider_id: input.provider_id.clone(),
                 api_key_id: input.api_key_id.clone(),
+                client_profile_id: None,
                 terminal_type: input.terminal_type.clone(),
                 prelaunch_command: input.prelaunch_command.clone(),
             },
@@ -183,11 +185,12 @@ impl Database {
         let terminal_type = input.terminal_type.as_deref().unwrap_or("iterm2");
         self.conn.execute(
             "INSERT INTO project_client_bindings
-                (project_id, cli_type, provider_id, api_key_id, terminal_type, prelaunch_command)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                (project_id, cli_type, provider_id, api_key_id, client_profile_id, terminal_type, prelaunch_command)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(project_id, cli_type) DO UPDATE SET
                 provider_id = excluded.provider_id,
                 api_key_id = excluded.api_key_id,
+                client_profile_id = excluded.client_profile_id,
                 terminal_type = excluded.terminal_type,
                 prelaunch_command = excluded.prelaunch_command",
             rusqlite::params![
@@ -195,6 +198,7 @@ impl Database {
                 cli_type,
                 input.provider_id,
                 input.api_key_id,
+                input.client_profile_id,
                 terminal_type,
                 input.prelaunch_command,
             ],

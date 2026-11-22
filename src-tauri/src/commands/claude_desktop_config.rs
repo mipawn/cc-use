@@ -732,8 +732,14 @@ fn refresh_profile_inner(
         .map_err(|_| "Cannot read Claude Desktop session.".to_string())?.flatten()
         .filter(|session| session.session_kind == "desktop" && session.cli_type.as_deref() == Some("claude_desktop") && session.is_active && session.revoked_at.is_none())
         .ok_or("Claude Desktop route cannot be verified. Reapply its route or restore official configuration.")?;
-    let result =
-        claude_apply_with_manager(db, &session.provider_id, &session.api_key_id, mgr, source)?;
+    let result = claude_apply_with_manager_and_profile(
+        db,
+        &session.provider_id,
+        &session.api_key_id,
+        session.client_profile_id.as_deref(),
+        mgr,
+        source,
+    )?;
     if result.completion == desktop_connection::DesktopCompletion::Partial {
         return Err(result.warning.unwrap_or_else(|| {
             "Desktop synchronization is incomplete. Refresh and retry.".into()
@@ -748,9 +754,13 @@ fn refresh_profile_inner(
 fn write_desktop_alias_table(
     db: &Database,
     api_key_id: &str,
+    client_profile_id: Option<&str>,
     aliases: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), String> {
-    let key = model_mapping::alias_table_key(api_key_id, "claude_desktop");
+    let key = match client_profile_id {
+        Some(pid) => model_mapping::alias_table_key_for_profile(pid),
+        None => model_mapping::alias_table_key(api_key_id, "claude_desktop"),
+    };
     if aliases.is_empty() {
         db.settings_delete_value(&key).map_err(|e| e.to_string())?;
         return Ok(());
@@ -819,19 +829,30 @@ pub fn claude_desktop_config_apply_inner(
     provider_id: String,
     api_key_id: String,
 ) -> Result<DesktopOperationResult, String> {
+    claude_desktop_config_apply_with_profile_inner(db, provider_id, api_key_id, None)
+}
+
+pub fn claude_desktop_config_apply_with_profile_inner(
+    db: &Arc<Mutex<Database>>,
+    provider_id: String,
+    api_key_id: String,
+    client_profile_id: Option<String>,
+) -> Result<DesktopOperationResult, String> {
     let mgr = ClaudeDesktopConfigManager::new()
         .map_err(|_| "Cannot locate Claude Desktop configuration.".to_string())?;
     let db = db
         .lock()
         .map_err(|_| "Desktop database is unavailable.".to_string())?;
-    claude_apply_with_manager(
+    claude_apply_with_manager_and_profile(
         &db,
         &provider_id,
         &api_key_id,
+        client_profile_id.as_deref(),
         &mgr,
         DesktopChangeSource::User,
     )
 }
+
 pub(crate) fn claude_apply_with_manager(
     db: &Database,
     provider_id: &str,
@@ -839,23 +860,43 @@ pub(crate) fn claude_apply_with_manager(
     mgr: &ClaudeDesktopConfigManager,
     source: DesktopChangeSource,
 ) -> Result<DesktopOperationResult, String> {
-    let (_, key) = desktop_connection::validate_route(
+    claude_apply_with_manager_and_profile(db, provider_id, api_key_id, None, mgr, source)
+}
+
+pub(crate) fn claude_apply_with_manager_and_profile(
+    db: &Database,
+    provider_id: &str,
+    api_key_id: &str,
+    client_profile_id: Option<&str>,
+    mgr: &ClaudeDesktopConfigManager,
+    source: DesktopChangeSource,
+) -> Result<DesktopOperationResult, String> {
+    let (_, key, profile) = desktop_connection::validate_route_with_profile(
         db,
         DesktopClientKind::ClaudeDesktop,
         provider_id,
         api_key_id,
+        client_profile_id,
     )?;
-    let (models, aliases) = desktop_menu_for_key(&key);
-    desktop_connection::apply_with_config(
+    let effective_key;
+    let target_key = if let Some(ref p) = profile {
+        effective_key = crate::services::model_catalog::apply_profile_to_key(&key, p);
+        &effective_key
+    } else {
+        &key
+    };
+    let (models, aliases) = desktop_menu_for_key(target_key);
+    desktop_connection::apply_with_config_and_profile(
         db,
         DesktopClientKind::ClaudeDesktop,
         provider_id,
         api_key_id,
+        client_profile_id,
         source,
         mgr,
         Some(models.len()),
         |token, port| {
-            write_desktop_alias_table(db, api_key_id, &aliases)
+            write_desktop_alias_table(db, api_key_id, client_profile_id, &aliases)
                 .map_err(|_| "Cannot save Desktop model aliases.".to_string())?;
             if !mgr.gateway_profile_is_current(token, port, &models) {
                 // The shared coordinator owns rollback, including the session and aliases.

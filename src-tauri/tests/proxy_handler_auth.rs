@@ -33,6 +33,7 @@ fn create_session_state(
         session_token: session_token.clone(),
         provider_id: provider.id.clone(),
         api_key_id: api_key.id.clone(),
+        client_profile_id: None,
         project_id: None,
         created_at: now.clone(),
         session_kind: "manual".to_string(),

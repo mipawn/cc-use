@@ -12,7 +12,7 @@ export type DesktopChangeSource = 'user' | 'key_edit' | 'startup'
 export interface DesktopConnectionState {
   clientKind: DesktopClientKind
   status: 'official' | 'taken_over' | 'not_found' | 'error' | 'unknown'
-  route: { providerId: string; apiKeyId: string } | null
+  route: { providerId: string; apiKeyId: string; profileId?: string | null } | null
   lastConfigChange: {
     action: 'takeover' | 'restore' | 'sync'
     source: DesktopChangeSource
@@ -571,6 +571,7 @@ export interface ProjectClientBinding {
   cliType: 'claude_code' | 'grok'
   providerId: string | null
   apiKeyId: string | null
+  clientProfileId?: string | null
   terminalType: TerminalType
   prelaunchCommand: string | null
 }
@@ -579,6 +580,7 @@ export interface ProjectClientBindingInput {
   cliType: 'claude_code' | 'grok'
   providerId: string | null
   apiKeyId: string | null
+  clientProfileId?: string | null
   terminalType?: TerminalType
   prelaunchCommand: string | null
 }
@@ -915,6 +917,7 @@ export interface ProxySession {
   sessionToken: string
   providerId: string
   apiKeyId: string
+  clientProfileId?: string | null
   projectId: string | null
   createdAt: string
   displayName: string | null
@@ -922,6 +925,51 @@ export interface ProxySession {
   /** Gateway-only connection overrides; absent/null for every other session. */
   connectionConfig?: GatewayConnectionConfig | null
   modelPolicy?: GatewayModelPolicy | null
+}
+
+// ── Client Profile (Scheme A: decoupled client configuration) ──
+
+export interface ClientProfileConnectionConfig {
+  baseUrl?: string | null
+  authScheme?: UpstreamAuthScheme | null
+  userAgent?: string | null
+}
+
+export interface ClientProfile {
+  id: string
+  name: string
+  clientKind: ClientKind
+  providerId: string
+  apiKeyId: string
+  modelConfig: string | null
+  connectionConfig: ClientProfileConnectionConfig | null
+  launchEnv: CliConfig | null
+  isDefault: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateClientProfileInput {
+  name: string
+  clientKind: ClientKind
+  providerId: string
+  apiKeyId: string
+  modelConfig?: string | null
+  connectionConfig?: ClientProfileConnectionConfig | null
+  launchEnv?: CliConfig | null
+  isDefault?: boolean
+}
+
+export interface UpdateClientProfileInput {
+  id: string
+  name?: string
+  providerId?: string
+  apiKeyId?: string
+  modelConfig?: string | null
+  connectionConfig?: ClientProfileConnectionConfig | null
+  launchEnv?: CliConfig | null
+  isDefault?: boolean
 }
 
 /**
@@ -981,6 +1029,7 @@ export interface ManagedInstance {
   projectId: string | null
   providerId: string | null
   apiKeyId: string | null
+  clientProfileId?: string | null
   cliType: ProviderType
   terminalType: TerminalType
   projectPath: string
@@ -999,6 +1048,7 @@ export interface UpdateManagedInstanceAssignmentInput {
   id: string
   providerId: string
   apiKeyId: string
+  clientProfileId?: string | null
   assignmentSource?: string
 }
 

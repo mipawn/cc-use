@@ -129,18 +129,32 @@ fn resolve_launch_preview(
     db: &Database,
     cli_type: &str,
     api_key_id: &str,
+    client_profile_id: Option<&str>,
     session_token: &str,
     proxy_port: i32,
     prelaunch_command: Option<String>,
 ) -> Result<TerminalLaunchPreview, String> {
     let settings = db.settings_get().map_err(|e| e.to_string())?;
+    let profile = match client_profile_id {
+        Some(pid) => db.client_profile_get(pid).map_err(|e| e.to_string())?,
+        None => None,
+    };
     let api_key = db
         .api_key_get(api_key_id)
         .map_err(|e| e.to_string())?
         .ok_or("API key not found")?;
 
+    let local_env = profile
+        .as_ref()
+        .map(|p| p.launch_env.as_ref())
+        .unwrap_or(api_key.config.as_ref());
+    let mapping_str = profile
+        .as_ref()
+        .map(|p| p.model_config.as_deref())
+        .unwrap_or(api_key.model_mapping.as_deref());
+
     let (global_config, api_key_config) = match cli_type {
-        "claude" | "claude_code" => (settings.claude_config.as_ref(), api_key.config.as_ref()),
+        "claude" | "claude_code" => (settings.claude_config.as_ref(), local_env),
         "grok" => (None, None),
         _ => return Err(format!("Unsupported terminal client: {}", cli_type)),
     };
@@ -163,9 +177,7 @@ fn resolve_launch_preview(
             "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
             "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT",
         ] {
-            let explicit = api_key
-                .config
-                .as_ref()
+            let explicit = local_env
                 .and_then(|config| config.get(default_key))
                 .or_else(|| {
                     settings
@@ -180,11 +192,11 @@ fn resolve_launch_preview(
                     .or_insert_with(|| "1".into());
             }
         }
-        // Opt-in only: leave auto mode untouched unless the key names a
+        // Opt-in only: leave auto mode untouched unless the profile/key names a
         // classifier model. Runs after the merged env so explicit values win.
         crate::shared_runtime::launch_preview::apply_auto_mode_launch_env(
             &mut preview.env,
-            api_key.model_mapping.as_deref(),
+            mapping_str,
         );
     }
     let preview = TerminalLaunchPreview {
@@ -259,7 +271,20 @@ fn resolve_project_launch_context(
     })
 }
 
-fn grok_startup_model(db: &Database, api_key_id: &str) -> String {
+fn grok_startup_model(db: &Database, api_key_id: &str, client_profile_id: Option<&str>) -> String {
+    if let Some(pid) = client_profile_id {
+        if let Some(model) = db
+            .client_profile_get(pid)
+            .ok()
+            .flatten()
+            .and_then(|p| p.model_config)
+            .and_then(|mapping| {
+                crate::shared_runtime::model_mapping::grok_client_model(Some(&mapping))
+            })
+        {
+            return model;
+        }
+    }
     db.api_key_get(api_key_id)
         .ok()
         .flatten()
@@ -270,7 +295,10 @@ fn grok_startup_model(db: &Database, api_key_id: &str) -> String {
 
 pub fn prepare_grok_config(db: &Database, api_key_id: &str) -> Result<(), String> {
     let settings = db.settings_get().map_err(|error| error.to_string())?;
-    grok::ensure_user_config(settings.proxy_port, &grok_startup_model(db, api_key_id))
+    grok::ensure_user_config(
+        settings.proxy_port,
+        &grok_startup_model(db, api_key_id, None),
+    )
 }
 
 fn write_managed_launch_script(
@@ -452,6 +480,7 @@ fn prepare_managed_launch(
         &context.cli_type,
         &context.provider_id,
         &context.api_key_id,
+        None,
         Some(context.project_id.as_str()),
         &context.project_name,
         &context.project_path,
@@ -473,6 +502,7 @@ pub struct CliPreparedLaunch {
 /// launch, but no terminal window is opened — the caller execs the wrapper in
 /// the terminal it already owns. Instance semantics (heartbeat, stop, hot
 /// switch) are identical to GUI-launched instances.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare_cli_terminal_launch(
     db: &Database,
     cli_type: &str,
@@ -483,11 +513,37 @@ pub fn prepare_cli_terminal_launch(
     project_path: &str,
     prelaunch_command: Option<String>,
 ) -> Result<CliPreparedLaunch, String> {
+    prepare_cli_terminal_launch_with_profile(
+        db,
+        cli_type,
+        provider_id,
+        api_key_id,
+        None,
+        project_id,
+        project_name,
+        project_path,
+        prelaunch_command,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_cli_terminal_launch_with_profile(
+    db: &Database,
+    cli_type: &str,
+    provider_id: &str,
+    api_key_id: &str,
+    client_profile_id: Option<&str>,
+    project_id: Option<&str>,
+    project_name: &str,
+    project_path: &str,
+    prelaunch_command: Option<String>,
+) -> Result<CliPreparedLaunch, String> {
     let prepared = create_managed_launch(
         db,
         cli_type,
         provider_id,
         api_key_id,
+        client_profile_id,
         project_id,
         project_name,
         project_path,
@@ -509,6 +565,7 @@ fn create_managed_launch(
     cli_type: &str,
     provider_id: &str,
     api_key_id: &str,
+    client_profile_id: Option<&str>,
     project_id: Option<&str>,
     project_name: &str,
     project_path: &str,
@@ -518,7 +575,10 @@ fn create_managed_launch(
 ) -> Result<PreparedManagedLaunch, String> {
     let settings = db.settings_get().map_err(|e| e.to_string())?;
     if cli_type == "grok" {
-        grok::ensure_user_config(settings.proxy_port, &grok_startup_model(db, api_key_id))?;
+        grok::ensure_user_config(
+            settings.proxy_port,
+            &grok_startup_model(db, api_key_id, client_profile_id),
+        )?;
     }
     let launched_at = chrono::Utc::now().to_rfc3339();
     let session_token = new_session_token();
@@ -528,6 +588,7 @@ fn create_managed_launch(
         db,
         cli_type,
         api_key_id,
+        client_profile_id,
         &session_token,
         settings.proxy_port,
         prelaunch_command,
@@ -548,6 +609,7 @@ fn create_managed_launch(
         session_token: session_token.clone(),
         provider_id: provider_id.to_string(),
         api_key_id: api_key_id.to_string(),
+        client_profile_id: client_profile_id.map(str::to_string),
         project_id: project_id.map(str::to_string),
         created_at: launched_at.clone(),
         session_kind: "managed".to_string(),
@@ -572,6 +634,7 @@ fn create_managed_launch(
         project_id: project_id.map(str::to_string),
         provider_id: Some(provider_id.to_string()),
         api_key_id: Some(api_key_id.to_string()),
+        client_profile_id: client_profile_id.map(str::to_string),
         cli_type: cli_type.to_string(),
         terminal_type: terminal_type.to_string(),
         project_path: project_path.to_string(),
@@ -643,6 +706,17 @@ pub fn get_launch_preview(
     api_key_id: Option<&str>,
     cli_type: &str,
 ) -> Result<TerminalLaunchPreview, String> {
+    get_launch_preview_with_profile(db, project_id, provider_id, api_key_id, None, cli_type)
+}
+
+pub fn get_launch_preview_with_profile(
+    db: &Database,
+    project_id: Option<&str>,
+    provider_id: Option<&str>,
+    api_key_id: Option<&str>,
+    client_profile_id: Option<&str>,
+    cli_type: &str,
+) -> Result<TerminalLaunchPreview, String> {
     if let Some(project_id) = project_id {
         let context = resolve_project_launch_context(
             db,
@@ -656,6 +730,7 @@ pub fn get_launch_preview(
             db,
             &context.cli_type,
             &context.api_key_id,
+            client_profile_id,
             "preview-session-token",
             settings.proxy_port,
             context.prelaunch_command,
@@ -668,6 +743,7 @@ pub fn get_launch_preview(
         db,
         cli_type,
         api_key_id,
+        client_profile_id,
         "preview-session-token",
         settings.proxy_port,
         None,

@@ -58,6 +58,13 @@ pub fn run() {
             commands::api_keys::api_key_update,
             commands::api_keys::api_key_delete,
             commands::api_keys::api_key_reorder,
+            // Client Profile commands (Scheme A)
+            commands::client_profiles::client_profile_list,
+            commands::client_profiles::client_profile_get,
+            commands::client_profiles::client_profile_create,
+            commands::client_profiles::client_profile_update,
+            commands::client_profiles::client_profile_delete,
+            commands::client_profiles::client_profile_reorder,
             // Project commands
             commands::projects::project_list,
             commands::projects::project_get,

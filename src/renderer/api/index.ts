@@ -69,6 +69,15 @@ function buildApi(): Api {
       delete: (id) => invoke('api_key_delete', { id }),
       reorder: (providerId, keyIds) => invoke('api_key_reorder', { providerId, keyIds }),
     },
+    clientProfile: {
+      list: (clientKind) =>
+        invoke('client_profile_list', clientKind ? { clientKind } : undefined),
+      get: (id) => invoke('client_profile_get', { id }),
+      create: (input) => invoke('client_profile_create', { input }),
+      update: (input) => invoke('client_profile_update', { input }),
+      delete: (id) => invoke('client_profile_delete', { id }),
+      reorder: (clientKind, ids) => invoke('client_profile_reorder', { clientKind, ids }),
+    },
     project: {
       list: () => invoke('project_list'),
       get: (id) => invoke('project_get', { id }),
@@ -188,8 +197,13 @@ function buildApi(): Api {
     },
     desktopConnection: {
       state: (clientKind) => invoke('desktop_connection_state', { clientKind }),
-      apply: (clientKind, providerId, apiKeyId) =>
-        invoke('desktop_connection_apply', { clientKind, providerId, apiKeyId }),
+      apply: (clientKind, providerId, apiKeyId, clientProfileId) =>
+        invoke('desktop_connection_apply', {
+          clientKind,
+          providerId,
+          apiKeyId,
+          ...(clientProfileId ? { clientProfileId } : {}),
+        }),
       restore: (clientKind) => invoke('desktop_connection_restore', { clientKind }),
     },
     configTakeover: {

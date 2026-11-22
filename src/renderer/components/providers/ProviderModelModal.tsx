@@ -16,9 +16,15 @@ import styles from './ProviderModelModal.module.css'
 interface Props {
   provider: Provider
   apiKeys: ApiKey[]
-  onClose: () => void
+  onClose?: () => void
+  embedded?: boolean
 }
-export default function ProviderModelModal({ provider, apiKeys, onClose }: Props) {
+export default function ProviderModelModal({
+  provider,
+  apiKeys,
+  onClose,
+  embedded = false,
+}: Props) {
   const { t } = useTranslation()
   const message = useAppMessage()
   const { fetchCatalog, saveCatalog } = useProviderModelCatalogStore()
@@ -32,6 +38,9 @@ export default function ProviderModelModal({ provider, apiKeys, onClose }: Props
   const [apiKeyId, setApiKeyId] = useState<string | undefined>(
     apiKeys.length === 1 ? apiKeys[0].id : undefined,
   )
+  useEffect(() => {
+    setApiKeyId(apiKeys.length === 1 ? apiKeys[0].id : undefined)
+  }, [provider.id, apiKeys])
   useEffect(() => {
     // The provider page may still be loading keys when this window opens; once
     // exactly one arrives, preselect it instead of leaving the query disabled.
@@ -94,9 +103,10 @@ export default function ProviderModelModal({ provider, apiKeys, onClose }: Props
     setSaving(true)
     setSaveError(null)
     try {
-      await saveCatalog(provider.id, models, snapshot.revision)
+      const saved = await saveCatalog(provider.id, models, snapshot.revision)
+      setSnapshot(saved)
       message.success(t('keys.catalogSaved'))
-      onClose()
+      if (!embedded) onClose?.()
     } catch (error) {
       setSaveError(String(error))
     } finally {
@@ -118,6 +128,208 @@ export default function ProviderModelModal({ provider, apiKeys, onClose }: Props
                 ? 'keys.catalogFreshShort'
                 : undefined
 
+  const innerContent = (
+    <div className={styles.content}>
+      <section className={styles.querySection} aria-label={t('keys.queryConnection')}>
+        <div className={styles.queryHeader}>
+          <Typography.Text strong>{t('keys.queryConnection')}</Typography.Text>
+          {queryStatusKey && (
+            <Typography.Text type='secondary' className={styles.queryStatus}>
+              {t(queryStatusKey)}
+            </Typography.Text>
+          )}
+        </div>
+        <div className={styles.queryRow}>
+          <label htmlFor='provider-model-query-key'>{t('keys.queryKey')}</label>
+          <Select
+            id='provider-model-query-key'
+            aria-label={t('keys.queryKey')}
+            className={styles.keySelect}
+            value={apiKeyId}
+            placeholder={t('gateway.keyPlaceholder')}
+            disabled={saving}
+            options={apiKeys.map((key) => ({ value: key.id, label: key.alias || key.id }))}
+            onChange={setApiKeyId}
+          />
+          <Button
+            icon={<ReloadOutlined />}
+            loading={query.status === 'loading'}
+            disabled={saving || !query.canQuery || !validUa}
+            onClick={() => query.query({ force: true })}
+          >
+            {t(query.catalog ? 'keys.catalogRefresh' : 'keys.catalogLoad')}
+          </Button>
+        </div>
+        <details className={styles.connectionDetails}>
+          <summary>
+            <span>{t('gateway.connection')}</span>
+            <code title={query.route.baseUrl}>
+              {query.route.baseUrl || t('keys.connectionUnset')}
+            </code>
+          </summary>
+          <div className={styles.connectionFields}>
+            <Typography.Text type='secondary' className={styles.connectionHint}>
+              {t('keys.queryConnectionHint')}
+            </Typography.Text>
+            <div className={styles.field}>
+              <label htmlFor='provider-model-query-url'>{t('gateway.baseUrl')}</label>
+              <div className={styles.urlField}>
+                <Input
+                  id='provider-model-query-url'
+                  aria-label={t('gateway.baseUrl')}
+                  value={baseUrl}
+                  placeholder={provider.baseUrl || t('keys.connectionUnset')}
+                  status={validUrl ? undefined : 'error'}
+                  disabled={saving}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                />
+                <Button
+                  type='text'
+                  icon={<UndoOutlined />}
+                  aria-label={t('gateway.restoreDefault')}
+                  disabled={saving || !baseUrl.trim()}
+                  onClick={() => setBaseUrl('')}
+                >
+                  {t('gateway.restoreDefault')}
+                </Button>
+              </div>
+            </div>
+            <details className={styles.advancedDetails}>
+              <summary>{t('gateway.advanced')}</summary>
+              <div className={styles.advancedFields}>
+                <div className={styles.field}>
+                  <span>{t('gateway.authScheme')}</span>
+                  <Select
+                    aria-label={t('gateway.authScheme')}
+                    className={styles.authSelect}
+                    value={authScheme}
+                    disabled={saving}
+                    options={[
+                      { value: 'bearer', label: t('gateway.authBearer') },
+                      { value: 'x-api-key', label: t('gateway.authXApiKey') },
+                      { value: 'none', label: t('gateway.authNone') },
+                    ]}
+                    onChange={setAuthScheme}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <span>{t('gateway.userAgent')}</span>
+                  <UserAgentField
+                    value={query.userAgent}
+                    placeholder={t('keys.modelListUaDefault')}
+                    onChange={query.setUserAgent}
+                    onApply={(value) => {
+                      if (!/[\r\n]/u.test(value)) query.applyUserAgent(value)
+                    }}
+                    disabled={saving || !validUrl}
+                  />
+                </div>
+              </div>
+            </details>
+          </div>
+        </details>
+        {!validUrl && (
+          <Typography.Text type='danger' className={styles.inlineNotice}>
+            {t('gateway.invalidBaseUrl')}
+          </Typography.Text>
+        )}
+        {!validUa && (
+          <Typography.Text type='danger' className={styles.inlineNotice}>
+            {t('gateway.invalidUserAgent')}
+          </Typography.Text>
+        )}
+      </section>
+      {selectedKey && (!selectedKey.isActive || selectedKey.isExhausted) && (
+        <Alert type='warning' showIcon title={t('gateway.keyUnavailable')} />
+      )}
+      {query.error && (
+        <Alert
+          type='error'
+          showIcon
+          title={query.error}
+          action={
+            <Button
+              size='small'
+              disabled={saving || !query.canQuery || !validUa}
+              onClick={() => query.query({ force: true })}
+            >
+              {t('common.retry')}
+            </Button>
+          }
+        />
+      )}
+      {(readError || saveError) && (
+        <Alert
+          type='error'
+          showIcon
+          title={saveError ? t('keys.catalogSaveConflict') : t('gateway.catalogLoadFailed')}
+          description={readError || saveError}
+          action={
+            <Button
+              size='small'
+              loading={reading}
+              onClick={() => {
+                setSnapshot(null)
+                setSaveError(null)
+                setLoadVersion((version) => version + 1)
+              }}
+            >
+              {t('keys.catalogReload')}
+            </Button>
+          }
+        />
+      )}
+      <section className={styles.catalogSection} aria-label={t('keys.providerModelList')}>
+        <div className={styles.catalogHeader}>
+          <div className={styles.catalogHeaderRow}>
+            <div>
+              <Typography.Text strong>{t('keys.providerModelList')}</Typography.Text>
+              <Typography.Text type='secondary' style={{ display: 'block', marginTop: 2 }}>
+                {t('keys.providerModelHint')}
+              </Typography.Text>
+            </div>
+            {embedded && (
+              <Button
+                type='primary'
+                loading={saving}
+                disabled={reading || !snapshot || !actions?.confirm}
+                onClick={() => actions?.confirm?.()}
+              >
+                {t('keys.catalogSave')}
+              </Button>
+            )}
+          </div>
+        </div>
+        {snapshot ? (
+          <ModelCatalogManager
+            key={`${provider.id}:${loadVersion}`}
+            providerManagement
+            disabled={saving}
+            label={provider.name}
+            value={{
+              ...EMPTY_MODEL_MAPPING.clients.codex,
+              catalogMode: 'custom',
+              models: snapshot.models,
+            }}
+            catalog={query.catalog}
+            onCommit={({ models }) => void save(models)}
+            onBack={() => {}}
+            onActionsChange={setActions}
+          />
+        ) : reading ? (
+          <div className={styles.reading}>
+            <Spin size='small' />
+            {t('common.loading')}
+          </div>
+        ) : null}
+      </section>
+    </div>
+  )
+
+  if (embedded) {
+    return <div className={styles.embeddedBody}>{innerContent}</div>
+  }
+
   return (
     <Modal
       open
@@ -130,7 +342,7 @@ export default function ProviderModelModal({ provider, apiKeys, onClose }: Props
       width={820}
       style={{ top: 24 }}
       onCancel={() => {
-        if (!saving) onClose()
+        if (!saving) onClose?.()
       }}
       closable={!saving}
       keyboard={!saving}
@@ -152,187 +364,17 @@ export default function ProviderModelModal({ provider, apiKeys, onClose }: Props
         </div>
       }
     >
-      <SimpleBar className={styles.body}>
-        <div className={styles.content}>
-          <section className={styles.querySection} aria-label={t('keys.queryConnection')}>
-            <div className={styles.queryHeader}>
-              <Typography.Text strong>{t('keys.queryConnection')}</Typography.Text>
-              {queryStatusKey && (
-                <Typography.Text type='secondary' className={styles.queryStatus}>
-                  {t(queryStatusKey)}
-                </Typography.Text>
-              )}
-            </div>
-            <div className={styles.queryRow}>
-              <label htmlFor='provider-model-query-key'>{t('keys.queryKey')}</label>
-              <Select
-                id='provider-model-query-key'
-                aria-label={t('keys.queryKey')}
-                className={styles.keySelect}
-                value={apiKeyId}
-                placeholder={t('gateway.keyPlaceholder')}
-                disabled={saving}
-                options={apiKeys.map((key) => ({ value: key.id, label: key.alias || key.id }))}
-                onChange={setApiKeyId}
-              />
-              <Button
-                icon={<ReloadOutlined />}
-                loading={query.status === 'loading'}
-                disabled={saving || !query.canQuery || !validUa}
-                onClick={() => query.query({ force: true })}
-              >
-                {t(query.catalog ? 'keys.catalogRefresh' : 'keys.catalogLoad')}
-              </Button>
-            </div>
-            <details className={styles.connectionDetails}>
-              <summary>
-                <span>{t('gateway.connection')}</span>
-                <code title={query.route.baseUrl}>
-                  {query.route.baseUrl || t('keys.connectionUnset')}
-                </code>
-              </summary>
-              <div className={styles.connectionFields}>
-                <Typography.Text type='secondary' className={styles.connectionHint}>
-                  {t('keys.queryConnectionHint')}
-                </Typography.Text>
-                <div className={styles.field}>
-                  <label htmlFor='provider-model-query-url'>{t('gateway.baseUrl')}</label>
-                  <div className={styles.urlField}>
-                    <Input
-                      id='provider-model-query-url'
-                      aria-label={t('gateway.baseUrl')}
-                      value={baseUrl}
-                      placeholder={provider.baseUrl || t('keys.connectionUnset')}
-                      status={validUrl ? undefined : 'error'}
-                      disabled={saving}
-                      onChange={(event) => setBaseUrl(event.target.value)}
-                    />
-                    <Button
-                      type='text'
-                      icon={<UndoOutlined />}
-                      aria-label={t('gateway.restoreDefault')}
-                      disabled={saving || !baseUrl.trim()}
-                      onClick={() => setBaseUrl('')}
-                    >
-                      {t('gateway.restoreDefault')}
-                    </Button>
-                  </div>
-                </div>
-                <details className={styles.advancedDetails}>
-                  <summary>{t('gateway.advanced')}</summary>
-                  <div className={styles.advancedFields}>
-                    <div className={styles.field}>
-                      <span>{t('gateway.authScheme')}</span>
-                      <Select
-                        aria-label={t('gateway.authScheme')}
-                        className={styles.authSelect}
-                        value={authScheme}
-                        disabled={saving}
-                        options={[
-                          { value: 'bearer', label: t('gateway.authBearer') },
-                          { value: 'x-api-key', label: t('gateway.authXApiKey') },
-                          { value: 'none', label: t('gateway.authNone') },
-                        ]}
-                        onChange={setAuthScheme}
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <span>{t('gateway.userAgent')}</span>
-                      <UserAgentField
-                        value={query.userAgent}
-                        placeholder={t('keys.modelListUaDefault')}
-                        onChange={query.setUserAgent}
-                        onApply={(value) => {
-                          if (!/[\r\n]/u.test(value)) query.applyUserAgent(value)
-                        }}
-                        disabled={saving || !validUrl}
-                      />
-                    </div>
-                  </div>
-                </details>
-              </div>
-            </details>
-            {!validUrl && (
-              <Typography.Text type='danger' className={styles.inlineNotice}>
-                {t('gateway.invalidBaseUrl')}
-              </Typography.Text>
-            )}
-            {!validUa && (
-              <Typography.Text type='danger' className={styles.inlineNotice}>
-                {t('gateway.invalidUserAgent')}
-              </Typography.Text>
-            )}
-          </section>
-          {selectedKey && (!selectedKey.isActive || selectedKey.isExhausted) && (
-            <Alert type='warning' showIcon title={t('gateway.keyUnavailable')} />
-          )}
-          {query.error && (
-            <Alert
-              type='error'
-              showIcon
-              title={query.error}
-              action={
-                <Button
-                  size='small'
-                  disabled={saving || !query.canQuery || !validUa}
-                  onClick={() => query.query({ force: true })}
-                >
-                  {t('common.retry')}
-                </Button>
-              }
-            />
-          )}
-          {(readError || saveError) && (
-            <Alert
-              type='error'
-              showIcon
-              title={saveError ? t('keys.catalogSaveConflict') : t('gateway.catalogLoadFailed')}
-              description={readError || saveError}
-              action={
-                <Button
-                  size='small'
-                  loading={reading}
-                  onClick={() => {
-                    setSnapshot(null)
-                    setSaveError(null)
-                    setLoadVersion((version) => version + 1)
-                  }}
-                >
-                  {t('keys.catalogReload')}
-                </Button>
-              }
-            />
-          )}
-          <section className={styles.catalogSection} aria-label={t('keys.providerModelList')}>
-            <div className={styles.catalogHeader}>
-              <Typography.Text strong>{t('keys.providerModelList')}</Typography.Text>
-              <Typography.Text type='secondary'>{t('keys.providerModelHint')}</Typography.Text>
-            </div>
-            {snapshot ? (
-              <ModelCatalogManager
-                key={`${provider.id}:${loadVersion}`}
-                providerManagement
-                disabled={saving}
-                label={provider.name}
-                value={{
-                  ...EMPTY_MODEL_MAPPING.clients.codex,
-                  catalogMode: 'custom',
-                  models: snapshot.models,
-                }}
-                catalog={query.catalog}
-                onCommit={({ models }) => void save(models)}
-                onBack={() => {}}
-                onActionsChange={setActions}
-              />
-            ) : reading ? (
-              <div className={styles.reading}>
-                <Spin size='small' />
-                {t('common.loading')}
-              </div>
-            ) : null}
-          </section>
-        </div>
-      </SimpleBar>
+      <SimpleBar className={styles.body}>{innerContent}</SimpleBar>
     </Modal>
   )
+}
+
+export function ProviderModelCatalogPanel({
+  provider,
+  apiKeys,
+}: {
+  provider: Provider
+  apiKeys: ApiKey[]
+}) {
+  return <ProviderModelModal provider={provider} apiKeys={apiKeys} embedded />
 }

@@ -38,6 +38,7 @@ fn assignment_rejects_a_key_from_another_cli_type() {
             id: "instance-claude".to_string(),
             provider_id: grok_provider.id,
             api_key_id: grok_key.id,
+            client_profile_id: None,
             assignment_source: Some("manual_ui".to_string()),
         },
     )
@@ -81,6 +82,7 @@ fn assignment_accepts_legacy_claude_instance_type_for_claude_code_keys() {
             id: "instance-claude".to_string(),
             provider_id: provider.id,
             api_key_id: next_key.id.clone(),
+            client_profile_id: None,
             assignment_source: Some("manual_ui".to_string()),
         },
     )
@@ -136,6 +138,7 @@ fn assignment_rejects_terminal_instances_without_changing_the_session() {
             id: "instance-claude".to_string(),
             provider_id: provider.id,
             api_key_id: next_key.id,
+            client_profile_id: None,
             assignment_source: Some("manual_ui".to_string()),
         },
     )
@@ -202,6 +205,7 @@ fn assignment_rejects_an_exhausted_key() {
             id: "instance-claude".to_string(),
             provider_id: provider.id,
             api_key_id: exhausted_key.id,
+            client_profile_id: None,
             assignment_source: Some("manual_ui".to_string()),
         },
     )

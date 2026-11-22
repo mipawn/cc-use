@@ -1,4 +1,5 @@
 import { useApiKeyStore } from './apiKeyStore'
+import { useClientProfileStore } from './clientProfileStore'
 import { useProjectStore } from './projectStore'
 import { useProviderStore } from './providerStore'
 
@@ -14,6 +15,7 @@ export async function reloadMigratedStores(): Promise<void> {
   const providerIds = useProviderStore.getState().providers.map((provider) => provider.id)
   await Promise.all([
     useApiKeyStore.getState().fetchAllApiKeys(providerIds),
+    useClientProfileStore.getState().fetchProfiles(),
     useProjectStore.getState().fetchProjects(),
   ])
 }

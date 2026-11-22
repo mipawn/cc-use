@@ -49,31 +49,32 @@ function groupFor(element: HTMLElement, label: string): HTMLElement {
 }
 
 describe('Sidebar navigation groups', () => {
-  it('keeps gateway outside the management and observation groups', async () => {
+  it('groups client workspaces with gateway under access, upstream resources under keys, and observation separately', async () => {
     const rendered = await renderAt('/keys')
 
-    const manageGroup = groupFor(rendered, 'workspace.manage')
-    expect(linkTo(manageGroup, '/keys')).not.toBeNull()
-    expect(linkTo(manageGroup, '/gateway')).toBeNull()
+    const accessGroup = groupFor(rendered, 'clients.groupAccess')
+    expect(linkTo(accessGroup, '/clients/claude-code')).not.toBeNull()
+    expect(linkTo(accessGroup, '/clients/codex')).not.toBeNull()
+    expect(linkTo(accessGroup, '/clients/claude-desktop')).not.toBeNull()
+    expect(linkTo(accessGroup, '/clients/grok')).not.toBeNull()
+    expect(linkTo(accessGroup, '/gateway')).not.toBeNull()
 
-    const observationGroup = groupFor(rendered, 'workspace.observation')
+    const upstreamGroup = groupFor(rendered, 'clients.groupUpstream')
+    expect(linkTo(upstreamGroup, '/keys')).not.toBeNull()
+    expect(linkTo(upstreamGroup, '/gateway')).toBeNull()
+
+    const observationGroup = groupFor(rendered, 'clients.groupObserve')
     expect(linkTo(observationGroup, '/stats')).not.toBeNull()
     expect(linkTo(observationGroup, '/console')).not.toBeNull()
     expect(linkTo(observationGroup, '/gateway')).toBeNull()
-
-    // The gateway entry has its own parent with exactly one link, so it is a
-    // standalone access-point item rather than a member of either group.
-    const gatewayLink = linkTo(rendered, '/gateway')
-    expect(gatewayLink).not.toBeNull()
-    expect(gatewayLink!.parentElement).not.toBe(manageGroup)
-    expect(gatewayLink!.parentElement).not.toBe(observationGroup)
-    expect(gatewayLink!.parentElement!.querySelectorAll('a')).toHaveLength(1)
   })
 
   it('marks only the current route as the active page', async () => {
-    const rendered = await renderAt('/gateway')
+    const rendered = await renderAt('/clients/claude-code')
 
-    expect(linkTo(rendered, '/gateway')?.getAttribute('aria-current')).toBe('page')
+    expect(rendered.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+    expect(linkTo(rendered, '/clients/claude-code')?.getAttribute('aria-current')).toBe('page')
+    expect(linkTo(rendered, '/gateway')?.hasAttribute('aria-current')).toBe(false)
     expect(linkTo(rendered, '/keys')?.hasAttribute('aria-current')).toBe(false)
     expect(linkTo(rendered, '/stats')?.hasAttribute('aria-current')).toBe(false)
     expect(linkTo(rendered, '/console')?.hasAttribute('aria-current')).toBe(false)
@@ -83,19 +84,10 @@ describe('Sidebar navigation groups', () => {
   it('keeps the observation routes reachable through their own entries', async () => {
     const rendered = await renderAt('/console')
 
+    expect(rendered.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
     expect(linkTo(rendered, '/console')?.getAttribute('aria-current')).toBe('page')
     expect(linkTo(rendered, '/stats')?.hasAttribute('aria-current')).toBe(false)
     expect(linkTo(rendered, '/gateway')?.hasAttribute('aria-current')).toBe(false)
-  })
-
-  it('highlights the console uniquely and keeps the gateway as one ordinary navigation row', async () => {
-    const rendered = await renderAt('/console')
-    expect(rendered.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
-    expect(linkTo(rendered, '/console')?.getAttribute('aria-current')).toBe('page')
     expect(linkTo(rendered, '/logs')).toBeNull()
-    const gateway = linkTo(rendered, '/gateway')!
-    const keys = linkTo(rendered, '/keys')!
-    expect(gateway.className).toBe(keys.className)
-    expect(gateway.parentElement?.children).toHaveLength(1)
   })
 })

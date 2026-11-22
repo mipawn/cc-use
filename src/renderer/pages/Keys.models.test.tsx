@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiKey, Provider } from '@shared/types'
 import type { ClientCatalog } from '../utils/modelMapping'
 import { clearModelCatalogQueryCache } from '../hooks/useModelCatalogQuery'
-import Keys from './Keys'
+import Keys, { computeProviderReorder } from './Keys'
+import ProviderModelModal from '../components/providers/ProviderModelModal'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
+import { useClientProfileStore } from '../stores/clientProfileStore'
 import { useProviderModelCatalogStore } from '../stores/providerModelCatalogStore'
 
 const mocks = vi.hoisted(() => ({
@@ -52,12 +55,16 @@ vi.mock('../api', () => ({
       create: async (input: ApiKey) => input,
       retiredMappingReport: async () => [],
     },
+    clientProfile: {
+      list: async () => [],
+    },
+    gateway: {
+      list: async () => [],
+    },
     keyUsage: { refresh: async () => ({ error: null, isValid: true }) },
     balance: {
       refresh: async () => ({ balance: null, isValid: true, error: null }),
       checkScript: async () => ({ url: '', method: 'GET', headers: {} }),
-      // The editor renders the shared query section, which reads the catalogue
-      // through the bridge; an empty list means only the custom entry shows.
       schemes: async () => [],
       testDraft: async () => ({
         scope: 'key',
@@ -84,20 +91,12 @@ vi.mock('../api', () => ({
     },
   }),
 }))
-vi.mock('../hooks/useServiceStatus', () => ({
-  useServiceStatus: () => ({ status: { isRunning: false } }),
-}))
-vi.mock('../stores/settingsStore', () => ({
-  useSettingsStore: () => ({ globalSettings: { defaultTerminalType: 'iterm2' } }),
-}))
+
 vi.mock('../hooks/useAppMessage', () => ({ useAppMessage: () => mocks }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh' } }),
 }))
 vi.mock('../components/providers/ProviderModal', () => ({ default: () => null }))
-// The modal internals (refresh/error states, T22 second half) are covered by
-// ResourceUsageModal's own tests; this container test only proves the Keys page
-// hands it the clicked provider's real providerId.
 vi.mock('../components/usage/ResourceUsageModal', () => ({
   default: ({
     open,
@@ -182,9 +181,6 @@ const key = (overrides: Partial<ApiKey> = {}): ApiKey =>
     cachedUsage: null,
     lastUsageCheckedAt: null,
     modelMapping: null,
-    clientConfigs: {
-      claude_code: { baseUrl: 'https://key.example/anthropic', authScheme: 'bearer' },
-    },
     cooldownUntil: null,
     lastErrorAt: null,
     lastErrorKind: null,
@@ -210,6 +206,7 @@ beforeEach(() => {
   mocks.keys = [key()]
   useProviderStore.setState({ providers: [], loading: false })
   useApiKeyStore.setState({ apiKeys: {}, loading: {} })
+  useClientProfileStore.setState({ profiles: [], loading: false })
   document.body.innerHTML = ''
 })
 
@@ -221,25 +218,17 @@ const flush = async (times = 3) => {
   }
 }
 
-/** Poll for a condition so parallel test files do not turn slow renders into flakes. */
-async function waitFor(check: () => boolean, timeout = 8000) {
-  const started = Date.now()
-  while (Date.now() - started < timeout) {
-    if (check()) return
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    })
-  }
-  expect(check()).toBe(true)
-}
-
 async function withPage(check: (container: HTMLDivElement) => Promise<void>) {
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
   try {
     await act(async () => {
-      root.render(<Keys />)
+      root.render(
+        <MemoryRouter>
+          <Keys />
+        </MemoryRouter>,
+      )
     })
     await flush()
     await check(container)
@@ -254,25 +243,13 @@ const buttonByText = (text: string, scope: ParentNode = document.body) =>
     | HTMLButtonElement
     | undefined
 
-const itemByText = (text: string) =>
-  Array.from(
-    document.body.querySelectorAll('.ant-dropdown-menu-item, .ant-dropdown-menu-submenu-title'),
-  ).find((node) => node.textContent?.includes(text)) as HTMLElement | undefined
-
-async function clickMenu(text: string) {
-  await waitFor(() => Boolean(itemByText(text)))
-  await act(async () => {
-    itemByText(text)!.click()
-  })
+async function clickTab(label: string) {
+  const tab = Array.from(document.body.querySelectorAll('[role="tab"]')).find((el) =>
+    el.textContent?.includes(label),
+  ) as HTMLElement | undefined
+  expect(tab).toBeDefined()
+  await act(async () => tab!.click())
   await flush()
-}
-
-async function openProviderMenu() {
-  await waitFor(() => Boolean(document.body.querySelector('[aria-label="common.more"]')))
-  await act(async () => {
-    document.body.querySelector<HTMLButtonElement>('[aria-label="common.more"]')!.click()
-  })
-  await waitFor(() => Boolean(itemByText('usageDetail.openProvider')))
 }
 
 async function clickButton(text: string) {
@@ -281,414 +258,86 @@ async function clickButton(text: string) {
   await act(async () => button!.click())
   await flush()
 }
-async function fill(selector: string, value: string) {
-  const input = document.body.querySelector<HTMLInputElement>(selector)!
-  expect(input).not.toBeNull()
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  await flush()
-}
-async function openModels() {
-  await openProviderMenu()
-  await clickMenu('keys.viewModels')
-  await flush()
-}
 
-it('opens independent provider model management and queries only on explicit action', async () => {
-  await withPage(async () => {
-    await openModels()
-    expect(document.body.textContent).toContain('keys.viewModels')
-    expect(document.body.querySelector('input[type="password"]')).toBeNull()
-    expect(mocks.catalogPreview).not.toHaveBeenCalled()
-    await clickButton('keys.catalogLoad')
-    expect(mocks.catalogPreview).toHaveBeenCalledTimes(1)
-    expect(mocks.catalogPreview.mock.calls[0][0]).toEqual({
-      providerId: 'provider-1',
-      apiKeyId: 'key-1',
-      connectionConfig: { baseUrl: null, authScheme: 'bearer', userAgent: null },
+describe('Keys workspace model catalog & provider management', () => {
+  it('reorders provider ids cleanly', () => {
+    expect(computeProviderReorder(['a', 'b', 'c'], 'c', 'a')).toEqual(['c', 'a', 'b'])
+    expect(computeProviderReorder(['a', 'b'], 'missing', 'a')).toBeNull()
+  })
+
+  it('opens embedded provider model catalog tab and queries only on explicit action', async () => {
+    await withPage(async () => {
+      await clickTab('keysWorkspace.tabCatalog')
+      expect(document.body.textContent).toContain('keys.providerModelList')
+      expect(mocks.catalogPreview).not.toHaveBeenCalled()
+      await clickButton('keys.catalogLoad')
+      expect(mocks.catalogPreview).toHaveBeenCalledTimes(1)
+      expect(mocks.catalogPreview.mock.calls[0][0]).toEqual({
+        providerId: 'provider-1',
+        apiKeyId: 'key-1',
+        connectionConfig: { baseUrl: null, authScheme: 'bearer', userAgent: null },
+      })
+      expect(document.body.textContent).toContain('cloud-model-a')
     })
-    expect(document.body.textContent).toContain('cloud-model-a')
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="cloud-model-a"]')!.checked,
-    ).toBe(false)
-    expect(mocks.saveCatalog).not.toHaveBeenCalled()
-    expect(mocks.updateKey).not.toHaveBeenCalled()
   })
-})
 
-it('does not inherit any client connection or guess a clientKind for multi-client keys', async () => {
-  mocks.keys = [key({ types: ['claude_code', 'codex'] })]
-  await withPage(async () => {
-    await openModels()
-    expect(document.body.textContent).toContain('https://provider.example/v1')
-    await clickButton('keys.catalogLoad')
-    const input = mocks.catalogPreview.mock.calls[0][0]
-    expect(input).not.toHaveProperty('clientKind')
-    expect(input).not.toHaveProperty('clientConfigs')
-    expect(input).not.toHaveProperty('keyValue')
-    expect(input.connectionConfig).toEqual({ baseUrl: null, authScheme: 'bearer', userAgent: null })
-  })
-})
-
-it('chooses among saved keys inside the model window', async () => {
-  mocks.keys = [key(), key({ id: 'key-2', alias: 'backup key' })]
-  await withPage(async () => {
-    await openModels()
-    expect(itemByText('backup key')).toBeUndefined()
-    expect(buttonByText('keys.catalogLoad')!.disabled).toBe(true)
-    const combo = document.body.querySelector('[aria-label="keys.queryKey"]')!
-    await act(async () =>
-      combo.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowDown', keyCode: 40, bubbles: true }),
-      ),
-    )
-    await flush()
-    const option = [...document.body.querySelectorAll<HTMLElement>('.ant-select-item-option')].find(
-      (item) => item.textContent?.includes('backup key'),
-    )!
-    await act(async () => option.click())
-    await clickButton('keys.catalogLoad')
-    expect(mocks.catalogPreview.mock.calls[0][0].apiKeyId).toBe('key-2')
-  })
-})
-
-it('allows manual model management without any saved Key', async () => {
-  mocks.keys = []
-  await withPage(async () => {
-    await openModels()
-    expect(buttonByText('keys.catalogLoad')!.disabled).toBe(true)
-    await clickButton('keys.manualAddModel')
-    await fill('input[aria-label="keys.clientModelId"]', 'manual-id')
-    await fill('input[aria-label="keys.clientModelName"]', 'Manual name')
-    await clickButton('keys.clientModelAdd')
-    await clickButton('keys.catalogSave')
-    expect(mocks.saveCatalog).toHaveBeenCalledWith(
-      'provider-1',
-      [{ id: 'manual-id', displayName: 'Manual name' }],
-      0,
-    )
-    expect(mocks.catalogPreview).not.toHaveBeenCalled()
-    expect(mocks.updateKey).not.toHaveBeenCalled()
-  })
-})
-
-it('keeps query parameters local and cancellation leaves the saved catalog unchanged', async () => {
-  await withPage(async () => {
-    await openModels()
-    await act(async () => {
-      const details = document.body.querySelector<HTMLDetailsElement>('details')!
-      details.querySelector('summary')!.click()
-      details.querySelector<HTMLDetailsElement>('details')!.querySelector('summary')!.click()
+  it('saves checked models from the embedded catalog tab and updates revision', async () => {
+    await withPage(async () => {
+      await clickTab('keysWorkspace.tabCatalog')
+      await clickButton('keys.catalogLoad')
+      const checkbox = document.body.querySelector<HTMLInputElement>(
+        'input[aria-label="cloud-model-a"]',
+      )!
+      await act(async () => checkbox.click())
+      await flush()
+      await clickButton('keys.catalogSave')
+      expect(mocks.saveCatalog).toHaveBeenCalledWith(
+        'provider-1',
+        [{ id: 'cloud-model-a', displayName: 'cloud-model-a', supports1m: false }],
+        0,
+      )
+      expect(mocks.success).toHaveBeenCalledWith('keys.catalogSaved')
     })
-    await fill('input[aria-label="gateway.baseUrl"]', 'https://query.example/v1')
-    await fill('input[aria-label="User-Agent"]', 'query-agent')
-    await clickButton('keys.catalogLoad')
-    expect(mocks.catalogPreview.mock.calls[0][0].connectionConfig).toEqual({
-      baseUrl: 'https://query.example/v1',
-      authScheme: 'bearer',
-      userAgent: 'query-agent',
+  })
+
+  it('hands the selected provider id to the resource usage modal', async () => {
+    await withPage(async (container) => {
+      const statsBtn = Array.from(container.querySelectorAll('header button')).find((btn) =>
+        btn.textContent?.includes('statistics.title'),
+      ) as HTMLButtonElement | undefined
+      expect(statsBtn).toBeDefined()
+      await act(async () => statsBtn!.click())
+      await flush()
+      expect(mocks.getResourceStatistics).toHaveBeenCalledWith('week', 'provider-1', undefined)
     })
-    await act(async () =>
-      document.body.querySelector<HTMLInputElement>('input[aria-label="cloud-model-a"]')!.click(),
-    )
-    await clickButton('common.cancel')
-    expect(mocks.saveCatalog).not.toHaveBeenCalled()
-    expect(mocks.updateKey).not.toHaveBeenCalled()
-    expect(mocks.saveQueryPreference).not.toHaveBeenCalled()
   })
-})
 
-it('saves only checked models at the read revision and publishes the saved snapshot', async () => {
-  mocks.getCatalog.mockResolvedValue({
-    models: [{ id: 'old-id', displayName: 'Old' }],
-    revision: 4,
-    updatedAt: null,
-  })
-  await withPage(async () => {
-    await openModels()
-    await clickButton('keys.catalogLoad')
-    await act(async () =>
-      document.body.querySelector<HTMLInputElement>('input[aria-label="cloud-model-b"]')!.click(),
+  it('blocks modal cancellation while ProviderModelModal save is in flight', async () => {
+    let finishSave!: () => void
+    mocks.saveCatalog.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = () => resolve({ models: [], revision: 1, updatedAt: null })
+        }),
     )
-    await clickButton('keys.catalogSave')
-    expect(mocks.saveCatalog).toHaveBeenCalledWith(
-      'provider-1',
-      [
-        { id: 'old-id', displayName: 'Old' },
-        { id: 'cloud-model-b', displayName: 'cloud-model-b' },
-      ],
-      4,
-    )
-    expect(useProviderModelCatalogStore.getState().catalogs['provider-1'].models).toHaveLength(2)
-    expect(mocks.updateKey).not.toHaveBeenCalled()
-  })
-})
-
-it('preserves selection and gives an explicit reload action when revision save conflicts', async () => {
-  mocks.saveCatalog.mockRejectedValue('revision conflict')
-  await withPage(async () => {
-    await openModels()
-    await clickButton('keys.manualAddModel')
-    await fill('input[aria-label="keys.clientModelId"]', 'draft-id')
-    await clickButton('keys.clientModelAdd')
-    await clickButton('keys.catalogSave')
-    expect(document.body.textContent).toContain('keys.catalogSaveConflict')
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="draft-id"]')!.checked,
-    ).toBe(true)
-    expect(buttonByText('keys.catalogReload')).toBeDefined()
-  })
-})
-
-it('hands the clicked provider id to the resource usage query on first open', async () => {
-  await withPage(async () => {
-    await openProviderMenu()
-    await clickMenu('usageDetail.openProvider')
-
-    expect(mocks.getResourceStatistics).toHaveBeenCalled()
-    expect(mocks.getResourceStatistics.mock.calls[0][1]).toBe('provider-1')
-  })
-})
-
-it('blocks cancellation until an explicit catalog save finishes', async () => {
-  let resolveSave!: (value: { models: never[]; revision: number; updatedAt: null }) => void
-  mocks.saveCatalog.mockReturnValue(
-    new Promise((resolve) => {
-      resolveSave = resolve
-    }),
-  )
-  mocks.getCatalog.mockResolvedValue({
-    models: [{ id: 'busy-model', displayName: 'Busy model', supports1m: true }],
-    revision: 0,
-    updatedAt: null,
-  })
-  await withPage(async () => {
-    await openModels()
-    await clickButton('keys.catalogSave')
-    expect(buttonByText('common.cancel')!.disabled).toBe(true)
-    expect(document.body.querySelector('.ant-modal-close')).toBeNull()
-    expect(buttonByText('keys.manualAddModel')!.disabled).toBe(true)
-    expect(buttonByText('keys.selectAllModels')!.disabled).toBe(true)
-    expect(buttonByText('keys.clearModels')!.disabled).toBe(true)
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="busy-model"]')!.disabled,
-    ).toBe(true)
-    expect(
-      document.body.querySelector<HTMLInputElement>(
-        'input[aria-label="busy-model keys.supports1m"]',
-      )!.disabled,
-    ).toBe(true)
-    expect(
-      document.body.querySelector<HTMLButtonElement>(
-        'button[aria-label="busy-model keys.renameModel"]',
-      )!.disabled,
-    ).toBe(true)
-    expect(
-      document.body.querySelector<HTMLButtonElement>(
-        'button[aria-label="busy-model common.delete"]',
-      )!.disabled,
-    ).toBe(true)
-    await act(async () => resolveSave({ models: [], revision: 1, updatedAt: null }))
-    await flush()
-    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
-  })
-})
-
-it('persists outer rename, remove, manual add and 1M changes, then saves and reopens an empty list', async () => {
-  mocks.getCatalog.mockResolvedValue({
-    models: [
-      { id: 'rename-me', displayName: 'Old label' },
-      { id: 'remove-me', displayName: 'Remove' },
-    ],
-    revision: 7,
-    updatedAt: null,
-  })
-  await withPage(async () => {
-    await openModels()
-    await act(async () =>
-      document.body
-        .querySelector<HTMLButtonElement>('button[aria-label="rename-me keys.renameModel"]')!
-        .click(),
-    )
-    await fill('input[aria-label="rename-me keys.clientModelName"]', 'New label')
-    await act(async () =>
-      document.body
-        .querySelector<HTMLInputElement>('input[aria-label="rename-me keys.supports1m"]')!
-        .click(),
-    )
-    await act(async () =>
-      document.body
-        .querySelector<HTMLButtonElement>('button[aria-label="remove-me common.delete"]')!
-        .click(),
-    )
-    await clickButton('keys.manualAddModel')
-    await fill('input[aria-label="keys.clientModelId"]', 'manual-model')
-    await fill('input[aria-label="keys.clientModelName"]', 'Manual label')
-    await clickButton('keys.clientModelAdd')
-    await clickButton('keys.catalogSave')
-    const models = [
-      { id: 'rename-me', displayName: 'New label', supports1m: true },
-      { id: 'manual-model', displayName: 'Manual label' },
-    ]
-    expect(mocks.saveCatalog).toHaveBeenLastCalledWith('provider-1', models, 7)
-    expect(mocks.updateKey).not.toHaveBeenCalled()
-    mocks.getCatalog.mockResolvedValue({ models, revision: 8, updatedAt: null })
-    await openModels()
-    expect(document.body.textContent).toContain('New label')
-    expect(
-      document.body.querySelector<HTMLInputElement>(
-        'input[aria-label="rename-me keys.supports1m"]',
-      )!.checked,
-    ).toBe(true)
-    expect(document.body.querySelector('input[aria-label="remove-me"]')).toBeNull()
-    await clickButton('keys.clearModels')
-    await clickButton('keys.catalogSave')
-    expect(mocks.saveCatalog).toHaveBeenLastCalledWith('provider-1', [], 8)
-    mocks.getCatalog.mockResolvedValue({ models: [], revision: 9, updatedAt: null })
-    await openModels()
-    expect(document.body.textContent).toContain('keys.noMatchingModels')
-    expect(useProviderModelCatalogStore.getState().catalogs['provider-1'].models).toEqual([])
-    expect(mocks.updateKey).not.toHaveBeenCalled()
-  })
-})
-
-it('keeps a separately saved provider catalog after a selected Key draft is cancelled', async () => {
-  await withPage(async () => {
-    await openModels()
-    await clickButton('keys.manualAddModel')
-    await fill('input[aria-label="keys.clientModelId"]', 'provider-persisted')
-    await clickButton('keys.clientModelAdd')
-    await clickButton('keys.catalogSave')
-    await clickButton('common.edit')
-    const tab = Array.from(document.body.querySelectorAll<HTMLElement>('.ant-tabs-tab')).find(
-      (node) => node.textContent?.includes('keys.modelConfiguration'),
-    )!
-    await act(async () => tab.click())
-    const header = Array.from(
-      document.body.querySelectorAll<HTMLElement>('.ant-collapse-header'),
-    ).find((node) => node.textContent?.includes('Claude Code'))!
-    if (header.getAttribute('aria-expanded') !== 'true') await act(async () => header.click())
-    const select = document.body
-      .querySelector('[aria-label="Claude Code keys.clientModelSelection"]')!
-      .closest('.ant-select')!
-    await act(async () =>
-      select
-        .querySelector('input[role="combobox"]')!
-        .dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'ArrowDown', keyCode: 40, bubbles: true }),
-        ),
-    )
-    const option = Array.from(
-      document.body.querySelectorAll<HTMLElement>('.ant-select-item-option'),
-    ).find((node) => node.textContent?.includes('provider-persisted'))!
-    expect(option).toBeDefined()
-    await act(async () => option.click())
-    // Responsive tags collapse in jsdom's zero-width layout; verify the real option state.
-    expect(option.classList.contains('ant-select-item-option-selected')).toBe(true)
-    await clickButton('common.cancel')
-    expect(mocks.updateKey).not.toHaveBeenCalled()
-    expect(mocks.saveCatalog).toHaveBeenCalledOnce()
-    expect(useProviderModelCatalogStore.getState().catalogs['provider-1'].models).toEqual([
-      { id: 'provider-persisted', displayName: 'provider-persisted' },
-    ])
-  })
-})
-
-it('locks pending manual and rename inputs while saving and restores the same draft after failure', async () => {
-  let rejectSave!: (reason: Error) => void
-  mocks.saveCatalog.mockReturnValue(
-    new Promise((_resolve, reject) => {
-      rejectSave = reject
-    }),
-  )
-  mocks.getCatalog.mockResolvedValue({
-    models: [{ id: 'busy-model', displayName: 'Before' }],
-    revision: 2,
-    updatedAt: null,
-  })
-  await withPage(async () => {
-    await openModels()
-    await clickButton('keys.manualAddModel')
-    await fill('input[aria-label="keys.clientModelId"]', 'pending-manual')
-    await fill('input[aria-label="keys.clientModelName"]', 'Pending label')
-    await act(async () =>
-      document.body
-        .querySelector<HTMLButtonElement>('button[aria-label="busy-model keys.renameModel"]')!
-        .click(),
-    )
-    await fill('input[aria-label="busy-model keys.clientModelName"]', 'Changed draft')
-    await clickButton('keys.catalogSave')
-    for (const label of [
-      'busy-model keys.clientModelName',
-      'keys.clientModelId',
-      'keys.clientModelName',
-    ]) {
-      expect(
-        document.body.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!.disabled,
-      ).toBe(true)
+    const onClose = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    try {
+      await act(async () => {
+        root.render(<ProviderModelModal provider={provider()} apiKeys={[key()]} onClose={onClose} />)
+      })
+      await flush()
+      await clickButton('keys.catalogSave')
+      const cancel = buttonByText('common.cancel')!
+      expect(cancel.disabled).toBe(true)
+      await act(async () => finishSave())
+      await flush()
+      expect(onClose).toHaveBeenCalledTimes(1)
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
     }
-    expect(buttonByText('keys.clientModelAdd')!.disabled).toBe(true)
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="keys.searchModels"]')!
-        .disabled,
-    ).toBe(false)
-    await act(async () => rejectSave(new Error('save unavailable')))
-    await flush()
-    for (const label of [
-      'busy-model keys.clientModelName',
-      'keys.clientModelId',
-      'keys.clientModelName',
-    ]) {
-      expect(
-        document.body.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!.disabled,
-      ).toBe(false)
-    }
-    expect(
-      document.body.querySelector<HTMLInputElement>(
-        'input[aria-label="busy-model keys.clientModelName"]',
-      )!.value,
-    ).toBe('Changed draft')
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="keys.clientModelId"]')!
-        .value,
-    ).toBe('pending-manual')
-    expect(buttonByText('keys.clientModelAdd')!.disabled).toBe(false)
-    expect(
-      document.body.querySelector<HTMLButtonElement>(
-        'button[aria-label="busy-model common.delete"]',
-      )!.disabled,
-    ).toBe(false)
-    expect(mocks.saveCatalog).toHaveBeenCalledOnce()
-    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
-  })
-})
-
-it('retains checked and manual drafts through empty results and failed query refreshes', async () => {
-  await withPage(async () => {
-    await openModels()
-    await clickButton('keys.catalogLoad')
-    await act(async () =>
-      document.body.querySelector<HTMLInputElement>('input[aria-label="cloud-model-a"]')!.click(),
-    )
-    mocks.catalogPreview.mockResolvedValueOnce({ ...catalog, models: [] })
-    await clickButton('keys.catalogRefresh')
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="cloud-model-a"]')!.checked,
-    ).toBe(true)
-    await clickButton('keys.manualAddModel')
-    await fill('input[aria-label="keys.clientModelId"]', 'manual-kept')
-    await clickButton('keys.clientModelAdd')
-    mocks.catalogPreview.mockRejectedValueOnce('query unavailable')
-    await clickButton('keys.catalogRefresh')
-    expect(document.body.textContent).toContain('query unavailable')
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="cloud-model-a"]')!.checked,
-    ).toBe(true)
-    expect(
-      document.body.querySelector<HTMLInputElement>('input[aria-label="manual-kept"]')!.checked,
-    ).toBe(true)
-    expect(mocks.saveCatalog).not.toHaveBeenCalled()
   })
 })

@@ -11,6 +11,8 @@ macro_rules! add_field {
 }
 
 pub mod api_keys;
+mod client_profile_migration;
+pub mod client_profiles;
 mod command_code_script_upgrade;
 pub mod gateway_metrics;
 mod go_preset_cleanup;
@@ -248,6 +250,7 @@ impl Database {
                 cli_type TEXT NOT NULL,
                 provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
                 api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+                client_profile_id TEXT,
                 terminal_type TEXT NOT NULL DEFAULT 'iterm2',
                 prelaunch_command TEXT,
                 PRIMARY KEY (project_id, cli_type)
@@ -306,6 +309,7 @@ impl Database {
                 session_token TEXT PRIMARY KEY,
                 provider_id TEXT NOT NULL,
                 api_key_id TEXT NOT NULL,
+                client_profile_id TEXT,
                 project_id TEXT,
                 created_at TEXT NOT NULL,
                 cli_type TEXT,
@@ -322,6 +326,27 @@ impl Database {
                 gateway_connection_config TEXT,
                 gateway_model_policy TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS client_profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                client_kind TEXT NOT NULL,
+                provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+                api_key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+                model_config TEXT,
+                connection_config TEXT,
+                launch_env TEXT,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_client_profiles_kind
+            ON client_profiles(client_kind, sort_order);
+
+            CREATE INDEX IF NOT EXISTS idx_client_profiles_key
+            ON client_profiles(api_key_id);
 
             CREATE TABLE IF NOT EXISTS gateway_request_events (
                 id TEXT PRIMARY KEY,
@@ -345,6 +370,7 @@ impl Database {
                 project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
                 provider_id TEXT REFERENCES providers(id) ON DELETE SET NULL,
                 api_key_id TEXT REFERENCES api_keys(id) ON DELETE SET NULL,
+                client_profile_id TEXT,
                 cli_type TEXT NOT NULL,
                 terminal_type TEXT NOT NULL,
                 project_path TEXT NOT NULL,
@@ -384,6 +410,7 @@ impl Database {
         // OpenCode Go and Command Code moved their quota to the key scope: mark
         // the providers that used the old account query and clear its columns.
         self.upgrade_quota_scope()?;
+        self.migrate_legacy_keys_to_client_profiles()?;
         self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
 
         Ok(())
@@ -700,6 +727,10 @@ impl Database {
             "ALTER TABLE request_logs ADD COLUMN request_kind TEXT",
             // v3.10.0: ties one request's row to its console events and audit summary.
             "ALTER TABLE request_logs ADD COLUMN request_id TEXT",
+            // Scheme A: decouple client configurations into client_profiles.
+            "ALTER TABLE proxy_sessions ADD COLUMN client_profile_id TEXT",
+            "ALTER TABLE managed_instances ADD COLUMN client_profile_id TEXT",
+            "ALTER TABLE project_client_bindings ADD COLUMN client_profile_id TEXT",
         ];
 
         for stmt in &alter_statements {

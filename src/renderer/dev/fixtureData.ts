@@ -1,6 +1,8 @@
 import type {
   ApiKey,
+  ClientKind,
   ClientModel,
+  ClientProfile,
   ConsoleLogRecordRef,
   DesktopConnectionState,
   DesktopClientKind,
@@ -106,6 +108,32 @@ export function makeKey(
     ...extra,
   }
 }
+export function makeClientProfile(
+  id: string,
+  name: string,
+  clientKind: ClientKind,
+  providerId: string,
+  apiKeyId: string,
+  stamp: string,
+  extra: Partial<ClientProfile> = {},
+): ClientProfile {
+  return {
+    id,
+    name,
+    clientKind,
+    providerId,
+    apiKeyId,
+    isDefault: false,
+    sortOrder: 0,
+    modelConfig: null,
+    connectionConfig: null,
+    launchEnv: null,
+    createdAt: stamp,
+    updatedAt: stamp,
+    ...extra,
+  }
+}
+
 export interface LedgerRow extends RecentRequestLogDisplay {
   providerId: string
   apiKeyId: string
@@ -297,9 +325,164 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
       }),
     ),
   ]
+  const clientProfiles: ClientProfile[] = [
+    makeClientProfile(
+      'profile-cc-main',
+      '主力编码（Sonnet）',
+      'claude_code',
+      'provider-usd',
+      'key-usd',
+      stamp,
+      {
+        isDefault: true,
+        sortOrder: 0,
+        launchEnv: {
+          ANTHROPIC_MODEL: 'claude-sonnet-5',
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-5',
+        },
+        modelConfig: JSON.stringify({
+          version: 2,
+          clients: {
+            claude_code: {
+              catalog: { mode: 'provider' },
+              upstream: { mode: 'follow' },
+            },
+          },
+        }),
+      },
+    ),
+    makeClientProfile(
+      'profile-cc-fast',
+      '轻量速写（同 Key 独立环境）',
+      'claude_code',
+      'provider-usd',
+      'key-usd',
+      stamp,
+      {
+        sortOrder: 1,
+        launchEnv: {
+          ANTHROPIC_MODEL: 'gpt-fixture',
+          API_TIMEOUT_MS: '60000',
+        },
+        modelConfig: JSON.stringify({
+          version: 2,
+          clients: {
+            claude_code: {
+              catalog: { mode: 'provider' },
+              upstream: { mode: 'fixed', model: 'gpt-fixture' },
+            },
+          },
+        }),
+      },
+    ),
+    makeClientProfile(
+      'profile-cc-account',
+      '共享账户线路',
+      'claude_code',
+      'provider-account',
+      'key-account',
+      stamp,
+      { sortOrder: 2 },
+    ),
+    makeClientProfile(
+      'profile-codex-main',
+      'Codex 主力方案',
+      'codex',
+      'provider-usd',
+      'key-usd',
+      stamp,
+      {
+        isDefault: true,
+        sortOrder: 0,
+        modelConfig: JSON.stringify({
+          version: 2,
+          clients: {
+            codex: {
+              catalog: { mode: 'provider', defaultModel: 'gpt-fixture' },
+              upstream: { mode: 'follow' },
+            },
+          },
+        }),
+      },
+    ),
+    makeClientProfile(
+      'profile-codex-alt',
+      'Codex 固定上游',
+      'codex',
+      'provider-usd',
+      'key-fixed',
+      stamp,
+      {
+        sortOrder: 1,
+        modelConfig: JSON.stringify({
+          version: 2,
+          clients: {
+            codex: {
+              catalog: {
+                mode: 'custom',
+                defaultModel: 'friendly-model',
+                models: [{ id: 'friendly-model', displayName: 'Friendly model' }],
+              },
+              upstream: { mode: 'fixed', model: 'gpt-fixture' },
+            },
+          },
+        }),
+      },
+    ),
+    makeClientProfile(
+      'profile-cd-main',
+      'Claude Desktop 默认',
+      'claude_desktop',
+      'provider-usd',
+      'key-usd',
+      stamp,
+      {
+        isDefault: true,
+        sortOrder: 0,
+        modelConfig: JSON.stringify({
+          version: 2,
+          clients: {
+            claude_desktop: {
+              catalog: {
+                mode: 'provider',
+                roles: {
+                  sonnet: 'claude-sonnet-5',
+                  opus: 'claude-sonnet-5',
+                },
+              },
+              upstream: { mode: 'follow' },
+            },
+          },
+        }),
+      },
+    ),
+    makeClientProfile(
+      'profile-grok-main',
+      'Grok Build 默认',
+      'grok',
+      'provider-account',
+      'key-account',
+      stamp,
+      {
+        isDefault: true,
+        sortOrder: 0,
+        modelConfig: JSON.stringify({
+          version: 2,
+          clients: {
+            grok: {
+              model: 'grok-fixture',
+              upstream: { mode: 'follow' },
+            },
+          },
+        }),
+      },
+    ),
+  ]
   const desktops = Object.fromEntries(
     (['codex', 'claude_desktop'] as const).map((clientKind) => {
       const official = scenario === 'official' || scenario === 'empty'
+      const defaultProfileId =
+        clientKind === 'codex' ? 'profile-codex-main' : 'profile-cd-main'
       const state: DesktopConnectionState = {
         clientKind,
         status: official
@@ -309,7 +492,9 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
             : scenario === 'unknown'
               ? 'unknown'
               : 'taken_over',
-        route: official ? null : { providerId: 'provider-usd', apiKeyId: 'key-usd' },
+        route: official
+          ? null
+          : { providerId: 'provider-usd', apiKeyId: 'key-usd', profileId: defaultProfileId },
         lastConfigChange: official
           ? null
           : { action: 'takeover', source: 'user', changedAt: now.toISOString(), version: 1 },
@@ -330,6 +515,7 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
   return {
     providers: scenario === 'empty' ? [] : providers,
     keys: scenario === 'empty' ? [] : keys,
+    clientProfiles: scenario === 'empty' ? [] : clientProfiles,
     instances: scenario === 'empty' ? [] : instances,
     gateways: scenario === 'empty' ? [] : gateways,
     ledger: scenario === 'empty' ? [] : ledger,

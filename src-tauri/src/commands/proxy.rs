@@ -267,6 +267,7 @@ pub fn session_create(
         session_token: new_session_token(),
         provider_id,
         api_key_id,
+        client_profile_id: None,
         project_id: None,
         created_at: now.to_rfc3339(),
         session_kind: "manual".to_string(),

@@ -1000,22 +1000,37 @@ pub async fn codex_config_apply_inner(
     provider_id: String,
     api_key_id: String,
 ) -> Result<DesktopOperationResult, String> {
+    codex_config_apply_with_profile_inner(db, provider_id, api_key_id, None).await
+}
+
+pub async fn codex_config_apply_with_profile_inner(
+    db: &Arc<Mutex<Database>>,
+    provider_id: String,
+    api_key_id: String,
+    client_profile_id: Option<String>,
+) -> Result<DesktopOperationResult, String> {
     let mgr =
         CodexConfigManager::new().map_err(|_| "Cannot locate Codex configuration.".to_string())?;
-    let (provider, api_key) = {
+    let (provider, api_key, profile) = {
         let db = db
             .lock()
             .map_err(|_| "Desktop database is unavailable.".to_string())?;
-        desktop_connection::validate_route(
+        desktop_connection::validate_route_with_profile(
             &db,
             DesktopClientKind::Codex,
             &provider_id,
             &api_key_id,
+            client_profile_id.as_deref(),
         )?
     };
 
-    let snapshot = crate::services::model_catalog::effective_catalog(
-        db, &provider, &api_key, "codex", None,
+    let snapshot = crate::services::model_catalog::effective_catalog_with_profile(
+        db,
+        &provider,
+        &api_key,
+        "codex",
+        profile.as_ref(),
+        None,
     )
     .await
     .map_err(|_| {
@@ -1044,15 +1059,17 @@ pub async fn codex_config_apply_inner(
         .iter()
         .map(|model| model.id.clone())
         .collect::<Vec<_>>();
-    let default_model = crate::shared_runtime::model_mapping::client_default_model(
-        api_key.model_mapping.as_deref(),
-        "codex",
-    );
+    let mapping_str = profile
+        .as_ref()
+        .map(|p| p.model_config.as_deref())
+        .unwrap_or(api_key.model_mapping.as_deref());
+    let default_model =
+        crate::shared_runtime::model_mapping::client_default_model(mapping_str, "codex");
     if default_model
         .as_ref()
         .is_some_and(|model| !model_ids.contains(model))
     {
-        return Err("默认模型不在有效目录中，请在密钥的模型配置中重新选择".to_string());
+        return Err("默认模型不在有效目录中，请在模型配置中重新选择".to_string());
     }
     let codex_model = default_model
         .or_else(|| select_default_codex_model(&model_ids))
@@ -1063,14 +1080,16 @@ pub async fn codex_config_apply_inner(
     let db = db
         .lock()
         .map_err(|_| "Desktop database is unavailable.".to_string())?;
-    // Catalog retrieval awaits without a DB lock; reject a concurrent key/provider
+    // Catalog retrieval awaits without a DB lock; reject a concurrent key/provider/profile
     // edit instead of applying a catalog prepared for a different configuration.
-    let (current_provider, current_key) = desktop_connection::validate_route(
-        &db,
-        DesktopClientKind::Codex,
-        &provider_id,
-        &api_key_id,
-    )?;
+    let (current_provider, current_key, current_profile) =
+        desktop_connection::validate_route_with_profile(
+            &db,
+            DesktopClientKind::Codex,
+            &provider_id,
+            &api_key_id,
+            client_profile_id.as_deref(),
+        )?;
     if current_provider.name != provider.name
         || current_provider.base_url != provider.base_url
         || current_provider.http_proxy != provider.http_proxy
@@ -1079,23 +1098,31 @@ pub async fn codex_config_apply_inner(
         || current_key.model_mapping != api_key.model_mapping
         || current_key.client_configs != api_key.client_configs
         || current_key.value != api_key.value
+        || current_profile
+            .as_ref()
+            .map(|p| (&p.model_config, &p.connection_config))
+            != profile
+                .as_ref()
+                .map(|p| (&p.model_config, &p.connection_config))
     {
         return Err(
             "The selected route changed while loading its catalog. Select it again and retry."
                 .into(),
         );
     }
-    codex_apply_with_catalog(
+    codex_apply_with_catalog_and_profile(
         &db,
         &mgr,
         &provider_id,
         &api_key_id,
+        client_profile_id.as_deref(),
         &codex_model,
         &catalog,
         model_ids.len(),
     )
 }
 
+#[allow(dead_code)]
 pub(crate) fn codex_apply_with_catalog(
     db: &Database,
     mgr: &CodexConfigManager,
@@ -1105,11 +1132,35 @@ pub(crate) fn codex_apply_with_catalog(
     catalog: &str,
     model_count: usize,
 ) -> Result<DesktopOperationResult, String> {
-    desktop_connection::apply_with_config(
+    codex_apply_with_catalog_and_profile(
+        db,
+        mgr,
+        provider_id,
+        api_key_id,
+        None,
+        model,
+        catalog,
+        model_count,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn codex_apply_with_catalog_and_profile(
+    db: &Database,
+    mgr: &CodexConfigManager,
+    provider_id: &str,
+    api_key_id: &str,
+    client_profile_id: Option<&str>,
+    model: &str,
+    catalog: &str,
+    model_count: usize,
+) -> Result<DesktopOperationResult, String> {
+    desktop_connection::apply_with_config_and_profile(
         db,
         DesktopClientKind::Codex,
         provider_id,
         api_key_id,
+        client_profile_id,
         DesktopChangeSource::User,
         mgr,
         Some(model_count),

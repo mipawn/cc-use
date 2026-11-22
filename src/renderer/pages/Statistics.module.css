@@ -45,7 +45,8 @@
 /* Content - Scrollable */
 .content {
   flex: 1;
-  overflow: hidden;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .scrollContent {

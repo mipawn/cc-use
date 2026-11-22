@@ -2,6 +2,7 @@ pub mod api_keys;
 pub mod balance;
 pub mod claude_desktop_config;
 pub mod cli_tool;
+pub mod client_profiles;
 pub mod codex_config;
 pub mod console;
 pub mod desktop_connection;

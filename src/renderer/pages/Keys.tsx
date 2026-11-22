@@ -1,82 +1,69 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  hasKeyQuery,
-  hasProviderQuery,
-  formatAccountAmount,
-  providerQuotaIsPerKey,
-  providerQueryMissingCredential,
-} from '../utils/accountQuery'
-import ProviderUsageWindows from '../components/providers/ProviderUsageWindows'
-import ProviderIcon from '../components/providers/ProviderIcon'
-import { getApi } from '../api'
-/**
- * Keys - 以 Key 为核心维度的管理页面
- * Provider 作为分组/筛选器
- */
-import { useCallback, useEffect, useState, useMemo } from 'react'
-import {
-  Typography,
+  Badge,
   Button,
-  Spin,
-  theme,
-  Card,
+  Empty,
+  Popconfirm,
   Space,
+  Spin,
+  Switch,
+  Tabs,
   Tag,
   Tooltip,
-  Switch,
-  Popconfirm,
-  Badge,
-  Modal,
-  Dropdown,
+  Typography,
 } from 'antd'
-import { useAppMessage } from '../hooks/useAppMessage'
 import {
-  PlusOutlined,
-  KeyOutlined,
+  ApiOutlined,
+  AppstoreOutlined,
   CloudServerOutlined,
-  SettingOutlined,
   DeleteOutlined,
-  ReloadOutlined,
-  LinkOutlined,
-  PlayCircleOutlined,
   EditOutlined,
   FireOutlined,
-  CopyOutlined,
-  DollarOutlined,
-  WalletOutlined,
-  EyeOutlined,
+  KeyOutlined,
   LineChartOutlined,
-  MoreOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+  WalletOutlined,
 } from '@ant-design/icons'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import SimpleBar from 'simplebar-react'
-import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
-import { SortableContext, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import type {
+  ApiKey,
+  CreateProviderInput,
+  Gateway,
+  Provider,
+  ProviderGatewayMetrics,
+} from '@shared/types'
+import { getApi } from '../api'
+import { useAppMessage } from '../hooks/useAppMessage'
+import { usePageRefresh } from '../hooks/usePageRefresh'
 import { useProviderStore } from '../stores/providerStore'
 import { useApiKeyStore } from '../stores/apiKeyStore'
-import ProviderModal from '../components/providers/ProviderModal'
-import KeyEditModal from '../components/keys/KeyEditModal'
-import ProviderModelModal from '../components/providers/ProviderModelModal'
-import ResourceUsageModal, { type ResourceScope } from '../components/usage/ResourceUsageModal'
-import type { Provider, ApiKey, ProviderGatewayMetrics } from '@shared/types'
-import { getClientKindLabel } from '@shared/types'
-import { getEffectiveKeyClients } from '../utils/clientSupport'
-import { isOfficialDeepSeekProvider } from '../utils/officialProviders'
-import { usePageRefresh } from '../hooks/usePageRefresh'
-import {
-  buildDuplicatedKeyDraft,
-  toCreateApiKeyInput,
-  toUpdateApiKeyInput,
-  type ApiKeyEditorInput,
-  type KeyEditMode,
-} from '../utils/apiKeyEditor'
+import { useClientProfileStore } from '../stores/clientProfileStore'
+import { useProviderModelCatalogStore } from '../stores/providerModelCatalogStore'
 import PageHeader from '../components/common/PageHeader'
-import { buildStatisticsUrl } from '../utils/observationContext'
+import ProviderIcon from '../components/providers/ProviderIcon'
+import ProviderModal from '../components/providers/ProviderModal'
+import { ProviderModelCatalogPanel } from '../components/providers/ProviderModelModal'
+import ProviderUsageWindows from '../components/providers/ProviderUsageWindows'
+import KeySimpleModal from '../components/keys/KeySimpleModal'
+import ResourceUsageModal, { type ResourceScope } from '../components/usage/ResourceUsageModal'
+import {
+  formatAccountAmount,
+  hasKeyQuery,
+  hasProviderQuery,
+  providerQueryMissingCredential,
+  providerQuotaIsPerKey,
+} from '../utils/accountQuery'
+import { formatExactTokenCount, formatTokenCount } from '../utils/formatTokens'
 import styles from './Keys.module.css'
 
-// dnd-kit sortable wrapper — defined at module level to avoid hook issues
-// Pure reorder logic — extract for testing
+const { Text } = Typography
+
 export function computeProviderReorder(
   ids: string[],
   fromId: string,
@@ -91,195 +78,209 @@ export function computeProviderReorder(
   return result
 }
 
-function SortableTab({
+function SortableProviderItem({
   id,
+  active,
+  inactive,
   onClick,
-  className,
   children,
 }: {
   id: string
+  active: boolean
+  inactive: boolean
   onClick: () => void
-  className: string
   children: React.ReactNode
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
   })
   return (
-    <div
+    <button
       ref={setNodeRef}
+      type='button'
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        opacity: isDragging ? 0.35 : undefined,
-        zIndex: isDragging ? 1 : undefined,
+        opacity: isDragging ? 0.45 : undefined,
+        zIndex: isDragging ? 2 : undefined,
       }}
-      className={className}
+      className={`${styles.railItem} ${active ? styles.railItemActive : ''} ${inactive ? styles.railItemInactive : ''}`}
+      onClick={onClick}
       {...attributes}
       {...listeners}
-      onClick={onClick}
     >
       {children}
-    </div>
+    </button>
   )
 }
-
-// Import provider type icons
-import ClientIcon from '../components/common/ClientIcon'
-
-const { Title, Text } = Typography
 
 export default function Keys() {
   const { t, i18n } = useTranslation()
   const message = useAppMessage()
-  const [confirmModal, confirmContextHolder] = Modal.useModal()
-  const { token } = theme.useToken()
+  const [searchParams, setSearchParams] = useSearchParams()
   const {
     providers,
     loading: providersLoading,
     fetchProviders,
-    refreshBalance,
-    deleteProvider,
+    createProvider,
     updateProvider,
+    deleteProvider,
+    refreshBalance,
   } = useProviderStore()
   const { apiKeys, fetchAllApiKeys, getAllApiKeys, createApiKey, updateApiKey, deleteApiKey } =
     useApiKeyStore()
+  const { profiles, fetchProfiles } = useClientProfileStore()
+  const { catalogs, fetchCatalog } = useProviderModelCatalogStore()
 
-  // Filter state: 'all' or providerId
-  const [activeFilter, setActiveFilter] = useState<string>('all')
+  const providerParam = searchParams.get('provider')
+  const tabParam = searchParams.get('tab') as 'keys' | 'catalog' | 'settings' | null
+  const activeTab: 'keys' | 'catalog' | 'settings' =
+    tabParam && ['keys', 'catalog', 'settings'].includes(tabParam) ? tabParam : 'keys'
+  const [selectedProviderId, setSelectedProviderIdState] = useState<string | null>(providerParam)
+  const [addProviderOpen, setAddProviderOpen] = useState(false)
 
-  // Modal states
-  const [providerModalOpen, setProviderModalOpen] = useState(false)
-  const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
-  const [keyEditOpen, setKeyEditOpen] = useState(false)
+  const setSelectedProviderId = useCallback(
+    (id: string | null) => {
+      setSelectedProviderIdState(id)
+      const next = new URLSearchParams(searchParams)
+      if (id) next.set('provider', id)
+      else next.delete('provider')
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const setActiveTab = useCallback(
+    (tab: 'keys' | 'catalog' | 'settings') => {
+      const next = new URLSearchParams(searchParams)
+      if (tab === 'keys') next.delete('tab')
+      else next.set('tab', tab)
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+  const [keyModalOpen, setKeyModalOpen] = useState(false)
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null)
-  const [keyEditMode, setKeyEditMode] = useState<KeyEditMode>('create')
-  const [defaultProviderId, setDefaultProviderId] = useState<string | undefined>(undefined)
-  const [modelProvider, setModelProvider] = useState<Provider | null>(null)
   const [usageScope, setUsageScope] = useState<ResourceScope | null>(null)
-
-  // Refreshing states
-  const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set())
-  const [refreshingKeyUsageIds, setRefreshingKeyUsageIds] = useState<Set<string>>(new Set())
-
-  // Token stats per key (today and total)
+  const [gateways, setGateways] = useState<Gateway[]>([])
+  const [refreshingProviderIds, setRefreshingProviderIds] = useState<Set<string>>(new Set())
+  const [refreshingKeyIds, setRefreshingKeyIds] = useState<Set<string>>(new Set())
   const [keyTokenStats, setKeyTokenStats] = useState<
     Record<string, { todayTokens: number; totalTokens: number }>
   >({})
   const [providerMetrics, setProviderMetrics] = useState<Record<string, ProviderGatewayMetrics>>({})
 
-  // Get all API keys
   const allApiKeys = getAllApiKeys()
 
-  useEffect(() => {
-    fetchProviders()
-  }, [fetchProviders])
-
-  const fetchProviderMetrics = useCallback(async () => {
+  const fetchMetricsAndGateways = useCallback(async () => {
     try {
-      const metrics = await getApi().requestLog.getProviderGatewayMetrics()
+      const [metrics, nextGateways] = await Promise.all([
+        getApi().requestLog.getProviderGatewayMetrics(),
+        getApi().gateway.list(),
+      ])
       setProviderMetrics(Object.fromEntries(metrics.map((item) => [item.providerName, item])))
-    } catch (error) {
-      console.error('Failed to fetch provider gateway metrics:', error)
+      setGateways(nextGateways)
+    } catch {
+      // Non-fatal auxiliary metadata
     }
   }, [])
 
   useEffect(() => {
-    void fetchProviderMetrics()
-    const timer = window.setInterval(fetchProviderMetrics, 30_000)
-    return () => window.clearInterval(timer)
-  }, [fetchProviderMetrics])
+    void fetchProviders()
+    void fetchProfiles()
+    void fetchMetricsAndGateways()
+  }, [fetchProviders, fetchProfiles, fetchMetricsAndGateways])
 
-  // Local provider, key and metrics data only: refreshing must not fire a
-  // balance query at every upstream, and must leave search/expanded/drafts be.
-  usePageRefresh(async () => {
-    await Promise.all([fetchProviders(), fetchProviderMetrics()])
-  })
-
-  // Fetch API keys for all providers
   useEffect(() => {
     if (providers.length > 0) {
-      fetchAllApiKeys(providers.map((p) => p.id))
+      void fetchAllApiKeys(providers.map((item) => item.id))
     }
   }, [providers, fetchAllApiKeys])
 
-  // Fetch token stats for all keys
+  // Ensure a valid provider is selected whenever the list changes
+  useEffect(() => {
+    if (providers.length === 0) {
+      setSelectedProviderId(null)
+      return
+    }
+    if (!selectedProviderId || !providers.some((item) => item.id === selectedProviderId)) {
+      setSelectedProviderId(providers[0].id)
+    }
+  }, [providers, selectedProviderId, setSelectedProviderId])
+
+  // Preload model catalog for the selected provider so the tab badge has the accurate count
+  useEffect(() => {
+    if (selectedProviderId) {
+      void fetchCatalog(selectedProviderId).catch(() => {})
+    }
+  }, [selectedProviderId, fetchCatalog])
+
+  // Load key token stats
   useEffect(() => {
     if (allApiKeys.length === 0) return
-
-    const fetchTokenStats = async () => {
-      try {
-        const stats = await getApi().requestLog.getKeyTokenStats()
-        const tokenMap: Record<string, { todayTokens: number; totalTokens: number }> = {}
-        stats.forEach((item) => {
-          tokenMap[item.keyId] = {
+    void getApi()
+      .requestLog.getKeyTokenStats()
+      .then((stats) => {
+        const next: Record<string, { todayTokens: number; totalTokens: number }> = {}
+        for (const item of stats) {
+          next[item.keyId] = {
             todayTokens: item.todayTokens,
             totalTokens: item.totalTokens,
           }
-        })
-        setKeyTokenStats(tokenMap)
-      } catch (error) {
-        console.error('Failed to fetch key token stats:', error)
-      }
-    }
-    fetchTokenStats()
+        }
+        setKeyTokenStats(next)
+      })
+      .catch(() => {})
   }, [allApiKeys.length])
 
-  // Group keys by provider for display
-  const groupedKeys = useMemo(() => {
-    const groups: { provider: Provider; keys: ApiKey[]; balance?: number }[] = []
+  usePageRefresh(async () => {
+    await Promise.all([
+      fetchProviders(),
+      fetchProfiles(),
+      fetchMetricsAndGateways(),
+      selectedProviderId ? fetchCatalog(selectedProviderId).catch(() => {}) : Promise.resolve(),
+    ])
+  })
 
-    if (activeFilter === 'all') {
-      providers.forEach((provider) => {
-        const providerKeys = apiKeys[provider.id] || []
-        groups.push({
-          provider,
-          keys: providerKeys,
-          balance: provider.cachedWalletBalance ?? undefined,
-        })
-      })
-    } else {
-      const provider = providers.find((p) => p.id === activeFilter)
-      if (provider) {
-        groups.push({
-          provider,
-          keys: apiKeys[provider.id] || [],
-          balance: provider.cachedWalletBalance ?? undefined,
-        })
-      }
-    }
+  const selectedProvider = useMemo(
+    () => providers.find((item) => item.id === selectedProviderId) ?? null,
+    [providers, selectedProviderId],
+  )
+  const selectedKeys = useMemo(
+    () => (selectedProvider ? apiKeys[selectedProvider.id] ?? [] : []),
+    [selectedProvider, apiKeys],
+  )
+  const selectedCatalogCount = selectedProvider
+    ? (catalogs[selectedProvider.id]?.models.length ?? 0)
+    : 0
 
-    return groups
-  }, [activeFilter, providers, apiKeys])
-
-  // Handle provider actions
-  const handleAddProvider = () => {
-    setEditingProvider(null)
-    setProviderModalOpen(true)
-  }
-
-  const handleEditProvider = (provider: Provider) => {
-    setEditingProvider(provider)
-    setProviderModalOpen(true)
-  }
-
-  const handleDeleteProvider = async (id: string) => {
-    try {
-      await deleteProvider(id)
-      message.success(t('providers.providerDeleted'))
-      if (activeFilter === id) {
-        setActiveFilter('all')
-      }
-    } catch {
-      message.error(t('providers.deleteProviderFailed'))
-    }
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const reordered = computeProviderReorder(
+      providers.map((p) => p.id),
+      active.id as string,
+      over.id as string,
+    )
+    if (reordered) void useProviderStore.getState().reorderProviders(reordered)
   }
 
   const handleToggleProvider = async (provider: Provider, active: boolean) => {
     try {
       await updateProvider({ id: provider.id, isActive: active })
     } catch {
-      message.error(t('providers.updateProviderFailed') || t('messages.error'))
+      message.error(t('providers.updateProviderFailed'))
+    }
+  }
+
+  const handleDeleteProvider = async (id: string) => {
+    try {
+      await deleteProvider(id)
+      void fetchProfiles()
+      message.success(t('providers.providerDeleted'))
+    } catch {
+      message.error(t('providers.deleteProviderFailed'))
     }
   }
 
@@ -291,14 +292,9 @@ export default function Keys() {
       message.warning(t(missing))
       return
     }
-    setRefreshingIds((prev) => new Set(prev).add(id))
+    setRefreshingProviderIds((prev) => new Set(prev).add(id))
     try {
-      // One query per provider, so one call. The script decides whether the
-      // answer is a balance, a set of metering periods, or both; either is
-      // reported from the same result rather than guessed at from a type.
       const result = await refreshBalance(id)
-      // An account the service reports as unusable is not a balance of zero,
-      // and it must not fall through to the success branch below.
       if (result.error) {
         message.error(result.error)
       } else if (!result.isValid) {
@@ -309,7 +305,7 @@ export default function Keys() {
     } catch (error) {
       message.error(`${t('providers.refreshBalanceFailed')}: ${String(error)}`)
     } finally {
-      setRefreshingIds((prev) => {
+      setRefreshingProviderIds((prev) => {
         const next = new Set(prev)
         next.delete(id)
         return next
@@ -317,9 +313,8 @@ export default function Keys() {
     }
   }
 
-  // Handle key usage refresh
   const handleRefreshKeyUsage = async (keyId: string) => {
-    setRefreshingKeyUsageIds((prev) => new Set(prev).add(keyId))
+    setRefreshingKeyIds((prev) => new Set(prev).add(keyId))
     try {
       const result = await getApi().keyUsage.refresh(keyId)
       if (result.error) {
@@ -327,14 +322,13 @@ export default function Keys() {
       } else if (result.isValid === false) {
         message.error(result.invalidMessage || t('keys.refreshQuotaFailed'))
       } else {
-        message.success(t('keys.quota') + ' ' + t('messages.success'))
+        message.success(`${t('keys.quota')} ${t('messages.success')}`)
       }
-      // Refresh keys to get updated cached usage
-      await fetchAllApiKeys(providers.map((p) => p.id))
+      await fetchAllApiKeys(providers.map((item) => item.id))
     } catch (error) {
       message.error(`${t('keys.refreshQuotaFailed')}: ${String(error)}`)
     } finally {
-      setRefreshingKeyUsageIds((prev) => {
+      setRefreshingKeyIds((prev) => {
         const next = new Set(prev)
         next.delete(keyId)
         return next
@@ -342,10 +336,9 @@ export default function Keys() {
     }
   }
 
-  // Handle key actions
   const handleToggleKey = async (key: ApiKey, active: boolean) => {
     try {
-      await updateApiKey({ id: key.id, isExhausted: !active })
+      await updateApiKey({ id: key.id, isExhausted: !active, isActive: active })
     } catch {
       message.error(t('messages.error'))
     }
@@ -354,671 +347,562 @@ export default function Keys() {
   const handleDeleteKey = async (key: ApiKey) => {
     try {
       await deleteApiKey(key.providerId, key.id)
+      void fetchProfiles()
       message.success(t('apiKeys.keyDeleted'))
     } catch {
       message.error(t('messages.error'))
     }
   }
 
-  // Copy a key record to reuse the same credential under a different model
-  // mapping. The credential and copyable configuration carry over; identity,
-  // cached quota, exhaustion, failover and request history do not.
-  const handleDuplicateKey = (key: ApiKey) => {
-    setEditingKey(buildDuplicatedKeyDraft(key, t('apiKeys.copyAliasSuffix') || ' (copy)'))
-    setDefaultProviderId(key.providerId)
-    setKeyEditMode('duplicate')
-    setKeyEditOpen(true)
+  const handleCreateProvider = async (
+    input: CreateProviderInput & { id?: string; isActive?: boolean },
+  ) => {
+    const created = await createProvider(input)
+    setSelectedProviderId(created.id)
+    setActiveTab('keys')
   }
 
-  // dnd-kit sensors — require 8px drag threshold so clicks pass through
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const ids = providers.map((p) => p.id)
-    const reordered = computeProviderReorder(ids, active.id as string, over.id as string)
-    if (reordered) useProviderStore.getState().reorderProviders(reordered)
+  const handleUpdateSelectedProvider = async (
+    input: CreateProviderInput & { id?: string; isActive?: boolean },
+  ) => {
+    if (!selectedProvider) return
+    await updateProvider({ ...input, id: selectedProvider.id })
   }
 
-  const handleEditKey = (key: ApiKey) => {
-    setEditingKey(key)
-    setDefaultProviderId(key.providerId)
-    setKeyEditMode('edit')
-    setKeyEditOpen(true)
-  }
+  const renderKeyQuota = (provider: Provider, key: ApiKey) => {
+    const perKey = providerQuotaIsPerKey(provider)
+    const canRefresh = perKey && hasKeyQuery(key)
+    const usage = key.cachedUsage
+    const windows = usage?.windows ?? []
+    const remainingText = usage ? formatAccountAmount(usage.remaining, usage.unit) : null
+    const totalText =
+      usage && usage.total !== null && usage.total !== undefined
+        ? formatAccountAmount(usage.total, usage.unit)
+        : null
 
-  // Handle add key with optional provider context
-  const handleAddKey = (providerId?: string) => {
-    setEditingKey(null)
-    setDefaultProviderId(providerId)
-    setKeyEditMode('create')
-    setKeyEditOpen(true)
-  }
+    if (!perKey && !usage) return null
 
-  // Handle key save. Create and duplicate both insert a new record; only edit
-  // writes back to an existing one.
-  const handleSaveKey = async (input: ApiKeyEditorInput) => {
-    const startedAt = Math.floor(Date.now() / 1000) * 1000
-    const previous =
-      input.mode === 'edit' ? allApiKeys.find((key) => key.id === input.id) : undefined
-    const saved =
-      input.mode === 'edit'
-        ? await updateApiKey(toUpdateApiKeyInput(input))
-        : await createApiKey(toCreateApiKeyInput(input))
-    // A first query, a changed query (script, scheme or switch), or a changed
-    // credential each invalidate the saved answer — refresh so the card never
-    // shows a number from a configuration that no longer exists.
-    const configChanged =
-      previous?.usageScript !== saved.usageScript ||
-      JSON.stringify(previous?.queryConfig ?? null) !== JSON.stringify(saved.queryConfig ?? null)
-    if (
-      hasKeyQuery(saved) &&
-      (!previous?.cachedUsage || configChanged || previous.value !== saved.value)
-    ) {
-      void handleRefreshKeyUsage(saved.id)
-    }
-    if (input.mode === 'edit') {
-      // Configuration persistence, quota refresh and desktop sync are independent outcomes.
-      void Promise.all(
-        (['codex', 'claude_desktop'] as const).map(async (client) =>
-          getApi().desktopConnection.state(client),
-        ),
-      )
-        .then((states) => {
-          if (
-            states.some(
-              (state) =>
-                state.syncFailure?.source === 'key_edit' &&
-                Date.parse(state.syncFailure.occurredAt) >= startedAt,
-            )
-          ) {
-            message.warning(t('resources.savedSyncFailed'))
-          }
-        })
-        .catch(() => message.warning(t('resources.saveSyncUnknown')))
-    }
+    return (
+      <div className={styles.keyQuotaBox}>
+        <div className={styles.keyQuotaHeader}>
+          <Space size={6}>
+            <WalletOutlined />
+            {remainingText ? (
+              <Text strong>
+                {remainingText}
+                {totalText ? ` / ${totalText}` : ''}
+              </Text>
+            ) : (
+              <Text type='secondary'>{t('keysWorkspace.quotaUnknown')}</Text>
+            )}
+          </Space>
+          {canRefresh && (
+            <Button
+              type='text'
+              size='small'
+              icon={<ReloadOutlined spin={refreshingKeyIds.has(key.id)} />}
+              onClick={() => void handleRefreshKeyUsage(key.id)}
+              aria-label={t('common.refresh')}
+            />
+          )}
+        </div>
+        {windows.length > 0 && <ProviderUsageWindows windows={windows} />}
+      </div>
+    )
   }
 
   return (
     <div className={styles.container}>
-      {confirmContextHolder}
       <PageHeader
-        title={t('resources.title')}
-        description={t('resources.subtitle')}
+        title={t('keysWorkspace.title')}
         actions={
-          <Button type='primary' icon={<CloudServerOutlined />} onClick={handleAddProvider}>
-            {t('providers.addProvider')}
+          <Button
+            type='primary'
+            icon={<CloudServerOutlined />}
+            onClick={() => setAddProviderOpen(true)}
+          >
+            {t('keysWorkspace.addProvider')}
           </Button>
         }
       />
 
-      {/* Filter Tabs - Fixed */}
-      <div className={styles.filterSection}>
-        <div className={styles.filterBar}>
-          {/* "All Keys" tab — not sortable */}
-          <button
-            type='button'
-            className={`${styles.filterTab} ${activeFilter === 'all' ? styles.filterTabActive : ''}`}
-            onClick={() => setActiveFilter('all')}
-          >
-            <Space size={4}>
-              <span>{t('keys.allKeys') || '全部密钥'}</span>
-              <Badge count={allApiKeys.length} showZero className={styles.filterBadge} />
-            </Space>
-          </button>
-
-          {/* Provider tabs — @dnd-kit sortable */}
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd} autoScroll={false}>
-            <SortableContext
-              items={providers.map((p) => p.id)}
-              strategy={horizontalListSortingStrategy}
-            >
-              {providers.map((provider) => (
-                <SortableTab
-                  key={provider.id}
-                  id={provider.id}
-                  onClick={() => setActiveFilter(provider.id)}
-                  className={`${styles.filterTab} ${styles.filterTabDraggable} ${activeFilter === provider.id ? styles.filterTabActive : ''}`}
-                >
-                  <Space size={4}>
-                    <ProviderIcon
-                      icon={provider?.icon}
-                      size={16}
-                      style={{ background: 'transparent' }}
-                    />
-                    <span>{provider.name}</span>
-                    <Badge
-                      count={(apiKeys[provider.id] || []).length}
-                      showZero
-                      className={styles.filterBadge}
-                    />
-                  </Space>
-                </SortableTab>
-              ))}
-            </SortableContext>
-          </DndContext>
+      {providersLoading && providers.length === 0 ? (
+        <div className={styles.emptyState}>
+          <Spin />
         </div>
-      </div>
-
-      {/* Content - Scrollable */}
-      <div className={styles.content}>
-        <SimpleBar className={styles.scrollContent} style={{ maxHeight: '100%' }}>
-          {/* Keys Content */}
-          {providersLoading ? (
-            <div className='empty-state'>
-              <Spin size='large' />
-            </div>
-          ) : groupedKeys.length === 0 ? (
-            <Card className='empty-state' variant='outlined'>
-              <KeyOutlined className='text-5xl mb-4' style={{ color: token.colorTextSecondary }} />
-              <Title level={4} className='mb-2!'>
-                {t('keys.noKeys') || '暂无密钥'}
-              </Title>
-              <Text type='secondary' className='block'>
-                {t('keys.noKeysHint') || '添加供应商并配置 API 密钥以开始使用'}
+      ) : providers.length === 0 ? (
+        <div className={styles.emptyState}>
+          <Empty description={t('providers.noProviders')}>
+            <Button
+              type='primary'
+              icon={<PlusOutlined />}
+              onClick={() => setAddProviderOpen(true)}
+            >
+              {t('keysWorkspace.addProvider')}
+            </Button>
+          </Empty>
+        </div>
+      ) : (
+        <div className={styles.workspace}>
+          {/* Left Rail: Sortable Provider List */}
+          <aside className={styles.rail} aria-label={t('common.providers')}>
+            <div className={styles.railHeader}>
+              <Text strong style={{ fontSize: 13 }}>
+                {t('common.providers')} ({providers.length})
               </Text>
-            </Card>
-          ) : (
-            <div className={styles.keyGroups}>
-              {groupedKeys.map(({ provider, keys, balance }) => (
-                <section
-                  key={provider.id}
-                  aria-label={provider.name}
-                  data-provider-group={provider.id}
-                  className={`${styles.keyGroup} ${!provider.isActive ? styles.providerInactive : ''}`}
+              <Button
+                size='small'
+                type='text'
+                icon={<PlusOutlined />}
+                aria-label={t('keysWorkspace.addProvider')}
+                onClick={() => setAddProviderOpen(true)}
+              />
+            </div>
+            <div className={styles.railList}>
+              <DndContext sensors={sensors} onDragEnd={handleDragEnd} autoScroll={false}>
+                <SortableContext
+                  items={providers.map((item) => item.id)}
+                  strategy={verticalListSortingStrategy}
                 >
-                  <div className={styles.providerSummary}>
-                    <div className={styles.groupHeader}>
-                      <div className={styles.groupInfo}>
-                        <ProviderIcon icon={provider?.icon} size={22} name={provider.name} />
-                        <div className={styles.providerIdentity}>
-                          <Text strong className={styles.groupName} title={provider.baseUrl}>
-                            {provider.name}
-                          </Text>
-                        </div>
-                        {!providerQuotaIsPerKey(provider) &&
-                          hasProviderQuery(provider) &&
-                          balance !== undefined && (
-                            <span className={styles.accountAmount}>
-                              <WalletOutlined />
-                              {formatAccountAmount(balance, provider.cachedWalletBalanceCurrency)}
+                  {providers.map((provider) => {
+                    const count = (apiKeys[provider.id] ?? []).length
+                    const balanceText =
+                      !providerQuotaIsPerKey(provider) &&
+                      provider.cachedWalletBalance !== null &&
+                      provider.cachedWalletBalance !== undefined
+                        ? formatAccountAmount(
+                            provider.cachedWalletBalance,
+                            provider.cachedWalletBalanceCurrency ?? undefined,
+                          )
+                        : null
+                    return (
+                      <SortableProviderItem
+                        key={provider.id}
+                        id={provider.id}
+                        active={provider.id === selectedProviderId}
+                        inactive={!provider.isActive}
+                        onClick={() => setSelectedProviderId(provider.id)}
+                      >
+                        <ProviderIcon icon={provider.icon} name={provider.name} size={24} />
+                        <div className={styles.railItemBody}>
+                          <div className={styles.railItemNameRow}>
+                            <span
+                              className={`${styles.statusDot} ${provider.isActive ? styles.statusDotOn : styles.statusDotOff}`}
+                            />
+                            <span className={styles.railItemName} title={provider.name}>
+                              {provider.name}
                             </span>
-                          )}
-                        {!provider.isActive && <Tag>{t('common.inactive')}</Tag>}
-                        {isOfficialDeepSeekProvider(provider) && <Tag variant='filled'>官方</Tag>}
-                        {providerMetrics[provider.name] ? (
-                          <div className={styles.providerHealth}>
-                            <div className={styles.providerHealthText}>
-                              <Text className={styles.providerHealthTitle}>
-                                {providerMetrics[provider.name].totalRequests > 0
-                                  ? `${((providerMetrics[provider.name].successfulRequests / providerMetrics[provider.name].totalRequests) * 100).toFixed(1)}%`
-                                  : '—'}{' '}
-                                <span className={styles.healthLabel}>{t('resources.health')}</span>
-                              </Text>
-                              <Text type='secondary' className={styles.providerHealthMeta}>
-                                {t('resources.healthDetail', {
-                                  successful: providerMetrics[provider.name].successfulRequests,
-                                  total: providerMetrics[provider.name].totalRequests,
-                                  errors: providerMetrics[provider.name].upstreamErrors,
-                                })}
-                              </Text>
-                            </div>
                           </div>
-                        ) : null}
-                      </div>
-                      <Space size={8} wrap>
-                        {!providerQuotaIsPerKey(provider) && !hasProviderQuery(provider) && (
-                          <Button
-                            type='text'
-                            size='small'
-                            onClick={() => handleEditProvider(provider)}
-                          >
-                            {t('providers.configureQuery')}
-                          </Button>
-                        )}
-                        {!providerQuotaIsPerKey(provider) && hasProviderQuery(provider) && (
-                          <Tooltip
-                            title={
-                              providerQueryMissingCredential(provider, keys)
-                                ? t(providerQueryMissingCredential(provider, keys)!)
-                                : t('providers.refreshBalance')
-                            }
-                          >
-                            <Button
-                              type='text'
-                              size='small'
-                              aria-label={t('providers.refreshBalance')}
-                              disabled={Boolean(providerQueryMissingCredential(provider, keys))}
-                              loading={refreshingIds.has(provider.id)}
-                              icon={<ReloadOutlined />}
-                              onClick={() => handleRefreshBalance(provider.id)}
-                            />
-                          </Tooltip>
-                        )}
-                        <Tooltip title={t('common.settings')}>
-                          <Button
-                            type='text'
-                            size='small'
-                            icon={<SettingOutlined />}
-                            onClick={() => handleEditProvider(provider)}
-                            aria-label={t('common.settings')}
-                          />
-                        </Tooltip>
-                        <Dropdown
-                          trigger={['click']}
-                          menu={{
-                            items: [
-                              {
-                                key: 'requests',
-                                label: (
-                                  <a
-                                    href={
-                                      '#' +
-                                      buildStatisticsUrl({
-                                        timeRange: 'all',
-                                        filter: { providerId: provider.id },
-                                        page: 1,
-                                        pageSize: 10,
-                                      })
-                                    }
-                                  >
-                                    {t('resources.requests')}
-                                  </a>
-                                ),
-                                icon: <EyeOutlined />,
-                              },
-                              {
-                                key: 'usage',
-                                label: t('usageDetail.openProvider'),
-                                icon: <LineChartOutlined />,
-                                onClick: () =>
-                                  setUsageScope({
-                                    type: 'provider',
-                                    providerId: provider.id,
-                                    name: provider.name,
-                                  }),
-                              },
-                              {
-                                key: 'models',
-                                label: t('keys.viewModels'),
-                                icon: <EyeOutlined />,
-                                onClick: () => setModelProvider(provider),
-                              },
-                              { type: 'divider' },
-                              {
-                                key: 'active',
-                                label: provider.isActive
-                                  ? t('providers.disableProvider')
-                                  : t('providers.enableProvider'),
-                                onClick: () => handleToggleProvider(provider, !provider.isActive),
-                              },
-                              {
-                                key: 'delete',
-                                danger: true,
-                                label: t('providers.deleteProvider'),
-                                icon: <DeleteOutlined />,
-                                onClick: () =>
-                                  confirmModal.confirm({
-                                    title: t('providers.deleteProvider'),
-                                    content: t('providers.deleteProviderConfirm'),
-                                    okText: t('common.delete'),
-                                    cancelText: t('common.cancel'),
-                                    okButtonProps: { danger: true },
-                                    onOk: () => handleDeleteProvider(provider.id),
-                                  }),
-                              },
-                            ],
-                          }}
-                        >
-                          <Button
-                            type='text'
-                            size='small'
-                            aria-label={t('common.more')}
-                            icon={<MoreOutlined />}
-                          />
-                        </Dropdown>
-                      </Space>
-                    </div>
+                          <div className={styles.railItemMeta}>
+                            <span>
+                              {count} {t('common.keys')}
+                            </span>
+                            {balanceText && <Text type='secondary'>{balanceText}</Text>}
+                          </div>
+                        </div>
+                      </SortableProviderItem>
+                    )
+                  })}
+                </SortableContext>
+              </DndContext>
+            </div>
+          </aside>
 
-                    {!providerQuotaIsPerKey(provider) && hasProviderQuery(provider) && (
-                      <>
-                        {provider.cachedUsage?.windows?.length ||
-                        provider.cachedUsage?.groups?.length ? (
-                          <div className={styles.providerQuota}>
-                            <ProviderUsageWindows
-                              windows={provider.cachedUsage?.windows ?? []}
-                              groups={provider.cachedUsage?.groups ?? []}
-                            />
-                          </div>
-                        ) : null}
-                        {providerQueryMissingCredential(provider, keys) ? (
-                          <div className={styles.providerQuota}>
-                            <Text type='secondary'>
-                              {t(providerQueryMissingCredential(provider, keys)!)}
-                            </Text>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
+          {/* Right Workspace: Selected Provider Detail */}
+          <section className={styles.detail}>
+            {selectedProvider ? (
+              <>
+                <header className={styles.detailHeader}>
+                  <div className={styles.detailTitleRow}>
+                    <div className={styles.detailIdentity}>
+                      <ProviderIcon
+                        icon={selectedProvider.icon}
+                        name={selectedProvider.name}
+                        size={32}
+                      />
+                      <div className={styles.detailTitles}>
+                        <h2 className={styles.detailName}>{selectedProvider.name}</h2>
+                        <span className={styles.detailUrl} title={selectedProvider.baseUrl}>
+                          {selectedProvider.baseUrl}
+                        </span>
+                      </div>
+                    </div>
+                    <Space wrap size={8}>
+                      {providerMetrics[selectedProvider.name] && (
+                        <Tag>
+                          {t('keysWorkspace.requestsShort', {
+                            count: providerMetrics[selectedProvider.name].totalRequests,
+                          })}
+                          {providerMetrics[selectedProvider.name].avgLatencyMs !== null
+                            ? ` · ${Math.round(providerMetrics[selectedProvider.name].avgLatencyMs!)}ms`
+                            : ''}
+                        </Tag>
+                      )}
+                      <Switch
+                        size='small'
+                        checked={selectedProvider.isActive}
+                        onChange={(checked) => void handleToggleProvider(selectedProvider, checked)}
+                      />
+                      <Button
+                        size='small'
+                        icon={<LineChartOutlined />}
+                        onClick={() =>
+                          setUsageScope({
+                            type: 'provider',
+                            providerId: selectedProvider.id,
+                            name: selectedProvider.name,
+                          })
+                        }
+                      >
+                        {t('statistics.title')}
+                      </Button>
+                      <Popconfirm
+                        title={t('providers.deleteProviderConfirm')}
+                        onConfirm={() => void handleDeleteProvider(selectedProvider.id)}
+                        okText={t('common.delete')}
+                        cancelText={t('common.cancel')}
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button
+                          size='small'
+                          danger
+                          icon={<DeleteOutlined />}
+                          aria-label={t('common.delete')}
+                        />
+                      </Popconfirm>
+                    </Space>
                   </div>
 
-                  <div className={styles.keysGrid}>
-                    {keys.map((key) => (
-                      <Card
-                        key={key.id}
-                        className={`${styles.keyCard} ${key.isExhausted ? styles.exhausted : ''}`}
-                        variant='outlined'
-                      >
-                        {/* Card Header */}
-                        <div className={styles.keyCardHeader}>
-                          <div className={styles.keyCardTitle}>
-                            <div className={styles.keyTitleInfo}>
-                              <Text strong className={styles.keyAlias}>
-                                {key.alias || t('keys.unnamedKey')}
-                              </Text>
-                              <div className={styles.keyMeta}>
-                                {/* Type icons - show all supported types */}
-                                {getEffectiveKeyClients(provider, key).map((clientKind) => {
+                  {/* Account-level balance & windows bar (only for account-scope providers) */}
+                  {!providerQuotaIsPerKey(selectedProvider) &&
+                    (hasProviderQuery(selectedProvider) ||
+                      selectedProvider.cachedWalletBalance !== null ||
+                      (selectedProvider.cachedUsage?.windows?.length ?? 0) > 0) && (
+                      <div className={styles.detailAccountBar}>
+                        <Space size={6}>
+                          <WalletOutlined />
+                          <Text strong>
+                            {selectedProvider.cachedWalletBalance !== null &&
+                            selectedProvider.cachedWalletBalance !== undefined
+                              ? formatAccountAmount(
+                                  selectedProvider.cachedWalletBalance,
+                                  selectedProvider.cachedWalletBalanceCurrency ?? undefined,
+                                )
+                              : t('keysWorkspace.quotaUnknown')}
+                          </Text>
+                        </Space>
+                        {(selectedProvider.cachedUsage?.windows?.length ?? 0) > 0 && (
+                          <ProviderUsageWindows
+                            windows={selectedProvider.cachedUsage!.windows!}
+                          />
+                        )}
+                        {hasProviderQuery(selectedProvider) && (
+                          <Button
+                            size='small'
+                            type='text'
+                            icon={
+                              <ReloadOutlined
+                                spin={refreshingProviderIds.has(selectedProvider.id)}
+                              />
+                            }
+                            onClick={() => void handleRefreshBalance(selectedProvider.id)}
+                          >
+                            {t('common.refresh')}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                </header>
+
+                <div className={styles.detailBody}>
+                  <Tabs
+                    className={styles.detailTabs}
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as 'keys' | 'catalog' | 'settings')}
+                    items={[
+                      {
+                        key: 'keys',
+                        label: (
+                          <Space size={6}>
+                            <KeyOutlined />
+                            <span>{t('keysWorkspace.tabKeys')}</span>
+                            <Badge count={selectedKeys.length} showZero color='default' />
+                          </Space>
+                        ),
+                        children: (
+                          <div>
+                            <div className={styles.keysToolbar} style={{ justifyContent: 'flex-end' }}>
+                              <Button
+                                type='primary'
+                                icon={<PlusOutlined />}
+                                onClick={() => {
+                                  setEditingKey(null)
+                                  setKeyModalOpen(true)
+                                }}
+                              >
+                                {t('keysWorkspace.addKey')}
+                              </Button>
+                            </div>
+
+                            {selectedKeys.length === 0 ? (
+                              <div className={styles.emptyState}>
+                                <Empty description={t('keysWorkspace.noKeysYet')}>
+                                  <Button
+                                    type='primary'
+                                    icon={<PlusOutlined />}
+                                    onClick={() => {
+                                      setEditingKey(null)
+                                      setKeyModalOpen(true)
+                                    }}
+                                  >
+                                    {t('keysWorkspace.addFirstKey')}
+                                  </Button>
+                                </Empty>
+                              </div>
+                            ) : (
+                              <div className={styles.keysGrid}>
+                                {selectedKeys.map((key) => {
+                                  const available = key.isActive && !key.isExhausted
+                                  const stats = keyTokenStats[key.id]
+                                  const refProfiles = profiles.filter(
+                                    (profile) => profile.apiKeyId === key.id,
+                                  )
+                                  const refGateways = gateways.filter(
+                                    (gateway) => gateway.apiKeyId === key.id,
+                                  )
                                   return (
-                                    <Tooltip
-                                      key={clientKind}
-                                      title={getClientKindLabel(clientKind)}
+                                    <div
+                                      key={key.id}
+                                      className={`${styles.keyCard} ${!available ? styles.keyCardDisabled : ''}`}
                                     >
-                                      <span className={styles.clientLabel}>
-                                        <ClientIcon kind={clientKind} size={14} />
-                                        {getClientKindLabel(clientKind)}
-                                      </span>
-                                    </Tooltip>
+                                      <div className={styles.keyCardHeader}>
+                                        <div>
+                                          <div className={styles.keyAlias}>
+                                            {key.alias || t('instances.unnamedKey')}
+                                          </div>
+                                          {key.isExhausted && (
+                                            <Tag color='red' style={{ marginTop: 4 }}>
+                                              {t('keys.exhausted')}
+                                            </Tag>
+                                          )}
+                                          {!key.isActive && !key.isExhausted && (
+                                            <Tag style={{ marginTop: 4 }}>{t('common.inactive')}</Tag>
+                                          )}
+                                        </div>
+                                        <Switch
+                                          size='small'
+                                          checked={available}
+                                          onChange={(checked) => void handleToggleKey(key, checked)}
+                                        />
+                                      </div>
+
+                                      {renderKeyQuota(selectedProvider, key)}
+
+                                      <div className={styles.keyStatsRow}>
+                                        <Tooltip
+                                          title={
+                                            stats
+                                              ? `${t('keys.todayTokens')}: ${formatExactTokenCount(stats.todayTokens, i18n.language)}`
+                                              : undefined
+                                          }
+                                        >
+                                          <span>
+                                            <FireOutlined style={{ marginRight: 4 }} />
+                                            {t('keys.todayTokens')}:{' '}
+                                            {formatTokenCount(
+                                              stats?.todayTokens ?? 0,
+                                              i18n.language,
+                                            )}
+                                          </span>
+                                        </Tooltip>
+                                        <Tooltip
+                                          title={
+                                            stats
+                                              ? `${t('keys.totalTokens')}: ${formatExactTokenCount(stats.totalTokens, i18n.language)}`
+                                              : undefined
+                                          }
+                                        >
+                                          <span>
+                                            {t('keys.totalTokens')}:{' '}
+                                            {formatTokenCount(
+                                              stats?.totalTokens ?? 0,
+                                              i18n.language,
+                                            )}
+                                          </span>
+                                        </Tooltip>
+                                      </div>
+
+                                      {(refProfiles.length > 0 || refGateways.length > 0) && (
+                                        <div className={styles.keyRefsRow}>
+                                          {refProfiles.length > 0 && (
+                                            <Tooltip
+                                              title={refProfiles.map((p) => p.name).join('、')}
+                                            >
+                                              <Tag icon={<AppstoreOutlined />} color='blue'>
+                                                {t('keysWorkspace.usedByProfiles', {
+                                                  count: refProfiles.length,
+                                                })}
+                                              </Tag>
+                                            </Tooltip>
+                                          )}
+                                          {refGateways.length > 0 && (
+                                            <Tooltip
+                                              title={refGateways
+                                                .map((g) => g.displayName)
+                                                .join('、')}
+                                            >
+                                              <Tag icon={<ApiOutlined />} color='purple'>
+                                                {t('keysWorkspace.usedByGateways', {
+                                                  count: refGateways.length,
+                                                })}
+                                              </Tag>
+                                            </Tooltip>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      <div className={styles.keyFooter}>
+                                        <Space size={4}>
+                                          <Button
+                                            size='small'
+                                            icon={<EditOutlined />}
+                                            onClick={() => {
+                                              setEditingKey(key)
+                                              setKeyModalOpen(true)
+                                            }}
+                                          >
+                                            {t('common.edit')}
+                                          </Button>
+                                          <Button
+                                            size='small'
+                                            type='text'
+                                            icon={<LineChartOutlined />}
+                                            onClick={() =>
+                                              setUsageScope({
+                                                type: 'key',
+                                                providerId: selectedProvider.id,
+                                                apiKeyId: key.id,
+                                                name: key.alias || t('instances.unnamedKey'),
+                                                providerName: selectedProvider.name,
+                                              })
+                                            }
+                                          >
+                                            {t('statistics.title')}
+                                          </Button>
+                                        </Space>
+                                        <Popconfirm
+                                          title={t('apiKeys.deleteKeyConfirm')}
+                                          onConfirm={() => void handleDeleteKey(key)}
+                                          okText={t('common.delete')}
+                                          cancelText={t('common.cancel')}
+                                          okButtonProps={{ danger: true }}
+                                        >
+                                          <Button
+                                            size='small'
+                                            type='text'
+                                            danger
+                                            icon={<DeleteOutlined />}
+                                            aria-label={t('common.delete')}
+                                          />
+                                        </Popconfirm>
+                                      </div>
+                                    </div>
                                   )
                                 })}
                               </div>
-                            </div>
-                          </div>
-                          <Switch
-                            aria-label={`${key.alias || t('keys.unnamedKey')} ${t('common.active')}`}
-                            size='small'
-                            checked={!key.isExhausted}
-                            onChange={(checked) => handleToggleKey(key, checked)}
-                          />
-                        </div>
-
-                        {/* Stats Row */}
-                        <div className={styles.statsRow}>
-                          {/* Key Quota - 额度. The reload icon is always visible
-                              so the manual refresh is discoverable after the
-                              first answer; clicking the stat (or the icon inside
-                              it) asks the service for this key's own remaining
-                              amount and metering periods again. */}
-                          {hasKeyQuery(key) && (
-                            <Tooltip
-                              title={
-                                <span>
-                                  {t('keys.refreshQuota')}
-                                  <br />
-                                  {t('providers.lastChecked')}:{' '}
-                                  {key.lastUsageCheckedAt
-                                    ? new Date(key.lastUsageCheckedAt).toLocaleString()
-                                    : t('common.never')}
-                                </span>
-                              }
-                            >
-                              <button
-                                type='button'
-                                aria-label={t('keys.refreshQuota')}
-                                disabled={refreshingKeyUsageIds.has(key.id)}
-                                className={`${styles.statItem} ${styles.statItemClickable}`}
-                                onClick={() => handleRefreshKeyUsage(key.id)}
-                              >
-                                <DollarOutlined style={{ color: token.colorSuccess }} />
-                                <span className={styles.statValue}>
-                                  {key.cachedUsage?.isUnlimited
-                                    ? '∞'
-                                    : key.cachedUsage?.remaining != null
-                                      ? formatAccountAmount(
-                                          key.cachedUsage.remaining,
-                                          key.cachedUsage.unit,
-                                        )
-                                      : key.cachedUsage?.windows?.length ||
-                                          key.cachedUsage?.groups?.length
-                                        ? t('querySchemes.capabilityWindows')
-                                        : t('providers.queryNow')}
-                                </span>
-                                <ReloadOutlined
-                                  spin={refreshingKeyUsageIds.has(key.id)}
-                                  aria-hidden='true'
-                                  style={{
-                                    fontSize: 12,
-                                    marginLeft: 4,
-                                    color: token.colorTextTertiary,
-                                  }}
-                                />
-                              </button>
-                            </Tooltip>
-                          )}
-                          {/* Today's tokens */}
-                          <div className={styles.statItem}>
-                            <FireOutlined style={{ color: token.colorWarning }} />
-                            <Tooltip
-                              title={formatExactTokenCount(
-                                keyTokenStats[key.id]?.todayTokens || 0,
-                                i18n.language,
-                              )}
-                            >
-                              <span className={styles.statValue}>
-                                {t('keys.todayTokens') || '今日'}:{' '}
-                                {formatTokenCount(
-                                  keyTokenStats[key.id]?.todayTokens || 0,
-                                  i18n.language,
-                                )}
-                              </span>
-                            </Tooltip>
-                          </div>
-                          {/* Total tokens */}
-                          <div className={styles.statItem}>
-                            <PlayCircleOutlined style={{ color: token.colorTextSecondary }} />
-                            <Tooltip
-                              title={formatExactTokenCount(
-                                keyTokenStats[key.id]?.totalTokens || 0,
-                                i18n.language,
-                              )}
-                            >
-                              <span className={styles.statValue}>
-                                {t('keys.totalTokens') || '累计'}:{' '}
-                                {formatTokenCount(
-                                  keyTokenStats[key.id]?.totalTokens || 0,
-                                  i18n.language,
-                                )}
-                              </span>
-                            </Tooltip>
-                          </div>
-                        </div>
-
-                        {/* This key's own metering periods: a key-scope answer
-                            may report 5h / weekly / monthly instead of (or in
-                            addition to) an amount. */}
-                        {((key.cachedUsage?.windows?.length ?? 0) > 0 ||
-                          (key.cachedUsage?.groups?.length ?? 0) > 0) && (
-                          <div className={styles.keyQuotaWindows}>
-                            <ProviderUsageWindows
-                              windows={key.cachedUsage?.windows ?? []}
-                              groups={key.cachedUsage?.groups ?? []}
-                            />
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className={styles.keyCardActions}>
-                          <Space size={4}>
-                            <Tooltip title={t('keys.copyKey')}>
-                              <Button
-                                type='text'
-                                size='small'
-                                icon={<CopyOutlined />}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDuplicateKey(key)
-                                }}
-                              ></Button>
-                            </Tooltip>
-                            {provider.website && (
-                              <Tooltip title={t('keys.visitWebsite')}>
-                                <Button
-                                  type='text'
-                                  size='small'
-                                  icon={<LinkOutlined />}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    getApi().system.openExternal(provider.website!)
-                                  }}
-                                />
-                              </Tooltip>
                             )}
-                            <Tooltip title={t('common.edit')}>
-                              <Button
-                                type='text'
-                                size='small'
-                                icon={<EditOutlined />}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleEditKey(key)
-                                }}
-                              >
-                                {t('common.edit')}
-                              </Button>
-                            </Tooltip>
-                            <Popconfirm
-                              title={t('apiKeys.deleteKey')}
-                              description={t('apiKeys.deleteKeyConfirm')}
-                              onConfirm={() => handleDeleteKey(key)}
-                              okText={t('common.delete')}
-                              cancelText={t('common.cancel')}
-                              okButtonProps={{ danger: true }}
-                            >
-                              <Button
-                                type='text'
-                                size='small'
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </Popconfirm>
-                            <Dropdown
-                              trigger={['click']}
-                              menu={{
-                                items: [
-                                  {
-                                    key: 'requests',
-                                    label: (
-                                      <a
-                                        href={
-                                          '#' +
-                                          buildStatisticsUrl({
-                                            timeRange: 'all',
-                                            filter: { providerId: provider.id, apiKeyId: key.id },
-                                            page: 1,
-                                            pageSize: 10,
-                                          })
-                                        }
-                                      >
-                                        {t('resources.requests')}
-                                      </a>
-                                    ),
-                                    icon: <EyeOutlined />,
-                                  },
-                                  {
-                                    key: 'usage',
-                                    label: t('usageDetail.openKey'),
-                                    icon: <LineChartOutlined />,
-                                    onClick: () =>
-                                      setUsageScope({
-                                        type: 'key',
-                                        providerId: provider.id,
-                                        apiKeyId: key.id,
-                                        name: key.alias || t('keys.unnamedKey'),
-                                        providerName: provider.name,
-                                      }),
-                                  },
-                                ],
-                              }}
-                            >
-                              <Tooltip title={t('common.more')}>
-                                <Button
-                                  type='text'
-                                  size='small'
-                                  aria-label={t('common.more')}
-                                  icon={<MoreOutlined />}
-                                  onClick={(event) => event.stopPropagation()}
-                                />
-                              </Tooltip>
-                            </Dropdown>
+                          </div>
+                        ),
+                      },
+                      {
+                        key: 'catalog',
+                        label: (
+                          <Space size={6}>
+                            <AppstoreOutlined />
+                            <span>{t('keysWorkspace.tabCatalog')}</span>
+                            <Badge count={selectedCatalogCount} showZero color='default' />
                           </Space>
-                        </div>
-                      </Card>
-                    ))}
-                    <button
-                      type='button'
-                      className={styles.addKeyCard}
-                      onClick={() => handleAddKey(provider.id)}
-                    >
-                      <PlusOutlined className={styles.addIcon} />
-                      <span>{t('apiKeys.addKey')}</span>
-                    </button>
-                  </div>
-                </section>
-              ))}
-            </div>
-          )}
-        </SimpleBar>
-      </div>
-
-      {/* Provider Modal */}
-      {modelProvider && (
-        <ProviderModelModal
-          key={modelProvider.id}
-          provider={modelProvider}
-          apiKeys={apiKeys[modelProvider.id] ?? []}
-          onClose={() => setModelProvider(null)}
-        />
+                        ),
+                        children: (
+                          <ProviderModelCatalogPanel
+                            key={selectedProvider.id}
+                            provider={selectedProvider}
+                            apiKeys={selectedKeys}
+                          />
+                        ),
+                      },
+                      {
+                        key: 'settings',
+                        label: (
+                          <Space size={6}>
+                            <SettingOutlined />
+                            <span>{t('keysWorkspace.tabSettings')}</span>
+                          </Space>
+                        ),
+                        children: (
+                          <ProviderModal
+                            key={selectedProvider.id}
+                            open
+                            embedded
+                            provider={selectedProvider}
+                            apiKeys={selectedKeys}
+                            onClose={() => {}}
+                            onSave={handleUpdateSelectedProvider}
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className={styles.emptyState}>
+                <Text type='secondary'>{t('keysWorkspace.selectProviderHint')}</Text>
+              </div>
+            )}
+          </section>
+        </div>
       )}
+
       <ProviderModal
-        open={providerModalOpen}
-        provider={editingProvider}
-        apiKeys={editingProvider ? (apiKeys[editingProvider.id] ?? []) : []}
-        onClose={() => {
-          setProviderModalOpen(false)
-          setEditingProvider(null)
-        }}
-        onSave={async (input) => {
-          const saved = input.id
-            ? await getApi().provider.update({ ...input, id: input.id })
-            : await getApi().provider.create(input)
-          useProviderStore.getState().upsertProvider(saved)
-          if (!input.id) setActiveFilter(saved.id)
-          void fetchProviders()
-        }}
+        open={addProviderOpen}
+        provider={null}
+        onClose={() => setAddProviderOpen(false)}
+        onSave={handleCreateProvider}
       />
 
-      {/* Key Edit Modal */}
-      <KeyEditModal
-        open={keyEditOpen}
-        mode={keyEditMode}
+      <KeySimpleModal
+        open={keyModalOpen}
         apiKey={editingKey}
         providers={providers}
-        defaultProviderId={defaultProviderId}
+        defaultProviderId={selectedProvider?.id}
         onClose={() => {
-          setKeyEditOpen(false)
+          setKeyModalOpen(false)
           setEditingKey(null)
-          setDefaultProviderId(undefined)
         }}
-        onSave={handleSaveKey}
+        onCreate={createApiKey}
+        onUpdate={updateApiKey}
+        onAfterSave={(saved, previous) => {
+          const configChanged =
+            previous?.usageScript !== saved.usageScript ||
+            JSON.stringify(previous?.queryConfig ?? null) !==
+              JSON.stringify(saved.queryConfig ?? null)
+          if (
+            hasKeyQuery(saved) &&
+            (!previous?.cachedUsage || configChanged || previous.value !== saved.value)
+          ) {
+            void handleRefreshKeyUsage(saved.id)
+          }
+        }}
       />
 
-      <ResourceUsageModal
-        open={usageScope != null}
-        scope={usageScope}
-        onClose={() => setUsageScope(null)}
-      />
+      {usageScope && (
+        <ResourceUsageModal
+          open
+          scope={usageScope}
+          onClose={() => setUsageScope(null)}
+        />
+      )}
     </div>
   )
 }

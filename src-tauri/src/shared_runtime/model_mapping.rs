@@ -454,3 +454,48 @@ fn finish_catalog(mut data: Vec<Value>, anthropic: bool) -> Value {
 pub fn alias_table_key(api_key_id: &str, kind: &str) -> String {
     format!("model-alias-map.{}.{}", api_key_id, client_key(kind))
 }
+
+/// The settings key an alias table lives under when scoped to a ClientProfile,
+/// ensuring multiple profiles referencing the same API key never collide.
+pub fn alias_table_key_for_profile(profile_id: &str) -> String {
+    format!("model-alias-map.profile.{}", profile_id)
+}
+
+/// Extract a single client's v2-formatted mapping JSON from a legacy/v2 multi-client mapping.
+pub fn extract_single_client_mapping(mapping: Option<&str>, kind: &str) -> Option<String> {
+    let raw = mapping?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let Ok(mut value) = serde_json::from_str::<Value>(raw) else {
+        return None;
+    };
+    remove_retired_rules(&mut value);
+    let key = client_key(kind);
+    if value["version"] == 2 {
+        let scope = value["clients"].get(key)?;
+        if !scope.is_object() {
+            return None;
+        }
+        return Some(json!({ "version": 2, "clients": { key: scope } }).to_string());
+    }
+    // Legacy v1 flat mapping
+    let upstream = upstream_mapping(raw, key)
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or_else(|| json!({"mode": "follow"}));
+    let mut scope = serde_json::Map::new();
+    if key == "grok" {
+        if let Some(model) = value
+            .get("grok")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            scope.insert("model".to_string(), json!(model));
+        }
+    } else {
+        scope.insert("catalog".to_string(), json!({"mode": "provider"}));
+    }
+    scope.insert("upstream".to_string(), upstream);
+    Some(json!({ "version": 2, "clients": { key: Value::Object(scope) } }).to_string())
+}

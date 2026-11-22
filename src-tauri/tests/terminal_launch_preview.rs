@@ -219,6 +219,7 @@ fn project_preview_uses_the_requested_clients_own_binding() {
                 cli_type: "grok".to_string(),
                 provider_id: Some(grok_provider.id),
                 api_key_id: Some(grok_key.id),
+                client_profile_id: None,
                 terminal_type: Some("iterm2".to_string()),
                 prelaunch_command: Some("grok-init".to_string()),
             },

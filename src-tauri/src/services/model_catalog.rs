@@ -282,14 +282,68 @@ pub async fn effective_catalog(
     kind: &str,
     request_headers: Option<&axum::http::HeaderMap>,
 ) -> Result<CatalogSnapshot, String> {
-    let mapping = key.model_mapping.as_deref();
-    // Assigned role slots are built from the key alone, so a provider whose
+    effective_catalog_with_profile(db, provider, key, kind, None, request_headers).await
+}
+
+/// Synthesize a runtime key view whose `model_mapping` and `client_configs`
+/// reflect a `ClientProfile`, so catalog discovery and Desktop sync reuse the
+/// exact same battle-tested helpers without duplicating logic.
+pub(crate) fn apply_profile_to_key(key: &ApiKey, profile: &crate::models::ClientProfile) -> ApiKey {
+    let mut effective = key.clone();
+    effective.model_mapping = profile.model_config.clone();
+    effective.config = profile.launch_env.clone();
+    let kind = model_mapping::client_key(&profile.client_kind);
+    let mut cfg_entry = serde_json::Map::new();
+    if let Some(conn) = &profile.connection_config {
+        if let Some(url) = conn.base_url.as_deref().filter(|s| !s.trim().is_empty()) {
+            cfg_entry.insert("baseUrl".to_string(), serde_json::json!(url.trim()));
+        }
+        if let Some(auth) = conn
+            .auth_scheme
+            .as_deref()
+            .filter(|s| !s.trim().is_empty() && *s != "default")
+        {
+            cfg_entry.insert("authScheme".to_string(), serde_json::json!(auth.trim()));
+        }
+        if let Some(ua) = conn.user_agent.as_deref().filter(|s| !s.trim().is_empty()) {
+            cfg_entry.insert("proxyUserAgent".to_string(), serde_json::json!(ua.trim()));
+        }
+    }
+    effective.client_configs = if cfg_entry.is_empty() {
+        None
+    } else {
+        Some(serde_json::json!({ kind: serde_json::Value::Object(cfg_entry) }))
+    };
+    effective
+}
+
+pub async fn effective_catalog_with_profile(
+    db: &Arc<Mutex<Database>>,
+    provider: &Provider,
+    key: &ApiKey,
+    kind: &str,
+    profile: Option<&crate::models::ClientProfile>,
+    request_headers: Option<&axum::http::HeaderMap>,
+) -> Result<CatalogSnapshot, String> {
+    let effective_key;
+    let target_key = if let Some(p) = profile {
+        effective_key = apply_profile_to_key(key, p);
+        &effective_key
+    } else {
+        key
+    };
+    let alias_key = match profile {
+        Some(p) => model_mapping::alias_table_key_for_profile(&p.id),
+        None => model_mapping::alias_table_key(&key.id, kind),
+    };
+    let mapping = target_key.model_mapping.as_deref();
+    // Assigned role slots are built from the key/profile alone, so a provider whose
     // model-list endpoint is missing or rejecting credentials still serves a
     // usable menu.
     let role_slots = !model_mapping::client_role_entries(mapping, kind).is_empty();
     if role_slots || model_mapping::catalog_mode(mapping, kind) == "custom" {
         let (catalog, aliases) = model_mapping::effective_catalog_ex(mapping, kind, None)?;
-        persist_aliases(db, &key.id, kind, &aliases)?;
+        persist_aliases_by_key(db, &alias_key, &aliases)?;
         return Ok(CatalogSnapshot {
             catalog,
             fetched_at: chrono::Utc::now().to_rfc3339(),
@@ -297,10 +351,10 @@ pub async fn effective_catalog(
             error: None,
         });
     }
-    let snapshot = provider_catalog(db, provider, key, kind, true, request_headers).await?;
+    let snapshot = provider_catalog(db, provider, target_key, kind, true, request_headers).await?;
     let (catalog, aliases) =
         model_mapping::effective_catalog_ex(mapping, kind, Some(&snapshot.catalog))?;
-    persist_aliases(db, &key.id, kind, &aliases)?;
+    persist_aliases_by_key(db, &alias_key, &aliases)?;
     Ok(CatalogSnapshot {
         catalog,
         ..snapshot
@@ -309,10 +363,9 @@ pub async fn effective_catalog(
 
 /// The alias table is written whenever the served catalog is generated, so the
 /// request path can decode a picked id without re-deriving the whole list.
-fn persist_aliases(
+fn persist_aliases_by_key(
     db: &Arc<Mutex<Database>>,
-    api_key_id: &str,
-    kind: &str,
+    settings_key: &str,
     aliases: &model_mapping::AliasTable,
 ) -> Result<(), String> {
     if aliases.is_empty() {
@@ -321,7 +374,7 @@ fn persist_aliases(
     let value = serde_json::to_string(aliases).map_err(|error| error.to_string())?;
     db.lock()
         .map_err(|error| error.to_string())?
-        .settings_set_value(&model_mapping::alias_table_key(api_key_id, kind), &value)
+        .settings_set_value(settings_key, &value)
         .map_err(|error| error.to_string())
 }
 

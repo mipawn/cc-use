@@ -1,0 +1,112 @@
+.card {
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--ant-color-bg-container);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.card:hover {
+  border-color: var(--ant-color-primary-border);
+}
+
+.cardActiveDesktop {
+  border-color: var(--ant-color-success);
+  box-shadow: 0 0 0 1px var(--ant-color-success-border);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.titleArea {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+  word-break: break-word;
+}
+
+.bindingBox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+}
+
+.bindingLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.providerName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ant-color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.keySwapSelect {
+  min-width: 170px;
+  max-width: 240px;
+}
+
+.quotaMeta {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.summaryRow :global(.ant-tag) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-inline-end: 0;
+}
+
+.footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+  flex-wrap: wrap;
+}

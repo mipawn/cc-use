@@ -163,6 +163,7 @@ fn setup_provider_with_mapping(
         session_token: session_token.clone(),
         provider_id: provider.id.clone(),
         api_key_id: api_key.id.clone(),
+        client_profile_id: None,
         project_id: None,
         created_at: chrono::Utc::now().to_rfc3339(),
         session_kind: "manual".to_string(),

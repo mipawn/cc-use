@@ -72,6 +72,7 @@ pub fn gateway_create_with_policy_inner(
         session_token: new_session_token(),
         provider_id: provider_id.to_string(),
         api_key_id: api_key_id.to_string(),
+        client_profile_id: None,
         project_id: None,
         created_at: now.clone(),
         session_kind: "gateway".to_string(),

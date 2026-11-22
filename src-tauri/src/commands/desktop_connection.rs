@@ -88,6 +88,8 @@ pub enum DesktopNextAction {
 pub struct DesktopRoute {
     pub provider_id: String,
     pub api_key_id: String,
+    #[serde(default)]
+    pub profile_id: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -307,6 +309,7 @@ fn read_state_inner(
                 state.route = Some(DesktopRoute {
                     provider_id: session.provider_id,
                     api_key_id: session.api_key_id,
+                    profile_id: session.client_profile_id,
                 });
             }
         }
@@ -339,12 +342,13 @@ pub(crate) fn read_state(
     }
 }
 
-pub(crate) fn validate_route(
+pub(crate) fn validate_route_with_profile(
     db: &Database,
     client: DesktopClientKind,
     provider_id: &str,
     api_key_id: &str,
-) -> Result<(Provider, ApiKey), String> {
+    client_profile_id: Option<&str>,
+) -> Result<(Provider, ApiKey, Option<crate::models::ClientProfile>), String> {
     let provider = db
         .provider_get(provider_id)
         .map_err(|_| "Cannot read provider.".to_string())?
@@ -362,12 +366,38 @@ pub(crate) fn validate_route(
     if key.is_exhausted {
         return Err("The selected API key is exhausted.".into());
     }
+    if let Some(pid) = client_profile_id {
+        let profile = db
+            .client_profile_get(pid)
+            .map_err(|_| "Cannot read client profile.".to_string())?
+            .ok_or("Client profile not found")?;
+        if profile.client_kind != client.as_str() {
+            return Err("The selected profile is not compatible with this desktop client.".into());
+        }
+        if profile.provider_id != provider.id || profile.api_key_id != key.id {
+            return Err("The selected profile does not match the selected provider or key.".into());
+        }
+        return Ok((provider, key, Some(profile)));
+    }
     if !key.types.iter().any(|kind| kind == client.as_str()) {
         return Err("The selected API key is not compatible with this desktop client.".into());
     }
+    Ok((provider, key, None))
+}
+
+#[allow(dead_code)]
+pub(crate) fn validate_route(
+    db: &Database,
+    client: DesktopClientKind,
+    provider_id: &str,
+    api_key_id: &str,
+) -> Result<(Provider, ApiKey), String> {
+    let (provider, key, _) =
+        validate_route_with_profile(db, client, provider_id, api_key_id, None)?;
     Ok((provider, key))
 }
 
+#[allow(dead_code, clippy::too_many_arguments)]
 pub(crate) fn apply_with_config(
     db: &Database,
     client: DesktopClientKind,
@@ -378,7 +408,32 @@ pub(crate) fn apply_with_config(
     model_count: Option<usize>,
     apply: impl FnOnce(&str, u16) -> Result<(), String>,
 ) -> Result<DesktopOperationResult, String> {
-    validate_route(db, client, provider_id, api_key_id)?;
+    apply_with_config_and_profile(
+        db,
+        client,
+        provider_id,
+        api_key_id,
+        None,
+        source,
+        config,
+        model_count,
+        apply,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_with_config_and_profile(
+    db: &Database,
+    client: DesktopClientKind,
+    provider_id: &str,
+    api_key_id: &str,
+    client_profile_id: Option<&str>,
+    source: DesktopChangeSource,
+    config: &impl DesktopConfigFiles,
+    model_count: Option<usize>,
+    apply: impl FnOnce(&str, u16) -> Result<(), String>,
+) -> Result<DesktopOperationResult, String> {
+    validate_route_with_profile(db, client, provider_id, api_key_id, client_profile_id)?;
     let configured_token = config.inspect()?.token;
     let saved_token = db
         .settings_get_value(client.session_key())
@@ -422,6 +477,7 @@ pub(crate) fn apply_with_config(
                 session_token: token.clone(),
                 provider_id: provider_id.into(),
                 api_key_id: api_key_id.into(),
+                client_profile_id: client_profile_id.map(str::to_string),
                 project_id: None,
                 created_at: old.map_or_else(|| now.clone(), |session| session.created_at),
                 session_kind: "desktop".into(),
@@ -639,18 +695,26 @@ pub async fn desktop_connection_apply(
     client_kind: DesktopClientKind,
     provider_id: String,
     api_key_id: String,
+    client_profile_id: Option<String>,
     db: State<'_, Arc<Mutex<Database>>>,
     app: tauri::AppHandle,
 ) -> Result<DesktopOperationResult, String> {
     let result = match client_kind {
         DesktopClientKind::Codex => {
-            codex_config::codex_config_apply_inner(db.inner(), provider_id, api_key_id).await
-        }
-        DesktopClientKind::ClaudeDesktop => {
-            claude_desktop_config::claude_desktop_config_apply_inner(
+            codex_config::codex_config_apply_with_profile_inner(
                 db.inner(),
                 provider_id,
                 api_key_id,
+                client_profile_id,
+            )
+            .await
+        }
+        DesktopClientKind::ClaudeDesktop => {
+            claude_desktop_config::claude_desktop_config_apply_with_profile_inner(
+                db.inner(),
+                provider_id,
+                api_key_id,
+                client_profile_id,
             )
         }
     };

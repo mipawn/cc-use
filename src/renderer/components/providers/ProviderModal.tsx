@@ -49,6 +49,7 @@ interface ProviderModalProps {
   defaultClientKind?: ClientKind
   onClose: () => void
   onSave: (input: CreateProviderInput & { id?: string; isActive?: boolean }) => Promise<void>
+  embedded?: boolean
 }
 
 /**
@@ -85,6 +86,7 @@ export default function ProviderModal({
   defaultClientKind,
   onClose,
   onSave,
+  embedded = false,
 }: ProviderModalProps) {
   const { t } = useTranslation()
   const [form] = Form.useForm()
@@ -384,7 +386,7 @@ export default function ProviderModal({
       })
 
       message.success(provider ? t('providers.providerUpdated') : t('providers.providerCreated'))
-      onClose()
+      if (!embedded) onClose()
     } catch (error) {
       if (error instanceof Error) {
         message.error(error.message)
@@ -444,31 +446,18 @@ export default function ProviderModal({
     selectedQueryScheme?.credentialRequirements.includes('userId') ||
     queryValue.script.includes('{{userId}}')
 
-  return (
-    <Modal
-      title={provider ? t('providers.editProvider') : t('providers.newProvider')}
-      open={open}
-      onCancel={onClose}
-      onOk={handleSubmit}
-      okText={t('common.confirm')}
-      cancelText={t('common.cancel')}
-      confirmLoading={loading}
-      width={720}
-      destroyOnHidden
-      className={styles.modal}
-    >
-      <SimpleBar className={styles.scrollContainer}>
-        <div className={styles.body}>
-          <Form
-            form={form}
-            layout='vertical'
-            className={styles.form}
-            initialValues={{
-              walletBalanceType: 'none',
-              usageType: 'none',
-              responsesRectifier: false,
-            }}
-          >
+  const formBody = (
+    <div className={styles.body}>
+      <Form
+        form={form}
+        layout='vertical'
+        className={styles.form}
+        initialValues={{
+          walletBalanceType: 'none',
+          usageType: 'none',
+          responsesRectifier: false,
+        }}
+      >
             {/* A template is a starting point, not a lock: picking one fills in
                 the fields below, and each of them stays editable. Presets are
                 named, not branded — they select a template, so a vendor logo
@@ -770,34 +759,67 @@ export default function ProviderModal({
             />
           </Form>
         </div>
-      </SimpleBar>
-      <Modal
-        open={open && deleteIcon !== null}
-        title={t('providers.deleteIconConfirm')}
-        onOk={() => void handleIconDelete()}
-        onCancel={() => {
-          if (!deletingIcon) setDeleteIcon(null)
-        }}
-        okText={t('common.delete')}
-        cancelText={t('common.cancel')}
-        okButtonProps={{ danger: true, disabled: iconUsedBy.length > 0 }}
-        cancelButtonProps={{ disabled: deletingIcon }}
-        confirmLoading={deletingIcon}
-        closable={!deletingIcon}
-        keyboard={!deletingIcon}
-        maskClosable={!deletingIcon}
-        destroyOnHidden
-      >
-        <p>{deleteIcon}</p>
-        <p>{t('providers.deleteIconIrreversible')}</p>
-        {iconUsedBy.length > 0 && (
-          <div role='alert'>
-            <p>{t('providers.iconInUse', { names: iconUsedBy.join(', ') })}</p>
-            <p>{t('providers.iconInUseHint')}</p>
-          </div>
-        )}
-        {iconDeleteError && <p role='alert'>{iconDeleteError}</p>}
-      </Modal>
+  )
+
+  const deleteIconModal = (
+    <Modal
+      open={open && deleteIcon !== null}
+      title={t('providers.deleteIconConfirm')}
+      onOk={() => void handleIconDelete()}
+      onCancel={() => {
+        if (!deletingIcon) setDeleteIcon(null)
+      }}
+      okText={t('common.delete')}
+      cancelText={t('common.cancel')}
+      okButtonProps={{ danger: true, disabled: iconUsedBy.length > 0 }}
+      cancelButtonProps={{ disabled: deletingIcon }}
+      confirmLoading={deletingIcon}
+      closable={!deletingIcon}
+      keyboard={!deletingIcon}
+      maskClosable={!deletingIcon}
+      destroyOnHidden
+    >
+      <p>{deleteIcon}</p>
+      <p>{t('providers.deleteIconIrreversible')}</p>
+      {iconUsedBy.length > 0 && (
+        <div role='alert'>
+          <p>{t('providers.iconInUse', { names: iconUsedBy.join(', ') })}</p>
+          <p>{t('providers.iconInUseHint')}</p>
+        </div>
+      )}
+      {iconDeleteError && <p role='alert'>{iconDeleteError}</p>}
+    </Modal>
+  )
+
+  if (embedded) {
+    return (
+      <div>
+        {formBody}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <Button type='primary' loading={loading} onClick={() => void handleSubmit()}>
+            {t('common.save')}
+          </Button>
+        </div>
+        {deleteIconModal}
+      </div>
+    )
+  }
+
+  return (
+    <Modal
+      title={provider ? t('providers.editProvider') : t('providers.newProvider')}
+      open={open}
+      onCancel={onClose}
+      onOk={handleSubmit}
+      okText={t('common.confirm')}
+      cancelText={t('common.cancel')}
+      confirmLoading={loading}
+      width={720}
+      destroyOnHidden
+      className={styles.modal}
+    >
+      <SimpleBar className={styles.scrollContainer}>{formBody}</SimpleBar>
+      {deleteIconModal}
     </Modal>
   )
 }

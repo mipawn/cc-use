@@ -1508,6 +1508,7 @@ mod tests {
             session_token: "session-codex".into(),
             provider_id: "provider-1".into(),
             api_key_id: "key-1".into(),
+            client_profile_id: None,
             project_id: None,
             created_at: chrono::Utc::now().to_rfc3339(),
             session_kind: "desktop".into(),

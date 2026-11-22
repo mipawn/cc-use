@@ -10,6 +10,9 @@ import type {
   ApiKey,
   CreateApiKeyInput,
   UpdateApiKeyInput,
+  ClientProfile,
+  CreateClientProfileInput,
+  UpdateClientProfileInput,
   Project,
   CreateProjectInput,
   UpdateProjectInput,
@@ -132,6 +135,14 @@ export interface Api {
     delete: (id: string) => Promise<void>
     reorder: (providerId: string, keyIds: string[]) => Promise<ApiKey[]>
   }
+  clientProfile: {
+    list: (clientKind?: ClientKind) => Promise<ClientProfile[]>
+    get: (id: string) => Promise<ClientProfile | null>
+    create: (input: CreateClientProfileInput) => Promise<ClientProfile>
+    update: (input: UpdateClientProfileInput) => Promise<ClientProfile>
+    delete: (id: string) => Promise<boolean>
+    reorder: (clientKind: ClientKind, ids: string[]) => Promise<void>
+  }
   project: {
     list: () => Promise<Project[]>
     get: (id: string) => Promise<Project | null>
@@ -155,6 +166,7 @@ export interface Api {
       projectId?: string
       providerId?: string
       apiKeyId?: string
+      clientProfileId?: string
       cliType: ClientKind | 'claude'
     }) => Promise<TerminalLaunchPreview>
     prepareGrokConfig: (apiKeyId: string) => Promise<void>
@@ -305,6 +317,7 @@ export interface Api {
       clientKind: DesktopClientKind,
       providerId: string,
       apiKeyId: string,
+      clientProfileId?: string,
     ) => Promise<DesktopOperationResult>
     restore: (clientKind: DesktopClientKind) => Promise<DesktopOperationResult>
   }

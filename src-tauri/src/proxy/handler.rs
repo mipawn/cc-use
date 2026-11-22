@@ -1,6 +1,6 @@
 use crate::db::Database;
 use crate::models::GatewayModelPolicy;
-use crate::models::{ApiKey, Provider, ProxySession, RequestLog};
+use crate::models::{ApiKey, ClientProfile, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
 use crate::proxy::{rectifier, usage_parser};
 use crate::proxy::{ProxyState, RequestPermits};
@@ -41,6 +41,7 @@ struct RouteExecution {
     upstream_url: String,
     real_api_key: Option<String>,
     api_key: Option<ApiKey>,
+    client_profile: Option<ClientProfile>,
     model_mapping: Option<String>,
     auth_scheme: Option<UpstreamAuthScheme>,
     log_ctx: Option<ResolvedSessionContext>,
@@ -523,11 +524,12 @@ pub async fn proxy_handler(
             route_execution.cli_type.as_deref(),
         ) {
             let kind = crate::shared_runtime::model_mapping::client_key(kind);
-            let snapshot = match crate::services::model_catalog::effective_catalog(
+            let snapshot = match crate::services::model_catalog::effective_catalog_with_profile(
                 &state.db,
                 provider,
                 key,
                 kind,
+                route_execution.client_profile.as_ref(),
                 Some(req.headers()),
             )
             .await
@@ -546,7 +548,7 @@ pub async fn proxy_handler(
             let source = if snapshot.from_cache {
                 "cache"
             } else if crate::shared_runtime::model_mapping::catalog_mode(
-                key.model_mapping.as_deref(),
+                route_execution.model_mapping.as_deref(),
                 kind,
             ) == "custom"
             {
@@ -1376,13 +1378,17 @@ fn build_route_execution(
 ) -> Result<RouteExecution, Response<Body>> {
     match route_plan {
         RoutePlan::ExplicitSession { session_token } => {
-            let (session, provider, api_key) = resolve_session_resources(db, &session_token, emit)?;
+            let (session, provider, api_key, client_profile) =
+                resolve_session_resources(db, &session_token, emit)?;
             let project_name = session
                 .project_id
                 .as_deref()
                 .and_then(|pid| db.project_get(pid).ok().flatten())
                 .map(|p| p.name);
-            let mapping = api_key.model_mapping.clone();
+            let mapping = client_profile
+                .as_ref()
+                .map(|profile| profile.model_config.clone())
+                .unwrap_or_else(|| api_key.model_mapping.clone());
             // Gateway outlets are transparent: keep cli_type None so the model
             // catalog intercept, auto-mode adaptation, client compatibility check
             // and codex /v1/responses inference are all bypassed.
@@ -1392,11 +1398,24 @@ fn build_route_execution(
             } else {
                 effective_session_cli_type(session.cli_type.as_deref(), req_path)
             };
-            // Written whenever this key's catalog was last served; it maps an
+            // Written whenever this profile/key's catalog was last served; it maps an
             // exposed id (alias, role route) back to the provider's model id.
             let aliases = cli_type
                 .as_deref()
                 .and_then(|kind| {
+                    if let Some(ref profile) = client_profile {
+                        if let Some(raw) = db
+                            .settings_get_value(
+                                &crate::shared_runtime::model_mapping::alias_table_key_for_profile(
+                                    &profile.id,
+                                ),
+                            )
+                            .ok()
+                            .flatten()
+                        {
+                            return Some(raw);
+                        }
+                    }
                     db.settings_get_value(&crate::shared_runtime::model_mapping::alias_table_key(
                         &api_key.id,
                         kind,
@@ -1457,6 +1476,24 @@ fn build_route_execution(
                 })?;
                 let user_agent = connection.user_agent_override.clone();
                 (upstream_url, None, user_agent, Some(connection))
+            } else if let Some(ref profile) = client_profile {
+                let conn = profile.connection_config.as_ref();
+                let resolved_base_url = conn
+                    .and_then(|c| c.base_url.as_deref())
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or(&provider.base_url);
+                let auth_scheme =
+                    conn.and_then(|c| c.auth_scheme.as_deref())
+                        .and_then(|raw| match raw {
+                            "x-api-key" => Some(UpstreamAuthScheme::XApiKey),
+                            "bearer" => Some(UpstreamAuthScheme::Bearer),
+                            "none" => Some(UpstreamAuthScheme::None),
+                            _ => None,
+                        });
+                let user_agent = conn.and_then(|c| c.user_agent.clone());
+                let upstream_url =
+                    build_provider_upstream_url(resolved_base_url, &upstream_req_path, emit)?;
+                (upstream_url, auth_scheme, user_agent, None)
             } else {
                 let client_config_key = session_client_config_key(cli_type.as_deref());
                 // Resolve base_url: clientConfigs[cli_type].baseUrl > provider.baseUrl
@@ -1489,6 +1526,7 @@ fn build_route_execution(
                 upstream_url,
                 real_api_key: Some(api_key.value.clone()),
                 api_key: Some(api_key.clone()),
+                client_profile,
                 model_mapping: mapping,
                 auth_scheme,
                 log_ctx: Some(ResolvedSessionContext {
@@ -1529,6 +1567,7 @@ fn build_route_execution(
                 upstream_url,
                 real_api_key: None,
                 api_key: None,
+                client_profile: None,
                 model_mapping: None,
                 auth_scheme: None,
                 log_ctx: None,
@@ -1573,7 +1612,7 @@ fn resolve_session_resources(
     db: &Database,
     session_token: &str,
     emit: &EmitCtx,
-) -> Result<(ProxySession, Provider, ApiKey), Response<Body>> {
+) -> Result<(ProxySession, Provider, ApiKey, Option<ClientProfile>), Response<Body>> {
     let session = match db.proxy_session_get(session_token) {
         Ok(Some(session)) => session,
         Ok(None) => {
@@ -1703,7 +1742,23 @@ fn resolve_session_resources(
         emit.reject(reason);
         return Err(error_response(StatusCode::FORBIDDEN, reason));
     }
-    if !api_key_supports_session_client(&api_key, session.cli_type.as_deref()) {
+    let client_profile = if let Some(ref profile_id) = session.client_profile_id {
+        match db.client_profile_get(profile_id) {
+            Ok(profile) => profile,
+            Err(error) => {
+                emit.reject("Failed to read client profile");
+                return Err(error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("Failed to read client profile: {}", error),
+                ));
+            }
+        }
+    } else {
+        None
+    };
+    if client_profile.is_none()
+        && !api_key_supports_session_client(&api_key, session.cli_type.as_deref())
+    {
         let reason = "API key does not support this client";
         emit.reject(reason);
         return Err(error_response(StatusCode::FORBIDDEN, reason));
@@ -1717,7 +1772,7 @@ fn resolve_session_resources(
             &format!("Failed to update session activity: {}", error),
         ));
     }
-    Ok((session, provider, api_key))
+    Ok((session, provider, api_key, client_profile))
 }
 
 fn session_time_has_passed(value: &str) -> bool {
@@ -3767,6 +3822,7 @@ mod tests {
             upstream_url: "https://example.com/v1/responses".to_string(),
             real_api_key: None,
             api_key: None,
+            client_profile: None,
             model_mapping: None,
             auth_scheme: None,
             log_ctx: None,
@@ -4071,6 +4127,7 @@ mod tests {
             upstream_url: upstream_url.to_string(),
             real_api_key: Some("sk-test".to_string()),
             api_key: None,
+            client_profile: None,
             model_mapping: None,
             auth_scheme: None,
             log_ctx: None,
@@ -4406,6 +4463,7 @@ mod tests {
             session_token: session_token.to_string(),
             provider_id: "provider".to_string(),
             api_key_id: "key".to_string(),
+            client_profile_id: None,
             project_id: None,
             created_at: chrono::Utc::now().to_rfc3339(),
             session_kind: "desktop".to_string(),

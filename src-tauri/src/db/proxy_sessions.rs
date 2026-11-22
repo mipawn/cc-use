@@ -12,7 +12,8 @@ const GATEWAY_SELECT: &str = "SELECT ps.session_token, COALESCE(ps.display_name,
 
 const PROXY_SESSION_SELECT: &str = "SELECT session_token, provider_id, api_key_id, project_id,
         created_at, cli_type, session_kind, last_seen_at, expires_at, revoked_at,
-        revoked_reason, display_name, is_active, gateway_connection_config, gateway_model_policy
+        revoked_reason, display_name, is_active, gateway_connection_config, gateway_model_policy,
+        client_profile_id
  FROM proxy_sessions";
 
 /// A corrupt stored connection configuration is reported as a database error
@@ -68,6 +69,7 @@ fn row_to_proxy_session(row: &rusqlite::Row) -> Result<ProxySession, rusqlite::E
         session_token: row.get(0)?,
         provider_id: row.get(1)?,
         api_key_id: row.get(2)?,
+        client_profile_id: row.get(15)?,
         project_id: row.get(3)?,
         created_at: row.get(4)?,
         cli_type: row.get(5)?,
@@ -93,8 +95,9 @@ impl Database {
             "INSERT OR REPLACE INTO proxy_sessions (
                 session_token, provider_id, api_key_id, project_id, created_at, cli_type,
                 session_kind, last_seen_at, expires_at, revoked_at, revoked_reason,
-                display_name, is_active, gateway_connection_config, gateway_model_policy
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                display_name, is_active, gateway_connection_config, gateway_model_policy,
+                client_profile_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             rusqlite::params![
                 session.session_token,
                 session.provider_id,
@@ -125,6 +128,7 @@ impl Database {
                 } else {
                     None
                 },
+                session.client_profile_id,
             ],
         )?;
         Ok(())
@@ -178,19 +182,44 @@ impl Database {
         api_key_id: &str,
         cli_type: &str,
     ) -> Result<bool, rusqlite::Error> {
+        self.proxy_session_update_provider_key_cli_type_with_profile(
+            token,
+            provider_id,
+            api_key_id,
+            cli_type,
+            None,
+        )
+    }
+
+    pub fn proxy_session_update_provider_key_cli_type_with_profile(
+        &self,
+        token: &str,
+        provider_id: &str,
+        api_key_id: &str,
+        cli_type: &str,
+        client_profile_id: Option<&str>,
+    ) -> Result<bool, rusqlite::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         let changed = self.conn.execute(
             "UPDATE proxy_sessions
              SET provider_id = ?1,
                  api_key_id = ?2,
                  cli_type = ?3,
+                 client_profile_id = ?4,
                  session_kind = 'desktop',
-                 last_seen_at = ?4,
+                 last_seen_at = ?5,
                  expires_at = NULL,
                  revoked_at = NULL,
                  revoked_reason = NULL
-             WHERE session_token = ?5",
-            rusqlite::params![provider_id, api_key_id, cli_type, now, token],
+             WHERE session_token = ?6",
+            rusqlite::params![
+                provider_id,
+                api_key_id,
+                cli_type,
+                client_profile_id,
+                now,
+                token
+            ],
         )?;
         Ok(changed > 0)
     }

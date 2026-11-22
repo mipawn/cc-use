@@ -159,6 +159,7 @@ fn project_keeps_independent_bindings_for_each_cli() {
                 cli_type: "grok".to_string(),
                 provider_id: Some(grok_provider.id.clone()),
                 api_key_id: Some(grok_key.id.clone()),
+                client_profile_id: None,
                 terminal_type: Some("iterm2".to_string()),
                 prelaunch_command: Some("mise activate".to_string()),
             },

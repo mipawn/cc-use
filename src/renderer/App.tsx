@@ -11,8 +11,9 @@ import Settings from './pages/Settings'
 import Console from './pages/Console'
 import GatewayPage from './pages/GatewayPage'
 import Keys from './pages/Keys'
-import InstancesPage from './pages/InstancesPage'
-import DesktopPage from './pages/DesktopPage'
+import ClaudeCodePage from './pages/ClaudeCodePage'
+import DesktopClientPage from './pages/DesktopClientPage'
+import GrokPage from './pages/GrokPage'
 import { legacyWorkspaceTarget } from './components/layout/workspaceNavigation'
 import { useAntdTokenSync } from './hooks/useAntdTokenSync'
 import { setGlobalMessage } from './hooks/useAppMessage'
@@ -212,9 +213,21 @@ function AppContent() {
           <MigrationModal />
           <Routes>
             <Route path='/' element={<Dashboard />} />
-            <Route path='/instances' element={<InstancesPage />} />
-            <Route path='/desktop' element={<DesktopPage />} />
-            {['/claude-code', '/grok-build', '/codex', '/claude-desktop'].map((path) => (
+            <Route path='/clients/claude-code' element={<ClaudeCodePage />} />
+            <Route path='/clients/codex' element={<DesktopClientPage clientKind='codex' />} />
+            <Route
+              path='/clients/claude-desktop'
+              element={<DesktopClientPage clientKind='claude_desktop' />}
+            />
+            <Route path='/clients/grok' element={<GrokPage />} />
+            {[
+              '/instances',
+              '/desktop',
+              '/claude-code',
+              '/grok-build',
+              '/codex',
+              '/claude-desktop',
+            ].map((path) => (
               <Route key={path} path={path} element={<LegacyClientRedirect />} />
             ))}
             <Route path='/keys' element={<Keys />} />

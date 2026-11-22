@@ -20,6 +20,7 @@ import {
 } from 'antd'
 import {
   ApiOutlined,
+  AppstoreOutlined,
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -31,7 +32,6 @@ import {
 } from '@ant-design/icons'
 import SimpleBar from 'simplebar-react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
 import type {
   Gateway,
   GatewayConnectionConfig,
@@ -50,6 +50,7 @@ import { useProviderModelCatalogStore } from '../stores/providerModelCatalogStor
 import RoutePickerModal from '../components/common/RoutePickerModal'
 import PageHeader from '../components/common/PageHeader'
 import UserAgentField from '../components/UserAgentField'
+import ProviderModelModal from '../components/providers/ProviderModelModal'
 import styles from './GatewayPage.module.css'
 
 const DEFAULT_CONNECTION: GatewayConnectionConfig = { authScheme: 'bearer' }
@@ -115,6 +116,8 @@ export default function GatewayPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
+  const [lanToggling, setLanToggling] = useState(false)
+  const [catalogModalOpen, setCatalogModalOpen] = useState(false)
 
   // LAN entries (R8). The backend reports both the active scope and the
   // reachable IPv4 entries; loopback remains the default.
@@ -393,14 +396,50 @@ export default function GatewayPage() {
         }
       />
 
-      {/* Loopback stays the default; point at settings instead of adding a
-          per-gateway LAN switch. */}
-      {lanScope === 'loopback' && (
-        <div className={styles.lanHint}>
-          <Typography.Text type='secondary'>{t('gateway.lanOffHint')}</Typography.Text>
-          <Link to='/settings'>{t('gateway.lanOpenSettings')}</Link>
-        </div>
-      )}
+      <div className={styles.lanHint} style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <Space size={10} wrap>
+          <Switch
+            size='small'
+            checked={lanScope === 'lan'}
+            loading={lanToggling}
+            aria-label={t('gateway.lanAccess')}
+            onChange={async (checked) => {
+              setLanToggling(true)
+              try {
+                await useSettingsStore
+                  .getState()
+                  .updateGlobalSettings({ proxyListenScope: checked ? 'lan' : 'loopback' })
+                const nextInfo = await getApi().proxy.lanAddresses()
+                setLanInfo(nextInfo)
+                message.success(t(checked ? 'gateway.lanEnabledToast' : 'gateway.lanDisabledToast'))
+              } catch (err) {
+                message.error(err instanceof Error ? err.message : String(err))
+              } finally {
+                setLanToggling(false)
+              }
+            }}
+          />
+          <Typography.Text strong style={{ fontSize: 13 }}>
+            {t('gateway.lanAccess')}
+          </Typography.Text>
+          <Tag color={lanScope === 'lan' ? 'green' : 'default'} style={{ marginInlineEnd: 0 }}>
+            {t(lanScope === 'lan' ? 'gateway.lanActive' : 'gateway.lanLocalOnly')}
+          </Tag>
+        </Space>
+        {lanScope === 'lan' && lanAddresses.length > 0 && (
+          <Space size={6} wrap>
+            {lanAddresses.map((entry) => (
+              <Tag
+                key={entry.url}
+                style={{ cursor: 'pointer', marginInlineEnd: 0, fontFamily: 'var(--font-mono)' }}
+                onClick={() => void copy(entry.url)}
+              >
+                {entry.url}
+              </Tag>
+            ))}
+          </Space>
+        )}
+      </div>
 
       {!status.isRunning && (
         <Alert
@@ -814,9 +853,20 @@ export default function GatewayPage() {
                     <label htmlFor='gateway-model-ids' className={styles.fieldLabel}>
                       {t('gateway.selectedModels')}
                     </label>
-                    <span className={styles.selectionCount} aria-live='polite'>
-                      {t('gateway.selectedCount', { count: modelIds.length })}
-                    </span>
+                    <Space size={8}>
+                      <span className={styles.selectionCount} aria-live='polite'>
+                        {t('gateway.selectedCount', { count: modelIds.length })}
+                      </span>
+                      {selectedProvider && (
+                        <Button
+                          size='small'
+                          icon={<AppstoreOutlined />}
+                          onClick={() => setCatalogModalOpen(true)}
+                        >
+                          {t('gateway.manageCatalog')}
+                        </Button>
+                      )}
+                    </Space>
                   </div>
                   <Select
                     id='gateway-model-ids'
@@ -943,6 +993,16 @@ export default function GatewayPage() {
           </div>
         </SimpleBar>
       </Modal>
+      {catalogModalOpen && selectedProvider && (
+        <ProviderModelModal
+          provider={selectedProvider}
+          apiKeys={apiKeys[selectedProvider.id] ?? []}
+          onClose={() => {
+            setCatalogModalOpen(false)
+            void fetchCatalog(selectedProvider.id).catch(() => {})
+          }}
+        />
+      )}
     </div>
   )
 }

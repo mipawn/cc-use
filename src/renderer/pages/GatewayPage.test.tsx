@@ -870,14 +870,13 @@ it('shows the LAN entries and copies them when LAN access is enabled', async () 
   expect(mocks.writeText).toHaveBeenCalledWith('http://192.168.1.10:22345')
 })
 
-it('links to settings instead of listing LAN entries when only loopback is enabled', async () => {
+it('shows an inline LAN access switch and keeps LAN entries hidden when only loopback is enabled', async () => {
   await renderPage()
 
   const text = container.textContent ?? ''
-  expect(text).toContain('gateway.lanOffHint')
-  expect(text).toContain('gateway.lanOpenSettings')
-  const link = container.querySelector<HTMLAnchorElement>('a[href="/settings"]')
-  expect(link).not.toBeNull()
+  expect(text).toContain('gateway.lanAccess')
+  expect(text).toContain('gateway.lanLocalOnly')
+  expect(container.querySelector('button[role="switch"][aria-label="gateway.lanAccess"]')).not.toBeNull()
   expect(container.querySelectorAll('button[aria-label="gateway.copyLanAddress"]').length).toBe(0)
   expect(text).toContain('http://127.0.0.1:22345')
 })

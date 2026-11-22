@@ -22,6 +22,7 @@ import {
 import {
   fixtureModels,
   fixtureQueryScripts,
+  makeClientProfile,
   makeKey,
   makeProvider,
   seedFixture,
@@ -87,7 +88,17 @@ export function createFixtureApi(options: FixtureOptions = {}) {
     if (!result) throw new Error('[fixture] Key scope unavailable / 范围失效')
     return result
   }
-  const route = (providerId: string, apiKeyId: string, client?: ClientKind) => {
+  const clientProfile = (id: string) => {
+    const result = state.clientProfiles.find((item) => item.id === id)
+    if (!result) throw new Error('[fixture] Client profile not found')
+    return result
+  }
+  const route = (
+    providerId: string,
+    apiKeyId: string,
+    client?: ClientKind,
+    bypassLegacyTypeCheck = false,
+  ) => {
     const p = provider(providerId)
     const k = key(apiKeyId)
     if (
@@ -95,7 +106,7 @@ export function createFixtureApi(options: FixtureOptions = {}) {
       !p.isActive ||
       !k.isActive ||
       k.isExhausted ||
-      (client && !k.types.includes(client))
+      (!bypassLegacyTypeCheck && client && !k.types.includes(client))
     )
       throw new Error('[fixture] Route unavailable or incompatible')
     return { p, k }
@@ -125,12 +136,22 @@ export function createFixtureApi(options: FixtureOptions = {}) {
   }
   const desktopOperation = (
     client: DesktopClientKind,
-    target: { providerId: string; apiKeyId: string } | null,
+    target: { providerId: string; apiKeyId: string; profileId?: string } | null,
   ): DesktopOperationResult => {
     mutation('desktop operation')
     const current = state.desktops[client]
     if (!current) throw new Error('[fixture] Unknown desktop client')
-    if (target) route(target.providerId, target.apiKeyId, client)
+    if (target) {
+      if (target.profileId) {
+        const profile = clientProfile(target.profileId)
+        if (profile.clientKind !== client) {
+          throw new Error('[fixture] Profile client kind mismatch')
+        }
+        route(target.providerId, target.apiKeyId, client, true)
+      } else {
+        route(target.providerId, target.apiKeyId, client)
+      }
+    }
     const restoring = target === null
     const routeChanged = JSON.stringify(current.route) !== JSON.stringify(target)
     const configChanged =
@@ -199,6 +220,7 @@ export function createFixtureApi(options: FixtureOptions = {}) {
         provider(id)
         state.providers = state.providers.filter((p) => p.id !== id)
         state.keys = state.keys.filter((k) => k.providerId !== id)
+        state.clientProfiles = state.clientProfiles.filter((cp) => cp.providerId !== id)
       },
       reorder: async (ids) => {
         mutation('provider.reorder')
@@ -305,6 +327,7 @@ export function createFixtureApi(options: FixtureOptions = {}) {
         mutation('apiKey.delete')
         key(id)
         state.keys = state.keys.filter((k) => k.id !== id)
+        state.clientProfiles = state.clientProfiles.filter((cp) => cp.apiKeyId !== id)
       },
       reorder: async (providerId, ids) => {
         mutation('apiKey.reorder')
@@ -316,6 +339,117 @@ export function createFixtureApi(options: FixtureOptions = {}) {
         })
         state.keys.sort((a, b) => a.priority - b.priority)
         return clone(state.keys.filter((k) => k.providerId === providerId))
+      },
+    },
+    clientProfile: {
+      list: async (clientKind) => {
+        read('clientProfile.list')
+        const items = clientKind
+          ? state.clientProfiles.filter((item) => item.clientKind === clientKind)
+          : state.clientProfiles
+        return clone([...items].sort((a, b) => a.sortOrder - b.sortOrder))
+      },
+      get: async (id) => {
+        read('clientProfile.get')
+        return clone(state.clientProfiles.find((item) => item.id === id) ?? null)
+      },
+      create: async (input) => {
+        mutation('clientProfile.create')
+        const p = provider(input.providerId)
+        const k = key(input.apiKeyId)
+        if (k.providerId !== p.id) throw new Error('[fixture] Key owner mismatch')
+        const id = nextId('profile')
+        const siblings = state.clientProfiles.filter((item) => item.clientKind === input.clientKind)
+        const shouldBeDefault = input.isDefault ?? siblings.length === 0
+        if (shouldBeDefault) {
+          for (const sibling of siblings) sibling.isDefault = false
+        }
+        const created = makeClientProfile(
+          id,
+          input.name,
+          input.clientKind,
+          input.providerId,
+          input.apiKeyId,
+          stamp(),
+          {
+            isDefault: shouldBeDefault,
+            sortOrder: siblings.length,
+            modelConfig: input.modelConfig ?? null,
+            connectionConfig: input.connectionConfig ? clone(input.connectionConfig) : null,
+            launchEnv: input.launchEnv ? clone(input.launchEnv) : null,
+          },
+        )
+        state.clientProfiles.push(created)
+        return clone(created)
+      },
+      update: async (input) => {
+        mutation('clientProfile.update')
+        const target = clientProfile(input.id)
+        const nextProviderId = input.providerId ?? target.providerId
+        const nextKeyId = input.apiKeyId ?? target.apiKeyId
+        if (nextProviderId !== target.providerId || nextKeyId !== target.apiKeyId) {
+          const p = provider(nextProviderId)
+          const k = key(nextKeyId)
+          if (k.providerId !== p.id) throw new Error('[fixture] Key owner mismatch')
+        }
+        if (input.isDefault === true) {
+          for (const sibling of state.clientProfiles) {
+            if (sibling.clientKind === target.clientKind && sibling.id !== target.id) {
+              sibling.isDefault = false
+            }
+          }
+        }
+        const routeChanged =
+          nextProviderId !== target.providerId || nextKeyId !== target.apiKeyId
+        Object.assign(target, clone(input), { updatedAt: stamp() })
+        if (routeChanged) {
+          for (const desktop of Object.values(state.desktops)) {
+            if (desktop.route?.profileId === target.id) {
+              desktop.route = {
+                providerId: target.providerId,
+                apiKeyId: target.apiKeyId,
+                profileId: target.id,
+              }
+            }
+          }
+          for (const inst of state.instances) {
+            if (
+              inst.clientProfileId === target.id &&
+              ['launching', 'running', 'stale'].includes(inst.status)
+            ) {
+              inst.providerId = target.providerId
+              inst.apiKeyId = target.apiKeyId
+            }
+          }
+        }
+        if (scenario === 'partial') {
+          for (const desktop of Object.values(state.desktops)) {
+            if (desktop.route?.profileId === target.id) {
+              desktop.syncFailure = {
+                source: 'key_edit',
+                occurredAt: desktopStamp(),
+                message:
+                  'Fixture profile saved; desktop configuration sync failed / 方案已保存，配置同步失败',
+              }
+            }
+          }
+        }
+        return clone(target)
+      },
+      delete: async (id) => {
+        mutation('clientProfile.delete')
+        clientProfile(id)
+        const before = state.clientProfiles.length
+        state.clientProfiles = state.clientProfiles.filter((item) => item.id !== id)
+        return state.clientProfiles.length !== before
+      },
+      reorder: async (clientKind, ids) => {
+        mutation('clientProfile.reorder')
+        ids.forEach((id, sortOrder) => {
+          const item = clientProfile(id)
+          if (item.clientKind !== clientKind) throw new Error('[fixture] Profile kind mismatch')
+          item.sortOrder = sortOrder
+        })
       },
     },
     userAgent: {
@@ -428,11 +562,23 @@ export function createFixtureApi(options: FixtureOptions = {}) {
       setDetailMode: async (enabled) => {
         detailMode = enabled
       },
-      lanAddresses: async () => ({
-        scope: 'loopback',
-        port: state.settings.proxyPort,
-        addresses: [],
-      }),
+      lanAddresses: async () => {
+        const scope = state.settings.proxyListenScope ?? 'loopback'
+        return {
+          scope,
+          port: state.settings.proxyPort,
+          addresses:
+            scope === 'lan'
+              ? [
+                  {
+                    ip: '192.0.2.10',
+                    url: `http://192.0.2.10:${state.settings.proxyPort}`,
+                    interface: 'en0',
+                  },
+                ]
+              : [],
+        }
+      },
     },
     managedInstances: {
       list: async (client) => {
@@ -459,10 +605,14 @@ export function createFixtureApi(options: FixtureOptions = {}) {
         const item = state.instances.find((instance) => instance.id === input.id)
         if (!item || !['launching', 'running', 'stale'].includes(item.status))
           throw new Error('[fixture] Instance stopped or missing')
+        if (input.clientProfileId) {
+          clientProfile(input.clientProfileId)
+        }
         route(
           input.providerId,
           input.apiKeyId,
           (item.cliType === 'claude' ? 'claude_code' : item.cliType) as ClientKind,
+          Boolean(input.clientProfileId),
         )
         Object.assign(item, clone(input))
         return clone(item)
@@ -484,8 +634,11 @@ export function createFixtureApi(options: FixtureOptions = {}) {
         if (!state.desktops[client]) throw new Error('[fixture] Unknown desktop client')
         return clone(state.desktops[client])
       },
-      apply: async (client, providerId, apiKeyId) =>
-        desktopOperation(client, { providerId, apiKeyId }),
+      apply: async (client, providerId, apiKeyId, clientProfileId) =>
+        desktopOperation(
+          client,
+          clientProfileId ? { providerId, apiKeyId, profileId: clientProfileId } : { providerId, apiKeyId },
+        ),
       restore: async (client) => desktopOperation(client, null),
     },
     configTakeover: {
@@ -741,6 +894,9 @@ export function createFixtureApi(options: FixtureOptions = {}) {
         const k = key(input.apiKeyId)
         if (input.providerId && input.providerId !== k.providerId)
           throw new Error('[fixture] Key owner mismatch')
+        if (input.clientProfileId) {
+          clientProfile(input.clientProfileId)
+        }
         if (!['claude_code', 'claude', 'grok'].includes(input.cliType))
           throw new Error('[fixture] Unsupported terminal client')
         // Display-only placeholders: never merge credentials, paths or executable config.

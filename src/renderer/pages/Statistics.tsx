@@ -19,7 +19,7 @@ import {
   Alert,
   Select,
 } from 'antd'
-import { BarChartOutlined, RobotOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, BarChartOutlined, RobotOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -328,6 +328,11 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
           />
         </Space>
         <div className={styles.scopeBar}>
+          {queryKey && (
+            <Button size='small' icon={<ArrowLeftOutlined />} onClick={() => void navigate(-1)}>
+              {t('common.back')}
+            </Button>
+          )}
           {(['providerId', 'apiKeyId', 'instanceId'] as const).map(
             (key) =>
               filter[key] && (
