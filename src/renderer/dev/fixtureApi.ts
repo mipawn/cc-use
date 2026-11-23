@@ -656,7 +656,7 @@ export function createFixtureApi(options: FixtureOptions = {}) {
         read('gateway.list')
         return clone(state.gateways)
       },
-      create: async (name, providerId, apiKeyId, connectionConfig, modelPolicy) => {
+      create: async (name, providerId, apiKeyId, connectionConfig) => {
         mutation('gateway.create')
         const { p, k } = route(providerId, apiKeyId)
         const gateway = {
@@ -670,7 +670,6 @@ export function createFixtureApi(options: FixtureOptions = {}) {
           createdAt: stamp(),
           lastSeenAt: stamp(),
           connectionConfig: clone(connectionConfig ?? { authScheme: 'bearer' as const }),
-          modelPolicy: clone(modelPolicy ?? { mode: 'all' as const }),
         }
         state.gateways.push(gateway)
         return clone(gateway)

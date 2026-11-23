@@ -13,7 +13,7 @@ use cc_use_lib::commands::providers::{
     provider_model_catalog_query_inner, ProviderModelCatalogQueryInput,
 };
 use cc_use_lib::db::Database;
-use cc_use_lib::models::{CreateApiKeyInput, CreateProviderInput};
+use cc_use_lib::models::{CreateApiKeyInput, CreateProviderInput, GatewayConnectionConfig};
 use cc_use_lib::proxy::handler::proxy_handler;
 use futures::StreamExt;
 use std::path::PathBuf;
@@ -60,6 +60,27 @@ fn create_provider_at(db: &Database, base_url: &str) -> cc_use_lib::models::Prov
         responses_rectifier: None,
     })
     .expect("create provider")
+}
+
+fn seed_catalog(db: &Database, provider_id: &str, ids: &[&str]) {
+    let models: Vec<_> = ids
+        .iter()
+        .map(
+            |id| cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: (*id).to_string(),
+                display_name: (*id).to_string(),
+                supports1m: false,
+                context_window: None,
+                max_output_tokens: None,
+            },
+        )
+        .collect();
+    let current_rev = db
+        .provider_model_catalog_get(provider_id)
+        .expect("read provider catalog")
+        .revision;
+    db.provider_model_catalog_save(provider_id, &models, current_rev)
+        .expect("save provider catalog");
 }
 
 fn create_gateway_key(db: &Database, provider_id: &str, value: &str) -> cc_use_lib::models::ApiKey {
@@ -258,6 +279,7 @@ async fn gateway_token_forwards_to_the_bound_key() {
     let port = start_upstream(StatusCode::OK, r#"{"type":"message","content":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["claude-sonnet-4"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
 
@@ -282,6 +304,7 @@ async fn gateway_does_not_answer_count_tokens_locally() {
     let port = start_count_tokens_upstream().await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["claude-sonnet-4"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
 
@@ -378,7 +401,46 @@ async fn gateway_models_request_is_answered_by_the_provider_query() {
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
 
+    // Without a saved provider model catalog, gateway discovery returns an
+    // empty list instead of silently falling back to upstream /v1/models.
     let state = build_proxy_state(db);
+    let empty_resp = proxy_handler(
+        AxumState(state.clone()),
+        Request::builder()
+            .uri("/v1/models")
+            .method("GET")
+            .header("authorization", format!("Bearer {}", gateway.session_token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .expect("empty provider catalog still returns 200");
+    assert_eq!(empty_resp.status(), StatusCode::OK);
+    let empty_body = axum::body::to_bytes(empty_resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let empty_json: serde_json::Value = serde_json::from_slice(&empty_body).unwrap();
+    assert_eq!(empty_json["data"], serde_json::json!([]));
+
+    // Once models are saved in the provider catalog, gateway discovery serves
+    // those exact saved models.
+    state
+        .db
+        .lock()
+        .unwrap()
+        .provider_model_catalog_save(
+            &provider.id,
+            &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "saved-provider-model".to_string(),
+                display_name: "Saved Provider Model".to_string(),
+                supports1m: false,
+                context_window: None,
+                max_output_tokens: None,
+            }],
+            0,
+        )
+        .unwrap();
+
     let request = Request::builder()
         .uri("/v1/models")
         .method("GET")
@@ -388,12 +450,17 @@ async fn gateway_models_request_is_answered_by_the_provider_query() {
 
     let response = proxy_handler(AxumState(state), request)
         .await
-        .expect("gateway models request should reach upstream");
+        .expect("gateway models request should return saved catalog");
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
         .unwrap();
-    assert!(String::from_utf8_lossy(&body).contains("upstream-model"));
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["object"], "list");
+    assert_eq!(json["data"][0]["id"], "saved-provider-model");
+    assert_eq!(json["data"][0]["display_name"], "Saved Provider Model");
+    assert_eq!(json["data"][0]["name"], "Saved Provider Model");
+    assert_eq!(json["data"][0]["created"], 0);
     remove_temp_db(&path);
 }
 
@@ -402,6 +469,7 @@ async fn gateway_forwards_the_client_model_even_when_the_key_has_a_fixed_mapping
     let (port, received) = start_body_capture_upstream().await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["client-model"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     db.conn
         .execute(
@@ -537,50 +605,56 @@ async fn gateway_model_discovery_uses_the_gateway_connection() {
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     // A saved model-query User-Agent preference is for built-in clients only;
-    // the gateway must not read it.
+    // the provider catalog query must not read it.
     db.settings_set_value(
         &format!("model-catalog-user-agent.{}.claude_code", provider.id),
         "claude-cli/2.1.161 (external, cli)",
     )
     .unwrap();
-    let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
-
-    let state = build_proxy_state(db);
-    let request = Request::builder()
-        .uri("/models")
-        .method("GET")
-        .header("authorization", format!("Bearer {}", gateway.session_token))
-        .header("user-agent", "DeepSeek-Harness/0.2")
-        .body(Body::empty())
-        .unwrap();
-    let response = proxy_handler(AxumState(state), request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(body["data"][0]["id"], "m1");
-    assert_eq!(body["data"][1]["id"], "m2");
+    let db_arc = Arc::new(Mutex::new(db));
+    let queried = provider_model_catalog_query_inner(
+        &db_arc,
+        ProviderModelCatalogQueryInput {
+            provider_id: provider.id.clone(),
+            api_key_id: key.id.clone(),
+            connection_config: GatewayConnectionConfig {
+                base_url: None,
+                auth_scheme: "bearer".to_string(),
+                user_agent: Some("DeepSeek-Harness/0.2".to_string()),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        queried
+            .models
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m1", "m2"]
+    );
 
     let captured = captured.lock().unwrap();
     assert!(
         captured.path.starts_with("/v1/models"),
-        "gateway /models must not add a second /v1: {}",
+        "catalog query must not add a second /v1: {}",
         captured.path
     );
     assert!(captured.path.contains("limit="));
     assert_eq!(
         captured.user_agent.as_deref(),
         Some("DeepSeek-Harness/0.2"),
-        "the client request's own User-Agent is kept"
+        "the explicit User-Agent is kept"
     );
     assert_eq!(
         captured.authorization.as_deref(),
         Some("Bearer sk-real"),
-        "the default gateway scheme is Bearer"
+        "the default scheme is Bearer"
     );
     assert_eq!(captured.x_api_key, None);
     drop(captured);
+    drop(db_arc);
     remove_temp_db(&path);
 }
 
@@ -590,6 +664,7 @@ async fn gateway_inference_uses_the_gateway_auth_scheme_not_the_keys_client_conf
         start_capture_upstream("/v1/messages", "POST", r#"{"type":"message","content":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["m"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     // The bound key's Claude Code config says Bearer; the gateway explicitly
     // says x-api-key. The gateway choice wins.
@@ -632,6 +707,7 @@ async fn gateway_auth_scheme_none_never_forwards_the_local_session_token() {
         start_capture_upstream("/v1/messages", "POST", r#"{"type":"message","content":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["m"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     let gateway = gateway_create_inner(
         &db,
@@ -667,6 +743,7 @@ async fn gateway_inference_adds_the_v1_prefix_from_the_provider_base() {
         start_capture_upstream("/v1/chat/completions", "POST", r#"{"choices":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["m"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
 
@@ -691,6 +768,7 @@ async fn gateway_inference_uses_the_gateway_user_agent_override() {
         start_capture_upstream("/v1/messages", "POST", r#"{"type":"message","content":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["m"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     db.conn
         .execute(
@@ -736,6 +814,7 @@ async fn gateway_inference_keeps_the_inbound_user_agent() {
         start_capture_upstream("/v1/messages", "POST", r#"{"type":"message","content":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["m"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     db.settings_set_value(
         &format!("model-catalog-user-agent.{}.claude_code", provider.id),
@@ -810,6 +889,7 @@ async fn gateway_discovery_and_inference_use_one_connection_not_client_configs()
 
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{provider_port}"));
+    seed_catalog(&db, &provider.id, &["client-model"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     db.conn
         .execute(
@@ -834,7 +914,7 @@ async fn gateway_discovery_and_inference_use_one_connection_not_client_configs()
         .unwrap();
     let response = proxy_handler(AxumState(state.clone()), models_request)
         .await
-        .expect("gateway models request should reach upstream");
+        .expect("gateway models request should succeed from saved catalog");
     assert_eq!(response.status(), StatusCode::OK);
 
     let inference_request = Request::builder()
@@ -851,8 +931,8 @@ async fn gateway_discovery_and_inference_use_one_connection_not_client_configs()
 
     assert_eq!(
         *provider_paths.lock().unwrap(),
-        vec!["/v1/models".to_string(), "/v1/messages".to_string()],
-        "both paths must use the provider/gateway connection"
+        vec!["/v1/messages".to_string()],
+        "inference must use the provider/gateway connection and discovery must not query upstream"
     );
     assert!(
         codex_paths.lock().unwrap().is_empty(),
@@ -1166,6 +1246,7 @@ async fn two_gateways_sharing_a_key_keep_their_own_connection() {
         start_capture_upstream("/v1/messages", "POST", r#"{"type":"message","content":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{a_port}"));
+    seed_catalog(&db, &provider.id, &["client-model"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     // Deliberately different Claude Code / Codex settings: a gateway must not
     // inherit either of them.
@@ -1214,10 +1295,10 @@ async fn two_gateways_sharing_a_key_keep_their_own_connection() {
             .header("authorization", format!("Bearer {}", gateway.session_token))
             .body(Body::empty())
             .unwrap();
-        let response = proxy_handler(AxumState(state.clone()), models).await;
-        // The mock only has /v1/messages; /v1/models answers 404. Reaching
-        // the right host is what this test proves.
-        assert!(response.is_err() || response.unwrap().status() != StatusCode::OK);
+        let response = proxy_handler(AxumState(state.clone()), models)
+            .await
+            .expect("discovery serves the provider catalog locally");
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     assert_eq!(a_captured.lock().unwrap().path, "/v1/messages");
@@ -1273,20 +1354,26 @@ async fn gateway_path_prefix_and_single_v1_are_merged() {
 
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}/relay"));
+    seed_catalog(&db, &provider.id, &["m"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
     let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
     let state = build_proxy_state(db);
 
-    let models = Request::builder()
-        .uri("/models")
-        .method("GET")
-        .header("authorization", format!("Bearer {}", gateway.session_token))
-        .body(Body::empty())
-        .unwrap();
-    let response = proxy_handler(AxumState(state.clone()), models)
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let queried = provider_model_catalog_query_inner(
+        &state.db,
+        ProviderModelCatalogQueryInput {
+            provider_id: provider.id.clone(),
+            api_key_id: key.id.clone(),
+            connection_config: GatewayConnectionConfig {
+                base_url: None,
+                auth_scheme: "bearer".to_string(),
+                user_agent: None,
+            },
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(queried.models[0].id, "prefixed-model");
 
     let chat = Request::builder()
         .uri("/v1/chat/completions?x=1")
@@ -1325,45 +1412,45 @@ async fn gateway_empty_catalogue_is_a_success_and_malformed_is_an_error() {
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{empty_port}"));
     let key = create_gateway_key(&db, &provider.id, "sk-real");
-    let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
-    let state = build_proxy_state(db);
-    let response = proxy_handler(
-        AxumState(state.clone()),
-        Request::builder()
-            .uri("/v1/models")
-            .method("GET")
-            .header("authorization", format!("Bearer {}", gateway.session_token))
-            .body(Body::empty())
-            .unwrap(),
+    let db_arc = Arc::new(Mutex::new(db));
+    let empty_result = provider_model_catalog_query_inner(
+        &db_arc,
+        ProviderModelCatalogQueryInput {
+            provider_id: provider.id.clone(),
+            api_key_id: key.id.clone(),
+            connection_config: GatewayConnectionConfig {
+                base_url: None,
+                auth_scheme: "bearer".to_string(),
+                user_agent: None,
+            },
+        },
     )
     .await
-    .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(body["data"], serde_json::json!([]));
+    .expect("empty catalogue is a valid result");
+    assert!(empty_result.models.is_empty());
+    drop(db_arc);
     remove_temp_db(&path);
 
     let malformed_port = start(r#"{"models":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{malformed_port}"));
     let key = create_gateway_key(&db, &provider.id, "sk-real");
-    let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
-    let state = build_proxy_state(db);
-    let response = proxy_handler(
-        AxumState(state),
-        Request::builder()
-            .uri("/models")
-            .method("GET")
-            .header("authorization", format!("Bearer {}", gateway.session_token))
-            .body(Body::empty())
-            .unwrap(),
+    let db_arc = Arc::new(Mutex::new(db));
+    let malformed = provider_model_catalog_query_inner(
+        &db_arc,
+        ProviderModelCatalogQueryInput {
+            provider_id: provider.id.clone(),
+            api_key_id: key.id.clone(),
+            connection_config: GatewayConnectionConfig {
+                base_url: None,
+                auth_scheme: "bearer".to_string(),
+                user_agent: None,
+            },
+        },
     )
     .await;
-    let response = response.expect_err("malformed catalogue must be an error response");
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert!(malformed.is_err(), "malformed catalogue must be an error");
+    drop(db_arc);
     remove_temp_db(&path);
 }
 
@@ -1377,6 +1464,7 @@ async fn gateway_provider_headers_apply_with_gateway_auth() {
         start_capture_upstream("/v1/messages", "POST", r#"{"type":"message","content":[]}"#).await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["m"]);
     db.conn
         .execute(
             "UPDATE providers SET request_headers = ?1 WHERE id = ?2",
@@ -1480,9 +1568,9 @@ async fn start_attribution_upstream() -> u16 {
     }
     let app = Router::new()
         .route("/v1/messages", post(ok_json))
-        .route("/v1/fail", post(fail))
-        .route("/v1/stream", post(sse_ok))
-        .route("/v1/slow", post(sse_slow))
+        .route("/v1/chat/completions", post(fail))
+        .route("/v1/responses", post(sse_ok))
+        .route("/v1/completions", post(sse_slow))
         .route("/v1/models", get(models));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -1519,6 +1607,7 @@ async fn gateway_requests_are_attributed_once_in_request_logs() {
     let port = start_attribution_upstream().await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
+    seed_catalog(&db, &provider.id, &["client-model", "m"]);
     let key = create_gateway_key(&db, &provider.id, "sk-real");
 
     // A closed explicit HTTP proxy makes the transport fail deterministically,
@@ -1552,6 +1641,7 @@ async fn gateway_requests_are_attributed_once_in_request_logs() {
             responses_rectifier: None,
         })
         .expect("create broken provider");
+    seed_catalog(&db, &broken_provider.id, &["m"]);
     let broken_key = create_gateway_key(&db, &broken_provider.id, "sk-broken");
 
     // Two gateway outlets share one key but keep separate local tokens.
@@ -1582,7 +1672,11 @@ async fn gateway_requests_are_attributed_once_in_request_logs() {
     // 2. HTTP upstream error (500) through the other outlet sharing the key.
     let response = proxy_handler(
         AxumState(state.clone()),
-        gateway_request(&second.session_token, "/v1/fail", Some(r#"{"model":"m"}"#)),
+        gateway_request(
+            &second.session_token,
+            "/v1/chat/completions",
+            Some(r#"{"model":"m"}"#),
+        ),
     )
     .await
     .unwrap();
@@ -1606,7 +1700,7 @@ async fn gateway_requests_are_attributed_once_in_request_logs() {
         AxumState(state.clone()),
         gateway_request(
             &first.session_token,
-            "/v1/stream",
+            "/v1/responses",
             Some(r#"{"model":"m","stream":true}"#),
         ),
     )
@@ -1624,7 +1718,7 @@ async fn gateway_requests_are_attributed_once_in_request_logs() {
         AxumState(state.clone()),
         gateway_request(
             &first.session_token,
-            "/v1/slow",
+            "/v1/completions",
             Some(r#"{"model":"m","stream":true}"#),
         ),
     )
@@ -1822,140 +1916,34 @@ async fn gateway_catalogue_pagination_continues_and_dedupes_ids() {
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
     let key = create_gateway_key(&db, &provider.id, "sk-real");
-    let gateway = gateway_create_inner(&db, "outlet", &provider.id, &key.id, None).unwrap();
-    let state = build_proxy_state(db);
-    let response = proxy_handler(
-        AxumState(state),
-        Request::builder()
-            .uri("/models")
-            .method("GET")
-            .header("authorization", format!("Bearer {}", gateway.session_token))
-            .body(Body::empty())
-            .unwrap(),
+    let db_arc = Arc::new(Mutex::new(db));
+    let result = provider_model_catalog_query_inner(
+        &db_arc,
+        ProviderModelCatalogQueryInput {
+            provider_id: provider.id.clone(),
+            api_key_id: key.id.clone(),
+            connection_config: GatewayConnectionConfig {
+                base_url: None,
+                auth_scheme: "bearer".to_string(),
+                user_agent: None,
+            },
+        },
     )
     .await
     .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let ids: Vec<_> = body["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|entry| entry["id"].as_str().unwrap().to_string())
-        .collect();
+    let ids: Vec<_> = result.models.into_iter().map(|entry| entry.id).collect();
     assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
-    assert_eq!(body["has_more"], serde_json::json!(false));
 
     let queries = queries.lock().unwrap().clone();
     assert_eq!(queries.len(), 2, "one page per cursor: {queries:?}");
     assert!(queries[0].contains("limit="));
     assert!(queries[1].contains("after_id=a"));
+    drop(db_arc);
     remove_temp_db(&path);
 }
 
-#[test]
-fn gateway_policy_persists_omitted_updates_keep_it_and_corrupt_data_never_opens_access() {
-    use cc_use_lib::commands::gateways::{
-        gateway_create_with_policy_inner, gateway_update_with_policy_inner,
-    };
-    use cc_use_lib::models::GatewayModelPolicy;
-    let fixture = TempDb::new();
-    let provider = support::create_provider(&fixture.db, "p", "custom");
-    let key = support::create_api_key(&fixture.db, &provider.id, "claude_code");
-    let policy = GatewayModelPolicy::Selected {
-        model_ids: vec!["one".into(), "one".into()],
-    };
-    let gateway = gateway_create_with_policy_inner(
-        &fixture.db,
-        "restricted",
-        &provider.id,
-        &key.id,
-        None,
-        Some(&policy),
-    )
-    .unwrap();
-    assert_eq!(
-        gateway.model_policy,
-        GatewayModelPolicy::Selected {
-            model_ids: vec!["one".into()]
-        }
-    );
-    let key2 = support::create_api_key(&fixture.db, &provider.id, "claude_code");
-    let updated = gateway_update_inner(
-        &fixture.db,
-        &gateway.session_token,
-        None,
-        None,
-        Some(&key2.id),
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(updated.model_policy, gateway.model_policy);
-    assert_eq!(updated.session_token, gateway.session_token);
-    assert!(gateway_update_with_policy_inner(
-        &fixture.db,
-        &gateway.session_token,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(&GatewayModelPolicy::Selected { model_ids: vec![] })
-    )
-    .is_err());
-    assert_eq!(
-        fixture
-            .db
-            .gateway_get(&gateway.session_token)
-            .unwrap()
-            .unwrap()
-            .model_policy,
-        gateway.model_policy
-    );
-    fixture
-        .db
-        .conn
-        .execute(
-            "UPDATE proxy_sessions SET gateway_model_policy=NULL WHERE session_token=?1",
-            [&gateway.session_token],
-        )
-        .unwrap();
-    assert_eq!(
-        fixture
-            .db
-            .gateway_get(&gateway.session_token)
-            .unwrap()
-            .unwrap()
-            .model_policy,
-        GatewayModelPolicy::All
-    );
-    fixture
-        .db
-        .conn
-        .execute(
-            "UPDATE proxy_sessions SET gateway_model_policy=?1 WHERE session_token=?2",
-            rusqlite::params![
-                r#"{"mode":"selected","modelIds":[]}"#,
-                gateway.session_token
-            ],
-        )
-        .unwrap();
-    assert!(fixture.db.gateway_get(&gateway.session_token).is_err());
-    assert!(fixture
-        .db
-        .proxy_session_get(&gateway.session_token)
-        .is_err());
-}
-
 #[tokio::test]
-async fn selected_gateway_publishes_only_selected_models_and_blocks_unverifiable_requests_before_upstream(
-) {
-    use cc_use_lib::commands::gateways::gateway_create_with_policy_inner;
-    use cc_use_lib::models::GatewayModelPolicy;
+async fn gateway_always_follows_provider_catalog_and_ignores_legacy_policy_column() {
     let captured = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
     let capture = captured.clone();
     let app = Router::new().fallback(any(move |request: Request<Body>| {
@@ -1982,17 +1970,47 @@ async fn selected_gateway_publishes_only_selected_models_and_blocks_unverifiable
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
     let key = create_gateway_key(&db, &provider.id, "sk-test");
-    let gateway = gateway_create_with_policy_inner(
-        &db,
-        "limited",
+    let gateway = gateway_create_inner(&db, "follow-catalog", &provider.id, &key.id, None).unwrap();
+
+    // Simulate a legacy DB row whose retired `gateway_model_policy` column still
+    // holds a selected policy or invalid payload: reads and routing must ignore it.
+    db.conn
+        .execute(
+            "UPDATE proxy_sessions SET gateway_model_policy = ?1 WHERE session_token = ?2",
+            rusqlite::params![
+                r#"{"mode":"selected","modelIds":["stale-only"]}"#,
+                gateway.session_token
+            ],
+        )
+        .unwrap();
+    assert!(db.gateway_get(&gateway.session_token).unwrap().is_some());
+    assert!(db
+        .proxy_session_get(&gateway.session_token)
+        .unwrap()
+        .is_some());
+
+    db.provider_model_catalog_save(
         &provider.id,
-        &key.id,
-        None,
-        Some(&GatewayModelPolicy::Selected {
-            model_ids: vec!["allowed".into(), "old-id".into()],
-        }),
+        &[
+            cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "hy4-flash-free".to_string(),
+                display_name: "Hy4 flash Free".to_string(),
+                supports1m: false,
+                context_window: Some(1_048_576),
+                max_output_tokens: Some(65_536),
+            },
+            cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "deepseek-v4.1-flash".to_string(),
+                display_name: "DeepSeek V4.1 Flash".to_string(),
+                supports1m: true,
+                context_window: Some(1_000_000),
+                max_output_tokens: Some(384_000),
+            },
+        ],
+        0,
     )
     .unwrap();
+
     let state = build_proxy_state(db);
     for discovery in [
         "/models",
@@ -2018,54 +2036,52 @@ async fn selected_gateway_publishes_only_selected_models_and_blocks_unverifiable
                 .iter()
                 .map(|m| m["id"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            vec!["allowed", "old-id"]
+            vec!["hy4-flash-free", "deepseek-v4.1-flash"]
         );
+        assert_eq!(value["data"][0]["created"], 0);
+        assert_eq!(value["data"][0]["display_name"], "Hy4 flash Free");
+        assert_eq!(value["data"][0]["name"], "Hy4 flash Free");
+        assert_eq!(value["data"][0]["context_window"], 1_048_576);
+        assert_eq!(value["data"][0]["max_output_tokens"], 65_536);
+        assert_eq!(value["data"][0]["limit"]["context"], 1_048_576);
+        assert_eq!(value["data"][0]["limit"]["output"], 65_536);
     }
     assert!(
         captured.lock().unwrap().is_empty(),
-        "selected discovery must not query upstream"
+        "discovery must be served from the saved provider catalog without querying upstream"
     );
+
+    // Unlisted models, duplicate keys, gzipped bodies, and unverifiable paths
+    // are strictly rejected BEFORE contacting upstream.
     for body in [
-        r#"{"model":"other"}"#,
-        r#"{"model":"allowed","model":"other"}"#,
+        r#"{"model":"any-model","messages":[]}"#,
+        r#"{"model":"Hy4-flash-free"}"#,
+        r#"{"model":"hy4-flash-free","model":"other"}"#,
+        r#"{"model":"hy4-flash-free","\u006dodel":"other"}"#,
         r#"{"model":null}"#,
-        r#"{"nested":{"model":"allowed"}}"#,
-        r#"{"model":"Allowed"}"#,
-        r#"{"model":"allowed","model":"allowed"}"#,
-        r#"{"model":"allowed","\u006dodel":"other"}"#,
+        r#"{"nested":{"model":"hy4-flash-free"}}"#,
     ] {
         let request = Request::builder()
             .method("POST")
-            .uri("/v1/responses")
+            .uri("/v1/chat/completions")
             .header("authorization", format!("Bearer {}", gateway.session_token))
             .header("content-type", "application/json")
             .body(Body::from(body))
             .unwrap();
         let response = proxy_handler(AxumState(state.clone()), request)
             .await
-            .unwrap_err();
+            .expect_err("unlisted or ambiguous model must be blocked");
         assert!(response.status().is_client_error(), "{body}");
     }
-    for (method, path, content_type, extra) in [
-        ("POST", "/v1/%72esponses", "application/json", None),
-        ("POST", "/v1/responses/", "application/json", None),
-        ("POST", "/v1/v1/responses", "application/json", None),
-        ("POST", "/v1//responses", "application/json", None),
+    for (method, uri, content_type, extra) in [
         ("POST", "/v1/batches", "application/json", None),
-        ("POST", "/v1/responses/id", "application/json", None),
+        ("POST", "/v1/%72esponses", "application/json", None),
         (
             "POST",
             "/v1/responses?model=other",
             "application/json",
             None,
         ),
-        (
-            "POST",
-            "/v1/responses?%6dodel=other",
-            "application/json",
-            None,
-        ),
-        ("DELETE", "/v1/responses", "application/json", None),
         ("POST", "/v1/responses", "multipart/form-data", None),
         (
             "POST",
@@ -2073,16 +2089,11 @@ async fn selected_gateway_publishes_only_selected_models_and_blocks_unverifiable
             "application/json",
             Some(("content-encoding", "gzip")),
         ),
-        (
-            "GET",
-            "/v1/realtime",
-            "application/json",
-            Some(("upgrade", "websocket")),
-        ),
+        ("DELETE", "/v1/responses", "application/json", None),
     ] {
         let mut request = Request::builder()
             .method(method)
-            .uri(path)
+            .uri(uri)
             .header("authorization", format!("Bearer {}", gateway.session_token))
             .header("content-type", content_type);
         if let Some((name, value)) = extra {
@@ -2090,17 +2101,22 @@ async fn selected_gateway_publishes_only_selected_models_and_blocks_unverifiable
         }
         let response = proxy_handler(
             AxumState(state.clone()),
-            request.body(Body::from(r#"{"model":"allowed"}"#)).unwrap(),
+            request
+                .body(Body::from(r#"{"model":"hy4-flash-free"}"#))
+                .unwrap(),
         )
         .await
-        .unwrap_err();
-        assert!(response.status().is_client_error(), "{path}");
+        .expect_err("unverifiable envelope must be blocked");
+        assert!(response.status().is_client_error(), "{uri}");
     }
     assert!(
         captured.lock().unwrap().is_empty(),
-        "rejected requests must have zero upstream hits"
+        "rejected gateway requests must have zero upstream hits"
     );
-    let raw = r#"{ "model": "allowed", "messages": [], "nested": {"model":"other"} }"#;
+
+    // Models saved in the provider catalog forward byte-for-byte on canonical
+    // endpoints (including client path aliases).
+    let raw = r#"{ "model": "hy4-flash-free", "messages": [] }"#;
     let response = proxy_handler(
         AxumState(state.clone()),
         gateway_request(&gateway.session_token, "/chat/completions?x=1", Some(raw)),
@@ -2111,122 +2127,175 @@ async fn selected_gateway_publishes_only_selected_models_and_blocks_unverifiable
     assert_eq!(
         captured.lock().unwrap()[0],
         ("/v1/chat/completions?x=1".into(), raw.into()),
-        "allowed JSON stays byte-for-byte unchanged"
+        "forwarded JSON stays byte-for-byte unchanged"
     );
-    // Every accepted inference alias must reach exactly the classified standard
-    // endpoint, not an unverified path containing a nested client prefix.
-    for endpoint in [
-        "chat/completions",
-        "completions",
-        "responses",
-        "responses/compact",
-        "messages",
-        "messages/count_tokens",
-        "embeddings",
-        "rerank",
-    ] {
-        for prefix in ["", "/v1", "/claude/v1", "/openai/v1", "/claude-desktop/v1"] {
-            let request_path = format!("{prefix}/{endpoint}?x=2");
-            let response = proxy_handler(
-                AxumState(state.clone()),
-                gateway_request(&gateway.session_token, &request_path, Some(raw)),
-            )
-            .await
-            .unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            let _ = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-                .await
-                .unwrap();
-            assert_eq!(
-                captured.lock().unwrap().last().unwrap(),
-                &(format!("/v1/{endpoint}?x=2"), raw.to_string()),
-                "{request_path}"
-            );
-        }
+
+    // Non-gateway client sessions on the same provider are NOT blocked when
+    // calling models outside the provider catalog.
+    let client_session_token = "session-client-unrestricted";
+    {
+        let db = state.db.lock().unwrap();
+        support::create_proxy_session(
+            &db,
+            client_session_token,
+            &provider.id,
+            &key.id,
+            Some("claude_code"),
+        );
     }
+    let client_resp = proxy_handler(
+        AxumState(state.clone()),
+        gateway_request(
+            client_session_token,
+            "/v1/messages",
+            Some(r#"{"model":"unlisted-client-model","messages":[]}"#),
+        ),
+    )
+    .await
+    .expect("client session should not be blocked by gateway validation");
+    assert_eq!(client_resp.status(), StatusCode::OK);
+
+    // Removing a model from the provider catalog blocks the next gateway request.
+    {
+        let db = state.db.lock().unwrap();
+        seed_catalog(&db, &provider.id, &["deepseek-v4.1-flash"]);
+    }
+    let blocked_after_removal = proxy_handler(
+        AxumState(state.clone()),
+        gateway_request(&gateway.session_token, "/chat/completions", Some(raw)),
+    )
+    .await
+    .expect_err("removed catalog model must be rejected immediately");
+    assert_eq!(blocked_after_removal.status(), StatusCode::FORBIDDEN);
+
+    // Even corrupt data in the retired column never breaks gateway reads.
+    state
+        .db
+        .lock()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE proxy_sessions SET gateway_model_policy = 'not-json' WHERE session_token = ?1",
+            [&gateway.session_token],
+        )
+        .unwrap();
+    assert!(state
+        .db
+        .lock()
+        .unwrap()
+        .gateway_get(&gateway.session_token)
+        .unwrap()
+        .is_some());
+
     task.abort();
     drop(state);
     remove_temp_db(&path);
 }
 
 #[tokio::test]
-async fn selected_gateway_allows_approved_sse_to_finish_after_a_policy_change() {
-    use cc_use_lib::commands::gateways::{
-        gateway_create_with_policy_inner, gateway_update_with_policy_inner,
-    };
-    use cc_use_lib::models::GatewayModelPolicy;
-    let captured = Arc::new(Mutex::new(None));
-    let capture = captured.clone();
-    let app=Router::new().route("/v1/chat/completions",post(move |request:Request<Body>| {let capture=capture.clone(); async move {
-        let bytes=axum::body::to_bytes(request.into_body(),1024*1024).await.unwrap(); *capture.lock().unwrap()=Some(bytes);
-        (StatusCode::OK,[("content-type","text/event-stream")],"data: {\"model\":\"allowed\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n")
-    }}));
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+async fn gateway_bridges_dynamic_session_header_to_opencode_go_without_static_fallback() {
+    let (port, captured) =
+        start_capture_upstream("/v1/chat/completions", "POST", r#"{"choices":[]}"#).await;
     let (db, path) = open_temp_db();
-    let provider = create_provider_at(&db, &format!("http://127.0.0.1:{port}"));
-    let key = create_gateway_key(&db, &provider.id, "sk-test");
-    let gateway = gateway_create_with_policy_inner(
-        &db,
-        "limited-sse",
-        &provider.id,
-        &key.id,
-        None,
-        Some(&GatewayModelPolicy::Selected {
-            model_ids: vec!["allowed".into()],
-        }),
-    )
-    .unwrap();
+    let provider = db
+        .provider_create(&CreateProviderInput {
+            query_config: None,
+            request_headers: None,
+            wallet_balance_script: None,
+            name: "OpenCode Go".to_string(),
+            base_url: format!("http://127.0.0.1:{port}"),
+            http_proxy: None,
+            website: None,
+            remark: None,
+            token: None,
+            icon: None,
+            wallet_balance_type: None,
+            wallet_balance_url: None,
+            wallet_balance_path: None,
+            wallet_balance_headers: None,
+            wallet_balance_user_id: None,
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            preset_id: Some("opencode-go".to_string()),
+            default_key_config: None,
+            request_adapter: None,
+            responses_rectifier: None,
+        })
+        .unwrap();
+    seed_catalog(&db, &provider.id, &["hy4-flash-free"]);
+    let key = create_gateway_key(&db, &provider.id, "sk-go-test");
+    let gateway = gateway_create_inner(&db, "go-gateway", &provider.id, &key.id, None).unwrap();
     let state = build_proxy_state(db);
-    let raw = r#"{ "model":"allowed", "stream":true, "messages":[] }"#;
-    let response = proxy_handler(
-        AxumState(state.clone()),
-        gateway_request(&gateway.session_token, "/chat/completions", Some(raw)),
-    )
-    .await
-    .unwrap();
-    assert_eq!(response.headers()["content-type"], "text/event-stream");
-    {
-        let db = state.db.lock().unwrap();
-        gateway_update_with_policy_inner(
-            &db,
-            &gateway.session_token,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(&GatewayModelPolicy::Selected {
-                model_ids: vec!["different".into()],
-            }),
-        )
+
+    // 1. Dynamic `x-session-id` (e.g. from dsh-session-header) maps to `x-opencode-session`.
+    let req1 = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", gateway.session_token))
+        .header("content-type", "application/json")
+        .header("x-session-id", "dsh-conv-dynamic-001")
+        .body(Body::from(r#"{"model":"hy4-flash-free","messages":[]}"#))
         .unwrap();
-    }
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    assert!(String::from_utf8_lossy(&body).contains("hello"));
-    assert!(String::from_utf8_lossy(&body).contains("[DONE]"));
+    let resp1 = proxy_handler(AxumState(state.clone()), req1).await.unwrap();
+    assert_eq!(resp1.status(), StatusCode::OK);
     assert_eq!(
-        captured.lock().unwrap().as_ref().unwrap().as_ref(),
-        raw.as_bytes()
+        captured
+            .lock()
+            .unwrap()
+            .headers
+            .get("x-opencode-session")
+            .map(String::as_str),
+        Some("dsh-conv-dynamic-001")
     );
-    let response = proxy_handler(
-        AxumState(state.clone()),
-        gateway_request(&gateway.session_token, "/chat/completions", Some(raw)),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    task.abort();
-    drop(state);
+
+    // 2. Native `x-opencode-session` is preserved over `x-session-id`.
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", gateway.session_token))
+        .header("content-type", "application/json")
+        .header("x-opencode-session", "native-opencode-session-99")
+        .header("x-session-id", "dsh-conv-dynamic-002")
+        .body(Body::from(r#"{"model":"hy4-flash-free","messages":[]}"#))
+        .unwrap();
+    let resp2 = proxy_handler(AxumState(state.clone()), req2).await.unwrap();
+    assert_eq!(resp2.status(), StatusCode::OK);
+    assert_eq!(
+        captured
+            .lock()
+            .unwrap()
+            .headers
+            .get("x-opencode-session")
+            .map(String::as_str),
+        Some("native-opencode-session-99")
+    );
+
+    // 3. Absence of any dynamic session header never fabricates a static fallback.
+    let req3 = Request::builder()
+        .method("POST")
+        .uri("/v1/chat/completions")
+        .header("authorization", format!("Bearer {}", gateway.session_token))
+        .header("content-type", "application/json")
+        .body(Body::from(r#"{"model":"hy4-flash-free","messages":[]}"#))
+        .unwrap();
+    let resp3 = proxy_handler(AxumState(state), req3).await.unwrap();
+    assert_eq!(resp3.status(), StatusCode::OK);
+    assert!(
+        !captured
+            .lock()
+            .unwrap()
+            .headers
+            .contains_key("x-opencode-session"),
+        "must not invent a static x-opencode-session"
+    );
+
     remove_temp_db(&path);
 }
 
 #[test]
 fn legacy_gateway_schema_gains_policy_and_provider_inventory_without_rewriting_bindings() {
-    use cc_use_lib::models::GatewayModelPolicy;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, "https://example.test");
     let key = create_gateway_key(&db, &provider.id, "sk-test");
@@ -2250,7 +2319,6 @@ fn legacy_gateway_schema_gains_policy_and_provider_inventory_without_rewriting_b
             .gateway_get(&gateway.session_token)
             .unwrap()
             .unwrap();
-        assert_eq!(loaded.model_policy, GatewayModelPolicy::All);
         assert_eq!(loaded.provider_id, provider.id);
         assert_eq!(loaded.api_key_id, key.id);
         assert_eq!(loaded.connection_config, gateway.connection_config);

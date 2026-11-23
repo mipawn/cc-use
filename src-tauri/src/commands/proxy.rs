@@ -279,7 +279,6 @@ pub fn session_create(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     };
     db.proxy_session_create(&session)
         .map_err(|e| e.to_string())?;

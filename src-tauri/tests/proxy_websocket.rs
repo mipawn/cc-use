@@ -117,7 +117,6 @@ fn setup_proxy(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .unwrap();
 
@@ -468,8 +467,7 @@ async fn gateway_websocket_handshake_uses_the_shared_connection_policy() {
 }
 
 #[tokio::test]
-async fn gateway_existing_websocket_closes_before_forwarding_next_frame_when_policy_is_restricted()
-{
+async fn gateway_existing_websocket_closes_before_forwarding_next_frame_when_disabled() {
     let frames = Arc::new(Mutex::new(Vec::new()));
     let seen = frames.clone();
     let upstream_app = Router::new().route(
@@ -530,17 +528,14 @@ async fn gateway_existing_websocket_closes_before_forwarding_next_frame_when_pol
     );
     {
         let db = state.db.lock().unwrap();
-        cc_use_lib::commands::gateways::gateway_update_with_policy_inner(
+        cc_use_lib::commands::gateways::gateway_update_inner(
             &db,
             &token,
             None,
             None,
             None,
+            Some(false),
             None,
-            None,
-            Some(&cc_use_lib::models::GatewayModelPolicy::Selected {
-                model_ids: vec!["allowed".into()],
-            }),
         )
         .unwrap();
     }
@@ -563,9 +558,9 @@ async fn gateway_existing_websocket_closes_before_forwarding_next_frame_when_pol
     assert_eq!(
         frames.lock().unwrap().len(),
         2,
-        "post-policy frame must not reach upstream"
+        "post-disable frame must not reach upstream"
     );
-    // Restricting one outlet does not restrict another outlet on the same key.
+    // Disabling one outlet does not affect another outlet on the same key.
     let second = {
         let db = state.db.lock().unwrap();
         let first = db.gateway_get(&token).unwrap().unwrap();

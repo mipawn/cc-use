@@ -306,25 +306,27 @@ describe('renderer api contract', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(3, 'provider_model_catalog_query', { input })
   })
 
-  it('forwards explicit gateway restrictions and keeps omitted policy unchanged', async () => {
+  it('forwards gateway create and update commands without per-gateway model policy', async () => {
     invokeMock.mockResolvedValue(undefined)
     const { getApi } = await loadApiModule()
     const api = getApi()
-    const modelPolicy = { mode: 'selected' as const, modelIds: ['model-a'] }
-    await api.gateway.create('Work', 'provider-1', 'key-1', undefined, modelPolicy)
-    await api.gateway.update('gw', { modelPolicy: { mode: 'all' } })
+    await api.gateway.create('Work', 'provider-1', 'key-1', {
+      baseUrl: null,
+      authScheme: 'bearer',
+      userAgent: null,
+    })
     await api.gateway.update('gw', { name: 'Renamed' })
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'gateway_create', {
       name: 'Work',
       providerId: 'provider-1',
       apiKeyId: 'key-1',
-      modelPolicy,
+      connectionConfig: {
+        baseUrl: null,
+        authScheme: 'bearer',
+        userAgent: null,
+      },
     })
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'gateway_update', {
-      sessionToken: 'gw',
-      modelPolicy: { mode: 'all' },
-    })
-    expect(invokeMock).toHaveBeenNthCalledWith(3, 'gateway_update', {
       sessionToken: 'gw',
       name: 'Renamed',
     })

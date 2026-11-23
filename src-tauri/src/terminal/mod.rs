@@ -169,28 +169,58 @@ fn resolve_launch_preview(
 
     let mut preview = preview;
     if matches!(cli_type, "claude" | "claude_code") {
-        // Both default on for a gateway route, and both stay overridable: the
-        // discovery flag fills the model menu from this app's catalog, and the
-        // effort flag keeps thinking levels selectable for the custom model
-        // ids that menu serves.
-        for default_key in [
-            "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
-            "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT",
-        ] {
-            let explicit = local_env
-                .and_then(|config| config.get(default_key))
-                .or_else(|| {
-                    settings
-                        .claude_config
-                        .as_ref()
-                        .and_then(|config| config.get(default_key))
-                });
-            if explicit.is_none() {
-                preview
-                    .env
-                    .entry(default_key.into())
-                    .or_insert_with(|| "1".into());
-            }
+        // Only enable gateway model discovery by default when the provider's
+        // saved model catalog actually has models beyond the four family tier
+        // env vars (Opus/Sonnet/Haiku/Fable). Otherwise explicitly set `0` so
+        // Claude Code neither duplicates tier models nor reads stale entries
+        // from ~/.claude/cache/gateway-models.json written by another profile.
+        let discovery_explicit = local_env
+            .and_then(|config| config.get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"))
+            .or_else(|| {
+                settings
+                    .claude_config
+                    .as_ref()
+                    .and_then(|config| config.get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"))
+            });
+        if discovery_explicit.is_none() {
+            let saved_models = db
+                .provider_model_catalog_get(&api_key.provider_id)
+                .map(|catalog| catalog.models)
+                .unwrap_or_default();
+            let tier_models = crate::services::model_catalog::claude_code_tier_model_ids(
+                settings.claude_config.as_ref(),
+                local_env,
+            );
+            let default_discovery =
+                if crate::services::model_catalog::claude_code_has_extra_discovery_models(
+                    &saved_models,
+                    &tier_models,
+                ) {
+                    "1"
+                } else {
+                    "0"
+                };
+            preview
+                .env
+                .entry("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY".into())
+                .or_insert_with(|| default_discovery.into());
+        }
+
+        // Effort stays enabled by default (and overridable) so thinking levels
+        // remain selectable for custom model IDs.
+        let effort_explicit = local_env
+            .and_then(|config| config.get("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT"))
+            .or_else(|| {
+                settings
+                    .claude_config
+                    .as_ref()
+                    .and_then(|config| config.get("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT"))
+            });
+        if effort_explicit.is_none() {
+            preview
+                .env
+                .entry("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT".into())
+                .or_insert_with(|| "1".into());
         }
         // Opt-in only: leave auto mode untouched unless the profile/key names a
         // classifier model. Runs after the merged env so explicit values win.
@@ -621,7 +651,6 @@ fn create_managed_launch(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     };
     if let Err(error) = db.proxy_session_create(&session) {
         let _ = std::fs::remove_file(&script_path);

@@ -1,11 +1,19 @@
 import type { ClientKind, ClientModel } from '@shared/types'
 export type { ClientModel } from '@shared/types'
 
+export const CLAUDE_CODE_TIER_ENV_KEYS = {
+  opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  fable: 'ANTHROPIC_DEFAULT_FABLE_MODEL',
+} as const
+
 export const CLAUDE_CODE_MODEL_ENV_KEYS = [
   'ANTHROPIC_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
   'CLAUDE_CODE_SUBAGENT_MODEL',
 ] as const
 
@@ -81,16 +89,22 @@ const object = (value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : {}
 const string = (value: unknown) => (typeof value === 'string' ? value : '')
+const positiveInt = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
 const readModels = (value: unknown): ClientModel[] =>
   Array.isArray(value)
     ? value.flatMap((item) => {
         const model = object(item)
+        const contextWindow = positiveInt(model.contextWindow)
+        const maxOutputTokens = positiveInt(model.maxOutputTokens)
         return typeof model.id === 'string'
           ? [
               {
                 id: model.id,
                 displayName: string(model.displayName),
                 supports1m: model.supports1m === true,
+                ...(contextWindow !== undefined ? { contextWindow } : {}),
+                ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
               },
             ]
           : []
@@ -211,10 +225,16 @@ export function serializeModelMapping(fields: ModelMappingFields): string | unde
       const providerRuntimeModels =
         config.catalogMode === 'provider' ? (config.providerRuntimeModels ?? []) : []
       const serializeModels = (models: ClientModel[]) =>
-        models.map(({ id, displayName, supports1m }) => ({
+        models.map(({ id, displayName, supports1m, contextWindow, maxOutputTokens }) => ({
           id: id.trim(),
           displayName: displayName.trim() || id.trim(),
           ...(supports1m ? { supports1m: true } : {}),
+          ...(positiveInt(contextWindow) !== undefined
+            ? { contextWindow: positiveInt(contextWindow) }
+            : {}),
+          ...(positiveInt(maxOutputTokens) !== undefined
+            ? { maxOutputTokens: positiveInt(maxOutputTokens) }
+            : {}),
         }))
       configured ||= kind !== 'grok' && providerRuntimeModels.length > 0
       const catalog = {

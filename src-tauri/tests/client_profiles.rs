@@ -186,7 +186,6 @@ fn client_profile_crud_validation_and_key_rotation() {
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .unwrap();
     db.managed_instance_create(&ManagedInstance {
@@ -367,7 +366,6 @@ fn lossless_migration_converts_legacy_keys_into_client_profiles_once() {
             display_name: None,
             is_active: true,
             connection_config: None,
-            model_policy: None,
         })
         .unwrap();
     }

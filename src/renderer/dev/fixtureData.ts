@@ -249,7 +249,6 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
       createdAt: stamp,
       lastSeenAt: stamp,
       connectionConfig: { authScheme: 'bearer', baseUrl: null, userAgent: 'fixture-gateway' },
-      modelPolicy: { mode: 'selected', modelIds: ['claude-sonnet-5', 'legacy-missing-model'] },
     },
   ]
   // Today spans multiple pages; the remaining rows populate two years of heatmaps.

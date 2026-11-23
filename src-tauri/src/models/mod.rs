@@ -408,36 +408,6 @@ impl Default for GatewayConnectionConfig {
     }
 }
 
-/// Explicit gateway allow-list. SQL NULL alone has the legacy all meaning.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(tag = "mode", rename_all = "camelCase")]
-pub enum GatewayModelPolicy {
-    #[default]
-    All,
-    Selected {
-        #[serde(rename = "modelIds")]
-        model_ids: Vec<String>,
-    },
-}
-
-impl<'de> Deserialize<'de> for GatewayModelPolicy {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(tag = "mode", rename_all = "camelCase", deny_unknown_fields)]
-        enum WirePolicy {
-            All {},
-            Selected {
-                #[serde(rename = "modelIds")]
-                model_ids: Vec<String>,
-            },
-        }
-        Ok(match WirePolicy::deserialize(deserializer)? {
-            WirePolicy::All {} => Self::All,
-            WirePolicy::Selected { model_ids } => Self::Selected { model_ids },
-        })
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderModelCatalog {
@@ -468,8 +438,6 @@ pub struct ProxySession {
     pub is_active: bool,
     /// Gateway-only connection overrides; `None` for every other session row.
     pub connection_config: Option<GatewayConnectionConfig>,
-    #[serde(default)]
-    pub model_policy: Option<GatewayModelPolicy>,
 }
 
 // ── Client Profile (Scheme A: decoupled client configuration) ──
@@ -563,8 +531,6 @@ pub struct Gateway {
     /// Normalized overrides; a gateway without stored overrides reads back as
     /// `{ authScheme: "bearer" }` rather than an absent object.
     pub connection_config: GatewayConnectionConfig,
-    #[serde(default)]
-    pub model_policy: GatewayModelPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

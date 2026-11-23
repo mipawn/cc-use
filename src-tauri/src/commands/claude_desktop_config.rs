@@ -71,16 +71,29 @@ fn inference_model_json(spec: &InferenceModelSpec) -> Value {
 }
 
 /// The Desktop menu this key exposes: one canonical route per assigned role,
-/// in the stable sonnet/opus/haiku/fable order. A role with no model, or a
-/// model the catalog no longer contains, contributes nothing.
+/// in the stable sonnet/opus/haiku/fable order. Metadata (`display_name`,
+/// `supports1m`) is resolved from the provider's saved model catalog first.
 pub fn desktop_menu_for_key(
     api_key: &ApiKey,
 ) -> (
     Vec<InferenceModelSpec>,
     std::collections::BTreeMap<String, String>,
 ) {
-    let entries =
-        model_mapping::client_role_entries(api_key.model_mapping.as_deref(), "claude_desktop");
+    desktop_menu_for_key_with_catalog(api_key, &[])
+}
+
+pub fn desktop_menu_for_key_with_catalog(
+    api_key: &ApiKey,
+    provider_models: &[model_mapping::ClientModel],
+) -> (
+    Vec<InferenceModelSpec>,
+    std::collections::BTreeMap<String, String>,
+) {
+    let entries = model_mapping::client_role_entries_with_catalog(
+        api_key.model_mapping.as_deref(),
+        "claude_desktop",
+        provider_models,
+    );
     // Every route stays resolvable — a Desktop session may still ask for a
     // tier whose entry is not listed — while the menu shows one row per model.
     let aliases = entries
@@ -885,7 +898,11 @@ pub(crate) fn claude_apply_with_manager_and_profile(
     } else {
         &key
     };
-    let (models, aliases) = desktop_menu_for_key(target_key);
+    let provider_models = db
+        .provider_model_catalog_get(provider_id)
+        .map(|catalog| catalog.models)
+        .unwrap_or_default();
+    let (models, aliases) = desktop_menu_for_key_with_catalog(target_key, &provider_models);
     desktop_connection::apply_with_config_and_profile(
         db,
         DesktopClientKind::ClaudeDesktop,

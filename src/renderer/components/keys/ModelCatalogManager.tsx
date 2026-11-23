@@ -16,6 +16,28 @@ const EMPTY_MODELS: ClientModel[] = []
 const unique = (models: ClientModel[]) => [
   ...new Map(models.map((model) => [model.id, model])).values(),
 ]
+
+const positiveInt = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
+
+const parseOptionalTokens = (raw: string): number | undefined => {
+  const digits = raw.replace(/[,\s_]/gu, '')
+  if (!digits) return undefined
+  const parsed = Number(digits)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
+const formatTokenCount = (tokens: number): string => {
+  if (tokens >= 1_000_000) {
+    const millions = tokens % 1_048_576 === 0 ? tokens / 1_048_576 : tokens / 1_000_000
+    return `${Number(millions.toFixed(1))}M`
+  }
+  if (tokens >= 1_000) {
+    const thousands = tokens % 1_024 === 0 ? tokens / 1_024 : tokens / 1_000
+    return `${Number(thousands.toFixed(0))}K`
+  }
+  return String(tokens)
+}
 export interface ModelManualEntry {
   id: string
   displayName: string
@@ -58,6 +80,7 @@ export default function ModelCatalogManager({
   const [selectedOnly, setSelectedOnly] = useState(initialDraft?.selectedOnly ?? false)
   const [error, setError] = useState('')
   const base = catalog?.models ?? EMPTY_MODELS
+  const suppliedById = useMemo(() => new Map(base.map((model) => [model.id, model])), [base])
   const rows = useMemo(() => unique([...base, ...models]), [base, models])
   const ids = useMemo(() => new Set(models.map((model) => model.id)), [models])
   const suppliedIds = useMemo(() => new Set(base.map((model) => model.id)), [base])
@@ -70,11 +93,20 @@ export default function ModelCatalogManager({
     if (disabled) return
     // Keep selection independently of strategy. Provider mode ignores it at runtime,
     // but a later explicit switch must not destroy the user's selection draft.
-    const next = models.map(({ id, displayName, supports1m }) => ({
-      id: id.trim(),
-      displayName: displayName.trim() || id.trim(),
-      ...(supports1m ? { supports1m: true } : {}),
-    }))
+    const next = models.map(({ id, displayName, supports1m, contextWindow, maxOutputTokens }) => {
+      const trimmedId = id.trim()
+      const supplied = suppliedById.get(trimmedId)
+      const resolvedContext = positiveInt(contextWindow) ?? positiveInt(supplied?.contextWindow)
+      const resolvedOutput =
+        positiveInt(maxOutputTokens) ?? positiveInt(supplied?.maxOutputTokens)
+      return {
+        id: trimmedId,
+        displayName: displayName.trim() || trimmedId,
+        ...(supports1m ? { supports1m: true } : {}),
+        ...(resolvedContext !== undefined ? { contextWindow: resolvedContext } : {}),
+        ...(resolvedOutput !== undefined ? { maxOutputTokens: resolvedOutput } : {}),
+      }
+    })
     if (!providerManagement && strategy === 'custom' && !next.length) {
       setError(t('keys.clientModelsRequired'))
       return
@@ -88,7 +120,7 @@ export default function ModelCatalogManager({
       return
     }
     onCommit({ catalogMode: strategy, models: next })
-  }, [disabled, models, providerManagement, strategy, t, onCommit])
+  }, [disabled, models, providerManagement, strategy, suppliedById, t, onCommit])
   const back = useCallback(() => {
     const dirty =
       strategy !== value.catalogMode ||
@@ -124,6 +156,12 @@ export default function ModelCatalogManager({
       id,
       displayName: manual?.displayName.trim() || id,
       ...(supplied?.supports1m ? { supports1m: true } : {}),
+      ...(positiveInt(supplied?.contextWindow) !== undefined
+        ? { contextWindow: supplied!.contextWindow }
+        : {}),
+      ...(positiveInt(supplied?.maxOutputTokens) !== undefined
+        ? { maxOutputTokens: supplied!.maxOutputTokens }
+        : {}),
     })
     setManual(null)
     setSearch('')
@@ -222,6 +260,18 @@ export default function ModelCatalogManager({
       <div className={styles.catalogList}>
         {visible.map((model) => {
           const configured = models.find((entry) => entry.id === model.id)
+          const supplied = suppliedById.get(model.id)
+          const effectiveContext =
+            positiveInt(configured?.contextWindow) ?? positiveInt(supplied?.contextWindow)
+          const effectiveOutput =
+            positiveInt(configured?.maxOutputTokens) ?? positiveInt(supplied?.maxOutputTokens)
+          const capacityLabel =
+            effectiveContext || effectiveOutput
+              ? [
+                  effectiveContext ? formatTokenCount(effectiveContext) : '—',
+                  effectiveOutput ? formatTokenCount(effectiveOutput) : '—',
+                ].join(' / ')
+              : null
           const checked = Boolean(configured)
           return (
             <div className={styles.catalogRow} key={model.id} data-model-row={model.id}>
@@ -238,23 +288,79 @@ export default function ModelCatalogManager({
               <div className={styles.modelIdentity}>
                 <code>{model.id}</code>
                 {renaming === model.id ? (
-                  <Input
-                    size='small'
-                    autoFocus
-                    disabled={disabled}
-                    value={configured?.displayName ?? model.displayName}
-                    placeholder={t('keys.clientModelNamePlaceholder')}
-                    aria-label={`${model.id} ${t('keys.clientModelName')}`}
-                    onChange={(event) =>
-                      replaceOne({ ...(configured ?? model), displayName: event.target.value })
-                    }
-                    onBlur={() => setRenaming(undefined)}
-                    onPressEnter={() => setRenaming(undefined)}
-                  />
+                  <div className={styles.inlineEditFields}>
+                    <Input
+                      size='small'
+                      autoFocus
+                      disabled={disabled}
+                      value={configured?.displayName ?? model.displayName}
+                      placeholder={t('keys.clientModelNamePlaceholder')}
+                      aria-label={`${model.id} ${t('keys.clientModelName')}`}
+                      onChange={(event) =>
+                        replaceOne({ ...(configured ?? model), displayName: event.target.value })
+                      }
+                      onPressEnter={() => setRenaming(undefined)}
+                    />
+                    <div className={styles.capacityInputs}>
+                      <Input
+                        size='small'
+                        disabled={disabled}
+                        value={
+                          configured?.contextWindow !== undefined
+                            ? String(configured.contextWindow)
+                            : effectiveContext !== undefined
+                              ? String(effectiveContext)
+                              : ''
+                        }
+                        placeholder={t('keys.contextWindowPlaceholder')}
+                        aria-label={`${model.id} ${t('keys.contextWindow')}`}
+                        onChange={(event) =>
+                          replaceOne({
+                            ...(configured ?? model),
+                            contextWindow: parseOptionalTokens(event.target.value),
+                          })
+                        }
+                        onPressEnter={() => setRenaming(undefined)}
+                      />
+                      <Input
+                        size='small'
+                        disabled={disabled}
+                        value={
+                          configured?.maxOutputTokens !== undefined
+                            ? String(configured.maxOutputTokens)
+                            : effectiveOutput !== undefined
+                              ? String(effectiveOutput)
+                              : ''
+                        }
+                        placeholder={t('keys.maxOutputTokensPlaceholder')}
+                        aria-label={`${model.id} ${t('keys.maxOutputTokens')}`}
+                        onChange={(event) =>
+                          replaceOne({
+                            ...(configured ?? model),
+                            maxOutputTokens: parseOptionalTokens(event.target.value),
+                          })
+                        }
+                        onPressEnter={() => setRenaming(undefined)}
+                      />
+                      <Button size='small' type='link' onClick={() => setRenaming(undefined)}>
+                        {t('common.confirm')}
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
                   <Text type='secondary'>{configured?.displayName || model.displayName}</Text>
                 )}
               </div>
+              {capacityLabel && (
+                <Tooltip
+                  title={t('keys.modelCapacityHint', {
+                    context: effectiveContext ? effectiveContext.toLocaleString() : '—',
+                    output: effectiveOutput ? effectiveOutput.toLocaleString() : '—',
+                  })}
+                >
+                  <span className={styles.capacityBadge}>{capacityLabel}</span>
+                </Tooltip>
+              )}
               <span className={styles.cacheBadge}>
                 {t(
                   configured
@@ -283,7 +389,7 @@ export default function ModelCatalogManager({
                   icon={<EditOutlined />}
                   disabled={disabled || !checked}
                   aria-label={`${model.id} ${t('keys.renameModel')}`}
-                  onClick={() => setRenaming(model.id)}
+                  onClick={() => setRenaming(renaming === model.id ? undefined : model.id)}
                 />
               </Tooltip>
               {configured && (

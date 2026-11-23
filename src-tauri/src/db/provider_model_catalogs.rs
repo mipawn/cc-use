@@ -48,6 +48,8 @@ impl Database {
                 if model.display_name.is_empty() {
                     model.display_name = model.id.clone();
                 }
+                model.context_window = model.context_window.filter(|v| *v > 0);
+                model.max_output_tokens = model.max_output_tokens.filter(|v| *v > 0);
                 normalized.push(model);
             }
         }

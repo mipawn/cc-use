@@ -924,7 +924,6 @@ export interface ProxySession {
   isActive: boolean
   /** Gateway-only connection overrides; absent/null for every other session. */
   connectionConfig?: GatewayConnectionConfig | null
-  modelPolicy?: GatewayModelPolicy | null
 }
 
 // ── Client Profile (Scheme A: decoupled client configuration) ──
@@ -985,8 +984,6 @@ export interface GatewayConnectionConfig {
   userAgent?: string | null
 }
 
-export type GatewayModelPolicy = { mode: 'all' } | { mode: 'selected'; modelIds: string[] }
-
 /** Explicitly saved provider models; revision guards concurrent editors. */
 export interface ProviderModelCatalog {
   models: ClientModel[]
@@ -998,6 +995,8 @@ export interface ClientModel {
   id: string
   displayName: string
   supports1m?: boolean
+  contextWindow?: number
+  maxOutputTokens?: number
 }
 
 export interface IconDeleteResult {
@@ -1018,7 +1017,6 @@ export interface Gateway {
   lastSeenAt: string
   /** Normalized connection overrides; defaults to `{ authScheme: 'bearer' }`. */
   connectionConfig: GatewayConnectionConfig
-  modelPolicy: GatewayModelPolicy
 }
 
 export type ManagedInstanceStatus = 'launching' | 'running' | 'stale' | 'stopped' | 'failed'

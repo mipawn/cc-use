@@ -355,3 +355,131 @@ fn project_preview_returns_project_prelaunch_command_and_keeps_it_out_of_env() {
         Some(&"key-model".to_string())
     );
 }
+
+#[test]
+fn claude_preview_sets_gateway_discovery_based_on_extra_provider_catalog_models() {
+    let fixture = TempDb::new();
+    let provider = create_provider(&fixture.db, "Catalog Provider", "claude");
+    let api_key = fixture
+        .db
+        .api_key_create(&CreateApiKeyInput {
+            query_config: None,
+            usage_script: None,
+            provider_id: provider.id.clone(),
+            alias: Some("k".to_string()),
+            value: "sk-test".to_string(),
+            types: None,
+            priority: Some(0),
+            is_active: Some(true),
+            config: Some(json!({
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4.1-flash[1m]",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4.1-flash[1m]",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4.1-flash[1m]",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL": "hy4-flash-free",
+            })),
+            usage_type: None,
+            usage_url: None,
+            usage_path: None,
+            usage_headers: None,
+            model_mapping: None,
+            client_configs: None,
+        })
+        .unwrap();
+
+    // 1) Empty provider catalog → gateway discovery defaults to "0" (prevents stale cache pollution).
+    let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "claude").unwrap();
+    assert_eq!(
+        preview
+            .env
+            .get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"),
+        Some(&"0".to_string())
+    );
+
+    // 2) Provider catalog whose models are all covered by the 4 tiers → still "0".
+    fixture
+        .db
+        .provider_model_catalog_save(
+            &provider.id,
+            &[
+                cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                    id: "deepseek-v4.1-flash".to_string(),
+                    display_name: "DeepSeek V4.1 Flash".to_string(),
+                    supports1m: true,
+                    context_window: None,
+                    max_output_tokens: None,
+                },
+                cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                    id: "hy4-flash-free".to_string(),
+                    display_name: "Hy4 Flash Free".to_string(),
+                    supports1m: false,
+                    context_window: None,
+                    max_output_tokens: None,
+                },
+            ],
+            0,
+        )
+        .unwrap();
+    let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "claude").unwrap();
+    assert_eq!(
+        preview
+            .env
+            .get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"),
+        Some(&"0".to_string())
+    );
+
+    // 3) Provider catalog has an extra model beyond the 4 tiers → enables discovery ("1").
+    fixture
+        .db
+        .provider_model_catalog_save(
+            &provider.id,
+            &[
+                cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                    id: "deepseek-v4.1-flash".to_string(),
+                    display_name: "DeepSeek V4.1 Flash".to_string(),
+                    supports1m: true,
+                    context_window: None,
+                    max_output_tokens: None,
+                },
+                cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                    id: "hy4-flash-free".to_string(),
+                    display_name: "Hy4 Flash Free".to_string(),
+                    supports1m: false,
+                    context_window: None,
+                    max_output_tokens: None,
+                },
+                cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                    id: "glm-5.3".to_string(),
+                    display_name: "GLM 5.3".to_string(),
+                    supports1m: false,
+                    context_window: None,
+                    max_output_tokens: None,
+                },
+            ],
+            1,
+        )
+        .unwrap();
+    let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "claude").unwrap();
+    assert_eq!(
+        preview
+            .env
+            .get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"),
+        Some(&"1".to_string())
+    );
+
+    // 4) Explicit global/local "0" wins even when extra catalog models exist.
+    fixture
+        .db
+        .settings_update(&json!({
+            "claudeConfig": {
+                "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"
+            }
+        }))
+        .unwrap();
+    let preview = get_launch_preview(&fixture.db, None, None, Some(&api_key.id), "claude").unwrap();
+    assert_eq!(
+        preview
+            .env
+            .get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"),
+        Some(&"0".to_string())
+    );
+}

@@ -320,9 +320,12 @@ pub fn provider_model_catalog_save(
     models: Vec<crate::shared_runtime::model_mapping::ClientModel>,
     revision: i64,
 ) -> Result<crate::models::ProviderModelCatalog, String> {
-    db.lock()
-        .map_err(|_| "Database lock failed")?
-        .provider_model_catalog_save(&provider_id, &models, revision)
+    let db = db.lock().map_err(|_| "Database lock failed")?;
+    let saved = db.provider_model_catalog_save(&provider_id, &models, revision)?;
+    // Keep any taken-over Claude Desktop menu labels / 1M flags aligned with
+    // the provider catalog; sync failures are tracked independently.
+    let _ = crate::commands::claude_desktop_config::refresh_taken_over_profile_after_key_edit(&db);
+    Ok(saved)
 }
 
 #[derive(serde::Deserialize)]

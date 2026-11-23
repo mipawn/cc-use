@@ -122,7 +122,6 @@ fn seed_managed_instance(db: &Database) -> String {
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
     let instance_id = "instance-managed".to_string();

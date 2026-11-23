@@ -8,7 +8,6 @@ import {
   Input,
   Modal,
   Popconfirm,
-  Radio,
   Select,
   Space,
   Spin,
@@ -32,13 +31,7 @@ import {
 } from '@ant-design/icons'
 import SimpleBar from 'simplebar-react'
 import { useTranslation } from 'react-i18next'
-import type {
-  Gateway,
-  GatewayConnectionConfig,
-  GatewayModelPolicy,
-  Provider,
-  ProxyLanInfo,
-} from '@shared/types'
+import type { Gateway, GatewayConnectionConfig, Provider, ProxyLanInfo } from '@shared/types'
 import { getApi } from '../api'
 import { useAppMessage } from '../hooks/useAppMessage'
 import { usePageRefresh } from '../hooks/usePageRefresh'
@@ -127,8 +120,6 @@ export default function GatewayPage() {
   // Mount, ⌘R and the inline retry can overlap; only the latest read may win.
   const lanRevision = useRef(0)
 
-  const [policyMode, setPolicyMode] = useState<GatewayModelPolicy['mode']>('all')
-  const [modelIds, setModelIds] = useState<string[]>([])
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const {
     catalogs,
@@ -151,9 +142,6 @@ export default function GatewayPage() {
   const providerUa = providerDefaultUserAgent(selectedProvider)
   const baseUrlInvalid = baseUrl.trim().length > 0 && !isHttpBaseUrl(baseUrl)
   const userAgentInvalid = /[\r\n]/u.test(userAgent)
-  const bindingChanged = Boolean(
-    editing && (providerId !== editing.providerId || apiKeyId !== editing.apiKeyId),
-  )
 
   const listRevision = useRef(0)
   const load = useCallback(async () => {
@@ -205,9 +193,18 @@ export default function GatewayPage() {
   }, [providers, fetchAllApiKeys])
 
   useEffect(() => {
+    const ids = [...new Set(gateways.map((gateway) => gateway.providerId))]
+    for (const id of ids) {
+      void fetchCatalog(id).catch(() => {
+        /* surfaced inline in the editor */
+      })
+    }
+  }, [gateways, fetchCatalog])
+
+  useEffect(() => {
     if (!modalOpen || !providerId) return
     void fetchCatalog(providerId).catch(() => {
-      /* surfaced inline without discarding selections */
+      /* surfaced inline */
     })
   }, [modalOpen, providerId, fetchCatalog])
 
@@ -226,8 +223,6 @@ export default function GatewayPage() {
     setAuthScheme(DEFAULT_CONNECTION.authScheme)
     setUserAgent('')
     setFormError(null)
-    setPolicyMode('all')
-    setModelIds([])
     setAdvancedOpen(false)
     setModalOpen(true)
   }
@@ -242,8 +237,6 @@ export default function GatewayPage() {
     setAuthScheme(connection.authScheme)
     setUserAgent(connection.userAgent?.trim() ?? '')
     setFormError(null)
-    setPolicyMode(gateway.modelPolicy?.mode ?? 'all')
-    setModelIds(gateway.modelPolicy?.mode === 'selected' ? gateway.modelPolicy.modelIds : [])
     setAdvancedOpen(connection.authScheme !== 'bearer' || Boolean(connection.userAgent?.trim()))
     void fetchApiKeys(gateway.providerId).catch((error) => {
       console.error('Failed to load API keys for gateway:', error)
@@ -272,12 +265,6 @@ export default function GatewayPage() {
       setFormError(t('gateway.invalidUserAgent'))
       return
     }
-    if (policyMode === 'selected' && modelIds.length === 0) {
-      setFormError(t('gateway.selectModelsRequired'))
-      return
-    }
-    const modelPolicy: GatewayModelPolicy =
-      policyMode === 'all' ? { mode: 'all' } : { mode: 'selected', modelIds }
     // Always send the whole object: omit means "keep stored", an object means
     // "replace", and null explicitly clears baseUrl / userAgent.
     const connectionConfig: GatewayConnectionConfig = {
@@ -293,10 +280,9 @@ export default function GatewayPage() {
           providerId,
           apiKeyId,
           connectionConfig,
-          modelPolicy,
         })
       } else {
-        await getApi().gateway.create(trimmed, providerId, apiKeyId, connectionConfig, modelPolicy)
+        await getApi().gateway.create(trimmed, providerId, apiKeyId, connectionConfig)
       }
     } catch (saveError) {
       message.error(String(saveError))
@@ -358,26 +344,6 @@ export default function GatewayPage() {
   }
 
   const savedModels = providerId ? (catalogs[providerId]?.models ?? []) : []
-  const modelOptions = [
-    ...new Map([
-      ...savedModels.map(
-        (model) =>
-          [
-            model.id,
-            {
-              value: model.id,
-              label:
-                model.displayName && model.displayName !== model.id
-                  ? `${model.displayName} (${model.id})`
-                  : model.id,
-            },
-          ] as const,
-      ),
-      ...modelIds
-        .filter((id) => !savedModels.some((model) => model.id === id))
-        .map((id) => [id, { value: id, label: id }] as const),
-    ]).values(),
-  ]
 
   return (
     <div className={styles.container}>
@@ -660,9 +626,9 @@ export default function GatewayPage() {
                       <div className={styles.connectionMeta}>
                         <Tooltip title={t('gateway.modelExposure')}>
                           <span className={styles.modelSummary}>
-                            {gateway.modelPolicy?.mode === 'selected'
-                              ? t('gateway.selectedCount', {
-                                  count: gateway.modelPolicy.modelIds.length,
+                            {catalogs[gateway.providerId]
+                              ? t('profiles.followCatalogCount', {
+                                  count: catalogs[gateway.providerId].models.length,
                                 })
                               : t('gateway.exposeAll')}
                           </span>
@@ -812,109 +778,50 @@ export default function GatewayPage() {
             </section>
 
             <section className={styles.formSection} aria-labelledby='gateway-model-heading'>
-              <h3 id='gateway-model-heading' className={styles.sectionLabel}>
-                {t('gateway.modelExposure')}
-              </h3>
-              <Radio.Group
-                name='gateway-model-policy'
-                disabled={saving}
-                aria-label={t('gateway.modelExposure')}
-                value={policyMode}
-                className={styles.policyChoices}
-                onChange={(event) => {
-                  setFormError(null)
-                  setPolicyMode(event.target.value)
-                }}
-              >
-                <Radio
-                  value='all'
-                  className={`${styles.policyChoice} ${policyMode === 'all' ? styles.policyChoiceActive : ''}`}
-                >
-                  <span className={styles.policyCopy}>
-                    <span className={styles.policyTitle}>{t('gateway.exposeAll')}</span>
-                    <span className={styles.policyDescription}>{t('gateway.exposeAllHint')}</span>
-                  </span>
-                </Radio>
-                <Radio
-                  value='selected'
-                  className={`${styles.policyChoice} ${policyMode === 'selected' ? styles.policyChoiceActive : ''}`}
-                >
-                  <span className={styles.policyCopy}>
-                    <span className={styles.policyTitle}>{t('gateway.exposeSelected')}</span>
-                    <span className={styles.policyDescription}>
-                      {t('gateway.exposeSelectedHint')}
+              <div className={styles.fieldHeader}>
+                <h3 id='gateway-model-heading' className={styles.sectionLabel}>
+                  {t('gateway.modelExposure')}
+                </h3>
+                {selectedProvider && (
+                  <Space size={8}>
+                    <span className={styles.selectionCount}>
+                      {t('profiles.followCatalogCount', { count: savedModels.length })}
                     </span>
-                  </span>
-                </Radio>
-              </Radio.Group>
-              {policyMode === 'selected' && (
-                <div className={styles.selectedModels}>
-                  <div className={styles.fieldHeader}>
-                    <label htmlFor='gateway-model-ids' className={styles.fieldLabel}>
-                      {t('gateway.selectedModels')}
-                    </label>
-                    <Space size={8}>
-                      <span className={styles.selectionCount} aria-live='polite'>
-                        {t('gateway.selectedCount', { count: modelIds.length })}
-                      </span>
-                      {selectedProvider && (
-                        <Button
-                          size='small'
-                          icon={<AppstoreOutlined />}
-                          onClick={() => setCatalogModalOpen(true)}
-                        >
-                          {t('gateway.manageCatalog')}
-                        </Button>
-                      )}
-                    </Space>
-                  </div>
-                  <Select
-                    id='gateway-model-ids'
-                    aria-label={t('gateway.selectedModels')}
-                    mode='multiple'
-                    className={styles.fullWidth}
-                    disabled={saving}
-                    value={modelIds}
-                    options={modelOptions}
-                    showSearch={{ optionFilterProp: 'label' }}
-                    maxTagCount={2}
-                    maxTagTextLength={36}
-                    placeholder={t('gateway.selectedModels')}
-                    loading={providerId ? catalogsLoading[providerId] : false}
-                    onChange={(ids: string[]) => {
-                      setFormError(null)
-                      setModelIds(ids)
-                    }}
+                    <Button
+                      size='small'
+                      disabled={saving}
+                      icon={<AppstoreOutlined />}
+                      onClick={() => setCatalogModalOpen(true)}
+                    >
+                      {t('gateway.manageCatalog')}
+                    </Button>
+                  </Space>
+                )}
+              </div>
+              <div className={styles.catalogSummary}>
+                <div className={styles.fieldHint}>{t('gateway.exposeAllHint')}</div>
+                {providerId && catalogErrors[providerId] && (
+                  <Alert
+                    type='error'
+                    showIcon
+                    title={t('gateway.catalogLoadFailed')}
+                    action={
+                      <Button
+                        size='small'
+                        onClick={() => void fetchCatalog(providerId).catch(() => {})}
+                      >
+                        {t('common.retry')}
+                      </Button>
+                    }
                   />
-                  {providerId && catalogErrors[providerId] && (
-                    <Alert
-                      type='error'
-                      showIcon
-                      title={t('gateway.catalogLoadFailed')}
-                      action={
-                        <Button
-                          size='small'
-                          onClick={() => void fetchCatalog(providerId).catch(() => {})}
-                        >
-                          {t('common.retry')}
-                        </Button>
-                      }
-                    />
-                  )}
-                  {savedModels.length === 0 && (
+                )}
+                {selectedProvider &&
+                  !catalogsLoading[selectedProvider.id] &&
+                  !catalogErrors[selectedProvider.id] &&
+                  savedModels.length === 0 && (
                     <div className={styles.fieldHint}>{t('gateway.manageModelsHint')}</div>
                   )}
-                  <Alert
-                    className={styles.policyNotice}
-                    type='warning'
-                    showIcon
-                    title={t('gateway.strictPolicyHint')}
-                  />
-                  {bindingChanged && (
-                    <div className={styles.fieldHint}>{t('gateway.bindingPolicyHint')}</div>
-                  )}
-                </div>
-              )}
+              </div>
             </section>
 
             <Collapse

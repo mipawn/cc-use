@@ -13,6 +13,8 @@ fn model(id: &str) -> ClientModel {
         id: id.into(),
         display_name: format!("Name {id}"),
         supports1m: true,
+        context_window: None,
+        max_output_tokens: None,
     }
 }
 

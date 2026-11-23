@@ -166,6 +166,7 @@ fn deepseek_preset() -> ProviderPreset {
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-flash[1m]",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-flash[1m]",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-flash",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL": "deepseek-flash[1m]",
                 "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-flash",
                 "CLAUDE_CODE_EFFORT_LEVEL": "max",
                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "786432",
@@ -661,7 +662,16 @@ mod tests {
         let config = preset.default_key_config.config.expect("config preset");
 
         assert_eq!(config["ANTHROPIC_MODEL"], "deepseek-flash[1m]");
+        assert_eq!(config["ANTHROPIC_DEFAULT_OPUS_MODEL"], "deepseek-flash[1m]");
+        assert_eq!(
+            config["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+            "deepseek-flash[1m]"
+        );
         assert_eq!(config["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-flash");
+        assert_eq!(
+            config["ANTHROPIC_DEFAULT_FABLE_MODEL"],
+            "deepseek-flash[1m]"
+        );
         assert_eq!(config["CLAUDE_CODE_EFFORT_LEVEL"], "max");
         assert_eq!(config["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "786432");
 

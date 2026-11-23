@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next'
 import type { ApiKey, ClientProfile, Provider } from '@shared/types'
 import ProviderIcon from '../providers/ProviderIcon'
 import { formatAccountAmount } from '../../utils/accountQuery'
-import { CLIENT_ROLES, parseModelMapping } from '../../utils/modelMapping'
+import { CLAUDE_CODE_TIER_ENV_KEYS, CLIENT_ROLES, parseModelMapping } from '../../utils/modelMapping'
 import styles from './ClientProfileCard.module.css'
 
 interface ClientProfileCardProps {
@@ -95,6 +95,12 @@ export default function ClientProfileCard({
     typeof profile.launchEnv?.ANTHROPIC_MODEL === 'string'
       ? profile.launchEnv.ANTHROPIC_MODEL
       : undefined
+  const claudeTierCount =
+    profile.clientKind === 'claude_code' && profile.launchEnv
+      ? Object.values(CLAUDE_CODE_TIER_ENV_KEYS).filter(
+          (key) => typeof profile.launchEnv?.[key] === 'string' && String(profile.launchEnv[key]).trim(),
+        ).length
+      : 0
 
   const mappedRoleCount =
     profile.clientKind === 'claude_desktop'
@@ -191,17 +197,16 @@ export default function ClientProfileCard({
 
       {/* Concise Summary Chips */}
       <div className={styles.summaryRow}>
-        {profile.clientKind !== 'grok' && (
-          <Tag>
-            {clientModelCfg.catalogMode === 'custom'
-              ? t('profiles.summaryModelsSelected', { count: clientModelCfg.models.length })
-              : t('profiles.summaryModelsAll', { count: catalogCount })}
-          </Tag>
-        )}
+        <Tag>{t('profiles.summaryModelsAll', { count: catalogCount })}</Tag>
 
         {profile.clientKind === 'claude_code' && claudePrimaryModel && (
           <Tag color='geekblue'>
             {t('profiles.summaryDefaultModel', { model: claudePrimaryModel })}
+          </Tag>
+        )}
+        {profile.clientKind === 'claude_code' && claudeTierCount > 0 && (
+          <Tag color={claudeTierCount === 4 ? 'green' : 'gold'}>
+            {t('profiles.claudeTiersSummaryCount', { count: claudeTierCount })}
           </Tag>
         )}
         {profile.clientKind === 'claude_code' && envCount > 0 && (

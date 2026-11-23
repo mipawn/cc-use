@@ -167,7 +167,7 @@ function buildApi(): Api {
     },
     gateway: {
       list: () => invoke('gateway_list'),
-      create: (name, providerId, apiKeyId, connectionConfig, modelPolicy) =>
+      create: (name, providerId, apiKeyId, connectionConfig) =>
         invoke('gateway_create', {
           name,
           providerId,
@@ -175,7 +175,6 @@ function buildApi(): Api {
           // Omitted stays omitted: the backend keeps the stored override (or
           // applies its creation default) instead of silently clearing it.
           ...(connectionConfig !== undefined ? { connectionConfig } : {}),
-          ...(modelPolicy !== undefined ? { modelPolicy } : {}),
         }),
       update: (sessionToken, changes) =>
         invoke('gateway_update', {
@@ -187,7 +186,6 @@ function buildApi(): Api {
           ...(changes.connectionConfig !== undefined
             ? { connectionConfig: changes.connectionConfig }
             : {}),
-          ...(changes.modelPolicy !== undefined ? { modelPolicy: changes.modelPolicy } : {}),
         }),
       delete: (sessionToken) => invoke('gateway_delete', { sessionToken }),
     },

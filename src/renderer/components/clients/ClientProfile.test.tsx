@@ -4,7 +4,9 @@ import { createRoot } from 'react-dom/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiKey, ClientProfile, Provider } from '@shared/types'
 import { useClientProfileStore } from '../../stores/clientProfileStore'
+import { useProviderModelCatalogStore } from '../../stores/providerModelCatalogStore'
 import ClientProfileCard from './ClientProfileCard'
+import ClientProfileDrawer from './ClientProfileDrawer'
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -12,15 +14,46 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   delete: vi.fn(),
   reorder: vi.fn(),
+  getModelCatalog: vi.fn(async () => ({
+    models: [
+      { id: 'deepseek-v4.1-flash', displayName: 'DeepSeek V4.1 Flash', supports1m: true },
+      { id: 'hy4-flash-free', displayName: 'Hy4 Flash Free', supports1m: false },
+    ],
+    revision: 1,
+    updatedAt: '2026-11-23T00:00:00Z',
+  })),
+  userAgentList: vi.fn(async () => []),
 }))
 
 vi.mock('../../api', () => ({
   getApi: () => ({
     clientProfile: mocks,
+    provider: {
+      getModelCatalog: mocks.getModelCatalog,
+    },
+    userAgent: {
+      list: mocks.userAgentList,
+    },
+  }),
+}))
+
+vi.mock('../../hooks/useAppMessage', () => ({
+  useAppMessage: () => ({
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+  }),
+}))
+
+vi.mock('../../stores/settingsStore', () => ({
+  useSettingsStore: () => ({
+    globalSettings: { claudeConfig: {} },
   }),
 }))
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh' } }),
 }))
 
@@ -143,6 +176,7 @@ const sampleProfile: ClientProfile = {
 beforeEach(() => {
   vi.clearAllMocks()
   useClientProfileStore.setState({ profiles: [], loading: false })
+  useProviderModelCatalogStore.setState({ catalogs: {}, loading: {}, errors: {}, requests: {} })
   document.body.innerHTML = ''
 })
 
@@ -203,6 +237,120 @@ describe('ClientProfileCard', () => {
       )!
       await act(async () => editBtn.click())
       expect(onEdit).toHaveBeenCalledWith(sampleProfile)
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+  })
+
+  it('displays 4-tier coverage chip when Claude Code tiers are configured', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const withAllTiers: ClientProfile = {
+      ...sampleProfile,
+      launchEnv: {
+        ANTHROPIC_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_FABLE_MODEL: 'deepseek-v4.1-flash[1m]',
+      },
+    }
+    try {
+      await act(async () => {
+        root.render(
+          <ClientProfileCard
+            profile={withAllTiers}
+            provider={provider}
+            apiKey={keys[0]}
+            providerKeys={keys}
+            catalogCount={2}
+            onEdit={vi.fn()}
+            onDuplicate={vi.fn()}
+            onDelete={vi.fn()}
+            onSwapKey={vi.fn(async () => {})}
+          />,
+        )
+      })
+      expect(container.textContent).toContain('profiles.summaryModelsAll')
+      expect(container.textContent).toContain('profiles.claudeTiersSummaryCount')
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+    }
+  })
+})
+
+describe('ClientProfileDrawer', () => {
+  it('syncs all four Claude Code family tiers including Fable and follows provider catalog', async () => {
+    const onUpdate = vi.fn(async (input) => ({
+      ...sampleProfile,
+      ...input,
+      modelConfig: input.modelConfig ?? sampleProfile.modelConfig,
+      launchEnv: input.launchEnv ?? sampleProfile.launchEnv,
+    }))
+    const onClose = vi.fn()
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const profileToEdit: ClientProfile = {
+      ...sampleProfile,
+      launchEnv: {
+        ANTHROPIC_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4.1-flash[1m]',
+        CLAUDE_CODE_EFFORT_LEVEL: 'max',
+      },
+    }
+    try {
+      await act(async () => {
+        root.render(
+          <ClientProfileDrawer
+            open
+            clientKind='claude_code'
+            profile={profileToEdit}
+            providers={[provider]}
+            apiKeysByProvider={{ p1: keys }}
+            onClose={onClose}
+            onCreate={vi.fn()}
+            onUpdate={onUpdate}
+          />,
+        )
+      })
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      // Per-profile custom model picker is removed; provider catalog summary is shown instead.
+      expect(document.body.textContent).not.toContain('profiles.customCatalog')
+      expect(document.body.textContent).toContain('profiles.followCatalogCount')
+
+      // One-click sync fills Opus / Sonnet / Haiku / Fable from the primary model.
+      const syncBtn = Array.from(document.body.querySelectorAll('button')).find((btn) =>
+        btn.textContent?.includes('profiles.claudeTiersSyncAll'),
+      )!
+      expect(syncBtn).toBeDefined()
+      await act(async () => syncBtn.click())
+
+      const saveBtn = Array.from(document.body.querySelectorAll('button')).find((btn) =>
+        btn.textContent?.includes('common.save'),
+      )!
+      expect(saveBtn).toBeDefined()
+      await act(async () => saveBtn.click())
+
+      expect(onUpdate).toHaveBeenCalledTimes(1)
+      const payload = onUpdate.mock.calls[0][0]
+      expect(payload.launchEnv).toEqual({
+        ANTHROPIC_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4.1-flash[1m]',
+        ANTHROPIC_DEFAULT_FABLE_MODEL: 'deepseek-v4.1-flash[1m]',
+        CLAUDE_CODE_EFFORT_LEVEL: 'max',
+      })
+      const savedModelCfg = JSON.parse(payload.modelConfig)
+      expect(savedModelCfg.clients.claude_code.catalog.mode).toBe('provider')
+      expect(savedModelCfg.clients.claude_code.catalog.models).toBeUndefined()
     } finally {
       await act(async () => root.unmount())
       container.remove()

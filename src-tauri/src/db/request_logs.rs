@@ -1520,7 +1520,6 @@ mod tests {
             display_name: None,
             is_active: true,
             connection_config: None,
-            model_policy: None,
         };
         db.proxy_session_create(&session).unwrap();
 

@@ -58,11 +58,21 @@ impl ModelCatalogResult {
             .flatten()
             .filter_map(|entry| {
                 let id = entry["id"].as_str()?.to_string();
-                let display_name = entry["display_name"].as_str().unwrap_or(&id).to_string();
+                let display_name = entry["display_name"]
+                    .as_str()
+                    .or_else(|| entry["name"].as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(&id)
+                    .to_string();
+                let (context_window, max_output_tokens) =
+                    model_mapping::extract_model_capacities(entry);
                 Some(model_mapping::ClientModel {
                     id,
                     display_name,
                     supports1m: entry["supports1m"].as_bool().unwrap_or(false),
+                    context_window,
+                    max_output_tokens,
                 })
             })
             .collect();
@@ -317,13 +327,78 @@ pub(crate) fn apply_profile_to_key(key: &ApiKey, profile: &crate::models::Client
     effective
 }
 
+const CLAUDE_CODE_TIER_ENV_KEYS: [&str; 4] = [
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
+];
+
+fn normalize_tier_model_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let stripped =
+        if trimmed.len() >= 4 && trimmed[trimmed.len() - 4..].eq_ignore_ascii_case("[1m]") {
+            trimmed[..trimmed.len() - 4].trim()
+        } else {
+            trimmed
+        };
+    if stripped.is_empty() {
+        None
+    } else {
+        Some(stripped.to_string())
+    }
+}
+
+/// Collect the base model IDs already assigned to Claude Code's four family
+/// tier env vars (`OPUS` / `SONNET` / `HAIKU` / `FABLE`) after merging global
+/// config and per-profile/per-key launch env.
+pub fn claude_code_tier_model_ids(
+    global_config: Option<&Value>,
+    local_env: Option<&Value>,
+) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    for env_key in CLAUDE_CODE_TIER_ENV_KEYS {
+        let effective = match local_env.and_then(|obj| obj.get(env_key)) {
+            Some(Value::Null) => None,
+            Some(val) => Some(val),
+            None => global_config.and_then(|obj| obj.get(env_key)),
+        };
+        if let Some(model) = effective
+            .and_then(Value::as_str)
+            .and_then(normalize_tier_model_id)
+        {
+            ids.insert(model);
+        }
+    }
+    ids
+}
+
+/// Whether the provider's saved model catalog contains at least one model that
+/// is not already covered by Claude Code's four family tier env vars.
+pub fn claude_code_has_extra_discovery_models(
+    saved_models: &[model_mapping::ClientModel],
+    tier_models: &std::collections::HashSet<String>,
+) -> bool {
+    saved_models.iter().any(|model| {
+        let id = model.id.trim();
+        if id.is_empty() {
+            return false;
+        }
+        let alias = format!("claude-{id}");
+        !tier_models.contains(id) && !tier_models.contains(&alias)
+    })
+}
+
 pub async fn effective_catalog_with_profile(
     db: &Arc<Mutex<Database>>,
     provider: &Provider,
     key: &ApiKey,
     kind: &str,
     profile: Option<&crate::models::ClientProfile>,
-    request_headers: Option<&axum::http::HeaderMap>,
+    _request_headers: Option<&axum::http::HeaderMap>,
 ) -> Result<CatalogSnapshot, String> {
     let effective_key;
     let target_key = if let Some(p) = profile {
@@ -337,27 +412,38 @@ pub async fn effective_catalog_with_profile(
         None => model_mapping::alias_table_key(&key.id, kind),
     };
     let mapping = target_key.model_mapping.as_deref();
-    // Assigned role slots are built from the key/profile alone, so a provider whose
-    // model-list endpoint is missing or rejecting credentials still serves a
-    // usable menu.
-    let role_slots = !model_mapping::client_role_entries(mapping, kind).is_empty();
-    if role_slots || model_mapping::catalog_mode(mapping, kind) == "custom" {
-        let (catalog, aliases) = model_mapping::effective_catalog_ex(mapping, kind, None)?;
-        persist_aliases_by_key(db, &alias_key, &aliases)?;
-        return Ok(CatalogSnapshot {
-            catalog,
-            fetched_at: chrono::Utc::now().to_rfc3339(),
-            from_cache: false,
-            error: None,
-        });
-    }
-    let snapshot = provider_catalog(db, provider, target_key, kind, true, request_headers).await?;
-    let (catalog, aliases) =
-        model_mapping::effective_catalog_ex(mapping, kind, Some(&snapshot.catalog))?;
+
+    let (saved_catalog, global_claude_config) = {
+        let guard = db.lock().map_err(|error| error.to_string())?;
+        let saved = guard.provider_model_catalog_get(&provider.id)?;
+        let global_cfg = if model_mapping::client_key(kind) == "claude_code" {
+            guard.settings_get().ok().and_then(|s| s.claude_config)
+        } else {
+            None
+        };
+        (saved, global_cfg)
+    };
+
+    let excluded_tiers = if model_mapping::client_key(kind) == "claude_code" {
+        claude_code_tier_model_ids(global_claude_config.as_ref(), target_key.config.as_ref())
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    let (catalog, aliases) = model_mapping::effective_catalog_from_saved_models(
+        mapping,
+        kind,
+        &saved_catalog.models,
+        &excluded_tiers,
+    );
     persist_aliases_by_key(db, &alias_key, &aliases)?;
     Ok(CatalogSnapshot {
         catalog,
-        ..snapshot
+        fetched_at: saved_catalog
+            .updated_at
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+        from_cache: false,
+        error: None,
     })
 }
 
@@ -368,12 +454,15 @@ fn persist_aliases_by_key(
     settings_key: &str,
     aliases: &model_mapping::AliasTable,
 ) -> Result<(), String> {
+    let guard = db.lock().map_err(|error| error.to_string())?;
     if aliases.is_empty() {
+        guard
+            .settings_delete_value(settings_key)
+            .map_err(|error| error.to_string())?;
         return Ok(());
     }
     let value = serde_json::to_string(aliases).map_err(|error| error.to_string())?;
-    db.lock()
-        .map_err(|error| error.to_string())?
+    guard
         .settings_set_value(settings_key, &value)
         .map_err(|error| error.to_string())
 }
@@ -742,8 +831,8 @@ mod tests {
         let snapshot = CatalogSnapshot {
             catalog: serde_json::json!({
                 "data": [
-                    {"id": "m1"},
-                    {"id": "m2", "display_name": "Model 2", "supports1m": true},
+                    {"id": "m1", "name": "Hy4 flash Free", "limit": {"context": 1048576, "output": 65536}},
+                    {"id": "m2", "display_name": "Model 2", "supports1m": true, "context_length": 200000, "top_provider": {"max_completion_tokens": 32768}},
                     {"display_name": "no id"}
                 ]
             }),
@@ -753,9 +842,14 @@ mod tests {
         };
         let result = ModelCatalogResult::from_snapshot(snapshot);
         assert_eq!(result.models.len(), 2);
+        assert_eq!(result.models[0].display_name, "Hy4 flash Free");
+        assert_eq!(result.models[0].context_window, Some(1_048_576));
+        assert_eq!(result.models[0].max_output_tokens, Some(65_536));
         assert_eq!(result.models[1].id, "m2");
         assert_eq!(result.models[1].display_name, "Model 2");
         assert!(result.models[1].supports1m);
+        assert_eq!(result.models[1].context_window, Some(200_000));
+        assert_eq!(result.models[1].max_output_tokens, Some(32_768));
         assert!(!result.from_cache);
         let serialized = serde_json::to_value(&result).unwrap();
         assert!(serialized.get("fetchedAt").is_some());

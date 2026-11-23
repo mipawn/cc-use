@@ -305,14 +305,13 @@ describe('strict local fixture API', () => {
     )
   })
 
-  it('preserves gateway connection/model policy and validates route eligibility', async () => {
+  it('preserves gateway connection config and validates route eligibility', async () => {
     const { api } = fixture()
     const before = (await api.gateway.list())[0]
     const after = await api.gateway.update(before.sessionToken, {
       providerId: 'provider-account',
       apiKeyId: 'key-account',
     })
-    expect(after.modelPolicy).toEqual(before.modelPolicy)
     expect(after.connectionConfig).toEqual(before.connectionConfig)
     await expect(
       api.desktopConnection.apply('codex', 'provider-usd', 'key-exhausted'),

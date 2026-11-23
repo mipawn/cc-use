@@ -153,7 +153,6 @@ fn create_manual_session(db: &Database, provider_id: &str, api_key_id: &str) -> 
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
     session_token
@@ -305,6 +304,18 @@ async fn lan_peer_session_token_is_forwarded() {
     let mock = start_mock_upstream().await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{}", mock.port));
+    db.provider_model_catalog_save(
+        &provider.id,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "claude-sonnet-4-6".to_string(),
+            display_name: "Claude Sonnet 4.6".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+        0,
+    )
+    .expect("seed provider catalog");
     let api_key = create_api_key(&db, &provider.id, "claude_code");
     let session_token = create_manual_session(&db, &provider.id, &api_key.id);
     let state = build_proxy_state(db);
@@ -331,6 +342,18 @@ async fn loopback_peer_session_token_is_forwarded() {
     let mock = start_mock_upstream().await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{}", mock.port));
+    db.provider_model_catalog_save(
+        &provider.id,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "claude-sonnet-4-6".to_string(),
+            display_name: "Claude Sonnet 4.6".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+        0,
+    )
+    .expect("seed provider catalog");
     let api_key = create_api_key(&db, &provider.id, "claude_code");
     let session_token = create_manual_session(&db, &provider.id, &api_key.id);
     let state = build_proxy_state(db);
@@ -354,6 +377,18 @@ async fn lan_peer_gateway_token_is_forwarded() {
     let mock = start_mock_upstream().await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{}", mock.port));
+    db.provider_model_catalog_save(
+        &provider.id,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "claude-sonnet-4-6".to_string(),
+            display_name: "Claude Sonnet 4.6".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+        0,
+    )
+    .expect("seed provider catalog");
     let api_key = create_api_key(&db, &provider.id, "claude_code");
     let gateway = gateway_create_inner(&db, "lan-outlet", &provider.id, &api_key.id, None)
         .expect("create gateway");
@@ -378,6 +413,18 @@ async fn lan_peer_gateway_token_can_read_models() {
     let mock = start_mock_upstream().await;
     let (db, path) = open_temp_db();
     let provider = create_provider_at(&db, &format!("http://127.0.0.1:{}", mock.port));
+    db.provider_model_catalog_save(
+        &provider.id,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "lan-mock-model".to_string(),
+            display_name: "LAN Mock Model".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+        0,
+    )
+    .expect("save provider catalog");
     let api_key = create_api_key(&db, &provider.id, "claude_code");
     let gateway = gateway_create_inner(&db, "lan-outlet", &provider.id, &api_key.id, None)
         .expect("create gateway");
@@ -392,7 +439,7 @@ async fn lan_peer_gateway_token_can_read_models() {
 
     let response = proxy_handler(AxumState(state), with_peer(request, lan_peer()))
         .await
-        .expect("LAN gateway model discovery should reach the provider");
+        .expect("LAN gateway model discovery should serve saved provider catalog");
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
@@ -400,9 +447,9 @@ async fn lan_peer_gateway_token_can_read_models() {
         .unwrap();
     assert!(
         String::from_utf8_lossy(&body).contains("lan-mock-model"),
-        "the LAN client receives the provider catalogue"
+        "the LAN client receives the saved provider catalogue"
     );
-    assert_eq!(*mock.model_hits.lock().unwrap(), 1);
+    assert_eq!(*mock.model_hits.lock().unwrap(), 0);
     remove_temp_db(&path);
 }
 
@@ -437,7 +484,6 @@ async fn lan_peer_provider_credential_cannot_use_the_codex_takeover_session() {
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create takeover proxy session");
     let state = build_proxy_state(db);

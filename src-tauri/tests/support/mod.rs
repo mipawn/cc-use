@@ -129,7 +129,6 @@ pub fn create_proxy_session(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session")
 }

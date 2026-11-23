@@ -242,71 +242,16 @@
   margin-bottom: 10px;
 }
 
-.policyChoices {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  width: 100%;
-}
-
-.policyChoice {
-  display: flex;
-  align-items: flex-start;
-  margin-inline-end: 0;
-  padding: 10px;
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: var(--radius-ant);
-  background: var(--ant-color-bg-container);
-}
-
-.policyChoiceActive {
-  border-color: var(--ant-color-primary-border);
-  background: var(--ant-color-primary-bg);
-}
-
-.policyChoice > :global(.ant-radio) {
-  margin-top: 3px;
-}
-
-.policyCopy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.policyTitle {
-  color: var(--ant-color-text);
-  font-weight: 500;
-}
-
-.policyDescription {
-  color: var(--ant-color-text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.selectedModels {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-
 .selectionCount {
   color: var(--ant-color-text-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
 
-.policyNotice {
-  padding: 8px 10px;
-  font-size: 12px;
-}
-
-.policyNotice :global(.ant-alert-title) {
-  font-size: 12px;
-  line-height: 1.5;
+.catalogSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .advancedPanel {
@@ -352,7 +297,6 @@
 
 @media (max-width: 560px) {
   .bindingGrid,
-  .policyChoices,
   .advancedFields {
     grid-template-columns: 1fr;
   }

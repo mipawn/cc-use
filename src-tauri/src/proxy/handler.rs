@@ -1,5 +1,4 @@
 use crate::db::Database;
-use crate::models::GatewayModelPolicy;
 use crate::models::{ApiKey, ClientProfile, Provider, ProxySession, RequestLog};
 use crate::proxy::console::ConsoleEvent;
 use crate::proxy::{rectifier, usage_parser};
@@ -58,7 +57,6 @@ struct RouteExecution {
     /// Resolved gateway connection. One instance is used by model discovery,
     /// HTTP/SSE forwarding and the WebSocket handshake.
     gateway: Option<GatewayConnection>,
-    gateway_policy: Option<GatewayModelPolicy>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -420,88 +418,25 @@ pub async fn proxy_handler(
         }
     };
 
-    if let Some(policy) = route_execution.gateway_policy.as_ref() {
-        if let Err((status, reason)) =
-            gateway_model_policy::validate_envelope(policy, req.method(), &req_path, req.headers())
-        {
-            emit.reject(reason);
-            return Err(error_response(status, reason));
-        }
-        if let GatewayModelPolicy::Selected { model_ids } = policy {
-            if req.method() == axum::http::Method::GET {
-                let names = route_execution.provider.as_ref().and_then(|provider| {
-                    state
-                        .db
-                        .lock()
-                        .ok()?
-                        .provider_model_catalog_get(&provider.id)
-                        .ok()
-                });
-                let data = model_ids.iter().map(|id| {
-                    let name = names.as_ref().and_then(|catalog| catalog.models.iter().find(|model| &model.id == id)).map(|model| model.display_name.as_str()).unwrap_or(id);
-                    serde_json::json!({"id":id,"object":"model","display_name":name,"owned_by":"gateway"})
-                }).collect::<Vec<_>>();
-                state.emit_console(ConsoleEvent::ok(
-                    &request_id,
-                    &method_str,
-                    &req_path,
-                    200,
-                    start_time.elapsed().as_millis() as u64,
-                    &route_execution.upstream_url,
-                    route_execution
-                        .provider
-                        .as_ref()
-                        .map(|provider| provider.name.as_str()),
-                    route_execution
-                        .api_key
-                        .as_ref()
-                        .and_then(|key| key.alias.as_deref()),
-                    false,
-                ));
-                return Ok(
-                    axum::Json(serde_json::json!({"object":"list","data":data})).into_response()
-                );
-            }
-        }
-    }
-
-    // Gateway model discovery uses the same resolved connection as inference:
-    // effective Base URL, gateway authentication, provider additive headers and
-    // the gateway User-Agent priority. No clientConfigs / model-catalog
-    // preference is consulted, so /models and the request that follows cannot
-    // point at different upstreams.
+    // Gateway model discovery strictly serves the provider's saved model
+    // catalog (`provider_model_catalogs`) so every gateway and client sees the
+    // exact inventory maintained on the provider (empty if nothing was saved).
     if route_execution.transparent
         && req.method() == axum::http::Method::GET
         && is_model_discovery_path(req.uri().path())
     {
-        if let (Some(provider), Some(connection)) =
-            (&route_execution.provider, route_execution.gateway.as_ref())
-        {
+        if let Some(provider) = &route_execution.provider {
             let key_alias = route_execution
                 .api_key
                 .as_ref()
                 .and_then(|key| key.alias.as_deref());
-            match crate::services::model_catalog::gateway_catalog(
-                provider,
-                connection,
-                Some(req.headers()),
-            )
-            .await
+            let saved = match state
+                .db
+                .lock()
+                .map_err(|_| "Database lock failed".to_string())
+                .and_then(|db| db.provider_model_catalog_get(&provider.id))
             {
-                Ok(snapshot) => {
-                    state.emit_console(ConsoleEvent::ok(
-                        &request_id,
-                        &method_str,
-                        &req_path,
-                        200,
-                        start_time.elapsed().as_millis() as u64,
-                        &route_execution.upstream_url,
-                        Some(provider.name.as_str()),
-                        key_alias,
-                        false,
-                    ));
-                    return Ok(axum::Json(snapshot.catalog).into_response());
-                }
+                Ok(catalog) => catalog,
                 Err(error) => {
                     emit.upstream_error(
                         &route_execution.upstream_url,
@@ -509,14 +444,88 @@ pub async fn proxy_handler(
                         key_alias,
                         &error,
                     );
-                    return Err(error_response(StatusCode::BAD_GATEWAY, &error));
+                    return Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, &error));
                 }
-            }
+            };
+            let data = saved
+                .models
+                .iter()
+                .map(|model| {
+                    let name = if model.display_name.trim().is_empty() {
+                        model.id.as_str()
+                    } else {
+                        model.display_name.as_str()
+                    };
+                    let mut entry = serde_json::json!({
+                        "id": model.id,
+                        "object": "model",
+                        "created": 0,
+                        "display_name": name,
+                        "name": name,
+                        "owned_by": "gateway"
+                    });
+                    crate::shared_runtime::model_mapping::attach_model_capacities(
+                        &mut entry,
+                        model.context_window,
+                        model.max_output_tokens,
+                    );
+                    entry
+                })
+                .collect::<Vec<_>>();
+            state.emit_console(ConsoleEvent::ok(
+                &request_id,
+                &method_str,
+                &req_path,
+                200,
+                start_time.elapsed().as_millis() as u64,
+                &route_execution.upstream_url,
+                Some(provider.name.as_str()),
+                key_alias,
+                false,
+            ));
+            return Ok(axum::Json(serde_json::json!({"object":"list","data":data})).into_response());
         }
     }
 
-    // Model discovery uses the same authenticated route snapshot as inference,
-    // but never applies the inference model alias to directory IDs.
+    // Gateways strictly enforce the bound provider's saved model catalog on
+    // every non-discovery request before any upstream connection is opened.
+    let gateway_allowed_models: Option<Vec<String>> = if route_execution.transparent {
+        let allowed = if let Some(provider) = route_execution.provider.as_ref() {
+            match state
+                .db
+                .lock()
+                .map_err(|_| "Database lock failed".to_string())
+                .and_then(|db| db.provider_model_catalog_get(&provider.id))
+            {
+                Ok(catalog) => catalog
+                    .models
+                    .into_iter()
+                    .map(|model| model.id)
+                    .collect::<Vec<_>>(),
+                Err(error) => {
+                    emit.reject(&error);
+                    return Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, &error));
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        if let Err((status, reason)) = gateway_model_policy::validate_gateway_envelope(
+            req.method(),
+            &req_path,
+            req.headers(),
+            &allowed,
+        ) {
+            emit.reject(reason);
+            return Err(error_response(status, reason));
+        }
+        Some(allowed)
+    } else {
+        None
+    };
+
+    // Model discovery strictly reflects the provider's saved model catalog
+    // without applying inference model rewriting to directory IDs.
     if req.method() == axum::http::Method::GET && is_model_discovery_path(req.uri().path()) {
         if let (Some(provider), Some(key), Some(kind)) = (
             &route_execution.provider,
@@ -545,21 +554,10 @@ pub async fn proxy_handler(
                     return Err(error_response(StatusCode::BAD_GATEWAY, &error));
                 }
             };
-            let source = if snapshot.from_cache {
-                "cache"
-            } else if crate::shared_runtime::model_mapping::catalog_mode(
-                route_execution.model_mapping.as_deref(),
-                kind,
-            ) == "custom"
-            {
-                "custom"
-            } else {
-                "provider"
-            };
             let mut response = axum::Json(snapshot.catalog).into_response();
             response.headers_mut().insert(
                 "x-cc-use-model-catalog-source",
-                HeaderValue::from_static(source),
+                HeaderValue::from_static("provider"),
             );
             if let Ok(time) = HeaderValue::from_str(&snapshot.fetched_at) {
                 response
@@ -774,8 +772,10 @@ pub async fn proxy_handler(
         }
     };
 
-    if let Some(policy) = route_execution.gateway_policy.as_ref() {
-        if let Err((status, reason)) = gateway_model_policy::validate_body(policy, &body_bytes) {
+    if let Some(allowed) = gateway_allowed_models.as_deref() {
+        if let Err((status, reason)) =
+            gateway_model_policy::validate_gateway_body(allowed, &body_bytes)
+        {
             emit.reject(reason);
             return Err(error_response(status, reason));
         }
@@ -813,6 +813,13 @@ pub async fn proxy_handler(
         // upstream sees, so a provider default must not survive it.
         apply_chosen_user_agent(&mut headers, &route_execution, emit.request_id);
     }
+    // Bridge dynamic client session headers (e.g. `x-session-id` from
+    // `dsh-session-header`) to `x-opencode-session` for OpenCode Go upstreams.
+    gateway_model_policy::apply_opencode_go_session_header(
+        &mut headers,
+        route_execution.provider.as_ref(),
+        &route_execution.upstream_url,
+    );
     let forwarded_request_model = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
         .and_then(|value| {
@@ -1446,26 +1453,17 @@ fn build_route_execution(
                     emit.reject(&error);
                     error_response(StatusCode::BAD_GATEWAY, &error)
                 })?;
-                // Strict aliases must name the same effective endpoint that
-                // the policy validates; all-mode keeps its existing routing.
-                let gateway_request_path = if matches!(
-                    session.model_policy.as_ref(),
-                    Some(GatewayModelPolicy::Selected { .. })
-                ) {
-                    let (path, query) = upstream_req_path
-                        .split_once('?')
-                        .map_or((upstream_req_path.as_str(), None), |(path, query)| {
-                            (path, Some(query))
-                        });
-                    let canonical =
-                        gateway_model_policy::canonical_inference_path(path).unwrap_or(path);
-                    query.map_or_else(
-                        || canonical.to_string(),
-                        |query| format!("{canonical}?{query}"),
-                    )
-                } else {
-                    upstream_req_path.clone()
-                };
+                let (path, query) = upstream_req_path
+                    .split_once('?')
+                    .map_or((upstream_req_path.as_str(), None), |(path, query)| {
+                        (path, Some(query))
+                    });
+                let canonical =
+                    gateway_model_policy::canonical_inference_path(path).unwrap_or(path);
+                let gateway_request_path = query.map_or_else(
+                    || canonical.to_string(),
+                    |query| format!("{canonical}?{query}"),
+                );
                 let upstream_url = gateway_connection::join_upstream_path(
                     &connection.effective_base_url,
                     &gateway_request_path,
@@ -1544,11 +1542,6 @@ fn build_route_execution(
                 aliases,
                 transparent,
                 gateway,
-                gateway_policy: if transparent {
-                    Some(session.model_policy.unwrap_or_default())
-                } else {
-                    None
-                },
             })
         }
         RoutePlan::PassThrough => {
@@ -1577,7 +1570,6 @@ fn build_route_execution(
                 aliases: std::collections::BTreeMap::new(),
                 transparent: false,
                 gateway: None,
-                gateway_policy: None,
             })
         }
         RoutePlan::RejectMissingAuth => {
@@ -3616,7 +3608,8 @@ enum WsRelayFailure {
 }
 
 /// Re-read persisted authorization for every application frame of a gateway WS.
-/// No policy snapshot from the handshake may keep an old all grant alive.
+/// Re-check that the gateway session and its bound provider/key are still active
+/// before forwarding another WebSocket frame.
 fn gateway_ws_frame_allowed(db: &Arc<Mutex<Database>>, route: &RouteExecution) -> bool {
     if !route.transparent {
         return true;
@@ -3638,10 +3631,6 @@ fn gateway_ws_frame_allowed(db: &Arc<Mutex<Database>>, route: &RouteExecution) -
             .is_some_and(session_time_has_passed)
         || session.provider_id != context.provider_id
         || session.api_key_id != context.api_key_id
-        || !matches!(
-            session.model_policy.unwrap_or_default(),
-            GatewayModelPolicy::All
-        )
     {
         return false;
     }
@@ -3652,6 +3641,30 @@ fn gateway_ws_frame_allowed(db: &Arc<Mutex<Database>>, route: &RouteExecution) -
         return false;
     };
     provider.is_active && key.is_active && !key.is_exhausted && key.provider_id == provider.id
+}
+
+fn gateway_ws_text_frame_allowed(
+    db: &Arc<Mutex<Database>>,
+    route: &RouteExecution,
+    text: &str,
+) -> bool {
+    if !gateway_ws_frame_allowed(db, route) {
+        return false;
+    }
+    if !route.transparent {
+        return true;
+    }
+    let Some(provider) = route.provider.as_ref() else {
+        return false;
+    };
+    let Ok(db) = db.lock() else {
+        return false;
+    };
+    let Ok(catalog) = db.provider_model_catalog_get(&provider.id) else {
+        return false;
+    };
+    let allowed: Vec<String> = catalog.models.into_iter().map(|m| m.id).collect();
+    gateway_model_policy::validate_gateway_ws_text_frame(&allowed, text).is_ok()
 }
 
 /// Relay frames until either side closes. Returns `Some(failure)` when the relay
@@ -3675,7 +3688,7 @@ async fn ws_relay(
             msg = client.recv() => {
                 match msg {
                     Some(Ok(WsMessage::Text(t))) => {
-                        if !gateway_ws_frame_allowed(&db, &route) {
+                        if !gateway_ws_text_frame_allowed(&db, &route, t.as_str()) {
                             let _ = client.send(WsMessage::Close(Some(AxumCloseFrame {code: 1008, reason: "Gateway policy changed".into()}))).await;
                             close_sent_to_client = true;
                             relay_error = Some(WsRelayFailure::Policy);
@@ -3832,7 +3845,6 @@ mod tests {
             aliases: std::collections::BTreeMap::new(),
             transparent: false,
             gateway: None,
-            gateway_policy: None,
         };
         assert!(!super::responses_rectifier_enabled(&route));
 
@@ -4137,7 +4149,6 @@ mod tests {
             aliases: Default::default(),
             transparent: false,
             gateway: None,
-            gateway_policy: None,
         }
     }
 
@@ -4475,7 +4486,6 @@ mod tests {
             display_name: None,
             is_active: true,
             connection_config: None,
-            model_policy: None,
         })
         .unwrap();
 

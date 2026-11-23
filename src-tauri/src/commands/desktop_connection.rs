@@ -489,7 +489,6 @@ pub(crate) fn apply_with_config_and_profile(
                 display_name: None,
                 is_active: true,
                 connection_config: None,
-                model_policy: None,
             })
             .map_err(|_| {
                 "Cannot save desktop session. Retry after checking the local database.".to_string()

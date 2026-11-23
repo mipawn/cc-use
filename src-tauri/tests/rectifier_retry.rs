@@ -145,7 +145,6 @@ fn setup_session_with_rectifier(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
 
@@ -278,10 +277,28 @@ async fn gateway_opt_in_covers_responses_aliases_but_not_chat_completions() {
     ] {
         let mock = start_upstream(AZURE_REJECTION, StatusCode::BAD_REQUEST).await;
         let (state, session_token) = setup_session(mock.port);
-        state.db.lock().unwrap().conn.execute(
-            "UPDATE proxy_sessions SET session_kind = 'gateway', cli_type = NULL WHERE session_token = ?1",
-            [&session_token],
-        ).unwrap();
+        {
+            let db = state.db.lock().unwrap();
+            let session = db.proxy_session_get(&session_token).unwrap().unwrap();
+            db.provider_model_catalog_save(
+                &session.provider_id,
+                &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                    id: "gpt-6.1-sol".to_string(),
+                    display_name: "GPT 6.1 Sol".to_string(),
+                    supports1m: false,
+                    context_window: None,
+                    max_output_tokens: None,
+                }],
+                0,
+            )
+            .unwrap();
+            db.conn
+                .execute(
+                    "UPDATE proxy_sessions SET session_kind = 'gateway', cli_type = NULL WHERE session_token = ?1",
+                    [&session_token],
+                )
+                .unwrap();
+        }
         let mut request = responses_request(&session_token, RESOURCE_BOUND_INPUT);
         *request.uri_mut() = path.parse().unwrap();
         let response = proxy_handler(AxumState(state), request).await.unwrap();

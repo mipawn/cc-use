@@ -70,7 +70,6 @@ const gateway: Gateway = {
   isActive: true,
   createdAt: '2026-10-26T00:00:00Z',
   lastSeenAt: '2026-10-26T00:00:00Z',
-  modelPolicy: { mode: 'all' },
   connectionConfig: {
     baseUrl: 'https://gateway.example.com/v1',
     authScheme: 'x-api-key',
@@ -294,10 +293,6 @@ async function chooseSelect(index: number, optionText: string) {
   await click(option!)
 }
 
-async function choosePolicy(mode: 'all' | 'selected') {
-  await click(modalBody().querySelector(`input[type="radio"][value="${mode}"]`))
-}
-
 /** The UA field's own dropdown, located next to the gateway-user-agent input. */
 function uaCombobox(): HTMLElement {
   const uaInput = input('#gateway-user-agent', modalBody())
@@ -368,7 +363,7 @@ it('toggles a gateway and copies/reveals its local key', async () => {
   await renderPage()
   mocks.update.mockResolvedValue({ ...gateway, isActive: false })
 
-  const toggle = container.querySelector('button[role="switch"]')
+  const toggle = container.querySelector('button[role="switch"][aria-label="gateway.enabled"]')
   await click(toggle)
   expect(mocks.update).toHaveBeenCalledWith(gateway.sessionToken, { isActive: false })
 
@@ -429,7 +424,6 @@ it('restores the provider default address and saves null for it', async () => {
     name: 'Work',
     providerId: 'provider-1',
     apiKeyId: 'key-1',
-    modelPolicy: { mode: 'all' },
     connectionConfig: {
       baseUrl: null,
       authScheme: 'x-api-key',
@@ -450,7 +444,6 @@ it('keeps the stored overrides when only the name changes', async () => {
     name: 'Renamed',
     providerId: 'provider-1',
     apiKeyId: 'key-1',
-    modelPolicy: { mode: 'all' },
     connectionConfig: {
       baseUrl: 'https://gateway.example.com/v1',
       authScheme: 'x-api-key',
@@ -471,7 +464,6 @@ it('keeps the stored overrides when the bound provider and key change', async ()
     name: 'Work',
     providerId: 'provider-2',
     apiKeyId: 'key-2',
-    modelPolicy: { mode: 'all' },
     connectionConfig: {
       baseUrl: 'https://gateway.example.com/v1',
       authScheme: 'x-api-key',
@@ -630,7 +622,7 @@ it('keeps validation inline, never echoes secrets and does not save an invalid d
   expect(modalBody().textContent).not.toContain('sk-real')
 })
 
-it('creates without a model query and defaults to all models and Bearer', async () => {
+it('creates without a model query, defaults to Bearer, and always follows the provider catalog', async () => {
   mocks.list.mockResolvedValue([])
   await renderPage()
   await openCreate()
@@ -638,49 +630,25 @@ it('creates without a model query and defaults to all models and Bearer', async 
   await chooseSelect(0, 'DeepSeek')
   await chooseSelect(1, 'main')
   expect(document.body.querySelector('.ant-collapse-content-active')).toBeNull()
+  expect(modalBody().querySelector('input[type="radio"]')).toBeNull()
+  expect(modalBody().querySelector('#gateway-model-ids')).toBeNull()
+  expect(modalBody().textContent).toContain('gateway.exposeAllHint')
+  expect(modalBody().textContent).toContain('gateway.manageCatalog')
   expect(modalBody().textContent).not.toContain('gateway.fetchModels')
   expect(modalBody().textContent).not.toContain('gateway.modelPreview')
   await saveModal()
-  expect(mocks.create).toHaveBeenCalledWith(
-    'Default',
-    'provider-1',
-    'key-1',
-    {
-      baseUrl: null,
-      authScheme: 'bearer',
-      userAgent: null,
-    },
-    { mode: 'all' },
-  )
+  expect(mocks.create).toHaveBeenCalledWith('Default', 'provider-1', 'key-1', {
+    baseUrl: null,
+    authScheme: 'bearer',
+    userAgent: null,
+  })
   expect(mocks.modelCatalogPreview).not.toHaveBeenCalled()
 })
 
-it('requires a nonempty selected set and saves IDs from the provider catalog', async () => {
-  await renderPage()
-  await openEdit()
-  await choosePolicy('selected')
-  await saveModal()
-  expect(modalBody().textContent).toContain('gateway.selectModelsRequired')
-  expect(mocks.update).not.toHaveBeenCalled()
-  await chooseSelect(2, 'DeepSeek Chat')
-  await saveModal()
-  expect(mocks.update).toHaveBeenCalledWith(
-    gateway.sessionToken,
-    expect.objectContaining({
-      modelPolicy: { mode: 'selected', modelIds: ['deepseek-chat'] },
-    }),
-  )
-  expect(mocks.modelCatalogPreview).not.toHaveBeenCalled()
-})
-
-it('retains missing selected IDs and restrictions through binding changes and catalog failures', async () => {
-  mocks.list.mockResolvedValue([
-    { ...gateway, modelPolicy: { mode: 'selected', modelIds: ['legacy-model'] } },
-  ])
+it('surfaces provider model catalog load errors inline with retry and still allows saving', async () => {
   mocks.getModelCatalog.mockRejectedValue('offline')
   await renderPage()
   await openEdit()
-  expect(modalBody().textContent).toContain('legacy-model')
   expect(modalBody().textContent).toContain('gateway.catalogLoadFailed')
   await chooseSelect(0, 'Relay')
   await chooseSelect(1, 'relay-main')
@@ -690,25 +658,8 @@ it('retains missing selected IDs and restrictions through binding changes and ca
     expect.objectContaining({
       providerId: 'provider-2',
       apiKeyId: 'key-2',
-      modelPolicy: { mode: 'selected', modelIds: ['legacy-model'] },
     }),
   )
-})
-
-it('changing a restriction requires explicit save and cancel keeps the stored policy', async () => {
-  mocks.list.mockResolvedValue([
-    { ...gateway, modelPolicy: { mode: 'selected', modelIds: ['legacy-model'] } },
-  ])
-  await renderPage()
-  await openEdit()
-  await choosePolicy('all')
-  await click(buttonByText('common.cancel', modal()))
-  expect(mocks.update).not.toHaveBeenCalled()
-  await openEdit()
-  expect(modalBody().textContent).toContain('legacy-model')
-  expect(
-    modalBody().querySelector<HTMLInputElement>('input[type="radio"][value="selected"]')?.checked,
-  ).toBe(true)
 })
 
 it('keeps an in-flight save attached to its editor until it finishes', async () => {
@@ -744,9 +695,7 @@ it('locks draft fields while saving and restores them after a failure', async ()
 
   expect(input('#gateway-name', modalBody())!.disabled).toBe(true)
   expect(input('#gateway-base-url', modalBody())!.disabled).toBe(true)
-  expect(
-    modalBody().querySelector<HTMLInputElement>('input[type="radio"][value="selected"]')!.disabled,
-  ).toBe(true)
+  expect(buttonByText('gateway.manageCatalog', modalBody()).disabled).toBe(true)
   expect(
     modalBody()
       .querySelector<HTMLElement>('.ant-select')!
@@ -907,39 +856,4 @@ it('keeps the page usable when LAN discovery fails and retries inline', async ()
   await click(buttonByText('common.retry'))
   expect(mocks.lanAddresses).toHaveBeenCalledTimes(2)
   expect(container.textContent).toContain('http://192.168.1.10:22345')
-})
-
-it('shows binding review guidance only after the saved binding changes', async () => {
-  mocks.list.mockResolvedValue([
-    { ...gateway, modelPolicy: { mode: 'selected', modelIds: ['legacy-model'] } },
-  ])
-  await renderPage()
-  await openEdit()
-  expect(modalBody().textContent).not.toContain('gateway.bindingPolicyHint')
-  await chooseSelect(0, 'Relay')
-  await chooseSelect(1, 'relay-main')
-  expect(modalBody().textContent).toContain('gateway.bindingPolicyHint')
-  expect(modalBody().textContent).toContain('legacy-model')
-  await chooseSelect(0, 'DeepSeek')
-  await chooseSelect(1, 'main')
-  expect(modalBody().textContent).not.toContain('gateway.bindingPolicyHint')
-})
-
-it('keeps the selected draft when switching exposure choices before saving', async () => {
-  mocks.list.mockResolvedValue([
-    { ...gateway, modelPolicy: { mode: 'selected', modelIds: ['legacy-model'] } },
-  ])
-  await renderPage()
-  await openEdit()
-  await choosePolicy('all')
-  expect(modalBody().querySelector('#gateway-model-ids')).toBeNull()
-  await choosePolicy('selected')
-  expect(modalBody().textContent).toContain('legacy-model')
-  await saveModal()
-  expect(mocks.update).toHaveBeenCalledWith(
-    gateway.sessionToken,
-    expect.objectContaining({
-      modelPolicy: { mode: 'selected', modelIds: ['legacy-model'] },
-    }),
-  )
 })

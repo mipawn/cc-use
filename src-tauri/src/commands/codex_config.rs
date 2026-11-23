@@ -1052,6 +1052,8 @@ pub async fn codex_config_apply_with_profile_inner(
                 id,
                 display_name,
                 supports1m: false,
+                context_window: None,
+                max_output_tokens: None,
             })
         })
         .collect::<Vec<_>>();
@@ -1059,6 +1061,11 @@ pub async fn codex_config_apply_with_profile_inner(
         .iter()
         .map(|model| model.id.clone())
         .collect::<Vec<_>>();
+    if model_ids.is_empty() {
+        return Err(
+            "该供应商尚未保存模型清单，请先在供应商「模型清单」中维护模型后再应用".to_string(),
+        );
+    }
     let mapping_str = profile
         .as_ref()
         .map(|p| p.model_config.as_deref())
@@ -1069,11 +1076,11 @@ pub async fn codex_config_apply_with_profile_inner(
         .as_ref()
         .is_some_and(|model| !model_ids.contains(model))
     {
-        return Err("默认模型不在有效目录中，请在模型配置中重新选择".to_string());
+        return Err("默认模型不在供应商模型清单中，请在方案配置中重新选择".to_string());
     }
     let codex_model = default_model
         .or_else(|| select_default_codex_model(&model_ids))
-        .ok_or("有效模型目录为空")?;
+        .ok_or("该供应商尚未保存模型清单，请先在供应商「模型清单」中维护模型后再应用")?;
     let catalog = build_configured_codex_catalog(&provider.name, &configured_models)?;
     let catalog = preserve_provider_catalog_capabilities(&catalog, &effective)?;
 

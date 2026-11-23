@@ -5,14 +5,14 @@ const GATEWAY_SELECT: &str = "SELECT ps.session_token, COALESCE(ps.display_name,
         ps.provider_id, COALESCE(p.name, ''),
         ps.api_key_id, k.alias,
         ps.is_active, ps.created_at, ps.last_seen_at,
-        ps.gateway_connection_config, ps.gateway_model_policy
+        ps.gateway_connection_config
  FROM proxy_sessions ps
  LEFT JOIN providers p ON p.id = ps.provider_id
  LEFT JOIN api_keys k ON k.id = ps.api_key_id";
 
 const PROXY_SESSION_SELECT: &str = "SELECT session_token, provider_id, api_key_id, project_id,
         created_at, cli_type, session_kind, last_seen_at, expires_at, revoked_at,
-        revoked_reason, display_name, is_active, gateway_connection_config, gateway_model_policy,
+        revoked_reason, display_name, is_active, gateway_connection_config,
         client_profile_id
  FROM proxy_sessions";
 
@@ -57,10 +57,6 @@ fn row_to_gateway(row: &rusqlite::Row) -> Result<Gateway, rusqlite::Error> {
         created_at: row.get(7)?,
         last_seen_at: row.get(8)?,
         connection_config: read_gateway_connection_config(row.get(9)?)?,
-        model_policy: crate::shared_runtime::gateway_model_policy::from_json(
-            row.get::<_, Option<String>>(10)?.as_deref(),
-        )
-        .map_err(connection_config_error)?,
     })
 }
 
@@ -69,7 +65,7 @@ fn row_to_proxy_session(row: &rusqlite::Row) -> Result<ProxySession, rusqlite::E
         session_token: row.get(0)?,
         provider_id: row.get(1)?,
         api_key_id: row.get(2)?,
-        client_profile_id: row.get(15)?,
+        client_profile_id: row.get(14)?,
         project_id: row.get(3)?,
         created_at: row.get(4)?,
         cli_type: row.get(5)?,
@@ -81,11 +77,6 @@ fn row_to_proxy_session(row: &rusqlite::Row) -> Result<ProxySession, rusqlite::E
         display_name: row.get(11)?,
         is_active: row.get::<_, i32>(12)? != 0,
         connection_config: read_connection_config(row.get(13)?)?,
-        model_policy: row
-            .get::<_, Option<String>>(14)?
-            .map(|raw| crate::shared_runtime::gateway_model_policy::from_json(Some(&raw)))
-            .transpose()
-            .map_err(connection_config_error)?,
     })
 }
 
@@ -95,9 +86,8 @@ impl Database {
             "INSERT OR REPLACE INTO proxy_sessions (
                 session_token, provider_id, api_key_id, project_id, created_at, cli_type,
                 session_kind, last_seen_at, expires_at, revoked_at, revoked_reason,
-                display_name, is_active, gateway_connection_config, gateway_model_policy,
-                client_profile_id
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                display_name, is_active, gateway_connection_config, client_profile_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 session.session_token,
                 session.provider_id,
@@ -118,16 +108,6 @@ impl Database {
                     .map(crate::shared_runtime::gateway_connection::config_to_json)
                     .transpose()
                     .map_err(connection_config_error)?,
-                if session.session_kind == "gateway" {
-                    session
-                        .model_policy
-                        .as_ref()
-                        .map(crate::shared_runtime::gateway_model_policy::to_json)
-                        .transpose()
-                        .map_err(connection_config_error)?
-                } else {
-                    None
-                },
                 session.client_profile_id,
             ],
         )?;
@@ -343,45 +323,20 @@ impl Database {
         is_active: Option<bool>,
         connection_config: Option<&str>,
     ) -> Result<bool, rusqlite::Error> {
-        self.gateway_update_with_policy(
-            session_token,
-            display_name,
-            provider_id,
-            api_key_id,
-            is_active,
-            connection_config,
-            None,
-        )
-    }
-
-    // Mirrors the atomic gateway update fields; None consistently means preserve.
-    #[allow(clippy::too_many_arguments)]
-    pub fn gateway_update_with_policy(
-        &self,
-        session_token: &str,
-        display_name: Option<&str>,
-        provider_id: Option<&str>,
-        api_key_id: Option<&str>,
-        is_active: Option<bool>,
-        connection_config: Option<&str>,
-        model_policy: Option<&str>,
-    ) -> Result<bool, rusqlite::Error> {
         let changed = self.conn.execute(
             "UPDATE proxy_sessions
              SET display_name = COALESCE(?1, display_name),
                  provider_id = COALESCE(?2, provider_id),
                  api_key_id = COALESCE(?3, api_key_id),
                  is_active = COALESCE(?4, is_active),
-                 gateway_connection_config = COALESCE(?5, gateway_connection_config),
-                 gateway_model_policy = COALESCE(?6, gateway_model_policy)
-             WHERE session_token = ?7 AND session_kind = 'gateway'",
+                 gateway_connection_config = COALESCE(?5, gateway_connection_config)
+             WHERE session_token = ?6 AND session_kind = 'gateway'",
             rusqlite::params![
                 display_name,
                 provider_id,
                 api_key_id,
                 is_active.map(|value| value as i32),
                 connection_config,
-                model_policy,
                 session_token,
             ],
         )?;

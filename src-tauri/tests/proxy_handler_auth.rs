@@ -45,7 +45,6 @@ fn create_session_state(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     };
     configure_session(&mut session);
     db.proxy_session_create(&session)

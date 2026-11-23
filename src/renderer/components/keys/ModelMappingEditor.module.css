@@ -209,6 +209,25 @@
   color: var(--ant-color-text-tertiary);
   white-space: nowrap;
 }
+.capacityBadge {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--ant-color-text-secondary);
+  background: var(--ant-color-fill-tertiary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.inlineEditFields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.capacityInputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .warning {
   font-size: 11px;
   color: var(--ant-color-warning);

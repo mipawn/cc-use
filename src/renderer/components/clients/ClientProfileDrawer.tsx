@@ -21,7 +21,6 @@ import { useTranslation } from 'react-i18next'
 import type {
   ApiKey,
   ClientKind,
-  ClientModel,
   ClientProfile,
   ClientProfileConnectionConfig,
   CreateClientProfileInput,
@@ -35,12 +34,14 @@ import { useAppMessage } from '../../hooks/useAppMessage'
 import { useProviderModelCatalogStore } from '../../stores/providerModelCatalogStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import {
+  CLAUDE_CODE_TIER_ENV_KEYS,
   CLIENT_ROLES,
   EMPTY_MODEL_MAPPING,
   ROLE_ROUTE_IDS,
   parseModelMapping,
   serializeModelMapping,
   type ClientModelConfig,
+  type ClientRole,
 } from '../../utils/modelMapping'
 import ProviderModelModal from '../providers/ProviderModelModal'
 import UserAgentField from '../UserAgentField'
@@ -48,6 +49,12 @@ import styles from './ClientProfileDrawer.module.css'
 
 const { Text } = Typography
 const { TextArea } = Input
+
+const CLAUDE_TIER_ORDER: ClientRole[] = ['opus', 'sonnet', 'haiku', 'fable']
+const STRUCTURED_CLAUDE_ENV_KEYS = new Set<string>([
+  'ANTHROPIC_MODEL',
+  ...Object.values(CLAUDE_CODE_TIER_ENV_KEYS),
+])
 
 function isValidOptionalHttpUrl(raw: string): boolean {
   const trimmed = raw.trim()
@@ -121,11 +128,10 @@ export default function ClientProfileDrawer({
   const [apiKeyId, setApiKeyId] = useState('')
   const [isDefault, setIsDefault] = useState(false)
 
-  // Model mapping state (scoped to this clientKind only)
-  const [catalogMode, setCatalogMode] = useState<'provider' | 'custom'>('provider')
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([])
+  // Model mapping state (scoped to this clientKind only; visible models always
+  // follow the provider's saved model catalog)
   const [defaultModel, setDefaultModel] = useState('')
-  const [roles, setRoles] = useState<Record<(typeof CLIENT_ROLES)[number], string>>({
+  const [roles, setRoles] = useState<Record<ClientRole, string>>({
     sonnet: '',
     opus: '',
     haiku: '',
@@ -138,6 +144,12 @@ export default function ClientProfileDrawer({
 
   // Claude Code launch env state
   const [claudePrimaryModel, setClaudePrimaryModel] = useState('')
+  const [claudeTiers, setClaudeTiers] = useState<Record<ClientRole, string>>({
+    opus: '',
+    sonnet: '',
+    haiku: '',
+    fable: '',
+  })
   const [extraEnvText, setExtraEnvText] = useState('')
 
   // Connection override state
@@ -166,8 +178,6 @@ export default function ClientProfileDrawer({
 
       const parsed = parseModelMapping(profile.modelConfig)
       const cfg = parsed.clients[clientKind]
-      setCatalogMode(cfg.catalogMode === 'custom' ? 'custom' : 'provider')
-      setSelectedModelIds(cfg.models.map((item) => item.id))
       setDefaultModel(cfg.defaultModel)
       setRoles({ ...cfg.roles })
       setForwardMode(cfg.forwardMode === 'fixed' ? 'fixed' : 'follow')
@@ -177,9 +187,27 @@ export default function ClientProfileDrawer({
 
       const env = profile.launchEnv ?? {}
       setClaudePrimaryModel(typeof env.ANTHROPIC_MODEL === 'string' ? env.ANTHROPIC_MODEL : '')
+      setClaudeTiers({
+        opus:
+          typeof env[CLAUDE_CODE_TIER_ENV_KEYS.opus] === 'string'
+            ? String(env[CLAUDE_CODE_TIER_ENV_KEYS.opus])
+            : '',
+        sonnet:
+          typeof env[CLAUDE_CODE_TIER_ENV_KEYS.sonnet] === 'string'
+            ? String(env[CLAUDE_CODE_TIER_ENV_KEYS.sonnet])
+            : '',
+        haiku:
+          typeof env[CLAUDE_CODE_TIER_ENV_KEYS.haiku] === 'string'
+            ? String(env[CLAUDE_CODE_TIER_ENV_KEYS.haiku])
+            : '',
+        fable:
+          typeof env[CLAUDE_CODE_TIER_ENV_KEYS.fable] === 'string'
+            ? String(env[CLAUDE_CODE_TIER_ENV_KEYS.fable])
+            : '',
+      })
       const extras: Record<string, string> = {}
       for (const [k, v] of Object.entries(env)) {
-        if (k !== 'ANTHROPIC_MODEL' && v !== undefined && v !== null) {
+        if (!STRUCTURED_CLAUDE_ENV_KEYS.has(k) && v !== undefined && v !== null) {
           extras[k] = typeof v === 'string' ? v : String(v)
         }
       }
@@ -196,8 +224,6 @@ export default function ClientProfileDrawer({
       setProviderId(firstProvider?.id ?? '')
       setApiKeyId(firstKey?.id ?? '')
       setIsDefault(false)
-      setCatalogMode('provider')
-      setSelectedModelIds([])
       setDefaultModel('')
       setRoles({ sonnet: '', opus: '', haiku: '', fable: '' })
       setForwardMode('follow')
@@ -205,6 +231,7 @@ export default function ClientProfileDrawer({
       setAutoModeEnabled(false)
       setAutoModeModel('')
       setClaudePrimaryModel('')
+      setClaudeTiers({ opus: '', sonnet: '', haiku: '', fable: '' })
       setExtraEnvText('')
       setBaseUrl('')
       setAuthScheme('bearer')
@@ -228,27 +255,6 @@ export default function ClientProfileDrawer({
     [providerId, catalogs],
   )
 
-  const visibleModelOptions = useMemo(() => {
-    const byId = new Map<string, ClientModel>()
-    if (catalogMode === 'custom') {
-      for (const id of selectedModelIds) {
-        const match = providerCatalogModels.find((m) => m.id === id)
-        byId.set(id, match ?? { id, displayName: id })
-      }
-    } else {
-      for (const m of providerCatalogModels) {
-        byId.set(m.id, m)
-      }
-    }
-    return [...byId.values()].map((model) => ({
-      value: model.id,
-      label:
-        model.displayName && model.displayName !== model.id
-          ? `${model.displayName} (${model.id})`
-          : model.id,
-    }))
-  }, [catalogMode, selectedModelIds, providerCatalogModels])
-
   const catalogAutocompleteOptions = useMemo(
     () =>
       providerCatalogModels.map((model) => ({
@@ -258,6 +264,20 @@ export default function ClientProfileDrawer({
             ? `${model.displayName} (${model.id})`
             : model.id,
       })),
+    [providerCatalogModels],
+  )
+
+  // Claude Code accepts `[1m]` on models marked `supports1m` in the provider catalog.
+  const claudeModelOptions = useMemo(
+    () =>
+      providerCatalogModels.map((model) => {
+        const value = model.supports1m ? `${model.id}[1m]` : model.id
+        const name = model.displayName && model.displayName !== model.id ? model.displayName : null
+        const label = name
+          ? `${name}${model.supports1m ? ' · 1M' : ''} (${value})`
+          : value
+        return { value, label }
+      }),
     [providerCatalogModels],
   )
 
@@ -271,7 +291,6 @@ export default function ClientProfileDrawer({
 
   const advancedCustomCount = useMemo(() => {
     let count = 0
-    if (clientKind !== 'grok' && catalogMode === 'custom') count += 1
     if (clientKind === 'claude_code') {
       if (extraEnvText.trim()) count += 1
       if (autoModeEnabled) count += 1
@@ -279,16 +298,7 @@ export default function ClientProfileDrawer({
     if (forwardMode !== 'follow') count += 1
     if (baseUrl.trim() || userAgent.trim() || authScheme !== 'bearer') count += 1
     return count
-  }, [
-    clientKind,
-    catalogMode,
-    extraEnvText,
-    autoModeEnabled,
-    forwardMode,
-    baseUrl,
-    userAgent,
-    authScheme,
-  ])
+  }, [clientKind, extraEnvText, autoModeEnabled, forwardMode, baseUrl, userAgent, authScheme])
 
   const handleProviderChange = (nextProviderId: string) => {
     setProviderId(nextProviderId)
@@ -324,11 +334,6 @@ export default function ClientProfileDrawer({
       setErrorText(t('gateway.invalidUserAgent'))
       return
     }
-    if (clientKind !== 'grok' && catalogMode === 'custom' && selectedModelIds.length === 0) {
-      setActiveTab('advanced')
-      setErrorText(t('gateway.selectModelsRequired'))
-      return
-    }
     if (forwardMode === 'fixed' && !upstreamModel.trim()) {
       setActiveTab('advanced')
       setErrorText(t('profiles.upstreamFixedPlaceholder'))
@@ -344,22 +349,27 @@ export default function ClientProfileDrawer({
         return
       }
       const merged: Record<string, string> = { ...parsedExtras }
-      if (claudePrimaryModel.trim()) merged.ANTHROPIC_MODEL = claudePrimaryModel.trim()
+      if (claudePrimaryModel.trim()) {
+        merged.ANTHROPIC_MODEL = claudePrimaryModel.trim()
+      } else {
+        delete merged.ANTHROPIC_MODEL
+      }
+      for (const tier of CLAUDE_TIER_ORDER) {
+        const envKey = CLAUDE_CODE_TIER_ENV_KEYS[tier]
+        const value = claudeTiers[tier].trim()
+        if (value) {
+          merged[envKey] = value
+        } else {
+          delete merged[envKey]
+        }
+      }
       launchEnv = Object.keys(merged).length > 0 ? merged : null
     }
 
-    const customModels: ClientModel[] = selectedModelIds
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => {
-        const match = providerCatalogModels.find((m) => m.id === id)
-        return match ?? { id, displayName: id }
-      })
-
     const clientCfg: ClientModelConfig = {
       ...EMPTY_MODEL_MAPPING.clients[clientKind],
-      catalogMode: clientKind === 'grok' ? 'provider' : catalogMode,
-      models: catalogMode === 'custom' ? customModels : [],
+      catalogMode: 'provider',
+      models: [],
       defaultModel: defaultModel.trim(),
       roles:
         clientKind === 'claude_desktop'
@@ -461,7 +471,7 @@ export default function ClientProfileDrawer({
     clientKind === 'claude_code'
       ? claudePrimaryModel.trim() || globalClaudeModel || 'claude-sonnet-5'
       : clientKind === 'codex'
-        ? defaultModel.trim() || visibleModelOptions[0]?.value || 'gpt-5'
+        ? defaultModel.trim() || catalogAutocompleteOptions[0]?.value || 'gpt-5'
         : clientKind === 'grok'
           ? defaultModel.trim() || 'grok-code-fast-1'
           : roles.sonnet.trim() || ROLE_ROUTE_IDS.sonnet
@@ -569,21 +579,97 @@ export default function ClientProfileDrawer({
                       </div>
                     </div>
 
+                    {selectedProvider && (
+                      <section className={styles.section}>
+                        <div className={styles.sectionHeader}>
+                          <span className={styles.sectionTitle}>
+                            {t('profiles.followCatalogCount', {
+                              count: providerCatalogModels.length,
+                            })}
+                          </span>
+                          <Button
+                            size='small'
+                            icon={<AppstoreOutlined />}
+                            onClick={() => setCatalogModalOpen(true)}
+                          >
+                            {t('profiles.manageCatalog')}
+                          </Button>
+                        </div>
+                        {providerCatalogModels.length === 0 && (
+                          <Text type='secondary'>{t('profiles.catalogEmptyHint')}</Text>
+                        )}
+                      </section>
+                    )}
+
                     {clientKind === 'claude_code' && (
-                      <div className={styles.field}>
-                        <span className={styles.fieldLabel}>{t('profiles.claudeDefaultModel')}</span>
-                        <AutoComplete
-                          value={claudePrimaryModel}
-                          options={visibleModelOptions}
-                          placeholder={
-                            globalClaudeModel
-                              ? t('profiles.claudeDefaultModelInherit', { model: globalClaudeModel })
-                              : t('profiles.defaultModelPlaceholder')
-                          }
-                          allowClear
-                          onChange={setClaudePrimaryModel}
-                        />
-                      </div>
+                      <>
+                        <div className={styles.field}>
+                          <span className={styles.fieldLabel}>{t('profiles.claudeDefaultModel')}</span>
+                          <AutoComplete
+                            value={claudePrimaryModel}
+                            options={claudeModelOptions}
+                            placeholder={
+                              globalClaudeModel
+                                ? t('profiles.claudeDefaultModelInherit', { model: globalClaudeModel })
+                                : t('profiles.defaultModelPlaceholder')
+                            }
+                            allowClear
+                            onChange={setClaudePrimaryModel}
+                          />
+                        </div>
+
+                        <section className={styles.section}>
+                          <div className={styles.sectionHeader}>
+                            <span className={styles.sectionTitle}>{t('profiles.claudeTiers')}</span>
+                            <Space size={4}>
+                              <Button
+                                size='small'
+                                type='link'
+                                disabled={!claudePrimaryModel.trim()}
+                                onClick={() => {
+                                  const target = claudePrimaryModel.trim()
+                                  if (!target) return
+                                  setClaudeTiers({
+                                    opus: target,
+                                    sonnet: target,
+                                    haiku: target,
+                                    fable: target,
+                                  })
+                                }}
+                              >
+                                {t('profiles.claudeTiersSyncAll')}
+                              </Button>
+                              <Button
+                                size='small'
+                                type='link'
+                                disabled={CLAUDE_TIER_ORDER.every((tier) => !claudeTiers[tier].trim())}
+                                onClick={() =>
+                                  setClaudeTiers({ opus: '', sonnet: '', haiku: '', fable: '' })
+                                }
+                              >
+                                {t('profiles.claudeTiersClear')}
+                              </Button>
+                            </Space>
+                          </div>
+                          <Text type='secondary'>{t('profiles.claudeTiersHint')}</Text>
+                          <div className={styles.twoCol}>
+                            {CLAUDE_TIER_ORDER.map((tier) => (
+                              <div key={tier} className={styles.field}>
+                                <span className={styles.fieldLabel}>{tier.toUpperCase()}</span>
+                                <AutoComplete
+                                  value={claudeTiers[tier]}
+                                  options={claudeModelOptions}
+                                  allowClear
+                                  placeholder={t('profiles.defaultModelPlaceholder')}
+                                  onChange={(val) =>
+                                    setClaudeTiers((prev) => ({ ...prev, [tier]: val }))
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      </>
                     )}
 
                     {clientKind === 'codex' && (
@@ -591,7 +677,7 @@ export default function ClientProfileDrawer({
                         <span className={styles.fieldLabel}>{t('profiles.codexDefaultModel')}</span>
                         <AutoComplete
                           value={defaultModel}
-                          options={visibleModelOptions}
+                          options={catalogAutocompleteOptions}
                           allowClear
                           placeholder={t('profiles.defaultModelPlaceholder')}
                           onChange={setDefaultModel}
@@ -623,7 +709,7 @@ export default function ClientProfileDrawer({
                               </span>
                               <AutoComplete
                                 value={roles[role]}
-                                options={visibleModelOptions}
+                                options={catalogAutocompleteOptions}
                                 allowClear
                                 placeholder={t('profiles.defaultModelPlaceholder')}
                                 onChange={(val) => setRoles((prev) => ({ ...prev, [role]: val }))}
@@ -664,46 +750,6 @@ export default function ClientProfileDrawer({
                 ),
                 children: (
                   <div className={styles.stack}>
-                    {/* Visible Models */}
-                    {clientKind !== 'grok' && (
-                      <section className={styles.section}>
-                        <div className={styles.sectionHeader}>
-                          <span className={styles.sectionTitle}>{t('profiles.stepModels')}</span>
-                          {selectedProvider && (
-                            <Button
-                              size='small'
-                              icon={<AppstoreOutlined />}
-                              onClick={() => setCatalogModalOpen(true)}
-                            >
-                              {t('profiles.manageCatalog')}
-                            </Button>
-                          )}
-                        </div>
-                        <Radio.Group
-                          value={catalogMode}
-                          onChange={(e) => setCatalogMode(e.target.value)}
-                          options={[
-                            {
-                              value: 'provider',
-                              label: t('profiles.followCatalogCount', {
-                                count: providerCatalogModels.length,
-                              }),
-                            },
-                            { value: 'custom', label: t('profiles.customCatalog') },
-                          ]}
-                        />
-                        {catalogMode === 'custom' && (
-                          <Select
-                            mode='tags'
-                            value={selectedModelIds}
-                            placeholder={t('gateway.selectedModels')}
-                            options={catalogAutocompleteOptions}
-                            onChange={(values) => setSelectedModelIds(values)}
-                          />
-                        )}
-                      </section>
-                    )}
-
                     {/* Claude Code extra env JSON */}
                     {clientKind === 'claude_code' && (
                       <section className={styles.section}>

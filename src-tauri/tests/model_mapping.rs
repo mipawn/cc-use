@@ -179,12 +179,22 @@ fn setup_provider_with_mapping(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
 
     let state = build_proxy_state(db);
     (state, session_token)
+}
+
+fn save_provider_catalog_models(
+    state: &Arc<cc_use_lib::proxy::ProxyState>,
+    models: &[cc_use_lib::shared_runtime::model_mapping::ClientModel],
+) {
+    let db = state.db.lock().unwrap();
+    let provider = db.provider_list().unwrap().into_iter().next().unwrap();
+    let current = db.provider_model_catalog_get(&provider.id).unwrap();
+    db.provider_model_catalog_save(&provider.id, models, current.revision)
+        .unwrap();
 }
 
 fn extract_model(body: &str) -> String {
@@ -338,6 +348,16 @@ async fn model_mapping_null_no_rewrite() {
 async fn claude_desktop_model_list_is_forwarded_from_current_provider() {
     let mock = start_mock_upstream().await;
     let (state, session_token) = setup_provider_with_mapping(mock.port, "claude_desktop", None);
+    save_provider_catalog_models(
+        &state,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "company-opus-4-6".to_string(),
+            display_name: "Company Opus 4.6".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+    );
 
     let request = Request::builder()
         .method("GET")
@@ -805,8 +825,18 @@ async fn catalog_override_does_not_require_upstream_and_still_requires_session_a
 #[tokio::test]
 async fn v2_codex_catalog_does_not_apply_its_upstream_alias_to_list_ids() {
     let mock = start_mock_upstream().await;
-    let mapping = r#"{"version":2,"clients":{"codex":{"models":[{"id":"visible-codex","displayName":"My Codex"}],"upstream":{"model":"actual-codex"}}}}"#;
+    let mapping = r#"{"version":2,"clients":{"codex":{"upstream":{"model":"actual-codex"}}}}"#;
     let (state, token) = setup_provider_with_mapping(mock.port, "codex", Some(mapping));
+    save_provider_catalog_models(
+        &state,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "visible-codex".to_string(),
+            display_name: "My Codex".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+    );
     let request = Request::builder()
         .uri("/v1/models")
         .header("authorization", format!("Bearer {token}"))
@@ -821,6 +851,8 @@ async fn v2_codex_catalog_does_not_apply_its_upstream_alias_to_list_ids() {
     let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(catalog["object"], "list");
     assert_eq!(catalog["data"][0]["id"], "visible-codex");
+    assert_eq!(catalog["data"][0]["display_name"], "My Codex");
+    assert_eq!(catalog["data"][0]["name"], "My Codex");
     let request = Request::builder()
         .method("POST")
         .uri("/v1/responses")
@@ -841,6 +873,16 @@ async fn v2_codex_catalog_does_not_apply_its_upstream_alias_to_list_ids() {
 async fn claude_discovery_namespaces_ids_and_requests_decode_back() {
     let mock = start_mock_upstream().await;
     let (state, token) = setup_provider_with_mapping(mock.port, "claude", None);
+    save_provider_catalog_models(
+        &state,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "company-opus-4-6".to_string(),
+            display_name: "Company Opus 4.6".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+    );
 
     let request = Request::builder()
         .uri("/v1/models")
@@ -855,6 +897,9 @@ async fn claude_discovery_namespaces_ids_and_requests_decode_back() {
         .unwrap();
     let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(catalog["data"][0]["id"], "claude-company-opus-4-6");
+    // display_name must never carry the synthetic claude- prefix so Claude Code's
+    // `/model` picker shows the clean model name.
+    assert_eq!(catalog["data"][0]["display_name"], "Company Opus 4.6");
 
     let request = Request::builder()
         .method("POST")
@@ -876,8 +921,18 @@ async fn claude_discovery_namespaces_ids_and_requests_decode_back() {
 #[tokio::test]
 async fn custom_catalog_exposes_a_1m_entry_only_and_decodes_it() {
     let mock = start_mock_upstream().await;
-    let mapping = r#"{"version":2,"clients":{"claude_code":{"catalog":{"mode":"custom","models":[{"id":"deepseek-v4.1-flash","displayName":"V4 Flash","supports1m":true}]},"upstream":{"mode":"follow"}}}}"#;
+    let mapping = r#"{"version":2,"clients":{"claude_code":{"catalog":{"mode":"provider"},"upstream":{"mode":"follow"}}}}"#;
     let (state, token) = setup_provider_with_mapping(mock.port, "claude", Some(mapping));
+    save_provider_catalog_models(
+        &state,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "deepseek-v4.1-flash".to_string(),
+            display_name: "V4 Flash".to_string(),
+            supports1m: true,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+    );
 
     let request = Request::builder()
         .uri("/v1/models")
@@ -897,8 +952,9 @@ async fn custom_catalog_exposes_a_1m_entry_only_and_decodes_it() {
         .iter()
         .filter_map(|entry| entry["id"].as_str().map(str::to_string))
         .collect::<Vec<_>>();
-    // A 1M model is offered as the 1M entry only.
+    // A 1M model is offered as the 1M entry only with a clean display_name.
     assert_eq!(ids, vec!["claude-deepseek-v4.1-flash[1m]".to_string()]);
+    assert_eq!(catalog["data"][0]["display_name"], "V4 Flash · 1M");
 
     let request = Request::builder()
         .method("POST")
@@ -920,8 +976,18 @@ async fn custom_catalog_exposes_a_1m_entry_only_and_decodes_it() {
 #[tokio::test]
 async fn catalog_ids_win_over_family_forwarding() {
     let mock = start_mock_upstream().await;
-    let mapping = r#"{"version":2,"clients":{"claude_code":{"catalog":{"mode":"custom","models":[{"id":"claude-sonnet-4-5","displayName":"Relay Sonnet"}]},"upstream":{"mode":"family","sonnet":"claude-sonnet-4-6"}}}}"#;
+    let mapping = r#"{"version":2,"clients":{"claude_code":{"catalog":{"mode":"provider"},"upstream":{"mode":"family","sonnet":"claude-sonnet-4-6"}}}}"#;
     let (state, token) = setup_provider_with_mapping(mock.port, "claude", Some(mapping));
+    save_provider_catalog_models(
+        &state,
+        &[cc_use_lib::shared_runtime::model_mapping::ClientModel {
+            id: "claude-sonnet-4-5".to_string(),
+            display_name: "Relay Sonnet".to_string(),
+            supports1m: false,
+            context_window: None,
+            max_output_tokens: None,
+        }],
+    );
 
     let request = Request::builder()
         .uri("/v1/models")
@@ -944,6 +1010,204 @@ async fn catalog_ids_win_over_family_forwarding() {
     assert_eq!(
         extract_model(&mock.received_body.lock().unwrap()),
         "claude-sonnet-4-5"
+    );
+}
+
+#[tokio::test]
+async fn empty_provider_catalog_returns_empty_list_without_upstream_fallback_for_all_clients() {
+    let dead_port = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    for (kind, uri) in [
+        ("claude", "/v1/models"),
+        ("codex", "/v1/models"),
+        ("claude_desktop", "/claude-desktop/v1/models"),
+        ("grok", "/v1/models"),
+    ] {
+        let (state, token) = setup_provider_with_mapping(dead_port, kind, None);
+        let response = proxy_handler(
+            AxumState(state),
+            Request::builder()
+                .uri(uri)
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("{kind} should return 200 empty catalog without upstream"));
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["data"], serde_json::json!([]), "{kind}");
+    }
+}
+
+#[tokio::test]
+async fn claude_code_discovery_deduplicates_four_family_tier_models_and_keeps_clean_display_names()
+{
+    let mock = start_mock_upstream().await;
+    let (state, token) = setup_provider_with_mapping(mock.port, "claude", None);
+    save_provider_catalog_models(
+        &state,
+        &[
+            cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "deepseek-v4.1-flash".to_string(),
+                display_name: "DeepSeek V4.1 Flash".to_string(),
+                supports1m: true,
+                context_window: None,
+                max_output_tokens: None,
+            },
+            cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "hy4-flash-free".to_string(),
+                display_name: "Hy4 Flash Free".to_string(),
+                supports1m: false,
+                context_window: None,
+                max_output_tokens: None,
+            },
+            cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "glm-5.3".to_string(),
+                display_name: "GLM 5.3".to_string(),
+                supports1m: true,
+                context_window: None,
+                max_output_tokens: None,
+            },
+        ],
+    );
+    // Assign deepseek-v4.1-flash[1m] to Opus/Sonnet/Haiku and hy4-flash-free to Fable.
+    {
+        let db = state.db.lock().unwrap();
+        let provider = db.provider_list().unwrap().into_iter().next().unwrap();
+        let key = db
+            .api_key_list(&provider.id)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        db.conn
+            .execute(
+                "UPDATE api_keys SET config = ?1 WHERE id = ?2",
+                rusqlite::params![
+                    serde_json::json!({
+                        "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4.1-flash[1m]",
+                        "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4.1-flash[1m]",
+                        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4.1-flash[1m]",
+                        "ANTHROPIC_DEFAULT_FABLE_MODEL": "hy4-flash-free",
+                    })
+                    .to_string(),
+                    key.id
+                ],
+            )
+            .unwrap();
+    }
+
+    let response = proxy_handler(
+        AxumState(state.clone()),
+        Request::builder()
+            .uri("/v1/models")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let data = catalog["data"].as_array().unwrap();
+    // Only glm-5.3 remains — deepseek-v4.1-flash and hy4-flash-free are already
+    // covered by the four family tier env vars.
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["id"], "claude-glm-5.3[1m]");
+    assert_eq!(data[0]["display_name"], "GLM 5.3 · 1M");
+
+    // Picking claude-glm-5.3[1m] decodes cleanly back to glm-5.3.
+    proxy_handler(
+        AxumState(state),
+        Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"model":"claude-glm-5.3[1m]","messages":[]}"#,
+            ))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        extract_model(&mock.received_body.lock().unwrap()),
+        "glm-5.3"
+    );
+}
+
+#[tokio::test]
+async fn claude_desktop_role_slots_inherit_display_name_and_1m_from_provider_catalog() {
+    let dead_port = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let mapping = r#"{"version":2,"clients":{"claude_desktop":{"catalog":{"mode":"provider","roles":{"sonnet":"deepseek-v4.1-flash","fable":"glm-5.3"}},"upstream":{"mode":"follow"}}}}"#;
+    let (state, token) = setup_provider_with_mapping(dead_port, "claude_desktop", Some(mapping));
+    save_provider_catalog_models(
+        &state,
+        &[
+            cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "deepseek-v4.1-flash".to_string(),
+                display_name: "DeepSeek V4.1 Flash".to_string(),
+                supports1m: true,
+                context_window: None,
+                max_output_tokens: None,
+            },
+            cc_use_lib::shared_runtime::model_mapping::ClientModel {
+                id: "glm-5.3".to_string(),
+                display_name: "GLM 5.3".to_string(),
+                supports1m: false,
+                context_window: None,
+                max_output_tokens: None,
+            },
+        ],
+    );
+
+    let response = proxy_handler(
+        AxumState(state),
+        Request::builder()
+            .uri("/claude-desktop/v1/models")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let catalog: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let served = catalog["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["id"].as_str().unwrap().to_string(),
+                entry["display_name"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        served,
+        vec![
+            (
+                "claude-sonnet-5[1m]".to_string(),
+                "DeepSeek V4.1 Flash · 1M".to_string()
+            ),
+            ("claude-fable-5".to_string(), "GLM 5.3".to_string()),
+        ]
     );
 }
 

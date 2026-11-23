@@ -33,7 +33,6 @@ import type {
   ProxySession,
   Gateway,
   GatewayConnectionConfig,
-  GatewayModelPolicy,
   ProviderModelCatalog,
   ClientModel,
   IconDeleteResult,
@@ -291,7 +290,6 @@ export interface Api {
       providerId: string,
       apiKeyId: string,
       connectionConfig?: GatewayConnectionConfig,
-      modelPolicy?: GatewayModelPolicy,
     ) => Promise<Gateway>
     update: (
       sessionToken: string,
@@ -302,7 +300,6 @@ export interface Api {
         isActive?: boolean
         /// Omitted keeps the stored override; an object replaces it wholesale.
         connectionConfig?: GatewayConnectionConfig
-        modelPolicy?: GatewayModelPolicy
       },
     ) => Promise<Gateway>
     delete: (sessionToken: string) => Promise<boolean>

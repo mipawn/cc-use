@@ -95,6 +95,79 @@ pub struct ClientModel {
     pub display_name: String,
     #[serde(default)]
     pub supports1m: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
+}
+
+fn positive_u64(value: &Value) -> Option<u64> {
+    value.as_u64().filter(|n| *n > 0)
+}
+
+/// Extract positive integer context-window and max-output capacities from an
+/// upstream `/v1/models` entry, covering OpenCode Go (`limit.context` /
+/// `limit.output`), OpenAI/Anthropic/vLLM/OpenRouter (`context_window`,
+/// `context_length`, `max_output_tokens`, `max_tokens`,
+/// `top_provider.max_completion_tokens`), Gemini (`inputTokenLimit` /
+/// `outputTokenLimit`), and camelCase internal entries.
+pub fn extract_model_capacities(entry: &Value) -> (Option<u64>, Option<u64>) {
+    let context_window = [
+        &entry["contextWindow"],
+        &entry["context_window"],
+        &entry["context_length"],
+        &entry["max_input_tokens"],
+        &entry["limit"]["context"],
+        &entry["inputTokenLimit"],
+    ]
+    .into_iter()
+    .find_map(positive_u64);
+
+    let max_output_tokens = [
+        &entry["maxOutputTokens"],
+        &entry["max_output_tokens"],
+        &entry["maxTokens"],
+        &entry["max_tokens"],
+        &entry["limit"]["output"],
+        &entry["top_provider"]["max_completion_tokens"],
+        &entry["outputTokenLimit"],
+    ]
+    .into_iter()
+    .find_map(positive_u64);
+
+    (context_window, max_output_tokens)
+}
+
+/// Attach saved model capacities to a `/v1/models` response item in both
+/// flat (`context_window` / `max_output_tokens`) and nested (`limit`) shapes
+/// so DSH (`dsh-llm-pi-ai`), OpenCode, and OpenAI-compatible clients all read
+/// them automatically without guessing.
+pub fn attach_model_capacities(
+    item: &mut Value,
+    context_window: Option<u64>,
+    max_output_tokens: Option<u64>,
+) {
+    let context = context_window.filter(|v| *v > 0);
+    let output = max_output_tokens.filter(|v| *v > 0);
+    let Some(obj) = item.as_object_mut() else {
+        return;
+    };
+    if let Some(ctx) = context {
+        obj.insert("context_window".into(), json!(ctx));
+    }
+    if let Some(out) = output {
+        obj.insert("max_output_tokens".into(), json!(out));
+    }
+    if context.is_some() || output.is_some() {
+        let mut limit = serde_json::Map::new();
+        if let Some(ctx) = context {
+            limit.insert("context".into(), json!(ctx));
+        }
+        if let Some(out) = output {
+            limit.insert("output".into(), json!(out));
+        }
+        obj.insert("limit".into(), Value::Object(limit));
+    }
 }
 
 /// Desktop role slots. Each exposes one catalog model under a canonical
@@ -155,10 +228,19 @@ pub struct ClientRoleEntry {
     pub supports_1m: bool,
 }
 
-/// Assigned role slots, in the stable sonnet/opus/haiku/fable order. A role
-/// with no model, or one that is not in the catalog list, contributes nothing.
-/// Only Claude's clients have roles.
+/// Assigned role slots, in the stable sonnet/opus/haiku/fable order.
+/// Only Claude Desktop has roles. Metadata (`display_name`, `supports_1m`) is
+/// resolved from the provider's saved model catalog first, with legacy client
+/// models as fallback for callers that do not pass a provider catalog.
 pub fn client_role_entries(mapping: Option<&str>, kind: &str) -> Vec<ClientRoleEntry> {
+    client_role_entries_with_catalog(mapping, kind, &[])
+}
+
+pub fn client_role_entries_with_catalog(
+    mapping: Option<&str>,
+    kind: &str,
+    provider_models: &[ClientModel],
+) -> Vec<ClientRoleEntry> {
     // Claude Desktop is the client whose menu and tier resolution are built
     // from role slots; Claude Code gets its tiers through startup variables
     // instead, so it has no role entries here.
@@ -169,7 +251,7 @@ pub fn client_role_entries(mapping: Option<&str>, kind: &str) -> Vec<ClientRoleE
     if roles.is_empty() {
         return Vec::new();
     }
-    let models = client_models(mapping, kind);
+    let legacy_models = client_models(mapping, kind);
     let mut entries = Vec::new();
     for role in CLIENT_ROLES {
         let Some(upstream) = roles
@@ -182,7 +264,10 @@ pub fn client_role_entries(mapping: Option<&str>, kind: &str) -> Vec<ClientRoleE
         let Some(route) = role_route_id(role) else {
             continue;
         };
-        let model = models.iter().find(|model| model.id == upstream);
+        let model = provider_models
+            .iter()
+            .find(|model| model.id == upstream)
+            .or_else(|| legacy_models.iter().find(|model| model.id == upstream));
         entries.push(ClientRoleEntry {
             role: role.to_string(),
             route: route.to_string(),
@@ -214,6 +299,7 @@ pub fn client_models(mapping: Option<&str>, kind: &str) -> Vec<ClientModel> {
                 return None;
             }
             let name = entry["displayName"].as_str().unwrap_or("").trim();
+            let (context_window, max_output_tokens) = extract_model_capacities(entry);
             Some(ClientModel {
                 id: id.to_string(),
                 display_name: if name.is_empty() {
@@ -222,6 +308,8 @@ pub fn client_models(mapping: Option<&str>, kind: &str) -> Vec<ClientModel> {
                     name.to_string()
                 },
                 supports1m: entry["supports1m"].as_bool().unwrap_or(false),
+                context_window,
+                max_output_tokens,
             })
         })
         .collect()
@@ -279,6 +367,165 @@ pub fn effective_catalog(
 /// catalog at all (those bypass the family and fixed forwarding rules).
 pub type AliasTable = std::collections::BTreeMap<String, String>;
 
+fn build_role_slot_catalog(roles: Vec<ClientRoleEntry>, anthropic: bool) -> (Value, AliasTable) {
+    let mut aliases = AliasTable::new();
+    let mut data = Vec::with_capacity(roles.len());
+    // Two roles can name the same model; the menu offers it once (the
+    // first role in sonnet/opus/haiku/fable order wins) while every route
+    // stays resolvable, so tier traffic still reaches that model.
+    let mut listed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in roles {
+        aliases.insert(entry.route.clone(), entry.upstream.clone());
+        if !listed.insert(entry.upstream.clone()) {
+            continue;
+        }
+        let (id, display_name) = if entry.supports_1m {
+            (
+                format!("{}[1m]", entry.route),
+                format!("{} · 1M", entry.display_name),
+            )
+        } else {
+            (entry.route.clone(), entry.display_name.clone())
+        };
+        data.push(json!({
+            "id": id,
+            "display_name": display_name,
+            "description": format!("上游: {}", entry.upstream),
+        }));
+    }
+    (finish_catalog(data, anthropic), aliases)
+}
+
+fn clean_display_name(entry: &Value, upstream: &str) -> String {
+    entry["display_name"]
+        .as_str()
+        .or_else(|| entry["name"].as_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(upstream)
+        .to_string()
+}
+
+/// Build the served client catalog strictly from the provider's saved model
+/// inventory (`provider_model_catalogs`).
+///
+/// - Never falls back to live upstream discovery: an empty saved inventory
+///   yields an empty catalog (`data: []`) so every surface shows the exact same
+///   saved inventory.
+/// - For `claude_desktop`, assigned role slots resolve `display_name` and
+///   `supports_1m` from `saved_models`.
+/// - For `claude_code`, non-Anthropic IDs are namespaced as `claude-{upstream}`
+///   solely to pass Claude Code's `/(claude|anthropic)/i` filter, while
+///   `display_name` ALWAYS carries the clean non-prefixed label so the `/model`
+///   picker never shows `claude-` prefixes. Models already assigned to the four
+///   family tier env vars (`excluded_tier_models`) are omitted from `data` to
+///   avoid duplicate entries, while staying registered in `aliases`.
+pub fn effective_catalog_from_saved_models(
+    mapping: Option<&str>,
+    kind: &str,
+    saved_models: &[ClientModel],
+    excluded_tier_models: &std::collections::HashSet<String>,
+) -> (Value, AliasTable) {
+    let key = client_key(kind);
+    let anthropic = matches!(key, "claude_code" | "claude_desktop");
+
+    let roles = client_role_entries_with_catalog(mapping, kind, saved_models);
+    if !roles.is_empty() {
+        return build_role_slot_catalog(roles, anthropic);
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    let normalized: Vec<ClientModel> = saved_models
+        .iter()
+        .filter_map(|model| {
+            let id = model.id.trim();
+            if id.is_empty() || !seen.insert(id.to_string()) {
+                return None;
+            }
+            let display_name = model.display_name.trim();
+            Some(ClientModel {
+                id: id.to_string(),
+                display_name: if display_name.is_empty() {
+                    id.to_string()
+                } else {
+                    display_name.to_string()
+                },
+                supports1m: model.supports1m,
+                context_window: model.context_window.filter(|v| *v > 0),
+                max_output_tokens: model.max_output_tokens.filter(|v| *v > 0),
+            })
+        })
+        .collect();
+
+    if normalized.is_empty() {
+        return (finish_catalog(vec![], anthropic), AliasTable::new());
+    }
+
+    if key == "claude_code" {
+        let mut taken = normalized
+            .iter()
+            .map(|model| model.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let mut aliases = AliasTable::new();
+        let mut data = Vec::with_capacity(normalized.len());
+
+        for model in normalized {
+            let upstream = model.id;
+            let alias = format!("claude-{upstream}");
+            let exposed = if carries_anthropic_token(&upstream) || taken.contains(&alias) {
+                aliases.insert(upstream.clone(), upstream.clone());
+                upstream.clone()
+            } else {
+                taken.insert(alias.clone());
+                aliases.insert(alias.clone(), upstream.clone());
+                aliases.insert(upstream.clone(), upstream.clone());
+                alias
+            };
+
+            if excluded_tier_models.contains(&upstream) || excluded_tier_models.contains(&exposed) {
+                continue;
+            }
+
+            let (id, display_name) = if model.supports1m {
+                (
+                    format!("{exposed}[1m]"),
+                    format!("{} · 1M", model.display_name),
+                )
+            } else {
+                (exposed, model.display_name)
+            };
+            data.push(json!({
+                "id": id,
+                "display_name": display_name,
+                "description": format!("上游: {}", upstream),
+            }));
+        }
+
+        return (finish_catalog(data, true), aliases);
+    }
+
+    let data = normalized
+        .into_iter()
+        .map(|model| {
+            let mut item = if anthropic {
+                json!({
+                    "id": model.id,
+                    "display_name": model.display_name,
+                })
+            } else {
+                json!({
+                    "id": model.id,
+                    "display_name": model.display_name,
+                    "name": model.display_name,
+                })
+            };
+            attach_model_capacities(&mut item, model.context_window, model.max_output_tokens);
+            item
+        })
+        .collect::<Vec<_>>();
+    (finish_catalog(data, anthropic), AliasTable::new())
+}
+
 pub fn effective_catalog_ex(
     mapping: Option<&str>,
     kind: &str,
@@ -291,32 +538,7 @@ pub fn effective_catalog_ex(
     // usable menu.
     let roles = client_role_entries(mapping, kind);
     if !roles.is_empty() {
-        let mut aliases = AliasTable::new();
-        let mut data = Vec::with_capacity(roles.len());
-        // Two roles can name the same model; the menu offers it once (the
-        // first role in sonnet/opus/haiku/fable order wins) while every route
-        // stays resolvable, so tier traffic still reaches that model.
-        let mut listed: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for entry in roles {
-            aliases.insert(entry.route.clone(), entry.upstream.clone());
-            if !listed.insert(entry.upstream.clone()) {
-                continue;
-            }
-            let (id, display_name) = if entry.supports_1m {
-                (
-                    format!("{}[1m]", entry.route),
-                    format!("{} · 1M", entry.display_name),
-                )
-            } else {
-                (entry.route.clone(), entry.display_name.clone())
-            };
-            data.push(json!({
-                "id": id,
-                "display_name": display_name,
-                "description": format!("上游: {}", entry.upstream),
-            }));
-        }
-        return Ok((finish_catalog(data, anthropic), aliases));
+        return Ok(build_role_slot_catalog(roles, anthropic));
     }
     let mode = catalog_mode(mapping, kind);
     let custom = client_models(mapping, kind);
@@ -384,6 +606,8 @@ pub fn effective_catalog_ex(
             let Some(upstream) = entry["id"].as_str().map(str::to_string) else {
                 continue;
             };
+            let display = clean_display_name(entry, &upstream);
+            entry["display_name"] = Value::String(display);
             let alias = format!("claude-{upstream}");
             if carries_anthropic_token(&upstream) || taken.contains(&alias) {
                 // Already recognizable, or an alias would collide with a real

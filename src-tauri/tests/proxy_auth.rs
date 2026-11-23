@@ -250,7 +250,6 @@ fn setup_session_with_type(
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
 
@@ -532,7 +531,6 @@ async fn codex_app_responses_request_uses_session_and_passes_responses_through()
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
 
@@ -621,7 +619,6 @@ async fn codex_responses_request_with_legacy_session_type_passes_responses_throu
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create legacy proxy session");
 
@@ -710,7 +707,6 @@ async fn codex_responses_request_with_non_session_auth_uses_takeover_session() {
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create takeover proxy session");
 
@@ -819,7 +815,6 @@ async fn codex_app_ignores_legacy_format_fields_and_passes_responses_through() {
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
 
@@ -925,7 +920,6 @@ async fn codex_app_legacy_transform_off_field_still_passes_responses_through() {
         display_name: None,
         is_active: true,
         connection_config: None,
-        model_policy: None,
     })
     .expect("create proxy session");
 
