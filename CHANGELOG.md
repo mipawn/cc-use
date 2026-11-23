@@ -5,6 +5,23 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.23.0] - 2026-11-23
+
+### Added
+
+- **模型容量元数据解析与自动透传**：供应商「模型清单」新增可选的上下文窗口（`contextWindow`）与最大输出（`maxOutputTokens`）字段；从上游 `/v1/models` 拉取时自动解析 `limit.context` / `limit.output`、`context_window` / `context_length`、`max_output_tokens` / `max_tokens` / `top_provider.max_completion_tokens` 等格式，支持列表徽标展示与行内手动维护，并在网关 `/v1/models` 中一并下发，方便 DSH 等外部客户端直接自动填表。
+- **OpenCode Go 动态会话头桥接**：面向 OpenCode Go 上游时，若请求未携带 `x-opencode-session`，自动将客户端传入的动态会话头（优先 `x-session-id`，依次兼容 `x-dsh-session` / `session_id` / `session-id` / `x-client-request-id`，配合 `dsh-session-header` 插件使用）动态映射为 `x-opencode-session`，不伪造静态值，也不覆盖客户端原生头。
+- **Claude Code 完整四档家族槽位**：补齐 `Fable` 档位（`ANTHROPIC_DEFAULT_FABLE_MODEL`），并在方案抽屉提供 `Opus / Sonnet / Haiku / Fable` 四档结构化配置与「同步主模型到全部 / 清空档位」快捷操作，卡片同步展示档位覆盖率。
+
+### Changed
+
+- **全链路统一以供应商「模型清单」为唯一数据源**：移除客户端方案与 API 网关各自独立的模型筛选和 `all` / `selected` 暴露模式开关；`Claude Code`、`Codex`、`Claude Desktop`、`Grok` 与全部 API 网关一律严格跟随供应商「模型清单」，清单为空时返回空列表，不再静默回退拉取上游全量模型。
+- **API 网关强校验模型清单**：网关对所有非模型发现请求按所绑定供应商的「模型清单」执行强校验（HTTP JSON 推理端点与 WebSocket 帧），调用清单外模型或不可校验请求直接返回 `403` / `400` 且零上游命中；客户端方案保持原样不拦截。
+
+### Fixed
+
+- **收敛 Claude Code `/model` 菜单与跨方案缓存污染**：隐藏客户端菜单中用于绕过过滤的合成 `claude-` 前缀并按四档环境变量去重；当供应商清单无四档以外的额外模型时默认注入 `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=0`，避免 `~/.claude/cache/gateway-models.json` 跨方案残留旧模型。
+
 ## [3.22.0] - 2026-11-22
 
 ### Added
