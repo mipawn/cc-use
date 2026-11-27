@@ -25,7 +25,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   buildConsoleUrl,
   buildStatisticsUrl,
+  isAntigravitySource,
   observationOutcomes,
+  observationSources,
   parseObservationContext,
   requestLocalDate,
   withObservationOutcome,
@@ -34,6 +36,7 @@ import SimpleBar from 'simplebar-react'
 import { usePageRefresh } from '../hooks/usePageRefresh'
 import RecentRequestDetailDrawer from '../components/usage/RecentRequestDetailDrawer'
 import type {
+  RequestLogSource,
   UsageStatistics,
   PaginatedRecentRequests,
   RecentRequestLogDisplay,
@@ -64,6 +67,9 @@ const OUTCOME_COLORS: Record<string, string> = {
   upstream_error: 'red',
   transport_error: 'volcano',
 }
+
+/** Secondary label line inside a table cell; the primary value stays the same size. */
+const CELL_LABEL_STYLE = { display: 'block', fontSize: 11, lineHeight: '16px' } as const
 
 export default function Statistics({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation()
@@ -139,8 +145,51 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
       refreshToken.current += 1
     }
   }, [load])
-  const refresh = useCallback(() => load(), [load])
+  // Reconciliation is best-effort catch-up, never a gate on rendering: opening
+  // the page asks the backend to scan now, and a missed FSEvent that commits
+  // later re-reads the same scope through the `usage:antigravityUpdated` event.
+  const syncAntigravity = useCallback(async () => {
+    try {
+      await getApi().requestLog.syncAntigravity()
+    } catch {
+      // The visible reads stay authoritative when catch-up fails.
+    }
+  }, [])
+  const reloadRef = useRef(load)
+  reloadRef.current = load
+  useEffect(() => {
+    if (invalid) return
+    // Subscribe before asking for the catch-up scan: a scan that commits while
+    // the request is in flight emits `usage:antigravityUpdated`, and an early
+    // emit must not be missed. The scan itself stays strictly non-blocking.
+    const dispose = getApi().requestLog.onAntigravityUpdated(() => {
+      void reloadRef.current()
+    })
+    void syncAntigravity()
+    return dispose
+  }, [invalid, syncAntigravity])
+  const refresh = useCallback(async () => {
+    if (!invalid) await syncAntigravity()
+    await load()
+  }, [invalid, load, syncAntigravity])
   usePageRefresh(refresh)
+
+  const ledgerRows = recentRequests?.items ?? []
+  // Proxy latency and Antigravity generation duration are different measurements:
+  // the header may only claim the definitions the selected source (or, without a
+  // source filter, the current page) actually shows, and each row labels its own.
+  const showsProxyDuration = filter.source
+    ? !isAntigravitySource(filter.source)
+    : ledgerRows.some((row) => !isAntigravitySource(row.source))
+  const showsGenerationDuration = filter.source
+    ? isAntigravitySource(filter.source)
+    : ledgerRows.some((row) => isAntigravitySource(row.source))
+  const durationHeader =
+    showsGenerationDuration && showsProxyDuration
+      ? `${t('observation.generationDuration')} / ${t('statistics.latency')}`
+      : showsGenerationDuration
+        ? t('observation.generationDuration')
+        : t('statistics.latency')
 
   /**
    * Request performance stays visible while scanning. Everything that is
@@ -193,19 +242,55 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
     {
       title: t('statistics.route'),
       key: 'route',
-      render: (_: unknown, record: RecentRequestLogDisplay) => (
-        <Text style={{ fontSize: 12 }}>
-          {[displayName(record.providerName, '-'), record.keyAlias || '-'].join(' / ')}
-        </Text>
-      ),
+      render: (_: unknown, record: RecentRequestLogDisplay) => {
+        // Antigravity has no proxy route or key: its source and the conversation
+        // title are the closest equivalent attribution.
+        if (!isAntigravitySource(record.source)) {
+          return (
+            <Text style={{ fontSize: 12 }}>
+              {[displayName(record.providerName, '-'), record.keyAlias || '-'].join(' / ')}
+            </Text>
+          )
+        }
+        return (
+          <Space size={4} style={{ maxWidth: '100%' }}>
+            <Tag style={{ marginInlineEnd: 0, fontSize: 11, lineHeight: '16px' }}>
+              {t(`observation.sources.${record.source}`)}
+            </Tag>
+            <Text ellipsis style={{ maxWidth: 180, fontSize: 12 }}>
+              {record.keyAlias || '—'}
+            </Text>
+          </Space>
+        )
+      },
     },
     {
       title: t('statistics.tokens'),
       dataIndex: 'inputTokens',
       key: 'tokens',
-      width: 90,
+      width: 120,
       align: 'right' as const,
-      render: (_: number, record: RecentRequestLogDisplay) => renderTokens(totalTokens(record)),
+      render: (_: number, record: RecentRequestLogDisplay) => {
+        const total = totalTokens(record)
+        const hasSplit = record.thinkingTokens != null || record.responseTokens != null
+        return (
+          <div>
+            {renderTokens(total)}
+            {/* Antigravity splits output into thinking + response tokens; show it
+                under the total so the exact-token tooltip and column stay intact. */}
+            {hasSplit && (
+              <>
+                <Text type='secondary' style={CELL_LABEL_STYLE}>
+                  {t('observation.thinkingTokens')} {record.thinkingTokens ?? '—'}
+                </Text>
+                <Text type='secondary' style={CELL_LABEL_STYLE}>
+                  {t('observation.responseTokens')} {record.responseTokens ?? '—'}
+                </Text>
+              </>
+            )}
+          </div>
+        )
+      },
     },
     {
       title: (
@@ -232,14 +317,23 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
       render: (value: number | null) => <span>{formatRequestDuration(value)}</span>,
     },
     {
-      title: t('statistics.latency'),
-      dataIndex: 'latencyMs',
-      key: 'latencyMs',
-      width: 100,
+      title: durationHeader,
+      key: 'duration',
+      width: 130,
       align: 'right' as const,
-      render: (value: number | null) => (
-        <span style={{ fontSize: 12 }}>{formatRequestDuration(value)}</span>
-      ),
+      render: (_: number | null, record: RecentRequestLogDisplay) => {
+        const antigravity = isAntigravitySource(record.source)
+        return (
+          <div>
+            <span style={{ fontSize: 12 }}>
+              {formatRequestDuration(antigravity ? record.generationMs : record.latencyMs)}
+            </span>
+            <Text type='secondary' style={CELL_LABEL_STYLE}>
+              {antigravity ? t('observation.generationDuration') : t('statistics.latency')}
+            </Text>
+          </div>
+        )
+      },
     },
     {
       title: t('statistics.status'),
@@ -264,6 +358,9 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
   ]
 
   const summary = stats?.summary
+  // A mixed proxy/Antigravity scope hides the three performance averages: the
+  // two duration definitions are not comparable, so the backend already nulls them.
+  const mixedSources = summary?.performanceMixedSources === true
 
   const handleRecentTableChange = (pagination: TablePaginationConfig) => {
     void navigate(
@@ -323,6 +420,30 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
             onChange={(population) =>
               void navigate(
                 buildStatisticsUrl({ ...context, page: 1, filter: { ...filter, population } }),
+              )
+            }
+          />
+          <Select
+            aria-label={t('observation.source')}
+            value={filter.source ?? 'all'}
+            style={{ minWidth: 170 }}
+            options={[
+              { value: 'all', label: t('observation.allSources') },
+              ...observationSources.map((value) => ({
+                value,
+                label: t(`observation.sources.${value}`),
+              })),
+            ]}
+            onChange={(source: string) =>
+              void navigate(
+                buildStatisticsUrl({
+                  ...context,
+                  page: 1,
+                  filter: {
+                    ...filter,
+                    source: source === 'all' ? undefined : (source as RequestLogSource),
+                  },
+                }),
               )
             }
           />
@@ -427,8 +548,8 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                 <Statistic
                   title={t('statistics.avgLatency')}
                   // A missing measurement is not 0ms.
-                  value={summary.avgLatencyMs ?? undefined}
-                  suffix={summary.avgLatencyMs != null ? 'ms' : undefined}
+                  value={mixedSources ? '—' : (summary.avgLatencyMs ?? '—')}
+                  suffix={!mixedSources && summary.avgLatencyMs != null ? 'ms' : undefined}
                   precision={0}
                 />
                 <Statistic
@@ -437,7 +558,7 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                       <span>{t('usageDetail.avgFirstToken')}</span>
                     </Tooltip>
                   }
-                  value={formatRequestDuration(summary.avgFirstTokenMs)}
+                  value={formatRequestDuration(mixedSources ? null : summary.avgFirstTokenMs)}
                 />
                 <Statistic
                   title={
@@ -445,9 +566,14 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                       <span>{t('statistics.avgOutputSpeed')}</span>
                     </Tooltip>
                   }
-                  value={formatOutputSpeed(summary.avgOutputTokensPerSecond)}
+                  value={formatOutputSpeed(mixedSources ? null : summary.avgOutputTokensPerSecond)}
                 />
               </div>
+              {mixedSources && (
+                <Text type='secondary' style={{ display: 'block', marginTop: -8, fontSize: 12 }}>
+                  {t('observation.performanceMixedHint')}
+                </Text>
+              )}
 
               {/* Directly under the summary: how the traffic moved over time. */}
               <Card
@@ -494,7 +620,7 @@ export default function Statistics({ embedded = false }: { embedded?: boolean })
                   rowKey='id'
                   size='small'
                   loading={loading}
-                  scroll={{ x: 1120 }}
+                  scroll={{ x: 1180 }}
                   onChange={handleRecentTableChange}
                   pagination={{
                     current: recentRequests?.page || recentPage,

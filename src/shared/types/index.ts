@@ -36,6 +36,12 @@ export interface DesktopOperationResult {
   state: DesktopConnectionState
 }
 
+/**
+ * Which ledger produced the row: the local proxy or one of the indexed
+ * Antigravity installations. The strings match `antigravity_usage_events.source`.
+ */
+export type RequestLogSource = 'proxy' | 'antigravity_desktop' | 'antigravity_cli'
+
 /** Ledger scope is applied by SQL before aggregation, count and pagination. */
 export interface RequestLogFilter {
   providerId?: string
@@ -43,6 +49,8 @@ export interface RequestLogFilter {
   instanceId?: string
   outcome?: 'success' | 'failed' | 'client_error' | 'upstream_error' | 'transport_error'
   population?: 'all' | 'with_usage'
+  /** Omitted means the merged ledger of every source. */
+  source?: RequestLogSource
 }
 
 // 接入形态: cc-use 能不能亲自启动这个客户端
@@ -1110,6 +1118,12 @@ export interface UsageStatsSummary {
   avgLatencyMs: number | null
   avgFirstTokenMs: number | null
   avgOutputTokensPerSecond: number | null
+  /**
+   * True when the scoped population mixes proxy and Antigravity rows without an
+   * explicit `source` filter; the three performance averages are then null
+   * because averaging incomparable durations would invent a number.
+   */
+  performanceMixedSources: boolean
 }
 
 export interface DailyTrendItem {
@@ -1143,6 +1157,13 @@ export interface RecentRequestLogDisplay {
   outcome: RequestOutcome | null
   errorMessage: string | null
   createdAt: string
+  /** `proxy` | `antigravity_desktop` | `antigravity_cli`; null on rows read before the merge. */
+  source?: string | null
+  /** Antigravity only: the thinking/response split inside `outputTokens`. */
+  thinkingTokens?: number | null
+  responseTokens?: number | null
+  /** Antigravity only: pure streaming generation time after the first token. */
+  generationMs?: number | null
 }
 
 export interface PaginatedRecentRequests {
@@ -1150,6 +1171,17 @@ export interface PaginatedRecentRequests {
   total: number
   page: number
   pageSize: number
+}
+
+/**
+ * Result of one Antigravity reconciliation pass. Counts describe file
+ * bookkeeping, not usage: a rescanned conversation whose rows did not change
+ * still counts as scanned only.
+ */
+export interface AntigravitySyncSummary {
+  scannedFiles: number
+  updatedConversations: number
+  removedFiles: number
 }
 
 export interface UsageDimensionItem {

@@ -11,6 +11,8 @@ import { localDay } from './fixtureSupport'
 export const totalTokens = (row: LedgerRow) =>
   row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheCreationTokens
 const dayOf = (row: LedgerRow) => localDay(new Date(`${row.createdAt.replace(' ', 'T')}Z`))
+const ledgerSource = (row: LedgerRow) => row.source ?? 'proxy'
+const isAntigravityRow = (row: LedgerRow) => ledgerSource(row) !== 'proxy'
 const dateKey = (value: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('[fixture] Invalid date range')
   const date = new Date(`${value}T12:00:00`)
@@ -69,7 +71,7 @@ export function filterLedger(
   now: Date,
   filter: RequestLogFilter = {},
 ): LedgerRow[] {
-  const allowed = ['providerId', 'apiKeyId', 'instanceId', 'outcome', 'population']
+  const allowed = ['providerId', 'apiKeyId', 'instanceId', 'outcome', 'population', 'source']
   if (Object.keys(filter).some((key) => !allowed.includes(key)))
     throw new Error('[fixture] Unknown ledger filter')
   if (
@@ -81,6 +83,8 @@ export function filterLedger(
     throw new Error('[fixture] Invalid outcome')
   if (filter.population && !['all', 'with_usage'].includes(filter.population))
     throw new Error('[fixture] Invalid population')
+  if (filter.source && !['proxy', 'antigravity_desktop', 'antigravity_cli'].includes(filter.source))
+    throw new Error('[fixture] Invalid ledger source')
   const [from, to] = rangeBounds(range, now)
   return rows.filter((row) => {
     const day = dayOf(row)
@@ -90,6 +94,7 @@ export function filterLedger(
       (!filter.providerId || row.providerId === filter.providerId) &&
       (!filter.apiKeyId || row.apiKeyId === filter.apiKeyId) &&
       (!filter.instanceId || row.instanceId === filter.instanceId) &&
+      (!filter.source || ledgerSource(row) === filter.source) &&
       (!filter.outcome ||
         (filter.outcome === 'failed'
           ? row.outcome !== null && row.outcome !== 'success'
@@ -123,6 +128,11 @@ export function statistics(rows: LedgerRow[]): UsageStatistics {
   const totalCacheReadTokens = sum(rows, 'cacheReadTokens')
   const totalCacheCreationTokens = sum(rows, 'cacheCreationTokens')
   const denominator = totalInputTokens + totalCacheReadTokens + totalCacheCreationTokens
+  // Proxy latency and Antigravity generation time are different measurements;
+  // a mixed billable scope reports no averages, matching the SQL rule.
+  const billable = rows.filter((row) => totalTokens(row) > 0)
+  const performanceMixedSources =
+    billable.some((row) => !isAntigravityRow(row)) && billable.some((row) => isAntigravityRow(row))
   return {
     summary: {
       totalRequests: rows.filter((row) => totalTokens(row) > 0).length,
@@ -134,9 +144,12 @@ export function statistics(rows: LedgerRow[]): UsageStatistics {
       totalCacheCreationTokens,
       totalTokens: denominator + totalOutputTokens,
       cacheHitRate: denominator ? totalCacheReadTokens / denominator : 0,
-      avgLatencyMs: average(rows, 'latencyMs'),
-      avgFirstTokenMs: average(rows, 'firstTokenMs'),
-      avgOutputTokensPerSecond: average(rows, 'outputTokensPerSecond'),
+      avgLatencyMs: performanceMixedSources ? null : average(rows, 'latencyMs'),
+      avgFirstTokenMs: performanceMixedSources ? null : average(rows, 'firstTokenMs'),
+      avgOutputTokensPerSecond: performanceMixedSources
+        ? null
+        : average(rows, 'outputTokensPerSecond'),
+      performanceMixedSources,
     },
     dailyModelUsage: [...groupBy(rows, (row) => `${dayOf(row)}|${row.model}`).values()]
       .map((group) => ({

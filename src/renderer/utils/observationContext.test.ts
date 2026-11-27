@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildConsoleUrl,
   buildStatisticsUrl,
+  isAntigravitySource,
+  observationSources,
   parseObservationContext,
   requestLocalDate,
   withObservationOutcome,
@@ -16,6 +18,7 @@ const context: ObservationContext = {
     apiKeyId: 'key-2',
     instanceId: 'instance-3',
     population: 'with_usage',
+    source: 'antigravity_cli',
   },
   page: 3,
   pageSize: 20,
@@ -32,6 +35,28 @@ describe('observation URL contracts', () => {
       invalid: false,
     })
     expect(buildStatisticsUrl(parsed.context)).toBe(buildStatisticsUrl(context))
+  })
+
+  it('roundtrips every whitelisted source and rejects unknown/duplicate ones', () => {
+    for (const source of observationSources) {
+      const url = buildStatisticsUrl({ ...context, filter: { ...context.filter, source } })
+      expect(parseObservationContext(url.split('?')[1])).toMatchObject({
+        invalid: false,
+        context: { filter: { source } },
+      })
+    }
+    for (const query of [
+      'source=unknown',
+      'source=antigravity',
+      'source=',
+      'source=proxy&source=antigravity_cli',
+    ]) {
+      expect(parseObservationContext(query).invalid).toBe(true)
+    }
+    expect(observationSources).toEqual(['proxy', 'antigravity_desktop', 'antigravity_cli'])
+    expect(isAntigravitySource('antigravity_desktop')).toBe(true)
+    expect(isAntigravitySource('proxy')).toBe(false)
+    expect(isAntigravitySource(null)).toBe(false)
   })
 
   it('keeps resource/date scope and cancels the usage restriction when choosing failures', () => {

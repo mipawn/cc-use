@@ -258,8 +258,60 @@ describe('strict local fixture API', () => {
     const { api, diagnostics } = fixture('error')
     await expect(api.provider.list()).rejects.toThrow('[fixture:error]')
     await expect(api.requestLog.getOverview()).rejects.toThrow('[fixture:error]')
+    await expect(api.requestLog.syncAntigravity()).rejects.toThrow('[fixture:error]')
     await expect(api.desktopConnection.restore('codex')).rejects.toThrow('[fixture:error]')
     expect(diagnostics.violations).toEqual([])
+  })
+
+  it('merges both Antigravity sources and scopes performance summaries by source', async () => {
+    const { api, emitAntigravityUpdated } = fixture()
+    // Unfiltered scope mixes proxy latency with Antigravity generation time.
+    const mixed = await api.requestLog.getStatistics('week')
+    expect(mixed.summary.performanceMixedSources).toBe(true)
+    expect(mixed.summary.avgLatencyMs).toBeNull()
+    expect(mixed.summary.avgFirstTokenMs).toBeNull()
+    expect(mixed.summary.avgOutputTokensPerSecond).toBeNull()
+
+    // One source family keeps its own exact averages.
+    for (const source of ['proxy', 'antigravity_desktop', 'antigravity_cli'] as const) {
+      const scoped = await api.requestLog.getStatistics('week', { source })
+      expect(scoped.summary.performanceMixedSources).toBe(false)
+      expect(scoped.summary.avgLatencyMs).not.toBeNull()
+      expect(scoped.summary.avgFirstTokenMs).not.toBeNull()
+      expect(scoped.summary.avgOutputTokensPerSecond).not.toBeNull()
+    }
+
+    const cli = await api.requestLog.getRecentPaginated('week', 1, 100, {
+      source: 'antigravity_cli',
+    })
+    expect(cli.total).toBeGreaterThan(0)
+    expect(cli.items.every((row) => row.source === 'antigravity_cli')).toBe(true)
+    expect(cli.items.every((row) => row.thinkingTokens != null && row.responseTokens != null)).toBe(
+      true,
+    )
+    const proxy = await api.requestLog.getRecentPaginated('week', 1, 100, { source: 'proxy' })
+    expect(proxy.items.every((row) => row.source === 'proxy')).toBe(true)
+    await expect(
+      api.requestLog.getStatistics('week', { source: 'unknown' as never }),
+    ).rejects.toThrow('Invalid ledger source')
+
+    // The two bridge methods exist in fixture mode: a no-op scan plus a listener.
+    expect(await api.requestLog.syncAntigravity()).toEqual({
+      scannedFiles: 2,
+      updatedConversations: 0,
+      removedFiles: 0,
+    })
+    const listener = vi.fn()
+    const dispose = api.requestLog.onAntigravityUpdated(listener)
+    emitAntigravityUpdated({ scannedFiles: 3, updatedConversations: 1, removedFiles: 0 })
+    expect(listener).toHaveBeenCalledWith({
+      scannedFiles: 3,
+      updatedConversations: 1,
+      removedFiles: 0,
+    })
+    dispose()
+    emitAntigravityUpdated({ scannedFiles: 4, updatedConversations: 2, removedFiles: 0 })
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 
   it('exercises typed route-only, config-write, restore and partial desktop outcomes', async () => {
@@ -344,7 +396,7 @@ describe('strict local fixture API', () => {
     })
     const failed = await api.requestLog.getRecentPaginated('today', 1, 100, { outcome: 'failed' })
     const overview = await api.requestLog.getOverview()
-    expect(usage.total + failed.total).toBe(70)
+    expect(usage.total + failed.total).toBe(74)
     expect(overview.todayRequests).toBe(usage.total)
     expect(overview.todayFailedRequests).toBe(failed.total)
     await api.provider.delete('provider-usd')

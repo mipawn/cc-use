@@ -94,6 +94,7 @@ pub fn run() {
             commands::statistics::request_log_get_recent_paginated,
             commands::statistics::request_log_get_overview,
             commands::statistics::request_log_get_key_token_stats,
+            commands::antigravity::antigravity_usage_sync,
             // CLI tool + statusline (v3.7.0)
             commands::cli_tool::cli_tool_status,
             commands::cli_tool::cli_tool_install,
@@ -311,6 +312,25 @@ pub fn run() {
             // Setup system tray
             if let Err(e) = tray::setup_tray(&handle) {
                 log::error!("Failed to setup tray: {}", e);
+            }
+
+            // Antigravity usage index: retention sweep, then the FSEvents-driven
+            // reconciler. The cold-start import is queued by the manager, so a
+            // large local history never delays the window.
+            {
+                let db_state = handle.state::<Arc<Mutex<Database>>>();
+                let db_for_antigravity = db_state.inner().clone();
+                drop(db_state);
+                if let Ok(db) = db_for_antigravity.lock() {
+                    if let Err(error) =
+                        db.antigravity_usage_cleanup_old(db::antigravity_usage::RETENTION_DAYS)
+                    {
+                        log::warn!("Failed to prune Antigravity usage events: {}", error);
+                    }
+                };
+                let manager =
+                    commands::antigravity::start(&handle, Arc::clone(&db_for_antigravity));
+                handle.manage(manager);
             }
 
             // Re-arm the user's previously chosen "show window" global

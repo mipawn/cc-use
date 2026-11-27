@@ -1,9 +1,9 @@
 use crate::db::Database;
 use crate::models::{
     DailyModelUsageItem, DailyTrendItem, PaginatedRecentRequests, RecentRequestLogDisplay,
-    RequestLog, RequestLogFilter, RequestLogOutcome, RequestLogPopulation, ResourceUsageStatistics,
-    ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem, UsageOverview,
-    UsageStatistics, UsageStatsSummary,
+    RequestLog, RequestLogFilter, RequestLogOutcome, RequestLogPopulation, RequestLogSource,
+    ResourceUsageStatistics, ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem,
+    UsageOverview, UsageStatistics, UsageStatsSummary,
 };
 
 /// input + output + cache_read + cache_creation — the v3.7.0 token definition.
@@ -64,6 +64,56 @@ fn aggregate_output_speed_sql(p: &str) -> String {
          NULLIF(SUM(CASE WHEN {valid} THEN {p}last_token_ms - {p}first_token_ms END), 0)"
     )
 }
+
+/// The merged observation ledger: proxy traffic plus the indexed Antigravity
+/// generations. The read-side observation queries share this CTE so one
+/// `request_log_where` scope filters counts, aggregates, trends and pages alike.
+///
+/// Antigravity rows keep their own measurements: `latency_ms` is the whole
+/// generation duration, `first_token_ms` is `ttft_ms`, and
+/// `last_token_ms - first_token_ms` is exactly `generation_ms`, so
+/// `output_speed_sql` still reports `output_tokens * 1000 / generation_ms`
+/// instead of averaging a proxy end-to-end latency with a model duration.
+/// `request_logs` has no thinking/response split; those stay NULL for proxy rows.
+/// The two labels are pinned to `RequestLogSource::display_name()`.
+const UNIFIED_LEDGER_CTE: &str = "
+WITH unified_logs AS (
+    SELECT
+        id, provider_id, api_key_id, project_id, session_id,
+        model, request_model, input_tokens, output_tokens,
+        cache_read_tokens, cache_creation_tokens,
+        latency_ms, first_token_ms, last_token_ms,
+        status_code, error_message, is_streaming, created_at,
+        key_alias, provider_name, project_name, outcome, request_kind, request_id,
+        'proxy' AS source,
+        NULL AS thinking_tokens, NULL AS response_tokens, NULL AS generation_ms
+    FROM request_logs
+    UNION ALL
+    SELECT
+        id,
+        NULL, NULL, NULL, NULL, -- provider_id, api_key_id, project_id, session_id
+        model,
+        NULL AS request_model,
+        input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+        total_ms AS latency_ms,
+        ttft_ms AS first_token_ms,
+        CASE WHEN ttft_ms IS NOT NULL AND generation_ms IS NOT NULL
+             THEN ttft_ms + generation_ms END AS last_token_ms,
+        NULL, NULL, -- status_code, error_message
+        CASE WHEN generation_ms > 0 AND output_tokens > 0 THEN 1 ELSE 0 END AS is_streaming,
+        created_at,
+        conversation_title AS key_alias,
+        CASE source
+            WHEN 'antigravity_desktop' THEN 'Antigravity Desktop'
+            WHEN 'antigravity_cli' THEN 'Antigravity CLI'
+        END AS provider_name,
+        project_name,
+        'success' AS outcome, -- v1 defers Antigravity failure counting
+        NULL, NULL, -- request_kind, request_id
+        source,
+        thinking_tokens, response_tokens, generation_ms
+    FROM antigravity_usage_events
+)";
 
 impl Database {
     /// Latest settled foreground request for this exact managed route. Do not
@@ -223,6 +273,12 @@ impl Database {
         if filter.population == Some(RequestLogPopulation::WithUsage) {
             conditions.push(format!("({})", usage_condition(prefix)));
         }
+        // The ledger row's own discriminator, so the same scope works for the
+        // unified ledger (`source`) and never widens to the other source.
+        if let Some(source) = filter.source {
+            values.push(source.as_str().to_string().into());
+            conditions.push(format!("{prefix}source = ?{}", values.len()));
+        }
         Ok(RequestLogWhere {
             clause: format!("WHERE {}", conditions.join(" AND ")),
             values,
@@ -339,15 +395,15 @@ impl Database {
         let created_date = Self::local_date_expr("created_at");
         let day_offset = days.clamp(1, 366) - 1;
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d,
+            "{} SELECT {} as d,
                     COALESCE(SUM({}), 0), COUNT(*),
                     COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                     COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
-                 FROM request_logs
+                 FROM unified_logs
                  WHERE {} >= DATE('now', 'localtime', '-{} days')
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
-            created_date, TOKEN_SUM, created_date, day_offset
+            UNIFIED_LEDGER_CTE, created_date, TOKEN_SUM, created_date, day_offset
         ))?;
 
         let rows = stmt.query_map([], Self::map_daily_trend_row)?;
@@ -362,15 +418,15 @@ impl Database {
         let ym = format!("{:04}-{:02}", year, month);
         let created_date = Self::local_date_expr("created_at");
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} as d,
+            "{} SELECT {} as d,
                     COALESCE(SUM({}), 0), COUNT(*),
                     COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                     COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0)
-                 FROM request_logs
+                 FROM unified_logs
                  WHERE strftime('%Y-%m', {}) = ?1
                    AND (input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0)
                  GROUP BY d ORDER BY d ASC",
-            created_date, TOKEN_SUM, created_date
+            UNIFIED_LEDGER_CTE, created_date, TOKEN_SUM, created_date
         ))?;
 
         let rows = stmt.query_map([&ym], Self::map_daily_trend_row)?;
@@ -417,10 +473,11 @@ impl Database {
             avg_output_tokens_per_second,
         ) = self.conn.query_row(
             &format!(
-                "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+                "{} SELECT COUNT(*), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
                         COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_creation_tokens), 0),
                         AVG(latency_ms), AVG(first_token_ms), {}
-                 FROM request_logs {}",
+                 FROM unified_logs {}",
+                UNIFIED_LEDGER_CTE,
                 aggregate_output_speed_sql(""),
                 where_clause
             ),
@@ -439,14 +496,54 @@ impl Database {
             },
         )?;
 
-        // Failure count uses the same selected population, without adding the billable predicate.
-        let failure_where = scope.with_condition("outcome IS NOT NULL AND outcome != 'success'");
+        // Proxy end-to-end latency and Antigravity generation duration are
+        // different measurements. Only the all-sources view can mix them; an
+        // explicit source scope, or a single-source family, stays exact.
+        let performance_mixed_sources = if filter.source.is_none() {
+            let mixed_sql = format!(
+                "{UNIFIED_LEDGER_CTE} SELECT
+                     EXISTS(SELECT 1 FROM unified_logs {where_clause} AND source = 'proxy'),
+                     EXISTS(SELECT 1 FROM unified_logs {where_clause} AND source != 'proxy')"
+            );
+            self.conn.query_row(
+                &mixed_sql,
+                rusqlite::params_from_iter(scope.values.iter()),
+                |row| Ok(row.get::<_, bool>(0)? && row.get::<_, bool>(1)?),
+            )?
+        } else {
+            false
+        };
 
-        let failed_requests: i64 = self.conn.query_row(
-            &format!("SELECT COUNT(*) FROM request_logs {}", failure_where),
-            rusqlite::params_from_iter(scope.values.iter()),
-            |row| row.get(0),
-        )?;
+        let (avg_latency_ms, avg_first_token_ms, avg_output_tokens_per_second) =
+            if performance_mixed_sources {
+                (None, None, None)
+            } else {
+                (
+                    avg_latency_ms,
+                    avg_first_token_ms,
+                    avg_output_tokens_per_second,
+                )
+            };
+
+        // Failure counts stay strictly on proxy-verified `request_logs` rows: v1
+        // never counts unverified Antigravity retry chains, and an Antigravity
+        // scope must not borrow failures from outside itself.
+        let failed_requests: i64 = if filter.source.is_some_and(RequestLogSource::is_antigravity) {
+            0
+        } else {
+            let failure_filter = RequestLogFilter {
+                source: None,
+                ..filter.clone()
+            };
+            let failure_scope = self.request_log_where(time_range, &failure_filter, "")?;
+            let failure_where =
+                failure_scope.with_condition("outcome IS NOT NULL AND outcome != 'success'");
+            self.conn.query_row(
+                &format!("SELECT COUNT(*) FROM request_logs {}", failure_where),
+                rusqlite::params_from_iter(failure_scope.values.iter()),
+                |row| row.get(0),
+            )?
+        };
 
         let input_side = total_input_tokens + total_cache_read_tokens + total_cache_creation_tokens;
         let cache_hit_rate = if input_side > 0 {
@@ -470,24 +567,25 @@ impl Database {
             avg_latency_ms,
             avg_first_token_ms,
             avg_output_tokens_per_second,
+            performance_mixed_sources,
         };
 
         let dimension_scope = self.request_log_where(time_range, filter, "r.")?;
         let dimension_where = dimension_scope.with_condition(&usage_condition("r."));
 
         let mut key_stmt = self.conn.prepare(&format!(
-            "SELECT COALESCE(r.api_key_id, 'unassigned'),
+            "{} SELECT COALESCE(r.api_key_id, 'unassigned'),
                     COALESCE(NULLIF(r.key_alias, ''), NULLIF(k.alias, ''), 'Unknown key'),
                     COALESCE(NULLIF(r.provider_name, ''), NULLIF(p.name, ''), ''),
                     COALESCE(SUM(r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens), 0),
                     COUNT(*)
-             FROM request_logs r
+             FROM unified_logs r
              LEFT JOIN api_keys k ON r.api_key_id = k.id
              LEFT JOIN providers p ON r.provider_id = p.id
              {}
              GROUP BY 1, 2, 3
              ORDER BY 4 DESC, 5 DESC",
-            dimension_where
+            UNIFIED_LEDGER_CTE, dimension_where
         ))?;
         let key_usage = key_stmt
             .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
@@ -502,7 +600,7 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut project_stmt = self.conn.prepare(&format!(
-            "SELECT COALESCE(r.project_id, ps.cli_type, 'unassigned'),
+            "{} SELECT COALESCE(r.project_id, ps.cli_type, 'unassigned'),
                     COALESCE(
                         NULLIF(r.project_name, ''),
                         NULLIF(pr.name, ''),
@@ -515,13 +613,13 @@ impl Database {
                     COALESCE(NULLIF(pr.path, ''), ''),
                     COALESCE(SUM(r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens), 0),
                     COUNT(*)
-             FROM request_logs r
+             FROM unified_logs r
              LEFT JOIN projects pr ON r.project_id = pr.id
              LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
              {}
              GROUP BY 1, 2, 3
              ORDER BY 4 DESC, 5 DESC",
-            dimension_where
+            UNIFIED_LEDGER_CTE, dimension_where
         ))?;
         let project_usage = project_stmt
             .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
@@ -539,13 +637,13 @@ impl Database {
         let trend_granularity = Self::trend_granularity(time_range);
         let trend_bucket = Self::trend_bucket_expr(&created_date, trend_granularity);
         let mut model_stmt = self.conn.prepare(&format!(
-            "SELECT {} AS d,
+            "{} SELECT {} AS d,
                     COALESCE(NULLIF(TRIM(model), ''), NULLIF(TRIM(request_model), ''), ''),
                     COALESCE(SUM({}), 0)
-             FROM request_logs {}
+             FROM unified_logs {}
              GROUP BY d, 2
              ORDER BY d DESC, 3 DESC, 2 ASC",
-            trend_bucket, TOKEN_SUM, where_clause
+            UNIFIED_LEDGER_CTE, trend_bucket, TOKEN_SUM, where_clause
         ))?;
         let daily_model_usage = model_stmt
             .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
@@ -731,7 +829,7 @@ impl Database {
         let where_clause = &scope.clause;
 
         let total: i64 = self.conn.query_row(
-            &format!("SELECT COUNT(*) FROM request_logs r {}", where_clause),
+            &format!("{UNIFIED_LEDGER_CTE} SELECT COUNT(*) FROM unified_logs r {where_clause}"),
             rusqlite::params_from_iter(scope.values.iter()),
             |row| row.get(0),
         )?;
@@ -741,7 +839,7 @@ impl Database {
         scope.values.push(page_size.into());
         scope.values.push(offset.into());
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT r.id, r.model, COALESCE(r.key_alias, k.alias), COALESCE(r.provider_name, p.name),
+            "{} SELECT r.id, r.model, COALESCE(r.key_alias, k.alias), COALESCE(r.provider_name, p.name),
                         COALESCE(
                             r.project_name,
                             pr.name,
@@ -754,14 +852,15 @@ impl Database {
                         r.input_tokens, r.output_tokens,
                         r.cache_read_tokens, r.cache_creation_tokens,
                         r.latency_ms, r.status_code, r.outcome, r.error_message, r.created_at, r.request_kind,
-                        r.request_id, r.first_token_ms, {}
-                 FROM request_logs r
+                        r.request_id, r.first_token_ms, {},
+                        r.source, r.thinking_tokens, r.response_tokens, r.generation_ms
+                 FROM unified_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
                  LEFT JOIN projects pr ON r.project_id = pr.id
                  LEFT JOIN proxy_sessions ps ON r.session_id = ps.session_token
-                 {} ORDER BY r.created_at DESC, r.rowid DESC LIMIT ?{limit_parameter} OFFSET ?{offset_parameter}",
-            output_speed_sql("r."), where_clause
+                 {where_clause} ORDER BY r.created_at DESC, r.id DESC LIMIT ?{limit_parameter} OFFSET ?{offset_parameter}",
+            UNIFIED_LEDGER_CTE, output_speed_sql("r.")
         ))?;
         let items: Vec<RecentRequestLogDisplay> = stmt
             .query_map(rusqlite::params_from_iter(scope.values.iter()), |row| {
@@ -784,6 +883,10 @@ impl Database {
                     request_id: row.get(15)?,
                     first_token_ms: row.get(16)?,
                     output_tokens_per_second: row.get(17)?,
+                    source: row.get(18)?,
+                    thinking_tokens: row.get(19)?,
+                    response_tokens: row.get(20)?,
+                    generation_ms: row.get(21)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -802,12 +905,13 @@ impl Database {
         let created_date = Self::local_date_expr("created_at");
         let usage_clause = "input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0";
 
+        // Usage is merged across both ledgers; failures stay proxy-verified below.
         let (today_tokens, today_requests) = self.conn.query_row(
             &format!(
-                "SELECT COALESCE(SUM({}), 0), COUNT(*)
-                 FROM request_logs
+                "{} SELECT COALESCE(SUM({}), 0), COUNT(*)
+                 FROM unified_logs
                  WHERE {} = ?1 AND ({})",
-                TOKEN_SUM, created_date, usage_clause
+                UNIFIED_LEDGER_CTE, TOKEN_SUM, created_date, usage_clause
             ),
             [&today],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
@@ -1932,5 +2036,657 @@ mod tests {
         db.request_log_create(&legacy).unwrap();
         let stored = db.request_log_list_all().unwrap();
         assert_eq!(stored[0].request_id.as_deref(), Some("req-legacy"));
+    }
+
+    // ── Merged observation ledger (proxy + Antigravity) ──
+
+    use crate::db::antigravity_usage::{
+        AntigravityConversationSyncBatch, AntigravitySource, AntigravitySyncFingerprint,
+        AntigravityUsageEvent,
+    };
+
+    /// The exact RFC 3339 shape the sync layer pins for `created_at`.
+    fn ag_now() -> String {
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, false)
+    }
+
+    fn ag_days_ago(days: i64) -> String {
+        (chrono::Utc::now() - chrono::Duration::days(days))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, false)
+    }
+
+    fn antigravity_event(
+        response_key: &str,
+        created_at: &str,
+        input_tokens: i64,
+        output_tokens: i64,
+        cache_read_tokens: i64,
+        ttft_ms: i64,
+        generation_ms: i64,
+    ) -> AntigravityUsageEvent {
+        AntigravityUsageEvent {
+            gen_idx: 0,
+            response_key: response_key.into(),
+            model: Some("Gemini 4 Neon (High)".into()),
+            project_name: Some("cc-use".into()),
+            conversation_title: Some("Index design".into()),
+            input_tokens,
+            output_tokens,
+            thinking_tokens: Some(output_tokens / 5),
+            response_tokens: Some(output_tokens - output_tokens / 5),
+            cache_read_tokens,
+            cache_creation_tokens: 0,
+            ttft_ms: Some(ttft_ms),
+            generation_ms: Some(generation_ms),
+            total_ms: Some(ttft_ms + generation_ms),
+            created_at: created_at.into(),
+        }
+    }
+
+    /// Writes through the real sync path so the merged ledger sees production rows.
+    fn seed_antigravity(
+        db: &Database,
+        source: AntigravitySource,
+        conversation_id: &str,
+        events: Vec<AntigravityUsageEvent>,
+    ) {
+        db.antigravity_sync_apply_conversation(&AntigravityConversationSyncBatch {
+            source,
+            conversation_id: conversation_id.into(),
+            file_path: format!("/tmp/{conversation_id}.db"),
+            fingerprint: AntigravitySyncFingerprint::default(),
+            events,
+        })
+        .unwrap();
+    }
+
+    /// One proxy row and one event per Antigravity installation, with distinct
+    /// token totals and measurable stream timings:
+    /// proxy 300 tokens (first 100 / last 1100 / latency 1500),
+    /// desktop 470, cli 230 — 1000 tokens and 3 billable requests merged.
+    fn unified_ledger_fixture() -> Database {
+        let db = Database::new_in_memory().unwrap();
+        let now = ag_now();
+
+        let mut proxy = mk_billable_log("proxy-row", now.clone());
+        proxy.input_tokens = 100;
+        proxy.output_tokens = 200;
+        proxy.is_streaming = true;
+        proxy.first_token_ms = Some(100);
+        proxy.last_token_ms = Some(1_100);
+        proxy.latency_ms = Some(1_500);
+        db.request_log_create(&proxy).unwrap();
+
+        seed_antigravity(
+            &db,
+            AntigravitySource::Desktop,
+            "desktop-conversation",
+            vec![antigravity_event(
+                "desktop-response",
+                &now,
+                50,
+                400,
+                20,
+                200,
+                800,
+            )],
+        );
+        seed_antigravity(
+            &db,
+            AntigravitySource::Cli,
+            "cli-conversation",
+            vec![antigravity_event(
+                "cli-response",
+                &now,
+                30,
+                200,
+                0,
+                100,
+                500,
+            )],
+        );
+        db
+    }
+
+    #[test]
+    fn observation_unified_ledger_merges_proxy_and_antigravity_usage() {
+        use chrono::Datelike;
+        let db = unified_ledger_fixture();
+
+        let overview = db.request_log_get_overview().unwrap();
+        assert_eq!(overview.today_tokens, 1_000);
+        assert_eq!(overview.today_requests, 3);
+        assert_eq!(overview.today_failed_requests, 0);
+
+        let daily = db.request_log_get_daily_trend(366).unwrap();
+        assert_eq!(daily.len(), 1);
+        assert_eq!(daily[0].tokens, 1_000);
+        assert_eq!(daily[0].requests, 3);
+        assert_eq!(daily[0].input_tokens, 180);
+        assert_eq!(daily[0].output_tokens, 800);
+        assert_eq!(daily[0].cache_read_tokens, 20);
+
+        let now = chrono::Local::now();
+        let monthly = db
+            .request_log_get_monthly_trend(now.year() as i64, now.month() as i64)
+            .unwrap();
+        assert_eq!(monthly.iter().map(|point| point.tokens).sum::<i64>(), 1_000);
+
+        let stats = db.request_log_get_statistics("all").unwrap();
+        assert_eq!(stats.summary.total_requests, 3);
+        assert_eq!(stats.summary.total_tokens, 1_000);
+        assert_eq!(stats.summary.total_input_tokens, 180);
+        assert_eq!(stats.summary.total_output_tokens, 800);
+        assert_eq!(stats.summary.total_cache_read_tokens, 20);
+        // Dimensions describe the same merged population as the summary.
+        assert_eq!(
+            stats.key_usage.iter().map(|item| item.tokens).sum::<i64>(),
+            1_000
+        );
+        assert_eq!(
+            stats
+                .key_usage
+                .iter()
+                .map(|item| item.requests)
+                .sum::<i64>(),
+            3
+        );
+        assert_eq!(
+            stats
+                .project_usage
+                .iter()
+                .map(|item| item.tokens)
+                .sum::<i64>(),
+            1_000
+        );
+        assert_eq!(
+            stats
+                .daily_model_usage
+                .iter()
+                .map(|item| item.tokens)
+                .sum::<i64>(),
+            1_000
+        );
+
+        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
+        assert_eq!(recent.total, 3);
+        let mut sources = recent
+            .items
+            .iter()
+            .filter_map(|item| item.source.as_deref())
+            .collect::<Vec<_>>();
+        sources.sort_unstable();
+        assert_eq!(
+            sources,
+            vec!["antigravity_cli", "antigravity_desktop", "proxy"]
+        );
+    }
+
+    #[test]
+    fn observation_source_scope_never_widens_to_the_other_ledger() {
+        let db = unified_ledger_fixture();
+        for (source, tokens) in [
+            (RequestLogSource::Proxy, 300),
+            (RequestLogSource::AntigravityDesktop, 470),
+            (RequestLogSource::AntigravityCli, 230),
+        ] {
+            let filter = RequestLogFilter {
+                source: Some(source),
+                ..Default::default()
+            };
+            let stats = db
+                .request_log_get_statistics_filtered("all", &filter)
+                .unwrap();
+            assert_eq!(stats.summary.total_requests, 1, "{}", source.as_str());
+            assert_eq!(stats.summary.total_tokens, tokens, "{}", source.as_str());
+            assert!(
+                !stats.summary.performance_mixed_sources,
+                "{}",
+                source.as_str()
+            );
+            let page = db
+                .request_log_get_recent_paginated_filtered("all", 1, 10, &filter)
+                .unwrap();
+            assert_eq!(page.total, 1, "{}", source.as_str());
+            assert!(page
+                .items
+                .iter()
+                .all(|item| item.source.as_deref() == Some(source.as_str())));
+        }
+    }
+
+    #[test]
+    fn observation_mixed_sources_only_null_what_is_not_comparable() {
+        let db = unified_ledger_fixture();
+
+        // All sources: usage merged, incompatible performance withheld.
+        let mixed = db.request_log_get_statistics("all").unwrap();
+        assert!(mixed.summary.performance_mixed_sources);
+        assert_eq!(mixed.summary.total_requests, 3);
+        assert_eq!(mixed.summary.total_tokens, 1_000);
+        assert_eq!(mixed.summary.avg_latency_ms, None);
+        assert_eq!(mixed.summary.avg_first_token_ms, None);
+        assert_eq!(mixed.summary.avg_output_tokens_per_second, None);
+
+        // Proxy scope keeps the proxy end-to-end measurement.
+        let proxy = db
+            .request_log_get_statistics_filtered(
+                "all",
+                &RequestLogFilter {
+                    source: Some(RequestLogSource::Proxy),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(!proxy.summary.performance_mixed_sources);
+        assert_eq!(proxy.summary.avg_latency_ms, Some(1_500.0));
+        assert_eq!(proxy.summary.avg_first_token_ms, Some(100.0));
+        assert_eq!(proxy.summary.avg_output_tokens_per_second, Some(200.0));
+
+        // Antigravity scope keeps TTFT and the generation-duration speed:
+        // 400 tokens * 1000 / 800 ms generation.
+        let desktop = db
+            .request_log_get_statistics_filtered(
+                "all",
+                &RequestLogFilter {
+                    source: Some(RequestLogSource::AntigravityDesktop),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(!desktop.summary.performance_mixed_sources);
+        assert_eq!(desktop.summary.avg_latency_ms, Some(1_000.0));
+        assert_eq!(desktop.summary.avg_first_token_ms, Some(200.0));
+        assert_eq!(desktop.summary.avg_output_tokens_per_second, Some(500.0));
+
+        // One source family in scope needs no filter and stays exact.
+        let antigravity_only = Database::new_in_memory().unwrap();
+        seed_antigravity(
+            &antigravity_only,
+            AntigravitySource::Desktop,
+            "only-conversation",
+            vec![antigravity_event(
+                "only-response",
+                &ag_now(),
+                10,
+                240,
+                0,
+                200,
+                1_000,
+            )],
+        );
+        let single = antigravity_only.request_log_get_statistics("all").unwrap();
+        assert!(!single.summary.performance_mixed_sources);
+        assert_eq!(single.summary.avg_latency_ms, Some(1_200.0));
+        assert_eq!(single.summary.avg_first_token_ms, Some(200.0));
+        assert_eq!(single.summary.avg_output_tokens_per_second, Some(240.0));
+
+        // An empty ledger has no mixed anything.
+        let empty = Database::new_in_memory().unwrap();
+        let none = empty.request_log_get_statistics("all").unwrap();
+        assert!(!none.summary.performance_mixed_sources);
+        assert_eq!(none.summary.total_requests, 0);
+    }
+
+    #[test]
+    fn observation_antigravity_rows_never_inflate_failure_counts() {
+        let db = unified_ledger_fixture();
+        db.request_log_create(&mk_failed_log(
+            "proxy-failed",
+            ag_now(),
+            502,
+            "upstream_error",
+        ))
+        .unwrap();
+        db.request_log_create(&mk_failed_log(
+            "proxy-client",
+            ag_now(),
+            429,
+            "client_error",
+        ))
+        .unwrap();
+
+        let stats = db.request_log_get_statistics("all").unwrap();
+        assert_eq!(stats.summary.total_requests, 3, "billable scope unchanged");
+        assert_eq!(stats.summary.failed_requests, 2, "proxy failures only");
+        assert_eq!(
+            db.request_log_get_overview().unwrap().today_failed_requests,
+            2
+        );
+
+        // An Antigravity scope verifies no proxy failure, so it reports none.
+        let desktop = db
+            .request_log_get_statistics_filtered(
+                "all",
+                &RequestLogFilter {
+                    source: Some(RequestLogSource::AntigravityDesktop),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(desktop.summary.total_requests, 1);
+        assert_eq!(desktop.summary.failed_requests, 0);
+
+        // The failure drilldown still returns proxy rows only.
+        let failed = RequestLogFilter {
+            outcome: Some(RequestLogOutcome::Failed),
+            ..Default::default()
+        };
+        let page = db
+            .request_log_get_recent_paginated_filtered("all", 1, 10, &failed)
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert!(page
+            .items
+            .iter()
+            .all(|item| item.source.as_deref() == Some("proxy")));
+
+        let failed_antigravity = RequestLogFilter {
+            outcome: Some(RequestLogOutcome::Failed),
+            source: Some(RequestLogSource::AntigravityDesktop),
+            ..Default::default()
+        };
+        assert_eq!(
+            db.request_log_get_recent_paginated_filtered("all", 1, 10, &failed_antigravity)
+                .unwrap()
+                .total,
+            0
+        );
+    }
+
+    #[test]
+    fn observation_population_and_outcome_scopes_apply_to_antigravity_rows() {
+        let db = Database::new_in_memory().unwrap();
+        let now = ag_now();
+        seed_antigravity(
+            &db,
+            AntigravitySource::Desktop,
+            "conversation",
+            vec![
+                antigravity_event("billable", &now, 10, 20, 0, 100, 400),
+                antigravity_event("empty", &now, 0, 0, 0, 100, 400),
+            ],
+        );
+
+        let with_usage = RequestLogFilter {
+            population: Some(RequestLogPopulation::WithUsage),
+            ..Default::default()
+        };
+        let page = db
+            .request_log_get_recent_paginated_filtered("all", 1, 10, &with_usage)
+            .unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "ag:desktop:conversation:billable");
+
+        // The all population keeps the zero-token generation as a ledger row.
+        assert_eq!(
+            db.request_log_get_recent_paginated("all", 1, 10)
+                .unwrap()
+                .total,
+            2
+        );
+
+        // Antigravity rows project outcome 'success': success keeps them,
+        // failures exclude them.
+        let success = RequestLogFilter {
+            outcome: Some(RequestLogOutcome::Success),
+            ..Default::default()
+        };
+        assert_eq!(
+            db.request_log_get_recent_paginated_filtered("all", 1, 10, &success)
+                .unwrap()
+                .total,
+            2
+        );
+        let failed = RequestLogFilter {
+            outcome: Some(RequestLogOutcome::Failed),
+            ..Default::default()
+        };
+        assert_eq!(
+            db.request_log_get_recent_paginated_filtered("all", 1, 10, &failed)
+                .unwrap()
+                .total,
+            0
+        );
+
+        let stats = db.request_log_get_statistics("all").unwrap();
+        assert_eq!(stats.summary.total_requests, 1);
+        assert_eq!(stats.summary.total_tokens, 30);
+    }
+
+    #[test]
+    fn observation_recent_rows_expose_antigravity_source_and_generation_fields() {
+        let db = unified_ledger_fixture();
+        let recent = db.request_log_get_recent_paginated("all", 1, 10).unwrap();
+
+        let desktop = recent
+            .items
+            .iter()
+            .find(|item| item.id == "ag:desktop:desktop-conversation:desktop-response")
+            .expect("desktop row");
+        assert_eq!(
+            desktop.source.as_deref(),
+            Some(RequestLogSource::AntigravityDesktop.as_str())
+        );
+        assert_eq!(
+            desktop.provider_name.as_deref(),
+            Some(RequestLogSource::AntigravityDesktop.display_name())
+        );
+        assert_eq!(desktop.key_alias.as_deref(), Some("Index design"));
+        assert_eq!(desktop.project_name.as_deref(), Some("cc-use"));
+        assert_eq!(desktop.model.as_deref(), Some("Gemini 4 Neon (High)"));
+        assert_eq!(desktop.thinking_tokens, Some(80));
+        assert_eq!(desktop.response_tokens, Some(320));
+        assert_eq!(desktop.generation_ms, Some(800));
+        assert_eq!(desktop.latency_ms, Some(1_000));
+        assert_eq!(desktop.first_token_ms, Some(200));
+        assert_eq!(desktop.output_tokens_per_second, Some(500.0));
+        assert_eq!(desktop.outcome.as_deref(), Some("success"));
+        assert_eq!(desktop.status_code, None);
+        assert_eq!(desktop.request_id, None);
+
+        let cli = recent
+            .items
+            .iter()
+            .find(|item| item.id == "ag:cli:cli-conversation:cli-response")
+            .expect("cli row");
+        assert_eq!(
+            cli.provider_name.as_deref(),
+            Some(RequestLogSource::AntigravityCli.display_name())
+        );
+        assert_eq!(cli.output_tokens_per_second, Some(400.0));
+
+        // Proxy rows keep their own shape: no thinking split, no generation time.
+        let proxy = recent
+            .items
+            .iter()
+            .find(|item| item.id == "proxy-row")
+            .expect("proxy row");
+        assert_eq!(proxy.source.as_deref(), Some("proxy"));
+        assert_eq!(proxy.provider_name.as_deref(), Some("codex-provider"));
+        assert_eq!(proxy.thinking_tokens, None);
+        assert_eq!(proxy.response_tokens, None);
+        assert_eq!(proxy.generation_ms, None);
+    }
+
+    #[test]
+    fn observation_proxy_only_reads_stay_on_request_logs() {
+        let db = Database::new_in_memory().unwrap();
+        db.conn
+            .execute_batch(
+                "INSERT INTO providers (id, name, base_url) VALUES ('p', 'Proxy provider', 'https://fixture.invalid');
+                 INSERT INTO api_keys (id, provider_id, value) VALUES ('k', 'p', 'fixture');",
+            )
+            .unwrap();
+        let mut proxy = mk_billable_log("proxy-row", ag_now());
+        proxy.provider_id = Some("p".into());
+        proxy.api_key_id = Some("k".into());
+        proxy.session_id = Some("session-1".into());
+        proxy.input_tokens = 100;
+        proxy.output_tokens = 200;
+        proxy.is_streaming = true;
+        proxy.first_token_ms = Some(100);
+        proxy.last_token_ms = Some(1_100);
+        proxy.latency_ms = Some(1_500);
+        db.request_log_create(&proxy).unwrap();
+        seed_antigravity(
+            &db,
+            AntigravitySource::Desktop,
+            "conversation",
+            vec![antigravity_event(
+                "response",
+                &ag_now(),
+                50,
+                400,
+                20,
+                200,
+                800,
+            )],
+        );
+
+        let rows = db.request_log_list_all().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "proxy-row");
+        let key_stats = db.request_log_get_key_token_stats().unwrap();
+        assert_eq!(key_stats.len(), 1);
+        assert_eq!(key_stats[0]["totalTokens"], 300);
+        let resource = db
+            .request_log_get_resource_statistics("all", None, None)
+            .unwrap();
+        assert_eq!(resource.summary.total_requests, 1);
+        assert_eq!(resource.summary.total_tokens, 300);
+        assert_eq!(
+            db.request_log_session_performance("session-1", "p", "k")
+                .unwrap(),
+            Some((Some(200.0), Some(100)))
+        );
+
+        // Retention is proxy-owned; Antigravity history has its own cleanup.
+        db.request_log_create(&mk_billable_log("old-proxy", ag_days_ago(100)))
+            .unwrap();
+        seed_antigravity(
+            &db,
+            AntigravitySource::Cli,
+            "old-conversation",
+            vec![antigravity_event(
+                "old-response",
+                &ag_days_ago(100),
+                10,
+                10,
+                0,
+                10,
+                10,
+            )],
+        );
+        assert_eq!(db.request_log_cleanup_old(90).unwrap(), 1);
+        assert_eq!(db.request_log_list_all().unwrap().len(), 1);
+        let antigravity_rows: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM antigravity_usage_events", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(antigravity_rows, 2);
+    }
+
+    #[test]
+    fn observation_invalid_scopes_error_instead_of_reading_the_merged_ledger() {
+        let db = unified_ledger_fixture();
+        db.conn
+            .execute_batch(
+                "INSERT INTO providers (id, name, base_url) VALUES ('p1', 'Provider', 'https://fixture.invalid');
+                 INSERT INTO api_keys (id, provider_id, value) VALUES ('k1', 'p1', 'fixture');",
+            )
+            .unwrap();
+
+        // An existing scope with no rows is empty, never widened to Antigravity data.
+        let empty_scope = RequestLogFilter {
+            provider_id: Some("p1".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            db.request_log_get_statistics_filtered("all", &empty_scope)
+                .unwrap()
+                .summary
+                .total_requests,
+            0
+        );
+        assert_eq!(
+            db.request_log_get_recent_paginated_filtered("all", 1, 10, &empty_scope)
+                .unwrap()
+                .total,
+            0
+        );
+
+        // Deleting the resource turns the scope into an error, never global data.
+        db.conn
+            .execute("DELETE FROM providers WHERE id = 'p1'", [])
+            .unwrap();
+        let deleted = RequestLogFilter {
+            provider_id: Some("p1".into()),
+            ..Default::default()
+        };
+        assert!(db
+            .request_log_get_statistics_filtered("all", &deleted)
+            .is_err());
+        assert!(db
+            .request_log_get_recent_paginated_filtered("all", 1, 10, &deleted)
+            .is_err());
+        // A source filter never rescues an invalid resource scope.
+        let deleted_antigravity = RequestLogFilter {
+            provider_id: Some("p1".into()),
+            source: Some(RequestLogSource::AntigravityDesktop),
+            ..Default::default()
+        };
+        assert!(db
+            .request_log_get_statistics_filtered("all", &deleted_antigravity)
+            .is_err());
+        assert_eq!(
+            db.request_log_get_recent_paginated("all", 1, 10)
+                .unwrap()
+                .total,
+            3
+        );
+
+        // Malformed ranges fail before any ledger is read.
+        let filter = RequestLogFilter::default();
+        for range in [
+            "typo",
+            "custom:2026-11-15:2026-11-14",
+            "custom:2026-13-01:2026-13-02",
+        ] {
+            assert!(db
+                .request_log_get_statistics_filtered(range, &filter)
+                .is_err());
+            assert!(db
+                .request_log_get_recent_paginated_filtered(range, 1, 10, &filter)
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn observation_ledger_cte_pins_the_antigravity_projection() {
+        // The SQL is a constant, so keep the display labels and discriminators
+        // tied to the model that owns them.
+        for source in [
+            RequestLogSource::AntigravityDesktop,
+            RequestLogSource::AntigravityCli,
+        ] {
+            assert!(
+                UNIFIED_LEDGER_CTE.contains(source.display_name()),
+                "{}",
+                source.as_str()
+            );
+            assert!(
+                UNIFIED_LEDGER_CTE.contains(&format!("WHEN '{}'", source.as_str())),
+                "{}",
+                source.as_str()
+            );
+        }
+        assert!(UNIFIED_LEDGER_CTE.contains("'proxy' AS source"));
+        assert!(UNIFIED_LEDGER_CTE.contains("FROM antigravity_usage_events"));
+        assert!(UNIFIED_LEDGER_CTE.contains("FROM request_logs"));
+        // The speed denominator has to stay exactly generation_ms.
+        assert!(UNIFIED_LEDGER_CTE.contains("THEN ttft_ms + generation_ms END AS last_token_ms"));
     }
 }

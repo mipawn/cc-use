@@ -27,6 +27,12 @@ vi.mock('../api', () => ({
         keyUsage: [],
         projectUsage: [],
       }),
+      syncAntigravity: async () => ({
+        scannedFiles: 0,
+        updatedConversations: 0,
+        removedFiles: 0,
+      }),
+      onAntigravityUpdated: () => () => {},
       getRecentPaginated: async () => ({
         items: [
           {
@@ -162,6 +168,9 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
     expect(cells?.[4].textContent).toContain('62.5 tok/s')
     expect(cells?.[5].textContent).toContain('20 ms')
     expect(cells?.[6].textContent).toContain('100 ms')
+    // Proxy rows label the end-to-end latency and expose no thinking/response split.
+    expect(cells?.[6].textContent).toContain('statistics.latency')
+    expect(cells?.[3].textContent).not.toContain('observation.thinkingTokens')
     const legacyCells = container.querySelector('[data-row-key="legacy"]')?.querySelectorAll('td')
     expect(legacyCells?.[4].textContent).toBe('—')
     expect(legacyCells?.[5].textContent).toBe('—')

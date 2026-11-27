@@ -1,5 +1,6 @@
 import type { Api } from '../api/types'
 import type {
+  AntigravitySyncSummary,
   ClientKind,
   ConsoleEvent,
   ConsoleLogPage,
@@ -60,6 +61,7 @@ export function createFixtureApi(options: FixtureOptions = {}) {
   const nextId = (prefix: string) => `fixture-${prefix}-${++sequence}`
   const listeners = new Set<(event: ConsoleEvent) => void>()
   const statusListeners = new Set<Parameters<Api['proxy']['onStatusChanged']>[0]>()
+  const antigravityListeners = new Set<Parameters<Api['requestLog']['onAntigravityUpdated']>[0]>()
   const sessions: ProxySession[] = []
   const userAgents: string[] = ['cc-use-fixture']
   const preferences = new Map<string, string>()
@@ -847,6 +849,18 @@ export function createFixtureApi(options: FixtureOptions = {}) {
           avgLatencyMs: 1200,
           lastRequestAt: stamp(),
         })),
+      // No external scan happens here: these are the file-bookkeeping counts a
+      // real pass would return, and no synthetic row is added or removed.
+      syncAntigravity: async () => {
+        read('requestLog.syncAntigravity')
+        return { scannedFiles: 2, updatedConversations: 0, removedFiles: 0 }
+      },
+      onAntigravityUpdated: (callback) => {
+        antigravityListeners.add(callback)
+        return () => {
+          antigravityListeners.delete(callback)
+        }
+      },
     },
     cliTool: {
       status: async () => ({
@@ -953,6 +967,15 @@ export function createFixtureApi(options: FixtureOptions = {}) {
       running = value
       for (const callback of statusListeners)
         callback({ isRunning: value, port: state.settings.proxyPort, source: 'fixture' })
+    },
+    emitAntigravityUpdated(
+      summary: AntigravitySyncSummary = {
+        scannedFiles: 0,
+        updatedConversations: 0,
+        removedFiles: 0,
+      },
+    ) {
+      for (const listener of antigravityListeners) listener(clone(summary))
     },
   }
 }

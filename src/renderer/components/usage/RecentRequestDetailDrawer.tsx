@@ -1,5 +1,5 @@
 import { Button, Descriptions, Drawer, Space, Tag, Tooltip, Typography } from 'antd'
-import { isObservationId } from '../../utils/observationContext'
+import { isAntigravitySource, isObservationId } from '../../utils/observationContext'
 import { useTranslation } from 'react-i18next'
 import type { RecentRequestLogDisplay } from '@shared/types'
 import { formatExactTokenCount, formatTokenCount } from '../../utils/formatTokens'
@@ -30,6 +30,10 @@ export default function RecentRequestDetailDrawer({
   const tokens = record
     ? record.inputTokens + record.outputTokens + record.cacheReadTokens + record.cacheCreationTokens
     : 0
+  // Antigravity rows report a pure generation span instead of proxy latency.
+  const antigravity = isAntigravitySource(record?.source)
+  const sourceLabel = t(`observation.sources.${record?.source ?? 'proxy'}`)
+  const durationMs = antigravity ? (record?.generationMs ?? null) : (record?.latencyMs ?? null)
 
   return (
     <Drawer
@@ -67,7 +71,7 @@ export default function RecentRequestDetailDrawer({
             </Tag>
             <Text strong>{record.model || '—'}</Text>
             {record.requestKind === 'auto_mode' && <Tag color='gold'>Auto mode</Tag>}
-            <Text type='secondary'>{formatRequestDuration(record.latencyMs)}</Text>
+            <Text type='secondary'>{formatRequestDuration(durationMs)}</Text>
           </Space>
 
           <Descriptions column={1} size='small' bordered>
@@ -81,8 +85,10 @@ export default function RecentRequestDetailDrawer({
                 <span>{formatRequestDuration(record.firstTokenMs)}</span>
               </Tooltip>
             </Descriptions.Item>
-            <Descriptions.Item label={t('statistics.latency')}>
-              {formatRequestDuration(record.latencyMs)}
+            <Descriptions.Item
+              label={antigravity ? t('observation.generationDuration') : t('statistics.latency')}
+            >
+              {formatRequestDuration(antigravity ? record.generationMs : record.latencyMs)}
             </Descriptions.Item>
             <Descriptions.Item label={t('statistics.time')}>
               {new Date(record.createdAt).toLocaleString()}
@@ -90,6 +96,7 @@ export default function RecentRequestDetailDrawer({
             <Descriptions.Item label={t('statistics.route')}>
               {[record.providerName || '-', record.keyAlias || '-'].join(' / ')}
             </Descriptions.Item>
+            <Descriptions.Item label={t('observation.source')}>{sourceLabel}</Descriptions.Item>
             <Descriptions.Item label={t('statistics.project')}>
               {record.projectName || t('statistics.other')}
             </Descriptions.Item>
@@ -107,6 +114,12 @@ export default function RecentRequestDetailDrawer({
                   {t('statistics.cacheReadTokens')} {record.cacheReadTokens} ·{' '}
                   {t('statistics.cacheCreationTokens')} {record.cacheCreationTokens}
                 </Text>
+                {(record.thinkingTokens != null || record.responseTokens != null) && (
+                  <Text type='secondary' style={{ fontSize: 12 }}>
+                    {t('observation.thinkingTokens')} {record.thinkingTokens ?? '—'} ·{' '}
+                    {t('observation.responseTokens')} {record.responseTokens ?? '—'}
+                  </Text>
+                )}
               </Space>
             </Descriptions.Item>
             <Descriptions.Item label={t('statistics.status')}>

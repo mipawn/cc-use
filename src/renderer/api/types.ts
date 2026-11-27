@@ -56,6 +56,7 @@ import type {
   StatuslineState,
   StatuslineEnableResult,
   PaginatedRecentRequests,
+  AntigravitySyncSummary,
   RecentGatewayMetrics,
   ProviderGatewayMetrics,
   MigrationCheck,
@@ -359,6 +360,15 @@ export interface Api {
     getGatewayMetrics: () => Promise<RecentGatewayMetrics>
     getProviderGatewayMetrics: () => Promise<ProviderGatewayMetrics[]>
     getMonthlyTrend: (year: number, month: number) => Promise<DailyTrendItem[]>
+    /**
+     * Ask the backend for an asynchronous Antigravity reconciliation pass
+     * (startup/page-open/manual-refresh catch-up). It enqueues work and returns
+     * file bookkeeping counts, not usage; views reload when the
+     * `usage:antigravityUpdated` event follows.
+     */
+    syncAntigravity: () => Promise<AntigravitySyncSummary>
+    /** Emits after a reconciliation committed changes; returns the unlisten fn. */
+    onAntigravityUpdated: (callback: (summary: AntigravitySyncSummary) => void) => () => void
   }
   cliTool: {
     status: () => Promise<CliToolStatus>

@@ -293,7 +293,7 @@ describe('Keys workspace model catalog & provider management', () => {
       await clickButton('keys.catalogSave')
       expect(mocks.saveCatalog).toHaveBeenCalledWith(
         'provider-1',
-        [{ id: 'cloud-model-a', displayName: 'cloud-model-a', supports1m: false }],
+        [{ id: 'cloud-model-a', displayName: 'cloud-model-a' }],
         0,
       )
       expect(mocks.success).toHaveBeenCalledWith('keys.catalogSaved')

@@ -1,3 +1,4 @@
+pub mod antigravity;
 pub mod api_keys;
 pub mod balance;
 pub mod claude_desktop_config;

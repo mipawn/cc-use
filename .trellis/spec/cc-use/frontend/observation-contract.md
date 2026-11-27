@@ -47,12 +47,13 @@ interface ObservationContext {
   page: number
   pageSize: number
 }
-// RequestLogFilter: providerId?, apiKeyId?, instanceId?, outcome?, population?
+// RequestLogFilter: providerId?, apiKeyId?, instanceId?, outcome?, population?, source?
 // outcome: success | failed | client_error | upstream_error | transport_error
 // population: all | with_usage (omitted means all)
+// source: proxy | antigravity_desktop | antigravity_cli (omitted means the merged ledger)
 ```
 
-- Use `parseObservationContext`, `buildStatisticsUrl`, and `buildConsoleUrl`; do not forward arbitrary search strings or route state. Allowed parameters are `timeRange`, legacy `startDate`/`endDate`, the five filter fields, `page`, `pageSize`, `requestId`, and `requestDate` only.
+- Use `parseObservationContext`, `buildStatisticsUrl`, and `buildConsoleUrl`; do not forward arbitrary search strings or route state. Allowed parameters are `timeRange`, legacy `startDate`/`endDate`, the six filter fields (including `source`), `page`, `pageSize`, `requestId`, and `requestDate` only.
 - Defaults: `week`, empty filter, page 1, page size 10. Ranges: `today`, `yesterday`, `week`, `last30Days`, `lastYear`, `month`, `lastMonth`, `year`, `all`, or inclusive `custom:YYYY-MM-DD:YYYY-MM-DD`. Legacy dates must be valid, ordered, supplied together, and consistent with an explicit range.
 - Resource IDs and request IDs match `[A-Za-z0-9_-]{1,128}` in the URL. Dates are real calendar dates. URL page values are positive safe integers; page size is at most 100. Unknown keys, duplicates, empty/malformed values invalidate the **whole** context, never broaden it.
 - Statistics → drawer → Console → return preserves range, filters, page, and page size. Drawer handoff adds only `requestId` and optional local `requestDate` derived from the stored timestamp. Clearing the locator keeps a return-to-ledger action with the original context. Missing/invalid request ID disables handoff.
@@ -65,6 +66,8 @@ interface ObservationContext {
 - Provider/Key/instance IDs must still exist; combined Key/provider scopes must belong together. Resolve the instance-to-session-token association only inside SQL. A removed association is an error, not an empty/global retry. Historical request rows are not deleted merely because a resource disappears.
 - `with_usage` means at least one of input/output/cache-read/cache-creation token counts is positive; cache-only records count. `failed` means non-null outcome other than `success`, including future/legacy failure strings.
 - `summary.totalRequests`, token totals, trends and usage dimensions retain the **with-usage** denominator within the selected scope. `summary.failedRequests` and ledger `total` use the selected population. Do not relabel the billable request count as all requests or compute a failure rate from those unlike denominators.
+- The ledger merges proxy rows with the Antigravity conversation index. `source` scopes the union; omitting it is the only view that can mix both families. Proxy end-to-end `latency_ms` and Antigravity `generation_ms` are different measurements: when `source` is omitted **and** the scoped billable population contains both a proxy and a non-proxy row, the backend returns `performanceMixedSources = true` with `avgLatencyMs`, `avgFirstTokenMs` and `avgOutputTokensPerSecond` all `null`, and the UI renders `—` plus a hint to pick one source. Never average the two, and never treat the missing average as `0 ms`.
+- Antigravity rows carry `source`, `thinkingTokens`, `responseTokens` and `generationMs`; proxy rows leave them `null`. `generationMs` is the streaming duration after the first token, so `outputTokensPerSecond` for those rows is `outputTokens * 1000 / generationMs`. v1 never counts Antigravity failures: `failedRequests` stays strictly proxy-verified, and an Antigravity scope reports `0` rather than borrowing proxy failures.
 - Paginated response is `{ items, total, page, pageSize }`; `total` is the scoped count, not page length. Backend clamps page ≥1 and page size to 1–100 and rejects offset overflow; stricter malformed-URL rejection happens before IPC.
 - Both Statistics reads publish together under URL identity + request revision. Scope changes clear old numbers; stale/failed responses never replace another scope or trigger an unfiltered retry.
 

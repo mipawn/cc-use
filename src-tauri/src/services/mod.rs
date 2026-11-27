@@ -1,3 +1,6 @@
+pub mod antigravity_proto;
+pub mod antigravity_sync;
+pub mod antigravity_watcher;
 pub mod app_logger;
 pub mod balance_service;
 pub mod console_bridge;

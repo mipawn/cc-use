@@ -252,7 +252,7 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
     },
   ]
   // Today spans multiple pages; the remaining rows populate two years of heatmaps.
-  const ledger: LedgerRow[] = Array.from({ length: 810 }, (_, i): LedgerRow => {
+  const proxyLedger: LedgerRow[] = Array.from({ length: 810 }, (_, i): LedgerRow => {
     const date = new Date(now)
     date.setDate(date.getDate() - (i < 70 ? 0 : i - 69))
     date.setHours(12, i % 60, 0, 0)
@@ -261,6 +261,7 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
     return {
       id: `log-${i + 1}`,
       requestId: `request-${i + 1}`,
+      source: 'proxy',
       providerId,
       apiKeyId: i % 2 ? 'key-account' : 'key-usd',
       instanceId: `instance-${(i % 2) + 1}`,
@@ -280,7 +281,47 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
       errorMessage: failed ? 'Synthetic upstream failure' : null,
       createdAt: utcTimestamp(date),
     }
-  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  })
+  // The real app reads these from local Antigravity SQLite conversation indexes.
+  // Synthetic rows cover both sources plus the mixed-source summary rule.
+  const antigravityLedger: LedgerRow[] = Array.from({ length: 12 }, (_, i): LedgerRow => {
+    const date = new Date(now)
+    date.setDate(date.getDate() - (i % 3))
+    date.setHours(9 + (i % 6), i * 3, 0, 0)
+    const cli = i % 2 === 1
+    const thinkingTokens = 30 + i * 4
+    const responseTokens = 90 + i * 7
+    const generationMs = 1200 + i * 150
+    return {
+      id: `antigravity-${i + 1}`,
+      requestId: null,
+      source: cli ? 'antigravity_cli' : 'antigravity_desktop',
+      providerId: 'antigravity',
+      apiKeyId: 'antigravity',
+      instanceId: 'antigravity',
+      model: cli ? 'gemini-3-pro-fixture' : 'claude-sonnet-5',
+      keyAlias: `Antigravity conversation ${i + 1}`,
+      providerName: cli ? 'Antigravity CLI' : 'Antigravity Desktop',
+      projectName: cli ? 'fixture-cli-workspace' : null,
+      inputTokens: 900 + i * 40,
+      outputTokens: thinkingTokens + responseTokens,
+      thinkingTokens,
+      responseTokens,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      latencyMs: 350 + generationMs,
+      firstTokenMs: 350 + (i % 3) * 60,
+      generationMs,
+      outputTokensPerSecond: ((thinkingTokens + responseTokens) * 1000) / generationMs,
+      statusCode: null,
+      outcome: 'success',
+      errorMessage: null,
+      createdAt: utcTimestamp(date),
+    }
+  })
+  const ledger: LedgerRow[] = [...proxyLedger, ...antigravityLedger].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )
   const history: ConsoleLogRecordRef[] = [
     {
       source: 'daemon',

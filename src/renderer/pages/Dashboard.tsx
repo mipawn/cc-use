@@ -72,7 +72,32 @@ export default function Dashboard() {
     }
   }, [fetchOverview])
 
-  usePageRefresh(() => fetchOverview())
+  // Reconciliation is best-effort catch-up, never a gate on rendering: opening
+  // the page asks the backend to scan now, and a missed FSEvent that commits
+  // later re-reads the overview through the `usage:antigravityUpdated` event.
+  const syncAntigravity = useCallback(async () => {
+    try {
+      await getApi().requestLog.syncAntigravity()
+    } catch {
+      // The overview read stays authoritative when catch-up fails.
+    }
+  }, [])
+
+  useEffect(() => {
+    // Subscribe before asking for the catch-up scan: a scan that commits while
+    // the request is in flight emits `usage:antigravityUpdated`, and an early
+    // emit must not be missed. The scan itself stays strictly non-blocking.
+    const dispose = getApi().requestLog.onAntigravityUpdated(() => {
+      void fetchOverview()
+    })
+    void syncAntigravity()
+    return dispose
+  }, [fetchOverview, syncAntigravity])
+
+  usePageRefresh(async () => {
+    await syncAntigravity()
+    await fetchOverview()
+  })
 
   const yearList = Array.from({ length: 6 }, (_, i) => currentYear - i)
 

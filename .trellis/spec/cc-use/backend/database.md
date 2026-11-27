@@ -36,6 +36,7 @@
 | `settings` | `db/settings.rs` |
 | `custom_user_agents` | `db/user_agents.rs` |
 | `gateway_request_events` | `db/gateway_metrics.rs` |
+| `antigravity_sync_files`, `antigravity_usage_events` | `db/antigravity_usage.rs` (index of the local Antigravity conversation DBs) |
 
 `project_client_bindings` is the exception: it is a per-project extension hydrated into
 `Project.bindings`, so it lives with projects instead of its own module. New tables should
@@ -171,13 +172,51 @@ document. Never log a restored secret.
 ## Retention / Cleanup
 
 - Startup (`lib.rs` setup task): `proxy_session_cleanup_stale(30)`,
-  `request_log_cleanup_old(90)`, `usage_log_cleanup_old(90)`.
+  `request_log_cleanup_old(90)`, `usage_log_cleanup_old(90)`,
+  `antigravity_usage_cleanup_old(365)`.
 - Proxied-request metrics (`db/gateway_metrics.rs::gateway_event_cleanup`): delete rows
   older than 30 days and keep at most `MAX_EVENT_ROWS = 50_000`; called by the metrics
   writer thread at startup and every 256 persisted metrics (`proxy/mod.rs`).
 - The daemon sweeper (`crates/cc-use-daemon/src/runtime.rs`) marks stale/running instances
   and revokes sessions for stopped managed instances every 10 s.
 - Adding a new high-volume table requires a retention rule in the same change.
+
+## Antigravity Usage Index (`db/antigravity_usage.rs`)
+
+Antigravity Desktop (`~/.gemini/antigravity/conversations/*.db`) and the Antigravity CLI
+(`~/.gemini/antigravity-cli/conversations/*.db`) keep per-conversation SQLite databases with
+inference telemetry. `cc-use` indexes them read-only into two dedicated tables and never
+writes to, hooks, or takes over those directories. `request_logs` stays strictly proxy-owned.
+
+- `antigravity_sync_files(file_path PRIMARY KEY, source, conversation_id, db_size,
+  db_mtime_ns, wal_size, wal_mtime_ns, synced_at)` — one row per indexed conversation
+  database. A WAL-only commit changes neither the `.db` size nor its mtime, so the
+  fingerprint tracks **both** the database and its `-wal` sidecar.
+- `antigravity_usage_events(id PRIMARY KEY, source, conversation_id, gen_idx, response_key,
+  model, project_name, conversation_title, input_tokens, output_tokens, thinking_tokens,
+  response_tokens, cache_read_tokens, cache_creation_tokens, ttft_ms, generation_ms,
+  total_ms, created_at, UNIQUE(source, conversation_id, response_key))`.
+  `id` is `ag:<desktop|cli>:<conversation_id>:<response_key>`; the UNIQUE constraint makes a
+  rescan of one conversation replace rows instead of duplicating them.
+- `source` is always `antigravity_desktop` or `antigravity_cli` — the same strings as
+  `models::RequestLogSource::as_str()`, so the merged ledger can filter on one column.
+- `created_at` is RFC 3339 UTC in a **fixed-width** shape
+  (`YYYY-MM-DDTHH:MM:SS.mmm+00:00`, from `to_rfc3339_opts(SecondsFormat::Millis, false)`).
+  Retention deletes with a lexicographic `<` comparison, so a variable-width fraction would
+  silently mis-order rows. Do not introduce `to_rfc3339()` here.
+- `antigravity_sync_apply_conversation` replaces one conversation in a single short
+  `unchecked_transaction()`; readers must never hold the `cc-use.db` mutex while reading an
+  external conversation database. `antigravity_sync_prune_missing` drops file pointers for
+  deleted conversations but keeps historical events — only retention deletes usage.
+- Reading a conversation requires `SQLITE_OPEN_READ_ONLY | SQLITE_OPEN_NO_MUTEX`,
+  `PRAGMA query_only = ON`, `PRAGMA busy_timeout = 500` and a deferred transaction. Never
+  open with `immutable=1`: it skips the `.db-wal`, so uncheckpointed commits disappear.
+- `db/request_logs.rs::UNIFIED_LEDGER_CTE` unions these rows into the observation reads. The
+  Antigravity projection maps `ttft_ms` → `first_token_ms`, `total_ms` → `latency_ms` and
+  `ttft_ms + generation_ms` → `last_token_ms`, which makes the existing `output_speed_sql`
+  report exactly `output_tokens * 1000 / generation_ms`. v1 never counts Antigravity failures
+  (`outcome` is projected as `success`) because unverified retry chains would inflate the
+  proxy-verified failure count.
 
 ## Rules for New Queries
 

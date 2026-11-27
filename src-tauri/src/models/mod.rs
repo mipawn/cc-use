@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod request_log_filter;
-pub use request_log_filter::{RequestLogFilter, RequestLogOutcome, RequestLogPopulation};
+pub use request_log_filter::{
+    RequestLogFilter, RequestLogOutcome, RequestLogPopulation, RequestLogSource,
+};
 
 // ── Provider ──
 
@@ -762,6 +764,11 @@ pub struct UsageStatsSummary {
     pub avg_first_token_ms: Option<f64>,
     #[serde(default)]
     pub avg_output_tokens_per_second: Option<f64>,
+    /// The scoped population mixes proxy latency with Antigravity generation
+    /// time. The three performance averages above are then `None`, because
+    /// averaging incomparable durations would invent a number.
+    #[serde(default)]
+    pub performance_mixed_sources: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -821,6 +828,17 @@ pub struct RecentRequestLogDisplay {
     pub outcome: Option<String>,
     pub error_message: Option<String>,
     pub created_at: String,
+    /// v3.24.0: `proxy` | `antigravity_desktop` | `antigravity_cli`.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Antigravity only: the thinking/response split inside `output_tokens`.
+    #[serde(default)]
+    pub thinking_tokens: Option<i64>,
+    #[serde(default)]
+    pub response_tokens: Option<i64>,
+    /// Antigravity only: pure streaming generation time after the first token.
+    #[serde(default)]
+    pub generation_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -830,6 +848,17 @@ pub struct PaginatedRecentRequests {
     pub total: i64,
     pub page: i64,
     pub page_size: i64,
+}
+
+/// Result of one Antigravity reconciliation pass. Counts describe file
+/// bookkeeping, not usage: a rescanned conversation whose rows did not change
+/// still counts as scanned only.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AntigravitySyncSummary {
+    pub scanned_files: usize,
+    pub updated_conversations: usize,
+    pub removed_files: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

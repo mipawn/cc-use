@@ -1,4 +1,4 @@
-import type { RequestLogFilter, StatsTimeRange } from '@shared/types'
+import type { RequestLogFilter, RequestLogSource, StatsTimeRange } from '@shared/types'
 
 type RequestLogOutcome = NonNullable<RequestLogFilter['outcome']>
 
@@ -27,6 +27,16 @@ export const observationOutcomes: RequestLogOutcome[] = [
   'upstream_error',
   'transport_error',
 ]
+export const observationSources: RequestLogSource[] = [
+  'proxy',
+  'antigravity_desktop',
+  'antigravity_cli',
+]
+
+/** Antigravity rows carry their own TTFT / generation split instead of proxy latency. */
+export function isAntigravitySource(source: string | null | undefined): boolean {
+  return source === 'antigravity_desktop' || source === 'antigravity_cli'
+}
 const allowed = new Set([
   'timeRange',
   'startDate',
@@ -36,6 +46,7 @@ const allowed = new Set([
   'instanceId',
   'outcome',
   'population',
+  'source',
   'page',
   'pageSize',
   'requestId',
@@ -109,6 +120,12 @@ export function parseObservationContext(search: string) {
     if (population === 'all' || population === 'with_usage') filter.population = population
     else invalid = true
   }
+  const source = params.get('source')
+  if (source !== null) {
+    if (observationSources.includes(source as RequestLogSource))
+      filter.source = source as RequestLogSource
+    else invalid = true
+  }
   const number = (key: string, fallback: number, max: number) => {
     const raw = params.get(key)
     if (raw === null) return fallback
@@ -143,6 +160,7 @@ export function observationSearch(context: Partial<ObservationContext> = {}): st
   }
   if (context.filter?.outcome) params.set('outcome', context.filter.outcome)
   if (context.filter?.population) params.set('population', context.filter.population)
+  if (context.filter?.source) params.set('source', context.filter.source)
   params.set('page', String(context.page ?? 1))
   params.set('pageSize', String(context.pageSize ?? 10))
   const result = params.toString()

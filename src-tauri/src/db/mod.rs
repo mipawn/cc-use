@@ -10,6 +10,7 @@ macro_rules! add_field {
     };
 }
 
+pub mod antigravity_usage;
 pub mod api_keys;
 mod client_profile_migration;
 pub mod client_profiles;
@@ -387,6 +388,48 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_managed_instances_status_seen
             ON managed_instances(status, last_seen_at DESC);
+
+            CREATE TABLE IF NOT EXISTS antigravity_sync_files (
+                file_path TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                db_size INTEGER NOT NULL,
+                db_mtime_ns INTEGER NOT NULL,
+                wal_size INTEGER NOT NULL DEFAULT 0,
+                wal_mtime_ns INTEGER NOT NULL DEFAULT 0,
+                synced_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS antigravity_usage_events (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                gen_idx INTEGER NOT NULL,
+                response_key TEXT NOT NULL,
+                model TEXT,
+                project_name TEXT,
+                conversation_title TEXT,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                thinking_tokens INTEGER,
+                response_tokens INTEGER,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                ttft_ms INTEGER,
+                generation_ms INTEGER,
+                total_ms INTEGER,
+                created_at TEXT NOT NULL,
+                UNIQUE(source, conversation_id, response_key)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_antigravity_usage_created
+            ON antigravity_usage_events(created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_antigravity_usage_source_created
+            ON antigravity_usage_events(source, created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_antigravity_usage_source_conv
+            ON antigravity_usage_events(source, conversation_id);
 
 ",
         )?;

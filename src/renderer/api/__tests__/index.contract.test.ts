@@ -383,7 +383,7 @@ describe('renderer api contract', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(6, 'client_profile_delete', { id: 'profile-1' })
     expect(invokeMock).toHaveBeenNthCalledWith(7, 'client_profile_reorder', {
       clientKind: 'claude_code',
-      profileIds: ['profile-2', 'profile-1'],
+      ids: ['profile-2', 'profile-1'],
     })
     expect(invokeMock).toHaveBeenNthCalledWith(8, 'desktop_connection_apply', {
       clientKind: 'codex',
@@ -391,6 +391,32 @@ describe('renderer api contract', () => {
       apiKeyId: 'key-1',
       clientProfileId: 'profile-codex',
     })
+  })
+
+  it('requests an Antigravity reconciliation pass and subscribes to its update events', async () => {
+    const summary = { scannedFiles: 2, updatedConversations: 1, removedFiles: 0 }
+    invokeMock.mockResolvedValue(summary)
+    const unlistenMock = vi.fn()
+    let eventHandler: ((event: { payload: typeof summary }) => void) | undefined
+    listenMock.mockImplementation(async (_event, handler) => {
+      eventHandler = handler
+      return unlistenMock
+    })
+
+    const { getApi } = await loadApiModule()
+    const api = getApi()
+    expect(await api.requestLog.syncAntigravity()).toEqual(summary)
+    expect(invokeMock).toHaveBeenCalledWith('antigravity_usage_sync', undefined)
+
+    const callback = vi.fn()
+    const dispose = api.requestLog.onAntigravityUpdated(callback)
+    await vi.dynamicImportSettled()
+    eventHandler?.({ payload: summary })
+    dispose()
+
+    expect(listenMock).toHaveBeenCalledWith('usage:antigravityUpdated', expect.any(Function))
+    expect(callback).toHaveBeenCalledWith(summary)
+    expect(unlistenMock).toHaveBeenCalledTimes(1)
   })
 
   it('subscribes to proxy status events and disposes the listener', async () => {

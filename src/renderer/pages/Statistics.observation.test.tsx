@@ -11,7 +11,12 @@ import type { ObservationContext } from '../utils/observationContext'
 import { refreshCurrentPage } from '../api/pageRefresh'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-const api = vi.hoisted(() => ({ getStatistics: vi.fn(), getRecentPaginated: vi.fn() }))
+const api = vi.hoisted(() => ({
+  getStatistics: vi.fn(),
+  getRecentPaginated: vi.fn(),
+  syncAntigravity: vi.fn(),
+  onAntigravityUpdated: vi.fn(),
+}))
 vi.mock('../api', () => ({ getApi: () => ({ requestLog: api }) }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
@@ -87,14 +92,18 @@ let root: ReturnType<typeof createRoot>
 let container: HTMLDivElement
 beforeEach(() => {
   api.getStatistics.mockReset().mockResolvedValue(statistics)
-  api.getRecentPaginated
-    .mockReset()
-    .mockImplementation(async (_range, page, pageSize) => ({
-      items: [item],
-      total: 100,
-      page,
-      pageSize,
-    }))
+  api.getRecentPaginated.mockReset().mockImplementation(async (_range, page, pageSize) => ({
+    items: [item],
+    total: 100,
+    page,
+    pageSize,
+  }))
+  api.syncAntigravity.mockReset().mockResolvedValue({
+    scannedFiles: 0,
+    updatedConversations: 0,
+    removedFiles: 0,
+  })
+  api.onAntigravityUpdated.mockReset().mockReturnValue(() => {})
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -125,13 +134,37 @@ function button(text: string, parent: ParentNode = container) {
   return node!
 }
 
+async function chooseSource(label: string) {
+  const trigger = container.querySelector<HTMLInputElement>(
+    'input[aria-label="observation.source"]',
+  )
+  expect(trigger).not.toBeNull()
+  await act(async () => {
+    trigger!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', keyCode: 40, bubbles: true }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  const option = Array.from(document.body.querySelectorAll('.ant-select-item-option')).find(
+    (item) => item.textContent === label,
+  )
+  expect(option).toBeDefined()
+  await act(async () => {
+    ;(option as HTMLElement).click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
 it('queries aggregates and pages with the identical scope and keeps it on page refresh', async () => {
   await render()
+  expect(api.syncAntigravity).toHaveBeenCalledTimes(1)
   expect(api.getStatistics).toHaveBeenLastCalledWith(context.timeRange, context.filter)
   expect(api.getRecentPaginated).toHaveBeenLastCalledWith(context.timeRange, 2, 20, context.filter)
   await act(async () => {
     await refreshCurrentPage()
   })
+  // Manual refresh asks for a catch-up pass before re-reading the same scope.
+  expect(api.syncAntigravity).toHaveBeenCalledTimes(2)
   expect(api.getStatistics).toHaveBeenCalledTimes(2)
   expect(api.getRecentPaginated).toHaveBeenLastCalledWith(context.timeRange, 2, 20, context.filter)
   expect(parseObservationContext(location.search).context).toEqual(context)
@@ -147,6 +180,117 @@ it('choosing failures preserves source/date and includes zero-token failures fro
   expect(parseObservationContext(location.search).context.filter).toEqual(failed)
 })
 
+it('scopes the ledger by source from the filter bar and resets only pagination', async () => {
+  await render()
+  await chooseSource('observation.sources.antigravity_cli')
+  const scoped = { ...context.filter, source: 'antigravity_cli' as const }
+  expect(api.getStatistics).toHaveBeenLastCalledWith(context.timeRange, scoped)
+  expect(api.getRecentPaginated).toHaveBeenLastCalledWith(context.timeRange, 1, 20, scoped)
+  expect(parseObservationContext(location.search).context).toEqual({
+    ...context,
+    filter: scoped,
+    page: 1,
+  })
+})
+
+it('hides incomparable averages and explains the mixed source scope', async () => {
+  api.getStatistics.mockResolvedValueOnce({
+    ...statistics,
+    summary: {
+      ...statistics.summary,
+      avgLatencyMs: null,
+      avgFirstTokenMs: null,
+      avgOutputTokensPerSecond: null,
+      performanceMixedSources: true,
+    },
+  })
+  await render()
+  expect(container.textContent).toContain('observation.performanceMixedHint')
+  // The three performance readings use an em dash instead of a fabricated number.
+  expect(container.textContent?.match(/—/g)?.length).toBeGreaterThanOrEqual(3)
+})
+
+it('re-reads the same scope after an Antigravity update event', async () => {
+  await render()
+  const handler = api.onAntigravityUpdated.mock.calls.at(-1)?.[0] as (() => void) | undefined
+  expect(handler).toBeTruthy()
+  await act(async () => {
+    handler?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(api.getStatistics).toHaveBeenCalledTimes(2)
+  expect(api.getStatistics).toHaveBeenLastCalledWith(context.timeRange, context.filter)
+})
+
+it('subscribes to Antigravity updates before asking for the catch-up scan', async () => {
+  await render()
+  expect(api.onAntigravityUpdated).toHaveBeenCalledTimes(1)
+  expect(api.syncAntigravity).toHaveBeenCalledTimes(1)
+  // A scan that commits while the request is in flight must not miss its own emit.
+  expect(api.onAntigravityUpdated.mock.invocationCallOrder[0]).toBeLessThan(
+    api.syncAntigravity.mock.invocationCallOrder[0],
+  )
+})
+
+it('labels the ledger duration per source and splits thinking/response tokens', async () => {
+  api.getRecentPaginated.mockResolvedValueOnce({
+    items: [
+      {
+        ...item,
+        id: 'antigravity-row',
+        source: 'antigravity_cli',
+        latencyMs: null,
+        generationMs: 1200,
+        outputTokens: 120,
+        thinkingTokens: 30,
+        responseTokens: 90,
+      },
+      { ...item, id: 'proxy-row', source: 'proxy' },
+    ],
+    total: 2,
+    page: 2,
+    pageSize: 20,
+  })
+  await render()
+  const cells = (id: string) =>
+    Array.from(container.querySelector(`[data-row-key="${id}"]`)!.querySelectorAll('td'))
+
+  // Antigravity rows report generation duration and never claim proxy latency.
+  expect(cells('antigravity-row')[6].textContent).toContain('observation.generationDuration')
+  expect(cells('antigravity-row')[6].textContent).toContain('1.20 s')
+  expect(cells('antigravity-row')[6].textContent).not.toContain('statistics.latency')
+  // The Thinking + Response split rides in the token cell next to the four-bucket total.
+  expect(cells('antigravity-row')[3].textContent).toContain('130')
+  expect(cells('antigravity-row')[3].textContent).toContain('observation.thinkingTokens 30')
+  expect(cells('antigravity-row')[3].textContent).toContain('observation.responseTokens 90')
+
+  // Proxy rows keep end-to-end latency and carry no token split.
+  expect(cells('proxy-row')[6].textContent).toContain('statistics.latency')
+  expect(cells('proxy-row')[6].textContent).toContain('100 ms')
+  expect(cells('proxy-row')[3].textContent).not.toContain('observation.thinkingTokens')
+
+  // A mixed ledger names both measurements in the header instead of proxy latency alone.
+  const headers = Array.from(container.querySelectorAll('th')).map((cell) => cell.textContent ?? '')
+  expect(headers).toContain('observation.generationDuration / statistics.latency')
+})
+
+it('labels the duration column as generation duration for an Antigravity scope', async () => {
+  api.getRecentPaginated.mockResolvedValueOnce({
+    items: [
+      { ...item, id: 'cli-row', source: 'antigravity_cli', latencyMs: null, generationMs: 800 },
+    ],
+    total: 1,
+    page: 1,
+    pageSize: 20,
+  })
+  await render(
+    buildStatisticsUrl({ ...context, filter: { ...context.filter, source: 'antigravity_cli' } }),
+  )
+  const headers = Array.from(container.querySelectorAll('th')).map((cell) => cell.textContent ?? '')
+  expect(headers).toContain('observation.generationDuration')
+  expect(headers).not.toContain('statistics.latency')
+})
+
 it.each([
   '?providerId=&requestId=request-4',
   '?sessionToken=private-route-token',
@@ -155,6 +299,9 @@ it.each([
   await render(`/stats${query}`)
   expect(api.getStatistics).not.toHaveBeenCalled()
   expect(api.getRecentPaginated).not.toHaveBeenCalled()
+  // An unparsable scope does not even ask for a maintenance scan.
+  expect(api.syncAntigravity).not.toHaveBeenCalled()
+  expect(api.onAntigravityUpdated).not.toHaveBeenCalled()
   expect(container.textContent).toContain('observation.invalidQuery')
   expect(container.textContent).not.toContain('private-route-token')
 })

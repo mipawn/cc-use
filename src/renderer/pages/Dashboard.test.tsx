@@ -9,7 +9,14 @@ import Dashboard from './Dashboard'
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
-const api = vi.hoisted(() => ({ requestLog: { getOverview: vi.fn(), getMonthlyTrend: vi.fn() } }))
+const api = vi.hoisted(() => ({
+  requestLog: {
+    getOverview: vi.fn(),
+    getMonthlyTrend: vi.fn(),
+    syncAntigravity: vi.fn(),
+    onAntigravityUpdated: vi.fn(),
+  },
+}))
 vi.mock('../api', () => ({ getApi: () => api }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -47,6 +54,7 @@ function LocationProbe() {
 }
 let root: Root | undefined
 let container: HTMLDivElement
+let unlisten: ReturnType<typeof vi.fn>
 async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -101,6 +109,13 @@ beforeEach(() => {
   api.requestLog.getMonthlyTrend.mockImplementation((_year: number, month: number) =>
     Promise.resolve(month === 5 ? [{ date: '2026-05-15', tokens: 42, requests: 3 }] : []),
   )
+  api.requestLog.syncAntigravity.mockResolvedValue({
+    scannedFiles: 0,
+    updatedConversations: 0,
+    removedFiles: 0,
+  })
+  unlisten = vi.fn()
+  api.requestLog.onAntigravityUpdated.mockReturnValue(unlisten)
 })
 afterEach(() => {
   if (root) act(() => root!.unmount())
@@ -177,5 +192,29 @@ describe('Dashboard observation navigation', () => {
     } finally {
       error.mockRestore()
     }
+  })
+
+  it('subscribes to Antigravity updates before asking for the catch-up scan', async () => {
+    await render()
+    expect(api.requestLog.onAntigravityUpdated).toHaveBeenCalledTimes(1)
+    expect(api.requestLog.syncAntigravity).toHaveBeenCalledTimes(1)
+    // A scan that commits while the request is in flight must not miss its own emit.
+    expect(api.requestLog.onAntigravityUpdated.mock.invocationCallOrder[0]).toBeLessThan(
+      api.requestLog.syncAntigravity.mock.invocationCallOrder[0],
+    )
+    const handler = api.requestLog.onAntigravityUpdated.mock.calls[0][0] as () => void
+    await act(async () => {
+      handler()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(api.requestLog.getOverview).toHaveBeenCalledTimes(2)
+    expect(unlisten).not.toHaveBeenCalled()
+  })
+
+  it('disposes the Antigravity update subscription on unmount', async () => {
+    await render()
+    await act(async () => root!.unmount())
+    root = undefined
+    expect(unlisten).toHaveBeenCalledTimes(1)
   })
 })

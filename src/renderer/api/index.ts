@@ -70,8 +70,7 @@ function buildApi(): Api {
       reorder: (providerId, keyIds) => invoke('api_key_reorder', { providerId, keyIds }),
     },
     clientProfile: {
-      list: (clientKind) =>
-        invoke('client_profile_list', clientKind ? { clientKind } : undefined),
+      list: (clientKind) => invoke('client_profile_list', clientKind ? { clientKind } : {}),
       get: (id) => invoke('client_profile_get', { id }),
       create: (input) => invoke('client_profile_create', { input }),
       update: (input) => invoke('client_profile_update', { input }),
@@ -241,6 +240,24 @@ function buildApi(): Api {
       getProviderGatewayMetrics: () => invoke('gateway_metrics_get_by_provider'),
       getMonthlyTrend: (year: number, month: number) =>
         invoke('request_log_get_monthly_trend', { year, month }),
+      // Catch-up reconciliation; the backend answers before the scan finishes.
+      syncAntigravity: () => invoke('antigravity_usage_sync'),
+      onAntigravityUpdated: (callback) => {
+        let unlisten: UnlistenFn | null = null
+        let disposed = false
+        listen<import('../../shared/types').AntigravitySyncSummary>(
+          'usage:antigravityUpdated',
+          callback,
+        ).then((fn) => {
+          // Registration resolves asynchronously: a synchronous dispose must not leak.
+          if (disposed) fn()
+          else unlisten = fn
+        })
+        return () => {
+          disposed = true
+          unlisten?.()
+        }
+      },
     },
     cliTool: {
       status: () => invoke('cli_tool_status'),
