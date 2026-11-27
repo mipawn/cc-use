@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.24.0] - 2026-11-27
+
+### Added
+
+- **Antigravity Desktop / CLI 用量统计索引**：只读解析本机 `~/.gemini/antigravity/conversations/*.db` 与 `~/.gemini/antigravity-cli/conversations/*.db`，提取输入 / 输出 / 缓存读取 / 缓存创建 / 思考 / 响应 Token、首 Token 延迟（TTFT）、生成耗时、精确显示模型名与会话时间戳，写入 `cc-use.db` 的两张独立索引表；不改写、不注入 Hook、不接管 Antigravity 目录，`request_logs` 仍严格只属于代理网关。CLI 未安装或 `conversation_summaries.db` 缺失/损坏时静默降级。
+- **实时与追赶式同步**：macOS FSEvents 监听会话库变更，`.db` / `.db-wal` / `.db-shm` 事件按会话合并防抖、单飞串行重同步；启动、打开概览/用量统计、⌘R 刷新都会异步补齐漏掉的事件（含 WAL 中尚未 checkpoint 的提交），索引有变化时刷新托盘徽标并广播 `usage:antigravityUpdated`。从未安装过的 Antigravity 目录在创建后自动补挂监听。
+- **用量统计「来源」筛选**：新增「全部来源 / 代理网关 / Antigravity Desktop / Antigravity CLI」，随观察 URL 一起序列化；概览今日 Token 与请求数、年度热力图、日/月趋势、账本均合并两边用量。
+- **账本与详情按来源区分口径**：账本耗时列按行标注「生成耗时」或「总耗时」，Token 列展示「思考 + 响应」拆分；详情抽屉新增来源、思考/响应 Token 与「生成耗时」标签。Antigravity 行的输出速度为 `输出 Token × 1000 / 生成耗时`。
+
+### Changed
+
+- **性能均值不跨口径混合**：未筛选来源且范围内同时存在代理与 Antigravity 请求时，平均总耗时 / 平均首 Token / 平均输出速度显示「—」并提示选择单一来源，避免把端到端耗时与模型生成耗时平均成一个不存在的数字；单一来源范围仍给出精确均值。
+- **失败请求数保持代理侧口径**：Antigravity 的重试链在 v1 不参与失败率统计，`失败请求` 始终只计代理已验证的失败，Antigravity 范围显示 0 而不是借用其他来源的失败数。
+
 ## [3.23.0] - 2026-11-23
 
 ### Added
