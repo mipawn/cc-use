@@ -43,7 +43,7 @@ Unknown scenario names throw rather than silently showing the default data. Each
 
 ## Useful checks
 
-- Today has both usage-bearing successes and zero-token failures. Overview request/failed links must preserve their different populations. Scope a provider or instance, paginate, and confirm totals/rows never fall back to all resources.
+- Today has both usage-bearing successes and zero-token failures, plus one failed Antigravity generation that still carried tokens and retried-then-succeeded Antigravity generations (`retryCount` > 0, shown in the request detail drawer only then). Overview request/failed links must preserve their different populations. Scope a provider or instance, paginate, and confirm totals/rows never fall back to all resources.
 - `request-1` is retained in Console history but lies outside the global newest 500 records. Open `http://127.0.0.1:15173/#/console?requestId=request-1` or follow its ledger detail link. Exact lookup finds it; after clear it disappears and the generation changes.
 - Change gateway route without changing model policy. The selected catalog retains `legacy-missing-model` rather than broadening to all models.
 - All model queries, quota queries and settings changes are synthetic. Native file dialogs, real export/import, CLI installation/launch, daemon restart, external opening, and other unimplemented operations intentionally fail closed. Their buttons are **not** integration-tested by this preview.

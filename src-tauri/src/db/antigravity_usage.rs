@@ -141,6 +141,11 @@ pub struct AntigravityUsageEvent {
     pub ttft_ms: Option<i64>,
     pub generation_ms: Option<i64>,
     pub total_ms: Option<i64>,
+    /// Failed HTTP attempts that preceded this generation. Antigravity records
+    /// them only here: a retry never gets its own `gen_metadata` row.
+    pub retry_count: i64,
+    /// The generation ended in an API/stream error instead of a response.
+    pub failed: bool,
     /// RFC 3339 UTC. Written as `YYYY-MM-DDTHH:MM:SS.mmm+00:00` so string
     /// comparison and SQLite date parsing agree.
     pub created_at: String,
@@ -171,7 +176,7 @@ pub struct AntigravityConversationSyncBatch {
 const EVENT_COLUMNS: &str = "id, source, conversation_id, gen_idx, response_key, model,
     project_name, conversation_title, input_tokens, output_tokens, thinking_tokens,
     response_tokens, cache_read_tokens, cache_creation_tokens, ttft_ms, generation_ms,
-    total_ms, created_at";
+    total_ms, retry_count, failed, created_at";
 
 impl Database {
     /// Fingerprint of every already-indexed conversation database, keyed by path.
@@ -222,7 +227,7 @@ impl Database {
         {
             let mut insert = tx.prepare(&format!(
                 "INSERT OR REPLACE INTO antigravity_usage_events ({EVENT_COLUMNS})
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)"
             ))?;
             for event in batch
                 .events
@@ -247,6 +252,8 @@ impl Database {
                     event.ttft_ms,
                     event.generation_ms,
                     event.total_ms,
+                    event.retry_count,
+                    event.failed,
                     event.created_at,
                 ])?;
             }
@@ -321,6 +328,8 @@ mod tests {
             ttft_ms: Some(120),
             generation_ms: Some(880),
             total_ms: Some(1000),
+            retry_count: 0,
+            failed: false,
             created_at: "2026-11-27T10:00:00.000+00:00".to_string(),
         }
     }
@@ -455,6 +464,39 @@ mod tests {
             .unwrap();
         assert_eq!(rows, 1);
         assert_eq!(gen_idx, 9);
+    }
+
+    #[test]
+    fn the_failure_signal_survives_a_round_trip() {
+        let db = Database::new_in_memory().unwrap();
+        let mut failed_event = event(1, "r1", 400, 20);
+        failed_event.failed = true;
+        let mut retried_event = event(2, "r2", 400, 20);
+        retried_event.retry_count = 4;
+        db.antigravity_sync_apply_conversation(&batch(
+            "conv-a",
+            fingerprint(10, 0),
+            vec![failed_event, retried_event],
+        ))
+        .unwrap();
+
+        let rows: Vec<(String, i64, i64)> = {
+            let mut statement = db
+                .conn
+                .prepare(
+                    "SELECT response_key, failed, retry_count FROM antigravity_usage_events
+                     ORDER BY response_key",
+                )
+                .unwrap();
+            let mapped = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .unwrap();
+            mapped.map(Result::unwrap).collect()
+        };
+        assert_eq!(
+            rows,
+            vec![("r1".to_string(), 1, 0), ("r2".to_string(), 0, 4),]
+        );
     }
 
     #[test]

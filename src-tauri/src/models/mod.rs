@@ -839,6 +839,10 @@ pub struct RecentRequestLogDisplay {
     /// Antigravity only: pure streaming generation time after the first token.
     #[serde(default)]
     pub generation_ms: Option<i64>,
+    /// Antigravity only: failed HTTP attempts before this generation succeeded.
+    /// Proxy requests have no equivalent, so it stays `None` for them.
+    #[serde(default)]
+    pub retry_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

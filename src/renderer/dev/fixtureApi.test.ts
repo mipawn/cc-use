@@ -314,6 +314,42 @@ describe('strict local fixture API', () => {
     expect(listener).toHaveBeenCalledTimes(1)
   })
 
+  it('counts a failed Antigravity generation once and keeps retries out of failures', async () => {
+    const { api } = fixture()
+    const merged = await api.requestLog.getStatistics('week')
+    const desktop = await api.requestLog.getStatistics('week', { source: 'antigravity_desktop' })
+    const cli = await api.requestLog.getStatistics('week', { source: 'antigravity_cli' })
+    // The failed generation belongs to Desktop only, is counted once, and stays
+    // in the billable denominator because it did consume tokens.
+    expect(desktop.summary.failedRequests).toBe(1)
+    expect(desktop.summary.totalRequests).toBe(7)
+    expect(desktop.summary.totalInputTokens).toBeGreaterThan(0)
+    expect(cli.summary.failedRequests).toBe(0)
+    expect(merged.summary.failedRequests).toBe(10)
+
+    const failed = await api.requestLog.getRecentPaginated('week', 1, 100, { outcome: 'failed' })
+    const failedAntigravity = failed.items.find((row) => row.source === 'antigravity_desktop')
+    // Antigravity projects no status code, error text or settled output span.
+    expect(failedAntigravity).toMatchObject({
+      outcome: 'failed',
+      requestId: null,
+      statusCode: null,
+      errorMessage: null,
+      outputTokensPerSecond: null,
+      retryCount: 0,
+    })
+    expect(failedAntigravity?.inputTokens).toBeGreaterThan(0)
+
+    // Retries live on successful generations and never read as failures.
+    const week = await api.requestLog.getRecentPaginated('week', 1, 100)
+    const retried = week.items.filter((row) => (row.retryCount ?? 0) > 0)
+    expect(retried).toHaveLength(3)
+    expect(retried.every((row) => row.outcome === 'success')).toBe(true)
+    expect(
+      week.items.filter((row) => row.source === 'proxy').every((row) => row.retryCount == null),
+    ).toBe(true)
+  })
+
   it('exercises typed route-only, config-write, restore and partial desktop outcomes', async () => {
     const { api } = fixture('routeOnly')
     const before = await api.desktopConnection.state('codex')
@@ -396,7 +432,10 @@ describe('strict local fixture API', () => {
     })
     const failed = await api.requestLog.getRecentPaginated('today', 1, 100, { outcome: 'failed' })
     const overview = await api.requestLog.getOverview()
-    expect(usage.total + failed.total).toBe(74)
+    // The failed Antigravity generation carried tokens, so it is inside the
+    // billable population as well: the two filters overlap by exactly one row.
+    expect(usage.total + failed.total).toBe(76)
+    expect(usage.items.filter((row) => row.outcome === 'failed')).toHaveLength(1)
     expect(overview.todayRequests).toBe(usage.total)
     expect(overview.todayFailedRequests).toBe(failed.total)
     await api.provider.delete('provider-usd')

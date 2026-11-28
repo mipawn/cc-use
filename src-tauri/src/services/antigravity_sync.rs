@@ -33,9 +33,15 @@ use std::time::Duration;
 /// stalling the sync worker behind it.
 const BUSY_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// `steps.status` for a step that ended in an error. Tool errors use the same
+/// value, so it is only meaningful together with the step type.
+const FAILED_STATUS: i64 = 7;
+/// A model generation step. Exactly one exists per `gen_metadata` row.
+const GENERATION_STEP_TYPE: i64 = 15;
+
 const GEN_METADATA_SQL: &str =
     "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL ORDER BY idx ASC";
-const STEPS_SQL: &str = "SELECT idx, metadata FROM steps WHERE metadata IS NOT NULL";
+const STEPS_SQL: &str = "SELECT idx, metadata, status, step_type FROM steps";
 const SUMMARIES_SQL: &str =
     "SELECT conversation_id, title, workspace_uris FROM conversation_summaries";
 
@@ -152,7 +158,7 @@ pub fn read_conversation_events(
     let snapshot = connection
         .unchecked_transaction()
         .map_err(|error| format!("cannot start a conversation read transaction: {error}"))?;
-    let step_timestamps = read_step_timestamps(&snapshot)?;
+    let steps = read_steps(&snapshot)?;
     let fallback_created_at = database_mtime(db_path);
 
     let mut events: HashMap<String, AntigravityUsageEvent> = HashMap::new();
@@ -171,14 +177,15 @@ pub fn read_conversation_events(
             let Some(telemetry) = decode_gen_metadata(&data) else {
                 continue;
             };
+            let failed = resolve_failed(telemetry.last_step_index, &steps);
             let Some(created_at) = resolve_created_at(
                 telemetry.last_step_index,
-                &step_timestamps,
+                &steps,
                 fallback_created_at.as_deref(),
             ) else {
                 continue;
             };
-            let event = build_event(gen_idx, telemetry, created_at, metadata);
+            let event = build_event(gen_idx, telemetry, created_at, metadata, failed);
             // A retried response is written again under a higher index; the
             // highest one is the attempt the user actually received.
             events.insert(event.response_key.clone(), event);
@@ -229,23 +236,43 @@ fn open_read_only(path: &Path) -> rusqlite::Result<Connection> {
 }
 
 /// `steps.metadata.f1` is the step's UTC timestamp; keyed by step index.
-fn read_step_timestamps(connection: &Connection) -> Result<BTreeMap<i64, String>, String> {
+/// One `steps` row reduced to what the ledger needs: when it happened and
+/// whether it ended in an error.
+#[derive(Debug, Clone, PartialEq)]
+struct StepRecord {
+    created_at: Option<String>,
+    status: i64,
+    step_type: i64,
+}
+
+fn read_steps(connection: &Connection) -> Result<BTreeMap<i64, StepRecord>, String> {
     let mut statement = connection
         .prepare(STEPS_SQL)
         .map_err(|error| format!("cannot query steps: {error}"))?;
     let rows = statement
         .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<Vec<u8>>>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
         })
         .map_err(|error| format!("cannot read steps: {error}"))?;
-    let mut timestamps = BTreeMap::new();
+    let mut steps = BTreeMap::new();
     for row in rows {
-        let (idx, metadata) = row.map_err(|error| format!("cannot read steps: {error}"))?;
-        if let Some(created_at) = decode_step_timestamp(&metadata) {
-            timestamps.insert(idx, created_at);
-        }
+        let (idx, metadata, status, step_type) =
+            row.map_err(|error| format!("cannot read steps: {error}"))?;
+        steps.insert(
+            idx,
+            StepRecord {
+                created_at: metadata.and_then(|blob| decode_step_timestamp(&blob)),
+                status,
+                step_type,
+            },
+        );
     }
-    Ok(timestamps)
+    Ok(steps)
 }
 
 /// The generation that answered `last_step_index` completes at the following
@@ -260,22 +287,40 @@ fn read_step_timestamps(connection: &Connection) -> Result<BTreeMap<i64, String>
 /// timestamps become conversation-level estimates while totals stay correct.
 fn resolve_created_at(
     last_step_index: Option<i64>,
-    step_timestamps: &BTreeMap<i64, String>,
+    steps: &BTreeMap<i64, StepRecord>,
     database_mtime: Option<&str>,
 ) -> Option<String> {
     if let Some(target) = last_step_index.map(|index| index.saturating_add(1)) {
-        if let Some(created_at) = step_timestamps.get(&target) {
-            return Some(created_at.clone());
+        if let Some(created_at) = steps.get(&target).and_then(|step| step.created_at.clone()) {
+            return Some(created_at);
         }
-        if let Some((_, created_at)) = step_timestamps.range(..=target).next_back() {
-            return Some(created_at.clone());
+        if let Some(created_at) = steps
+            .range(..=target)
+            .rev()
+            .find_map(|(_, step)| step.created_at.clone())
+        {
+            return Some(created_at);
         }
     }
-    step_timestamps
+    steps
         .values()
-        .next()
-        .cloned()
+        .find_map(|step| step.created_at.clone())
         .or_else(|| database_mtime.map(str::to_string))
+}
+
+/// A generation failed when its own completion step reported an error.
+///
+/// `steps.status = 7` alone is not a failure signal: tool errors (`step_type`
+/// 132) use it too, and the ledger must not report those as failed requests.
+/// Intra-generation HTTP retries are `step_type = 17` rows with `status = 3`;
+/// they never reach this check — they only raise `retry_count`.
+fn resolve_failed(last_step_index: Option<i64>, steps: &BTreeMap<i64, StepRecord>) -> bool {
+    let Some(target) = last_step_index.map(|index| index.saturating_add(1)) else {
+        return false;
+    };
+    steps
+        .get(&target)
+        .is_some_and(|step| step.status == FAILED_STATUS && step.step_type == GENERATION_STEP_TYPE)
 }
 
 /// Last-resort timestamp: the database file's own modification time.
@@ -289,6 +334,7 @@ fn build_event(
     telemetry: GenerationTelemetry,
     created_at: String,
     metadata: Option<&ConversationMetadata>,
+    failed: bool,
 ) -> AntigravityUsageEvent {
     AntigravityUsageEvent {
         gen_idx,
@@ -305,6 +351,8 @@ fn build_event(
         ttft_ms: telemetry.ttft_ms,
         generation_ms: telemetry.generation_ms,
         total_ms: total_ms(telemetry.ttft_ms, telemetry.generation_ms),
+        retry_count: telemetry.retry_count,
+        failed,
         created_at,
     }
 }
@@ -496,6 +544,19 @@ mod tests {
         generations: &[(i64, Vec<u8>)],
         steps: &[(i64, Vec<u8>)],
     ) -> Connection {
+        let steps: Vec<(i64, Vec<u8>, i64, i64)> = steps
+            .iter()
+            .map(|(idx, metadata)| (*idx, metadata.clone(), 3, 0))
+            .collect();
+        write_conversation_with_step_states(db_path, generations, &steps)
+    }
+
+    /// `write_conversation` with explicit `(status, step_type)` per step.
+    fn write_conversation_with_step_states(
+        db_path: &Path,
+        generations: &[(i64, Vec<u8>)],
+        steps: &[(i64, Vec<u8>, i64, i64)],
+    ) -> Connection {
         let connection = Connection::open(db_path).unwrap();
         connection
             .execute_batch(
@@ -515,11 +576,12 @@ mod tests {
                 )
                 .unwrap();
         }
-        for (idx, metadata) in steps {
+        for (idx, metadata, status, step_type) in steps {
             connection
                 .execute(
-                    "INSERT INTO steps (idx, metadata) VALUES (?1, ?2)",
-                    params![idx, metadata],
+                    "INSERT INTO steps (idx, metadata, status, step_type)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![idx, metadata, status, step_type],
                 )
                 .unwrap();
         }
@@ -548,6 +610,8 @@ mod tests {
         assert_eq!(
             events,
             vec![AntigravityUsageEvent {
+                retry_count: 0,
+                failed: false,
                 gen_idx: 0,
                 response_key: "rid:resp-1".to_string(),
                 model: Some("Gemini 4 Neon (High)".to_string()),
@@ -1016,6 +1080,84 @@ mod tests {
         assert_eq!(project_name_from_workspace_uris("[]"), None);
         assert_eq!(project_name_from_workspace_uris(""), None);
         assert_eq!(project_name_from_workspace_uris("not json"), None);
+    }
+
+    // ── Failure signal ──
+
+    /// The generation's completion step, i.e. the step `last_step_index + 1`
+    /// points at. `Generation::typical()` anchors on step 2.
+    const ANCHOR_STEP: i64 = 2;
+
+    fn read_with_anchor_state(status: i64, step_type: i64) -> AntigravityUsageEvent {
+        let (root, conversations) = conversation_root();
+        let db_path = conversations.join("conv-a.db");
+        let _writer = write_conversation_with_step_states(
+            &db_path,
+            &[(0, Generation::typical().encode())],
+            &[(
+                ANCHOR_STEP,
+                step_metadata(STEP_SECONDS, STEP_NANOS),
+                status,
+                step_type,
+            )],
+        );
+        drop(_writer);
+        let events = read_desktop(&db_path);
+        assert_eq!(events.len(), 1);
+        drop(root);
+        events.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn an_erroring_completion_step_marks_the_generation_failed() {
+        // Real shape: `step_type = 15`, `status = 7`, error text present.
+        let event = read_with_anchor_state(7, 15);
+        assert!(event.failed);
+        // The failed attempt still consumed tokens; the ledger keeps them.
+        assert!(event.input_tokens > 0);
+    }
+
+    #[test]
+    fn a_tool_error_on_the_completion_step_is_not_a_generation_failure() {
+        // Tool errors share `status = 7` but belong to `step_type = 132`.
+        let event = read_with_anchor_state(7, 132);
+        assert!(!event.failed);
+    }
+
+    #[test]
+    fn a_successful_completion_step_is_not_a_failure() {
+        let event = read_with_anchor_state(3, 15);
+        assert!(!event.failed);
+        assert_eq!(event.retry_count, 0);
+    }
+
+    #[test]
+    fn intra_generation_retries_raise_the_retry_count_without_failing() {
+        // Five failed HTTP attempts (step_type 17) then the generation that
+        // succeeded: one logical response, zero failures, retry_count = 5.
+        let (root, conversations) = conversation_root();
+        let db_path = conversations.join("conv-a.db");
+        // Five retry rows at idx 2..7, then the generation step at idx 7.
+        let generation = Generation {
+            last_step_index: Some(6),
+            retry_count: Some(5),
+            ..Generation::typical()
+        };
+        let mut steps: Vec<(i64, Vec<u8>, i64, i64)> = (2..7)
+            .map(|idx| (idx, step_metadata(STEP_SECONDS, STEP_NANOS), 3, 17))
+            .collect();
+        steps.push((7, step_metadata(STEP_SECONDS, STEP_NANOS), 3, 15));
+        let writer =
+            write_conversation_with_step_states(&db_path, &[(0, generation.encode())], &steps);
+        drop(writer);
+
+        let events = read_desktop(&db_path);
+        assert_eq!(events.len(), 1);
+        assert!(!events[0].failed);
+        assert_eq!(events[0].retry_count, 5);
+        // Retries never create their own indexed row.
+        assert_eq!(events[0].gen_idx, 0);
+        drop(root);
     }
 
     #[test]

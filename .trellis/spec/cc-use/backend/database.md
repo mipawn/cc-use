@@ -195,7 +195,7 @@ writes to, hooks, or takes over those directories. `request_logs` stays strictly
 - `antigravity_usage_events(id PRIMARY KEY, source, conversation_id, gen_idx, response_key,
   model, project_name, conversation_title, input_tokens, output_tokens, thinking_tokens,
   response_tokens, cache_read_tokens, cache_creation_tokens, ttft_ms, generation_ms,
-  total_ms, created_at, UNIQUE(source, conversation_id, response_key))`.
+  total_ms, retry_count, failed, created_at, UNIQUE(source, conversation_id, response_key))`.
   `id` is `ag:<desktop|cli>:<conversation_id>:<response_key>`; the UNIQUE constraint makes a
   rescan of one conversation replace rows instead of duplicating them.
 - `source` is always `antigravity_desktop` or `antigravity_cli` — the same strings as
@@ -214,9 +214,30 @@ writes to, hooks, or takes over those directories. `request_logs` stays strictly
 - `db/request_logs.rs::UNIFIED_LEDGER_CTE` unions these rows into the observation reads. The
   Antigravity projection maps `ttft_ms` → `first_token_ms`, `total_ms` → `latency_ms` and
   `ttft_ms + generation_ms` → `last_token_ms`, which makes the existing `output_speed_sql`
-  report exactly `output_tokens * 1000 / generation_ms`. v1 never counts Antigravity failures
-  (`outcome` is projected as `success`) because unverified retry chains would inflate the
-  proxy-verified failure count.
+  report exactly `output_tokens * 1000 / generation_ms`.
+- Antigravity failure counting (v3.25.0) rests on two validated fields, never on raw retry rows:
+  - `failed` — the generation's own completion step (`last_step_index + 1`) is
+    `status = 7 AND step_type = 15`. `status = 7` alone also covers tool errors
+    (`step_type = 132`), which must not become failed requests.
+  - `retry_count` — `gen_metadata.data.f1.f14`, the failed HTTP attempts that preceded a
+    generation that eventually succeeded. Intra-generation retries are `steps` rows with
+    `step_type = 17`, they never get their own `gen_metadata` row, and they are **not** failures.
+
+  The CTE projects `outcome = 'failed'` when `failed = 1`, so the failure count is one per failed
+  generation and `SUM(retry_count)` is the recovered-attempt count. Do not derive failures from
+  `steps.status != 3` (folds in unrelated `run_command` rows) or from `step_type = 17` counts
+  (attempt-level; over-states generations ~7.5× on the reference corpus). A failed generation keeps
+  its real token usage, so it stays inside the with-usage denominator. It is excluded from
+  `avgOutputTokensPerSecond`, which only samples settled successful streams, while
+  `avgLatencyMs` / `avgFirstTokenMs` still include it.
+- Known under-counts of this rule (each is conservative — never a false failure): a generation
+  that fails before its usage block is written is skipped entirely by `decode_gen_metadata`, since
+  `f1.f4` is what makes a row a generation; a generation without `last_step_index`, or whose anchor
+  step is missing, reads as `failed = 0`; and the read path keeps only the highest index per
+  `response_key`, so a retry that reused a server response id would drop the earlier row. All three
+  are absent from the reference corpus (0/704) but are the cases to re-check when Antigravity
+  changes its write shape. The corpus is also desktop-only (`antigravity-cli` was never installed on
+  the reference machine), so the CLI path is exercised by synthetic fixtures only.
 
 ## Rules for New Queries
 

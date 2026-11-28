@@ -22,6 +22,9 @@ export const observationZh = {
   thinkingTokens: '思考 Token',
   responseTokens: '响应 Token',
   generationDuration: '生成耗时',
+  retryCount: '重试次数',
+  retryCountHint:
+    '成功前有 {{count}} 次 HTTP 尝试失败；重试不计入失败请求，只会让这次生成看起来更慢。',
   providerId: '供应商',
   apiKeyId: '密钥',
   instanceId: '实例',
@@ -74,6 +77,9 @@ export const observationEn: Translated<typeof observationZh> = {
   thinkingTokens: 'Thinking tokens',
   responseTokens: 'Response tokens',
   generationDuration: 'Generation duration',
+  retryCount: 'Retries',
+  retryCountHint:
+    '{{count}} HTTP attempts failed before this generation succeeded. Retries are not counted as failed requests; they only make the generation look slower.',
   providerId: 'Provider',
   apiKeyId: 'Key',
   instanceId: 'Instance',

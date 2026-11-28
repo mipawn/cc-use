@@ -136,6 +136,8 @@ export function statistics(rows: LedgerRow[]): UsageStatistics {
   return {
     summary: {
       totalRequests: rows.filter((row) => totalTokens(row) > 0).length,
+      // A failed generation that carried tokens is counted as both billable and
+      // failed: the two counts overlap, which is exactly the SQL summary rule.
       failedRequests: rows.filter((row) => row.outcome !== null && row.outcome !== 'success')
         .length,
       totalInputTokens,

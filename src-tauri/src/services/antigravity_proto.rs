@@ -25,6 +25,10 @@ const METADATA: u32 = 20;
 /// Wrapper fields holding the two durations and the model name.
 const TTFT: u32 = 11;
 const GENERATION: u32 = 12;
+/// How many failed HTTP attempts preceded this generation. Absent when the
+/// first attempt succeeded. The failed attempts themselves never get their own
+/// `gen_metadata` row, so this is the only place a retry is recorded.
+const RETRY_COUNT: u32 = 14;
 const MODEL_FAMILY: u32 = 19;
 const MODEL_DISPLAY: u32 = 21;
 
@@ -71,6 +75,8 @@ pub struct GenerationTelemetry {
     pub response_id: Option<String>,
     pub ttft_ms: Option<i64>,
     pub generation_ms: Option<i64>,
+    /// Failed HTTP attempts before this generation succeeded (absent ⇒ 0).
+    pub retry_count: i64,
     pub model: Option<String>,
     pub last_step_index: Option<i64>,
     pub request_id: Option<String>,
@@ -96,6 +102,7 @@ pub fn decode_gen_metadata(data: &[u8]) -> Option<GenerationTelemetry> {
         response_id: string_field(usage, RESPONSE_ID),
         ttft_ms: duration_ms(wrapper, TTFT),
         generation_ms: duration_ms(wrapper, GENERATION),
+        retry_count: varint_i64(wrapper, RETRY_COUNT),
         model: string_field(wrapper, MODEL_DISPLAY).or_else(|| string_field(wrapper, MODEL_FAMILY)),
         last_step_index: metadata_value(wrapper, KEY_LAST_STEP_INDEX)
             .and_then(|value| value.parse().ok()),
@@ -379,6 +386,7 @@ pub(crate) mod test_bytes {
         pub(crate) last_step_index: Option<i64>,
         pub(crate) ttft_ms: Option<u64>,
         pub(crate) generation_ms: Option<u64>,
+        pub(crate) retry_count: Option<u64>,
         pub(crate) model: Option<&'static str>,
     }
 
@@ -394,6 +402,7 @@ pub(crate) mod test_bytes {
                 last_step_index: Some(1),
                 ttft_ms: Some(1_500),
                 generation_ms: Some(2_250),
+                retry_count: None,
                 model: Some("Gemini 4 Neon (High)"),
             }
         }
@@ -420,6 +429,9 @@ pub(crate) mod test_bytes {
             }
             if let Some(generation_ms) = self.generation_ms {
                 wrapper = wrapper.bytes(GENERATION, &millis(generation_ms));
+            }
+            if let Some(retry_count) = self.retry_count {
+                wrapper = wrapper.varint(RETRY_COUNT, retry_count);
             }
             if let Some(model) = self.model {
                 wrapper = wrapper.string(MODEL_DISPLAY, model);
@@ -484,6 +496,7 @@ mod tests {
         assert_eq!(
             telemetry,
             GenerationTelemetry {
+                retry_count: 0,
                 input_tokens: 14_657,
                 output_tokens: 208,
                 cache_creation_tokens: 0,
@@ -508,6 +521,21 @@ mod tests {
         assert_eq!(telemetry.output_tokens, 300);
         assert_eq!(telemetry.thinking_tokens, Some(250));
         assert_eq!(telemetry.response_tokens, Some(50));
+    }
+
+    #[test]
+    fn the_retry_counter_is_decoded_from_the_generation_wrapper() {
+        let usage = usage_block([100, 40, 0, 0, 30, 10], "bot-1", "resp-1");
+        let wrapper = TestMessage::new().varint(RETRY_COUNT, 5);
+        let telemetry = decode_gen_metadata(&generation(wrapper, &usage)).unwrap();
+        assert_eq!(telemetry.retry_count, 5);
+    }
+
+    #[test]
+    fn an_unretried_generation_reports_zero_retries() {
+        let usage = usage_block([100, 40, 0, 0, 30, 10], "bot-1", "resp-1");
+        let telemetry = decode_gen_metadata(&generation(TestMessage::new(), &usage)).unwrap();
+        assert_eq!(telemetry.retry_count, 0);
     }
 
     #[test]

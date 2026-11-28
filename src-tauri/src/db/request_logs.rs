@@ -1,9 +1,9 @@
 use crate::db::Database;
 use crate::models::{
     DailyModelUsageItem, DailyTrendItem, PaginatedRecentRequests, RecentRequestLogDisplay,
-    RequestLog, RequestLogFilter, RequestLogOutcome, RequestLogPopulation, RequestLogSource,
-    ResourceUsageStatistics, ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem,
-    UsageOverview, UsageStatistics, UsageStatsSummary,
+    RequestLog, RequestLogFilter, RequestLogOutcome, RequestLogPopulation, ResourceUsageStatistics,
+    ResourceUsageSummary, ResourceUsageTrendItem, UsageDimensionItem, UsageOverview,
+    UsageStatistics, UsageStatsSummary,
 };
 
 /// input + output + cache_read + cache_creation — the v3.7.0 token definition.
@@ -86,7 +86,8 @@ WITH unified_logs AS (
         status_code, error_message, is_streaming, created_at,
         key_alias, provider_name, project_name, outcome, request_kind, request_id,
         'proxy' AS source,
-        NULL AS thinking_tokens, NULL AS response_tokens, NULL AS generation_ms
+        NULL AS thinking_tokens, NULL AS response_tokens, NULL AS generation_ms,
+        NULL AS retry_count
     FROM request_logs
     UNION ALL
     SELECT
@@ -108,10 +109,13 @@ WITH unified_logs AS (
             WHEN 'antigravity_cli' THEN 'Antigravity CLI'
         END AS provider_name,
         project_name,
-        'success' AS outcome, -- v1 defers Antigravity failure counting
+        -- Antigravity records an error on the generation's completion step;
+        -- intra-generation HTTP retries stay successes and only raise retry_count.
+        CASE WHEN failed = 1 THEN 'failed' ELSE 'success' END AS outcome,
         NULL, NULL, -- request_kind, request_id
         source,
-        thinking_tokens, response_tokens, generation_ms
+        thinking_tokens, response_tokens, generation_ms,
+        retry_count
     FROM antigravity_usage_events
 )";
 
@@ -525,25 +529,17 @@ impl Database {
                 )
             };
 
-        // Failure counts stay strictly on proxy-verified `request_logs` rows: v1
-        // never counts unverified Antigravity retry chains, and an Antigravity
-        // scope must not borrow failures from outside itself.
-        let failed_requests: i64 = if filter.source.is_some_and(RequestLogSource::is_antigravity) {
-            0
-        } else {
-            let failure_filter = RequestLogFilter {
-                source: None,
-                ..filter.clone()
-            };
-            let failure_scope = self.request_log_where(time_range, &failure_filter, "")?;
-            let failure_where =
-                failure_scope.with_condition("outcome IS NOT NULL AND outcome != 'success'");
-            self.conn.query_row(
-                &format!("SELECT COUNT(*) FROM request_logs {}", failure_where),
-                rusqlite::params_from_iter(failure_scope.values.iter()),
-                |row| row.get(0),
-            )?
-        };
+        // Failure counts use the selected population over the merged ledger, so
+        // an Antigravity scope reports its own failures. Proxy rows contribute
+        // exactly what they always did (`outcome != 'success'`); Antigravity rows
+        // contribute one failure per generation whose completion step errored —
+        // intra-generation retries are successes and only carry `retry_count`.
+        let failure_where = scope.with_condition("outcome IS NOT NULL AND outcome != 'success'");
+        let failed_requests: i64 = self.conn.query_row(
+            &format!("{UNIFIED_LEDGER_CTE} SELECT COUNT(*) FROM unified_logs {failure_where}"),
+            rusqlite::params_from_iter(scope.values.iter()),
+            |row| row.get(0),
+        )?;
 
         let input_side = total_input_tokens + total_cache_read_tokens + total_cache_creation_tokens;
         let cache_hit_rate = if input_side > 0 {
@@ -853,7 +849,8 @@ impl Database {
                         r.cache_read_tokens, r.cache_creation_tokens,
                         r.latency_ms, r.status_code, r.outcome, r.error_message, r.created_at, r.request_kind,
                         r.request_id, r.first_token_ms, {},
-                        r.source, r.thinking_tokens, r.response_tokens, r.generation_ms
+                        r.source, r.thinking_tokens, r.response_tokens, r.generation_ms,
+                        r.retry_count
                  FROM unified_logs r
                  LEFT JOIN api_keys k ON r.api_key_id = k.id
                  LEFT JOIN providers p ON r.provider_id = p.id
@@ -887,6 +884,7 @@ impl Database {
                     thinking_tokens: row.get(19)?,
                     response_tokens: row.get(20)?,
                     generation_ms: row.get(21)?,
+                    retry_count: row.get(22)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -905,7 +903,9 @@ impl Database {
         let created_date = Self::local_date_expr("created_at");
         let usage_clause = "input_tokens > 0 OR output_tokens > 0 OR cache_read_tokens > 0 OR cache_creation_tokens > 0";
 
-        // Usage is merged across both ledgers; failures stay proxy-verified below.
+        // Usage is merged across both ledgers, and so are the failures below:
+        // a proxy row failed by its `outcome`, an Antigravity generation by its
+        // own erroring completion step.
         let (today_tokens, today_requests) = self.conn.query_row(
             &format!(
                 "{} SELECT COALESCE(SUM({}), 0), COUNT(*)
@@ -919,9 +919,8 @@ impl Database {
 
         let today_failed_requests: i64 = self.conn.query_row(
             &format!(
-                "SELECT COUNT(*) FROM request_logs
-                 WHERE {} = ?1 AND outcome IS NOT NULL AND outcome != 'success'",
-                created_date
+                "{UNIFIED_LEDGER_CTE} SELECT COUNT(*) FROM unified_logs
+                 WHERE {created_date} = ?1 AND outcome IS NOT NULL AND outcome != 'success'"
             ),
             [&today],
             |row| row.get(0),
@@ -977,7 +976,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ProxySession;
+    use crate::models::{ProxySession, RequestLogSource};
 
     fn mk_billable_log(id: &str, created_at: String) -> RequestLog {
         RequestLog {
@@ -2079,6 +2078,8 @@ mod tests {
             ttft_ms: Some(ttft_ms),
             generation_ms: Some(generation_ms),
             total_ms: Some(ttft_ms + generation_ms),
+            retry_count: 0,
+            failed: false,
             created_at: created_at.into(),
         }
     }
@@ -2328,8 +2329,71 @@ mod tests {
         assert_eq!(none.summary.total_requests, 0);
     }
 
+    /// A generation that ended in an API error: it still consumed tokens, so it
+    /// belongs to the with-usage denominator and must not change its size.
+    fn failed_antigravity_event(response_key: &str, created_at: &str) -> AntigravityUsageEvent {
+        AntigravityUsageEvent {
+            failed: true,
+            ..antigravity_event(response_key, created_at, 40, 12, 0, 120, 300)
+        }
+    }
+
+    fn antigravity_filter(source: RequestLogSource) -> RequestLogFilter {
+        RequestLogFilter {
+            source: Some(source),
+            ..Default::default()
+        }
+    }
+
     #[test]
-    fn observation_antigravity_rows_never_inflate_failure_counts() {
+    fn observation_antigravity_successes_stay_out_of_the_failure_count() {
+        // Intra-generation retries are recorded as a retry_count on a successful
+        // generation; they must never be counted as failed requests.
+        let db = unified_ledger_fixture();
+        let mut retried = antigravity_event("retried-response", &ag_now(), 90, 60, 0, 150, 600);
+        retried.retry_count = 5;
+        seed_antigravity(&db, AntigravitySource::Cli, "cli-retried", vec![retried]);
+        db.request_log_create(&mk_failed_log(
+            "proxy-failed",
+            ag_now(),
+            502,
+            "upstream_error",
+        ))
+        .unwrap();
+
+        // Only the proxy row failed; the five retries produced one success.
+        assert_eq!(
+            db.request_log_get_statistics_filtered("all", &RequestLogFilter::default())
+                .unwrap()
+                .summary
+                .failed_requests,
+            1
+        );
+        let cli = db
+            .request_log_get_statistics_filtered(
+                "all",
+                &antigravity_filter(RequestLogSource::AntigravityCli),
+            )
+            .unwrap();
+        assert_eq!(cli.summary.failed_requests, 0);
+        let page = db
+            .request_log_get_recent_paginated_filtered(
+                "all",
+                1,
+                20,
+                &antigravity_filter(RequestLogSource::AntigravityCli),
+            )
+            .unwrap();
+        let row = page
+            .items
+            .iter()
+            .find(|item| item.retry_count == Some(5))
+            .expect("the retried generation is in the ledger");
+        assert_eq!(row.outcome.as_deref(), Some("success"));
+    }
+
+    #[test]
+    fn observation_antigravity_failures_are_counted_once_per_generation() {
         let db = unified_ledger_fixture();
         db.request_log_create(&mk_failed_log(
             "proxy-failed",
@@ -2338,59 +2402,100 @@ mod tests {
             "upstream_error",
         ))
         .unwrap();
-        db.request_log_create(&mk_failed_log(
-            "proxy-client",
-            ag_now(),
-            429,
-            "client_error",
-        ))
-        .unwrap();
+        seed_antigravity(
+            &db,
+            AntigravitySource::Desktop,
+            "desktop-failed",
+            vec![failed_antigravity_event("failed-response", &ag_now())],
+        );
 
-        let stats = db.request_log_get_statistics("all").unwrap();
-        assert_eq!(stats.summary.total_requests, 3, "billable scope unchanged");
-        assert_eq!(stats.summary.failed_requests, 2, "proxy failures only");
+        // A failed generation still carried tokens, so the billable denominator
+        // grows by exactly one and the failure by exactly one.
+        let merged = db
+            .request_log_get_statistics_filtered("all", &RequestLogFilter::default())
+            .unwrap();
+        assert_eq!(merged.summary.total_requests, 4);
+        assert_eq!(merged.summary.failed_requests, 2);
+
+        let desktop = db
+            .request_log_get_statistics_filtered(
+                "all",
+                &antigravity_filter(RequestLogSource::AntigravityDesktop),
+            )
+            .unwrap();
+        assert_eq!(desktop.summary.total_requests, 2);
+        assert_eq!(desktop.summary.failed_requests, 1);
+
+        // The other Antigravity installation must not borrow that failure.
+        assert_eq!(
+            db.request_log_get_statistics_filtered(
+                "all",
+                &antigravity_filter(RequestLogSource::AntigravityCli)
+            )
+            .unwrap()
+            .summary
+            .failed_requests,
+            0
+        );
+
+        // Proxy failures are still counted exactly as before.
+        let proxy_scope = db
+            .request_log_get_statistics_filtered(
+                "all",
+                &antigravity_filter(RequestLogSource::Proxy),
+            )
+            .unwrap();
+        assert_eq!(proxy_scope.summary.failed_requests, 1);
+
         assert_eq!(
             db.request_log_get_overview().unwrap().today_failed_requests,
             2
         );
 
-        // An Antigravity scope verifies no proxy failure, so it reports none.
-        let desktop = db
-            .request_log_get_statistics_filtered(
-                "all",
-                &RequestLogFilter {
-                    source: Some(RequestLogSource::AntigravityDesktop),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        assert_eq!(desktop.summary.total_requests, 1);
-        assert_eq!(desktop.summary.failed_requests, 0);
-
-        // The failure drilldown still returns proxy rows only.
+        // The failure drilldown returns the Antigravity row too.
         let failed = RequestLogFilter {
             outcome: Some(RequestLogOutcome::Failed),
             ..Default::default()
         };
         let page = db
-            .request_log_get_recent_paginated_filtered("all", 1, 10, &failed)
+            .request_log_get_recent_paginated_filtered("all", 1, 20, &failed)
             .unwrap();
         assert_eq!(page.total, 2);
         assert!(page
             .items
             .iter()
-            .all(|item| item.source.as_deref() == Some("proxy")));
+            .any(|item| item.source.as_deref() == Some("antigravity_desktop")));
+    }
 
-        let failed_antigravity = RequestLogFilter {
-            outcome: Some(RequestLogOutcome::Failed),
-            source: Some(RequestLogSource::AntigravityDesktop),
-            ..Default::default()
-        };
+    #[test]
+    fn observation_antigravity_failures_obey_the_time_range_scope() {
+        let db = unified_ledger_fixture();
+        seed_antigravity(
+            &db,
+            AntigravitySource::Cli,
+            "cli-old-failure",
+            vec![failed_antigravity_event("old-failure", &ag_days_ago(10))],
+        );
+
         assert_eq!(
-            db.request_log_get_recent_paginated_filtered("all", 1, 10, &failed_antigravity)
-                .unwrap()
-                .total,
+            db.request_log_get_statistics_filtered(
+                "today",
+                &antigravity_filter(RequestLogSource::AntigravityCli)
+            )
+            .unwrap()
+            .summary
+            .failed_requests,
             0
+        );
+        assert_eq!(
+            db.request_log_get_statistics_filtered(
+                "all",
+                &antigravity_filter(RequestLogSource::AntigravityCli)
+            )
+            .unwrap()
+            .summary
+            .failed_requests,
+            1
         );
     }
 
@@ -2426,8 +2531,8 @@ mod tests {
             2
         );
 
-        // Antigravity rows project outcome 'success': success keeps them,
-        // failures exclude them.
+        // These rows are all successful, so an outcome filter keeps them; a
+        // failed generation would be excluded here instead.
         let success = RequestLogFilter {
             outcome: Some(RequestLogOutcome::Success),
             ..Default::default()

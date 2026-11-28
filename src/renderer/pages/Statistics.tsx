@@ -63,6 +63,7 @@ function totalTokens(record: RecentRequestLogDisplay): number {
 
 const OUTCOME_COLORS: Record<string, string> = {
   success: 'green',
+  failed: 'red',
   client_error: 'orange',
   upstream_error: 'red',
   transport_error: 'volcano',

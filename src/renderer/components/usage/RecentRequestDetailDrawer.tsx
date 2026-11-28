@@ -90,6 +90,13 @@ export default function RecentRequestDetailDrawer({
             >
               {formatRequestDuration(antigravity ? record.generationMs : record.latencyMs)}
             </Descriptions.Item>
+            {record.retryCount != null && record.retryCount > 0 && (
+              <Descriptions.Item label={t('observation.retryCount')}>
+                <Tooltip title={t('observation.retryCountHint', { count: record.retryCount })}>
+                  <span>{record.retryCount}</span>
+                </Tooltip>
+              </Descriptions.Item>
+            )}
             <Descriptions.Item label={t('statistics.time')}>
               {new Date(record.createdAt).toLocaleString()}
             </Descriptions.Item>

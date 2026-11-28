@@ -44,7 +44,12 @@ vi.mock('../api', () => ({
           },
           { id: 'failed', requestKind: 'auto_mode', outcome: 'upstream_error', statusCode: 503 },
           { id: 'ordinary', requestKind: null, outcome: 'success' },
-          { id: 'legacy', outcome: 'success' },
+          // The backend always sends a number for Antigravity rows, so `0` is the
+          // realistic "never retried" value and pins the `> 0` guard.
+          { id: 'legacy', outcome: 'success', retryCount: 0 },
+          // `retryCount` is Antigravity-only; this row drives the drawer's
+          // "shown only when > 0" branch without changing the ledger headers.
+          { id: 'retried', requestKind: null, outcome: 'success', retryCount: 3 },
         ].map((row) => ({
           model: 'deepseek-v4-flash',
           inputTokens: 10,
@@ -59,7 +64,7 @@ vi.mock('../api', () => ({
         })),
         page: 1,
         pageSize: 10,
-        total: 4,
+        total: 5,
       }),
     },
   }),
@@ -185,6 +190,56 @@ it('keeps the list to the columns a user scans, with the Auto tag in the model c
     expect(drawer?.textContent).toContain('statistics.outputSpeed')
     expect(drawer?.textContent).toContain('62.5 tok/s')
     expect(drawer?.textContent).toContain('20 ms')
+  } finally {
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  }
+})
+
+it('explains a retried generation only when it was actually retried', async () => {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  // Descriptions labels are table headers inside the drawer; the value is the cell after it.
+  const drawerLabels = () =>
+    Array.from(document.querySelectorAll('.ant-drawer-body th')).map((cell) => cell.textContent)
+  const retryLabel = () => drawerLabels().indexOf('observation.retryCount')
+  try {
+    await act(async () => {
+      root.render(
+        <StyleProvider layer>
+          <ConfigProvider>
+            <MemoryRouter>
+              <Statistics />
+            </MemoryRouter>
+          </ConfigProvider>
+        </StyleProvider>,
+      )
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // A five-attempt chain that ended in success looks slow, not broken.
+    await act(async () => {
+      ;(container.querySelector('[data-row-key="retried"] button') as HTMLButtonElement).click()
+    })
+    const labels = drawerLabels()
+    const index = retryLabel()
+    expect(index).toBeGreaterThan(0)
+    expect(labels[index - 1]).toBe('statistics.latency')
+    const retryCell = document.querySelectorAll('.ant-drawer-body th')[index]
+    expect(retryCell.nextElementSibling?.textContent).toBe('3')
+
+    // A generation that was never retried gets no row at all, and `retryCount: 0`
+    // (what the backend actually sends) must not print "0".
+    await act(async () => {
+      ;(container.querySelector('[data-row-key="legacy"] button') as HTMLButtonElement).click()
+    })
+    expect(retryLabel()).toBe(-1)
+    expect(document.querySelectorAll('.ant-drawer-body th').length).toBe(labels.length - 1)
   } finally {
     await act(async () => {
       root.unmount()

@@ -866,8 +866,17 @@ export interface ExportApiKey {
   queryConfig?: QueryConfig
 }
 
-/** v3.7.0: request outcome recorded on every logged request. */
-export type RequestOutcome = 'success' | 'client_error' | 'upstream_error' | 'transport_error'
+/**
+ * v3.7.0: request outcome recorded on every logged request. `failed` is the
+ * Antigravity projection of one generation that ended in an API/stream error;
+ * proxy rows keep their specific `*_error` kinds.
+ */
+export type RequestOutcome =
+  | 'success'
+  | 'failed'
+  | 'client_error'
+  | 'upstream_error'
+  | 'transport_error'
 
 export interface RequestLog {
   id: string
@@ -1164,6 +1173,11 @@ export interface RecentRequestLogDisplay {
   responseTokens?: number | null
   /** Antigravity only: pure streaming generation time after the first token. */
   generationMs?: number | null
+  /**
+   * Antigravity only: failed HTTP attempts before this generation succeeded.
+   * Proxy requests have no equivalent, so they leave it null.
+   */
+  retryCount?: number | null
 }
 
 export interface PaginatedRecentRequests {

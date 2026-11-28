@@ -35,6 +35,9 @@ use std::path::PathBuf;
 
 use keychain_migration::{LegacySecretReadError, LegacySecretReader, SystemKeychainReader};
 
+/// One-shot marker for the v3.25.0 Antigravity failure-signal backfill.
+const ANTIGRAVITY_FAILURE_SIGNAL_MARKER: &str = "migration.antigravityFailureSignal.v1";
+
 /// Convert a stored-config problem into a SQLite error whose Display never
 /// repeats the stored JSON (it can contain user-typed configuration).
 fn connection_config_error(message: String) -> rusqlite::Error {
@@ -418,6 +421,8 @@ impl Database {
                 ttft_ms INTEGER,
                 generation_ms INTEGER,
                 total_ms INTEGER,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                failed INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 UNIQUE(source, conversation_id, response_key)
             );
@@ -454,9 +459,35 @@ impl Database {
         // the providers that used the old account query and clear its columns.
         self.upgrade_quota_scope()?;
         self.migrate_legacy_keys_to_client_profiles()?;
+        // v3.25.0: the Antigravity failure signal only exists in rows written
+        // after the columns above. Nothing else would force a re-read, because
+        // an unchanged conversation database keeps its stored fingerprint.
+        self.reset_antigravity_index_once()?;
         self.restore_legacy_keychain_secrets(legacy_secret_reader)?;
 
         Ok(())
+    }
+
+    /// Drops the Antigravity index bookkeeping exactly once after the failure
+    /// columns are added, so the next reconciliation pass re-reads every
+    /// conversation and backfills `failed` / `retry_count`.
+    ///
+    /// Only `antigravity_sync_files` is cleared: indexed events stay, and each
+    /// conversation is replaced atomically when it is re-read. Removing the
+    /// pointers is what makes an otherwise unchanged conversation look stale.
+    fn reset_antigravity_index_once(&self) -> Result<(), rusqlite::Error> {
+        const MARKER: &str = ANTIGRAVITY_FAILURE_SIGNAL_MARKER;
+        if self.settings_get_value(MARKER)?.is_some() {
+            return Ok(());
+        }
+        let transaction = self.conn.unchecked_transaction()?;
+        transaction.execute("DELETE FROM antigravity_sync_files", [])?;
+        transaction.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = ?2",
+            rusqlite::params![MARKER, "1"],
+        )?;
+        transaction.commit()
     }
 
     /// Open a Database from a specific file path (used for migration).
@@ -774,6 +805,11 @@ impl Database {
             "ALTER TABLE proxy_sessions ADD COLUMN client_profile_id TEXT",
             "ALTER TABLE managed_instances ADD COLUMN client_profile_id TEXT",
             "ALTER TABLE project_client_bindings ADD COLUMN client_profile_id TEXT",
+            // v3.25.0: Antigravity failure signal. `retry_count` is the number of
+            // failed HTTP attempts that preceded a generation; `failed` marks a
+            // generation whose completion step reported an API error.
+            "ALTER TABLE antigravity_usage_events ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE antigravity_usage_events ADD COLUMN failed INTEGER NOT NULL DEFAULT 0",
         ];
 
         for stmt in &alter_statements {
@@ -1189,6 +1225,107 @@ mod tests {
             .unwrap();
         assert_eq!(refs, (None, None));
     }
+    /// Reads `pragma_table_info` for one table.
+    fn table_columns(db: &Database, table: &str) -> Vec<String> {
+        let mut statement = db
+            .conn
+            .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+            .unwrap();
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        columns
+    }
+
+    #[test]
+    fn legacy_antigravity_table_gains_the_failure_columns() {
+        let db = Database::new_in_memory().unwrap();
+        for column in ["retry_count", "failed"] {
+            db.conn
+                .execute(
+                    &format!(
+                        "ALTER TABLE antigravity_usage_events DROP COLUMN {}",
+                        column
+                    ),
+                    [],
+                )
+                .unwrap_or_else(|error| panic!("drop {}: {}", column, error));
+        }
+        let before = table_columns(&db, "antigravity_usage_events");
+        assert!(!before.contains(&"failed".to_string()));
+        assert!(!before.contains(&"retry_count".to_string()));
+
+        db.run_alter_migrations();
+
+        let after = table_columns(&db, "antigravity_usage_events");
+        for column in ["retry_count", "failed"] {
+            assert!(after.contains(&column.to_string()), "{} missing", column);
+        }
+        // Rows that predate the columns must read as "no retries, no failure".
+        db.conn
+            .execute(
+                "INSERT INTO antigravity_usage_events
+                    (id, source, conversation_id, gen_idx, response_key, created_at)
+                 VALUES ('legacy', 'antigravity_desktop', 'conv', 0, 'r', '2026-11-27T00:00:00.000+00:00')",
+                [],
+            )
+            .unwrap();
+        let (failed, retries): (i64, i64) = db
+            .conn
+            .query_row(
+                "SELECT failed, retry_count FROM antigravity_usage_events WHERE id = 'legacy'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((failed, retries), (0, 0));
+    }
+
+    #[test]
+    fn the_failure_signal_upgrade_reindexes_antigravity_once() {
+        let db = Database::new_in_memory().unwrap();
+        // A v3.24.0 install: the conversation is indexed with an unchanged
+        // fingerprint, so no later pass would ever re-read it.
+        let seed = |size: i64, stamp: &str| {
+            db.conn
+                .execute(
+                    "INSERT OR REPLACE INTO antigravity_sync_files
+                        (file_path, source, conversation_id, db_size, db_mtime_ns,
+                         wal_size, wal_mtime_ns, synced_at)
+                     VALUES ('/tmp/conv.db', 'antigravity_desktop', 'conv', ?1, 1, 0, 0, ?2)",
+                    rusqlite::params![size, stamp],
+                )
+                .unwrap();
+        };
+        let indexed = || -> i64 {
+            db.conn
+                .query_row("SELECT COUNT(*) FROM antigravity_sync_files", [], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+        };
+        seed(10, "x");
+        // Fresh databases are marked during `run_migrations`, so drop the marker
+        // to model a database created before this release.
+        db.conn
+            .execute(
+                "DELETE FROM settings WHERE key = ?1",
+                [ANTIGRAVITY_FAILURE_SIGNAL_MARKER],
+            )
+            .unwrap();
+
+        // The sweep lives in the migration entry point, after the ALTERs.
+        db.run_migrations(None).unwrap();
+        assert_eq!(indexed(), 0, "the upgrade must force one full re-read");
+
+        // Only once: an index written afterwards survives.
+        seed(11, "y");
+        db.run_migrations(None).unwrap();
+        assert_eq!(indexed(), 1, "the sweep is one-shot");
+    }
+
     /// A database created before v3.10.0 must gain the new columns *and* the
     /// balance columns that only ever existed in CREATE TABLE, which older
     /// installs therefore never got.

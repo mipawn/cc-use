@@ -292,6 +292,8 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
     const thinkingTokens = 30 + i * 4
     const responseTokens = 90 + i * 7
     const generationMs = 1200 + i * 150
+    // Retried-then-succeeded generations: slow, not broken (`retry_count` in the index).
+    const retryCount = i === 3 ? 5 : i === 6 ? 2 : i === 9 ? 1 : 0
     return {
       id: `antigravity-${i + 1}`,
       requestId: null,
@@ -312,6 +314,7 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
       latencyMs: 350 + generationMs,
       firstTokenMs: 350 + (i % 3) * 60,
       generationMs,
+      retryCount,
       outputTokensPerSecond: ((thinkingTokens + responseTokens) * 1000) / generationMs,
       statusCode: null,
       outcome: 'success',
@@ -319,8 +322,39 @@ export function seedFixture(scenario: FixtureScenario, now: Date) {
       createdAt: utcTimestamp(date),
     }
   })
-  const ledger: LedgerRow[] = [...proxyLedger, ...antigravityLedger].sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt),
+  // One generation that ended in an API/stream error. It still consumed the
+  // tokens it reports, so it stays in the billable population and counts once
+  // in `failedRequests`; Antigravity rows expose no status code or error text.
+  const failedAntigravityRow: LedgerRow = {
+    id: 'antigravity-failed',
+    requestId: null,
+    source: 'antigravity_desktop',
+    providerId: 'antigravity',
+    apiKeyId: 'antigravity',
+    instanceId: 'antigravity',
+    model: 'gemini-3-pro-fixture',
+    keyAlias: 'Antigravity conversation (stream error)',
+    providerName: 'Antigravity Desktop',
+    projectName: null,
+    inputTokens: 1_280,
+    outputTokens: 150,
+    thinkingTokens: 60,
+    responseTokens: 90,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    latencyMs: 1_920,
+    firstTokenMs: 420,
+    generationMs: 1_500,
+    retryCount: 0,
+    // Only a successful attempt has a settled output span to measure.
+    outputTokensPerSecond: null,
+    statusCode: null,
+    outcome: 'failed',
+    errorMessage: null,
+    createdAt: utcTimestamp(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 13, 30)),
+  }
+  const ledger: LedgerRow[] = [...proxyLedger, ...antigravityLedger, failedAntigravityRow].sort(
+    (a, b) => b.createdAt.localeCompare(a.createdAt),
   )
   const history: ConsoleLogRecordRef[] = [
     {
